@@ -7,6 +7,8 @@
 ```typescript
 scan(request: ScanRequest): Promise<Result<ProjectSnapshot>>
 read(ref: SourceRef, snapshotId: string): Promise<Result<EvidenceChunk>>
+fingerprint(scope: SourceScope): Result<SourceFingerprint>
+compare(previous: EvidenceIndex, current: ProjectSnapshot): Result<SourceChangeSet>
 ```
 
 ScanRequest 包含目标目录、允许读取的配置作用域、排除规则、扫描预算及本次目的。依赖 ReadWorkspace、GitRead、ManifestDetector；不依赖模型、Compiler 或 Executor。
@@ -37,6 +39,10 @@ Git 路径、工具/检查入口和文件内容分别记录。HEAD 不代表未�
 增量扫描可复用未变内容，但 mtime/size 只用于加速，计划前置条件仍使用内容摘要。SourceRef 指向仓库相对路径、内容摘要和可选行范围；行号只定位，不替代内容身份。
 
 coverage 至少区分 complete、budget-limited、access-limited，列出未扫描区域及原因。未读取的模块不能得到“无测试”“无规范”等确定性结论。未知文件类型保留索引事实，不伪装成已理解。
+
+SourceScope 声明一次研究/生成所依赖的源码与结构范围，fingerprint 对可见源字节、路径/状态及必要仓库上下文计算摘要，排除生成区。语义读取预算与哈希覆盖分别记录，不能用“没有读到该文件正文”证明范围内文件没有变化。活动 GenerationPlan 绑定此指纹，读取失败不能当成文件删除。
+
+compare 输出 added/modified/deleted、结构变化、受影响证据及 unknown；有可靠历史时可用 Git 加速，但仍校验实际字节和未提交内容。浅克隆、旧提交不可读或依赖索引缺失时做指纹对比/扩大研究，不推断没有变化。结构新增模块可能要求重做动态产物地图，而不只更新某个旧页面。
 
 ## 5. 失败与恢复
 

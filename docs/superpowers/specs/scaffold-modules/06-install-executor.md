@@ -12,6 +12,8 @@ inspect(runId: string): InstallationRun
 
 ApplyRequest 引用不可变 planId 和已确定的作用范围。依赖 InstallStore、WriteWorkspace、ActionDriver、VerificationDriver 和进程控制。调用方不能在 apply 参数中临时追加任意命令。
 
+这里的 InstallRun 从可执行安装计划开始，M2 的 GenerationRun 属于前置候选生成，不混入动作 journal。apply/resume 只读取封存候选/blob，不调用 M2 临时补交付正文；候选不完整或输入过期时退回相应前置阶段。计划中明确声明的 OpenWiki 等原生工具初始化可执行其自己的生成生命周期，与本产品候选生成分开记录。
+
 ## 2. 状态与 Journal
 
 run 状态为 preparing、applying、verifying、activating、complete，以及 blocked/conflict/failed；单项动作有 pending、started、succeeded、waiting、failed 和 unknown。

@@ -11,6 +11,8 @@ resolve(request: ResolveRequest): Result<Resolution>
 
 ResolveRequest 包含 NormalizedSelection、AnalysisResult、ProviderCatalog、只读 Observations 和已有锁定版本。输出 providers、bindings、effectiveGates、资源意图、兼容约束与 unresolved。
 
+Resolution 还提供 artifactSlots（声明必需/可选）、allowedSemanticKinds 和已解析能力约束，供 M2 第二阶段规划/生成。Resolver 不生成正文；候选正文也不能反向改变已经封存的用户选择、版本和 gate。
+
 ## 2. 选项归一化
 
 普通选项优先级为：显式 CLI 输入 → 项目配置 → 用户选中的 profile → 产品默认。项目观察和模型建议只是候选，不覆盖明确选择。

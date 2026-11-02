@@ -10,6 +10,8 @@ plan(input: PlanInput): Result<InstallPlan>
 
 输入包括 DesiredHarness、当前 InstallationState、安装清单/基线和所选写入范围。依赖只读安装观察、MergeStrategy 和 provider 的声明式 ActionRecipe。
 
+DesiredHarness 只能来自已接受语义候选的确定性编译。Planner 不调模型修正文，候选校验失败返回 M2/M4；源/Resolution 已漂移时不能继续沿用旧候选生成计划。GenerationIndex 只决定哪些候选需更新，文件覆盖仍由本 Module 的 B/L/N 与所有权规则决定。
+
 输出可以含 conflicts 和 requiredInputs；有未解决冲突时计划不可 apply。计划和候选内容由应用层保存在 installer 私有 store，不提前修改客户文件。
 
 ## 2. 内部处理顺序

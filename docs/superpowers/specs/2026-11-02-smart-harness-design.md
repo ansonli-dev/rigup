@@ -5,6 +5,7 @@
 
 - [需求基线](../../requirements/2026-11-02-smart-harness-requirements.md)
 - [安装后的研发 skills 设计](2026-11-02-installed-skills-design.md)
+- [OpenWiki 源码研究与设计取舍](../../research/2026-11-02-openwiki-analysis-generation.md)
 
 ## 1. 系统边界与架构决策
 
@@ -31,7 +32,7 @@
 ### 2.1 七个 Module
 
 - M1 [Project Discovery](scaffold-modules/01-project-discovery.md)：读取项目现状，产生带证据和摘要的快照。
-- M2 [Analysis Runtime](scaffold-modules/02-analysis-runtime.md)：基于快照进行语义研究，返回规范/文档候选与未知项。
+- M2 [Analysis Runtime](scaffold-modules/02-analysis-runtime.md)：研究项目，在能力解析后动态规划产物并按任务生成、提交和接受候选。
 - M3 [Selection & Capability Resolver](scaffold-modules/03-capability-resolver.md)：归一化用户选项，选择能力提供方、版本、依赖和 gate。
 - M4 [Bundle Compiler](scaffold-modules/04-bundle-compiler.md)：将解析结果和分析内容编译成独立可运行的交付资产。
 - M5 [Install Planner](scaffold-modules/05-install-planner.md)：比较目标与现状，完成所有权检查、三方合并和安装计划。
@@ -50,12 +51,16 @@ CLI / 安装期宿主分析传输
     ├─ M3 resolve-selection → NormalizedSelection
     ├─ M2 analyze → AnalysisResult
     ├─ M3 resolve → Resolution
+    ├─ M2 plan-generation → GenerationPlan
+    ├─ M2 generate / submit / finish → AcceptedArtifactSet
     ├─ M4 compile → DesiredHarness
     ├─ M5 plan → InstallPlan
     └─ M6 apply → InstallationReport → 退出
 ```
 
 M3 的选项归一化先于语义分析，确定分析范围；最终能力解析在分析后完成。只读 probe 可以按所选能力补充调用，不能隐含安装。
+
+项目研究、产物规划与内容生成分开：模型先理解系统，再根据已解决的能力决定语义内容如何组织，逐项形成候选；机器配置和强制结构仍由确定性模板生成。生成阶段只写安装私有候选区，最终客户文件仍由 M5/M6 合并安装。
 
 ### 2.3 依赖方向与副作用
 
@@ -93,7 +98,6 @@ type ProjectSnapshot = {
 type AnalysisResult = {
   snapshotDigest: string;
   findings: Finding[];
-  documentDrafts: DocumentDraft[];
   unknowns: Unknown[];
   provenance: AnalysisProvenance;
 };
@@ -103,9 +107,30 @@ type Resolution = {
   inputDigest: string;
   providers: ProviderPin[];
   bindings: ResolvedBinding[];
+  artifactSlots: ArtifactSlot[];
+  allowedSemanticKinds: SemanticArtifactKind[];
   effectiveGates: GateRequirement[];
   desiredResources: ResourceIntent[];
   constraints: CompatibilityConstraint[];
+  unresolved: Requirement[];
+};
+
+type GenerationPlan = {
+  planId: string;
+  revision: number;
+  snapshotDigest: string;
+  resolutionDigest: string;
+  sourceScope: SourceScope;
+  sourceFingerprint: string;
+  jobs: ArtifactJob[];
+  retireProposals: ArtifactRef[];
+};
+
+type AcceptedArtifactSet = {
+  generationPlanId: string;
+  accepted: AcceptedCandidate[];
+  dependencyIndex: GenerationIndex;
+  requiredComplete: boolean;
   unresolved: Requirement[];
 };
 
@@ -129,7 +154,7 @@ type InstallPlan = {
 };
 ```
 
-关系：Snapshot 记录观察，Analysis 记录解释，Resolution 记录已选绑定，DesiredHarness 记录目标内容，InstallPlan 记录具体环境变更。中间结果不复用一个“万能配置对象”。
+关系：Snapshot 记录观察，Analysis 记录解释，Resolution 记录已选绑定，GenerationPlan/ArtifactSet 记录计划和已接受语义候选，DesiredHarness 记录组装后的目标内容，InstallPlan 记录具体环境变更。中间结果不复用一个“万能配置对象”。
 
 ### 3.2 标识与摘要
 
@@ -150,6 +175,7 @@ InstalledManifest 记录：
 - 本次安装的 bundle、已知历史 bundle 和各自依赖约束；
 - 每个托管文件或配置 selector 的 owner、生成摘要及基线 blob 引用；
 - 已创建外部资源的稳定 id、作用域及可验证版本；
+- 已安装语义产物的 GenerationIndex：来源/事实、选项、模板和能力版本依赖；
 - 配置/工具/宿主刷新要求及上次接入验证证据。
 
 基线内容保存在 installer 私有 content store，用于三方合并；锁文件只存摘要不足以恢复基线。manifest 不记录或拥有研发审批、变更进度和发布候选。
@@ -170,7 +196,7 @@ InstallationReport 分开列出配置生成、安装效果、接入验证、客�
 
 命令仅面向安装：init、analyze、plan、apply、update、doctor、status、resume。status/resume 管理安装 run，不管理研发任务。
 
-init/update 走同一应用用例，区别是是否存在已安装 manifest；analyze 在 M2 后结束，plan 在 M5 后保存可审阅计划，apply 校验计划后进入 M6。doctor 使用只读 probe/verification，不自行修复；修复走新的计划。
+init/update 走同一应用用例，区别是是否存在已安装 manifest；analyze 在 M2 的研究阶段后结束，plan 完成必要语义候选生成及 M5 后保存可审阅计划，apply 校验计划后进入 M6，不临时调用模型补正文。doctor 使用只读 probe/verification，不自行修复；修复走新的计划。
 
 独立模型与宿主 agent 是 M2 的两种 AnalysisProvider。宿主可通过结构化 request/result 或支持的安装会话传输回传分析；不安装一个与研发 skills 同级的配置 skill，也不留下日常依赖的脚手架 MCP。
 
@@ -181,14 +207,17 @@ init/update 走同一应用用例，区别是是否存在已安装 manifest；an
 ### 4.2 状态与存储
 
 ```text
-discovered → analyzed → resolved → compiled → planned
+discovered → analyzed → resolved → generation-planned → generating
+generating → candidates-accepted → compiled → planned
 planned → preparing → applying → verifying → activating → complete
                       └──────── blocked / conflict / failed
 ```
 
-前半段是可重算阶段快照，后半段是带日志的副作用执行。实际客户文件变化只发生在 M6；不能因有候选文件就报告安装成功。
+前半段是带持久 checkpoint 的研究/生成阶段，候选可恢复或重新计算；后半段是带日志的副作用执行。实际客户文件变化只发生在 M6；不能因有候选文件就报告安装成功。
 
-私有存储建议位于 Git common dir 的 harness/installer/，包含 plans、runs、blobs、locks 和已验证来源记录。可提交的 config/lock/bundle manifest 是项目资产，恢复时要与实际环境对账，而非盲信本地 run 文件。
+应用层安装 session 只保存当前阶段及 generationRunId/planId/executionRunId 引用。resume 在生成阶段交给 M2，在 apply 后交给 M6；两者分别负责自己的 checkpoint，不能把生成 job 与安装动作混成一套副作用队列。必需候选未 accepted 时不能进入 compiled/可执行计划。
+
+私有存储建议位于 Git common dir 的 harness/installer/，包含 sessions、generation、plans、runs、blobs、locks 和已验证来源记录。可提交的 config/lock/bundle manifest 是项目资产，恢复时要与实际环境对账，而非盲信本地 run 文件。
 
 ### 4.3 新老项目与缺失能力
 
