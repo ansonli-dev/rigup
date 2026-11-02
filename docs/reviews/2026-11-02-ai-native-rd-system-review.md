@@ -1,0 +1,82 @@
+# 结合《AI Native 研发体系》的设计审稿
+
+日期：2026-11-02。审前基线：6a92b71（四模块简化版）。
+依据：[本地文章](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md)；本次读取内容 SHA-256：e2264fc1f224377bd97016a98ec932d03a7a83a2e5ffe1b2b4a872e217d29264。
+
+对象：[脚手架架构](../superpowers/specs/2026-11-02-smart-harness-design.md)、四个模块内部设计，以及独立的[研发 skills 设计](../superpowers/specs/2026-11-02-installed-skills-design.md)。这是文档对照审阅，未验证外部文章所引研究，也未运行产品或客户检查。
+
+## 1. 结论
+
+保留四模块架构和三个可选研发入口。文章描述的是团队级研发体系，不能把其中环境、测试、评估、治理和观测建设全部纳入脚手架。
+
+本轮发现两个高优先级契约缺口和三个执行细节缺口，已通过现有模板/检查入口补充；不增加模块、状态平台或常驻服务。下面“问题”描述审前版本，“处理”说明本轮修改。
+
+修订后复核：五项均已落实，未发现新的职责越界或阻碍实施规划的矛盾；四模块、三个可选研发入口及安装/研发两条生命周期保持不变。
+
+## 2. 发现与处理
+
+### [P1] 任务约定和失败接收人不明确
+
+依据：[文章“开发”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:55)及[责任分工](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:153)。
+
+问题：skills 说明了方案/范围，但没有完整要求允许操作、预算、停止条件和接手人；简单任务也容易套上同样厚的设计流程。
+
+处理：在原生 SDD/工单中补目标与来源、范围、验收、依赖、权限、预算、停止条件及负责人。简单任务简写，复杂/高风险任务展开；风险规则由客户提供，不按行数或模型自评授权。知识入口保留来源和维护者，用模块引用代替重复正文。
+
+落点：架构 5.5、Generator 5、skills 的 change-prepare。
+
+### [P1] 软件测试与 Agent 评估混为一层反馈
+
+依据：[文章“质量层”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:109)。
+
+问题：原设计验证了接线、软件检查和模板协议，却没有说明如何接入模型/skills/工具配置的任务表现评估；不能由测试通过推导 Agent 可靠。
+
+处理：区分接入、软件验证和 Agent eval。发现客户已有 eval 命令，按选择接入配置变更检查并分别报告。数据集、评分器、独立验收案例和门槛由团队维护；没有 eval 就标未接入，不由脚手架补评估体系。
+
+落点：架构 5.4、Analyzer 1、Installer 6、Integrations 3、skills 4。
+
+### [P2] 交付证据缺少明确字段和关联方式
+
+依据：[文章“验证”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:67)及[观测层](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:143)。
+
+问题：已有 handoff 与外部事实来源，但没有要求 commit、环境、真实检查命令、报告及未验证项关联到同一次需求/发布。
+
+处理：复用工单号或分支标识，在现有 MR/任务附证据清单。安装清单记录模板/集成及已知生成模型配置；研发运行模型能取得则记录，无法取得标未知。不增加数据库，不默认复制完整轨迹或敏感日志。
+
+落点：架构 3/5.5、skills 的 change-deliver。
+
+### [P2] 工具配置完成不等于任务环境可运行
+
+依据：[文章“执行层”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:101)。
+
+问题：已有构建/测试入口发现，但启动脚本、开发容器、依赖服务和环境要求未明确成为画像与就绪结果。
+
+处理：只读发现现有启动/环境检查、容器与环境变量引用，按选择验证，报告区分配置、环境、软件与 eval 结果。初始化脚本的副作用需明确；环境、测试数据、身份和网络策略由团队提供，不由 setup 建设。
+
+落点：架构 5.4、Analyzer 1、Installer 6、Integrations 3。
+
+### [P2] 发布观察、恢复类型与运维回流不完整
+
+依据：[文章“发布/运维”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:69)。
+
+问题：通用健康检查/runbook 没有区分应用回退、数据库变化与外部副作用，也未明确事故如何回到普通开发流程。
+
+处理：引用客户既有灰度、观察和恢复约定，缺少不可逆变更方案时交接。告警/事故/用户反馈携带来源和必要脱敏证据进入 change-prepare；补测试、手册与 eval 是后续研发工作，不新增监控服务或第四个研发入口。
+
+落点：skills 的 change-release/反馈恢复，Integrations 3。
+
+## 3. 贯穿以上问题的权限约束
+
+依据：[文章“治理层”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:125)。
+
+项目说明、skills 和本地 hooks 不替代仓库/CI/身份的真实执行权限。集成默认不扩大授权；客户政策和有权负责人决定高风险操作，管理员才能配置的条件列待办。
+
+测试可随合法需求更新，但删除、跳过或放宽关键断言需说明依据并按项目政策单独审查，不能仅为得到绿色结果而改验收。已补入 Integrations 和 skills；没有加入新的风险评分器或审批账本。
+
+## 4. 维持不做的事情
+
+- 不建设客户测试体系、测试环境、评估数据集或组织风险政策。
+- 不复制“五层能力”为五个新 Module。
+- 不新增流程状态引擎、观测数据库、后台监控或多 agent 编排。
+- 不把所有字段变成安装必填项：只收集所选能力需要的信息，其他缺口列待办。
+- 不以配置成功宣称项目可执行，也不以一次软件测试成功宣称 Agent 长期可靠。
