@@ -1,370 +1,505 @@
-# 智能 Harness 脚手架设计
+# 智能 Harness 脚手架：技术设计
 
-日期：2026-11-02。状态：待审阅的产品与架构设计，相关能力尚未实现或完成接入验证。
+日期：2026-11-02。状态：待评审，未进入产品实现。
+需求依据：[需求与约束基线](../../requirements/2026-11-02-smart-harness-requirements.md)。
 
-本文按六块组织：产品定位与职责边界、核心架构与项目认知、CLI 接入与增量更新、SDD 流程与客户扩展、工程反馈接入、交付范围与验收。具体技术选型、命令和默认策略属于设计建议，已确认的产品需求单独说明。
+本文决定模块的 Interface、生成过程、skill 工作单元、流程协议、审批与恢复方式。名称、数据结构及默认策略是本次设计提案，不代表用户已经批准，也不代表上游工具已验证支持。
 
-## 1. 产品定位与职责边界
+## 1. 方案与关键决策
 
-### 1.1 产品定位与已确认需求
+### 1.1 从参考资料采用什么
 
-一个面向新老项目的智能 CLI，理解项目现状，按用户选择引入 coding agent 配置、知识工具、SDD 框架、流程 skills 和客户环境扩展。CLI 负责首次接入、重新分析与增量更新；持续研发由安装到项目中的 skills 驱动。
+- Anthropic 的长任务研究使用结构化交接及生成/评估分工，并在后续实验中删减不再必要的流程结构。本方案采用可恢复产物、显式完成标准和按需独立评估，不固定采用三 agent、sprint 或高频全量评审。[研究原文](https://www.anthropic.com/research/harness-design-long-running-apps)
+- Harness Engineering 将事前引导和事后检测放在一起讨论。本方案让项目规范与真实检查相互关联，快速反馈嵌入研发循环，长期策略修改另行审阅。[文章原文](https://martinfowler.com/articles/harness-engineering.html)
+- AI-native SDLC playbook 强调可衔接的产物、自动交接和必要的人类决策。本方案合并流程步骤，以审批和业务判断确定停顿点，并声明每项产物的权威来源。[Playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook)
 
-用户已确认：
+以下模块、skill 数量、状态模型与审批合并算法是针对本产品的设计，不是三篇资料给出的标准实现。
 
-- 新项目按默认体系起步；老项目从代码分析现状，形成代码规范与文档体系。
-- 接入 OpenWiki 承载 as-is，配置 agent 的 OpenWiki MCP，并支持 GitLab 流水线自动更新。
-- 接入指定的 [CodeGraph](https://github.com/colbymchenry/codegraph)，初始化项目索引并配置 MCP。
-- 兼容 Claude Code、Codex、OpenCode、Oh My Pi 等 coding agent。“多 agent”指兼容多种工具，不是多 agent 并行协作。
-- 首批支持 Superpowers、OpenSpec、Spec Kit，包装层主要串联原生能力和客户适配。
-- 提供内置流程 skills，例如 spec-gen、code-gen、deploy；根据框架动态绑定原生 skill 或命令。
-- 内置流程按需启用，用户也可以用自己的 skill；首版不建设流程模板编辑系统。
-- core 与扩展分离；既有默认扩展，也允许用户通过自定义 skill 扩展。扩展可附带脚本、模板与 MCP 配置。
-- 分析执行方式参考 OpenWiki，支持独立 CLI 与宿主 coding agent 两种入口。
+### 1.2 核心选择
 
-### 1.2 脚手架、开发者与客户的职责
+采用“安装时编译、研发时由宿主执行”的架构：
 
-职责判定原则：能通过通用模板、用户选择或已有项目配置完成的安装、配置、连接和接入验证，由脚手架负责；需要决定项目行为、设计测试策略、编写业务测试或制定质量政策的工作，由开发者负责，可在日常研发中使用 agent 辅助。setup 发现这类缺口时输出有证据的待办和所需输入，不把补齐缺口作为安装任务。
+1. CLI/MCP 分析项目并解析用户选择。
+2. 将内置流程模板、所选 SDD 能力、客户扩展和反馈入口编译成宿主可执行的 skills。
+3. 宿主 coding agent 执行连续工作，使用文件产物交接和小型状态 helper 记录进度。
+4. Git hooks、检查命令、GitLab 权限和流水线执行确定性约束；CLI 不常驻调度研发。
 
-具体边界：
+不按 Plan/Design/Build/Test/Review 六个名词机械安装六个公开 skill。步骤和中间产物可分开，用户入口只在工作目标或需要人类决策的接缝处划分。
 
-- 脚手架负责：识别现有检查和运行入口；安装所选工具；合并 hooks/MCP/CI 配置；接入已有 lint、构建和测试命令；输出反馈；验证配置、调用路径和退出码是否正确。
-- 开发者负责：业务用例、断言、fixtures、测试数据库/服务方案、测试分层、测试覆盖目标、架构边界和例外政策；修复业务代码、历史检查失败与测试不稳定。
-- 用户明确选择后可由模板配置：通用 formatter/linter 预设、通用 hook 检查、已有检查的触发阶段与现成报告器。测试工具未选定或项目测试命令不存在时只记录缺口，不自行引入 runner 或创建测试目录与样例。
-- 客户/管理员决定：组织级安全规则、合并策略、生产发布权限等；扩展按明确配置接入，不根据代码分析自行制定或提升政策。
+不为每个环节启动独立 agent。规划、实现和评估是内部角色；评估是否需要独立上下文，由项目评审政策和宿主能力决定。
 
-脚手架可验证“测试命令成功被调用且失败退出码被保留”，不能由此宣称“项目测试充分”。安装报告分别展示接入状态和项目检查结果；检查发现业务失败并不等于 harness 接入失败，也不触发 setup 自动修业务代码。
+### 1.3 决策责任
 
-新项目 setup 生成 harness 基础设施与明确标记的默认规范，应用代码脚手架不属于首版。本产品不建设自有 SDD 方法论、研发流程执行引擎、通用项目代码生成器或插件市场。
+脚手架自动化安装配置和已有能力接线。它不建设客户测试体系、不制定架构和业务规则、不替客户作发布决策。
 
-## 2. 核心架构与项目认知
+生成的研发 skill 可以在开发者发起且授权的任务内修改业务代码、编写相应测试；这不扩大 setup/update 的职责。
 
-### 2.1 两种入口共享一个安装生命周期
+本设计默认建议：TypeScript 实现、单 Git 仓库状态边界、项目级安装优先、每项目一个主 SDD 框架、macOS/Linux 先行。同项目可安装多种 agent。上述默认值仍待确认；跨仓库和 Windows 完整兼容不纳入首版承诺。
 
-独立 CLI 通过可配置模型运行时完成语义分析和生成；模型凭据来自显式配置或环境引用。宿主模式安装 setup/update skill 与 MCP，由当前 coding agent 用自己的模型会话和仓库工具完成语义工作。
+## 2. 模块与生成机制
 
-两种模式共享：项目画像 schema、选项解析、安装计划、持久化任务、产物校验、文件合并、适配器、更新与收尾。不能让独立 CLI 与 MCP 各自实现一套安装逻辑。独立运行不等同于必须再启动一个外部 coding agent 进程；具体模型运行时库由实现阶段选择。
-
-MCP 在这里负责 setup/update 的受控生命周期与确定性操作。日常 spec-gen、code-gen、deploy 由 agent 阅读和执行安装后的 skills，不通过本产品 MCP 推进每个研发阶段。
-
-### 2.2 Core
-
-Core 负责仓库定位、结构化项目画像、用户选项、能力与依赖解析、版本锁定、计划生成与校验、任务状态、安装写入、冲突处理、增量更新与安装报告。还负责反馈控制项的描述、绑定与一致性校验；不负责常驻执行研发修复循环。
-
-Core 不理解 GitLab、某个 agent 配置语法或某个 SDD 命令的全部细节，通过下列独立接缝调用：
-
-- Agent adapter：检测目标 agent、读取已有入口、渲染 skills / MCP 注册方式、验证宿主能力。
-- SDD adapter：安装受支持版本，发现原生能力，提供流程环节到真实 skill / 命令及原生产物的映射。
-- Tool adapter：安装和验证 OpenWiki、CodeGraph 等项目工具，提供初始化和维护动作。
-- Quality recipe：根据项目现有能力和用户选择组合 hooks、通用静态检查配置、已有检查命令与报告；不生成项目测试体系、业务用例或自定义架构规则。
-- Environment extension：项目管理、代码托管、流水线、CR 等客户系统接入方案。
-- Analysis runtime：独立模型或宿主 agent，产出带代码证据的项目分析与候选内容。
-
-适配器实现属于产品内部代码边界。用户自定义 skill 不需要实现 TypeScript 接口。
-
-### 2.3 事实与决策分离
-
-ProjectProfile 记录可观察事实及证据：技术栈、模块边界、构建/测试入口、格式与检查配置、CI、文档、agent 配置、规范候选、未知项。还记录反馈接入条件：环境能否启动、检查是否可执行、现有失败与不稳定项、关键行为的验收依据，以及尚无法验证的风险。
-
-HarnessConfig 记录用户选择：目标 agents、主 SDD 框架、工具、启用的流程入口、客户扩展、运行模式与安装范围。
-
-BindingPlan 将二者转换成具体动作与产物。模型可建议，不能自行改变用户已选择的框架、目标 agent 或写入范围。
-
-每个分析结论记录代码路径/范围、置信程度与分类：配置明文规定、代码普遍惯例、局部差异、建议改进。已有 formatter/linter 等明确配置优先；不把反模式或少量历史代码自动升级为团队规范。模块差异写到模块规范，证据不足标为待确认。
-
-### 2.4 知识工具与文档分工
-
-入口文件和宿主原生 skills 目录由 Agent adapter 生成；路径不能硬编码为所有工具共用。OpenWiki、CodeGraph、SDD 框架继续拥有各自原生目录和状态。本产品记录调用与安装结果，不直接改写它们的内部数据库、元数据或运行状态。
-
-OpenWiki 承载代码现状、架构、模块与操作事实；所选 SDD 框架承载目标需求、变更规格和任务；docs/harness 承载协作规范与接入说明。入口文档保持简短，以链接和执行入口为主，避免复制三份架构正文。
-
-新项目允许 OpenWiki / CodeGraph 显示等待源码的明确状态；生成基础文档骨架，但不编造 as-is。用户选中的工具需要源码才能完成的步骤列为 deferred，安装报告显式展示，不能宣称已经完成代码知识构建。
-
-### 2.5 OpenWiki 与 CodeGraph 接入
-
-OpenWiki 通过官方安装和生命周期接入，复用它已有的知识生成、更新和持久化机制。不要再生成第二套与 OpenWiki 争夺 as-is 所有权的系统。
-
-CodeGraph 的 CLI 安装、agent MCP 注册、项目索引初始化是独立动作。使用受支持的目标参数限定用户选择的 agent，初始化后验证索引状态与 MCP 握手。Oh My Pi 不能因为 CodeGraph 支持 Pi 就被认定原生支持；如无直接安装目标，由 Oh My Pi adapter 按其实际扩展/MCP 能力接入同一个服务，或明确返回兼容性未就绪。
-
-## 3. CLI 接入与增量更新
-
-### 3.1 命令与安装生命周期
-
-建议命令名暂用 harness：
+### 2.1 模块分工与调用顺序
 
 ```text
-harness init [path]         # 新老项目首次接入，交互选择
-harness analyze [path]      # 只读分析，生成可查看的分析结果
-harness plan [path]         # 生成/刷新安装或更新计划，展示差异
-harness apply --plan <id>   # 执行已确定的计划
-harness update [path]       # 重分析并生成增量更新计划
-harness status [path]       # 查看安装、任务与待处理项
-harness doctor [path]       # 检查配置、依赖、索引与能力绑定
-harness resume [path]       # 恢复未完成的安装/更新
-harness mcp                # 宿主模式的 MCP 服务
+CLI / setup MCP
+  → Project Discovery
+  → Analysis Runtime
+  → Resolver + Flow Compiler
+  → Install Plan
+  → Plan Executor
+  → Manifest + Installation Report
+
+安装后的宿主 agent
+  → 生成的 SKILL.md 与 references
+  → 所选 SDD 原生能力 / 客户扩展
+  → 项目检查命令、Git、CI
+  → 产物、反馈、流程 checkpoint
 ```
 
-init 为方便入口，完成发现、交互选择、分析、计划展示和安装；plan/apply 允许分步使用。无交互执行接受显式配置与结构化输出，缺少必填选项时返回明确错误，不挂起等待输入。命令名、参数细节可由实现者调整，产品语义需保持。
+Project Discovery 的 Interface 为 scan(root) → ProjectSnapshot。它确定 Git 根、受忽略文件、模块、现有配置和输入摘要，不调用模型，不改项目。
 
-状态：discovered → analyzing → planned → applying → verifying → complete。任务可进入 blocked、failed 或 conflict，记录原因与恢复动作；不能因为文件已生成就宣称安装完成。
+Analysis Runtime 的 Interface 为 analyze(snapshot, questions) → AnalysisResult。独立模式用模型运行时，宿主模式用当前 agent；返回带证据的结论和未知项，不直接执行安装。
 
-MCP 提供 begin、submit-analysis、submit-plan、next-task、complete-task、finish 等同等语义的操作；这是建议接口，不复用 OpenWiki 的命名空间。宿主提交候选事实、计划和内容，core 校验写入范围后落盘。工具安装/初始化通过持久任务执行，先检查后置条件再重试，避免重复副作用。
+Resolver/Compiler 的 Interface 为 compile(snapshot, analysis, selection, registry) → CompiledBundle。它隐藏各框架、宿主和客户能力差异，返回具体绑定、文件内容、验证要求及无法满足的条件；无安装副作用。
 
-计划携带输入摘要、工具版本、目标文件摘要与动作清单。分析结束后源代码或目标配置发生变化，受影响动作失效，要求重新分析/合并后继续。每仓库同一时间仅有一个写入 run，读操作可并行。恢复须校验摘要，不能盲目重放旧任务。
+Plan Executor 的 Interface 为 apply(planId) → InstallationReport。它隐藏目录创建、配置合并、工具调用、幂等、恢复和远端变更细节；只能执行计划中已列出的动作。
 
-### 3.2 项目内产物
+Flow State 的 Interface 为 read / checkpoint / record-evidence / resume。它校验与保存一次研发任务的状态，不决定业务需求、不启动 agent、不执行下一研发阶段。
 
-建议的规范源目录为 .harness/：
+CLI 与 MCP 调用同一组 Module；不重复实现生成和安装逻辑。日常 skill 不通过 setup MCP 逐阶段推进。
+
+### 2.2 关键数据契约
+
+以下为设计层类型，实际 schema 需要版本化：
+
+```typescript
+type ProjectSnapshot = {
+  schemaVersion: number;
+  repoId: string;
+  root: string;
+  head: string | null;
+  inputDigest: string;       // 包含本次读取的未提交内容
+  modules: ModuleFacts[];
+  existing: ArtifactRef[];
+  checks: CheckBinding[];
+};
+
+type AnalysisResult = {
+  snapshotDigest: string;
+  findings: {
+    kind: "explicit-config" | "common-practice" | "local-pattern" | "proposal";
+    statement: string;
+    evidence: SourceRef[];
+    confidence: "high" | "medium" | "low";
+  }[];
+  unknowns: string[];
+};
+
+type Selection = {
+  agents: string[];
+  framework: string | null;
+  tools: string[];
+  flows: string[];
+  extensions: ExtensionBinding[];
+  sourcesOfTruth: Record<string, SourceBinding>;
+  policyRef: ArtifactRef;
+};
+
+type CompiledBundle = {
+  inputDigest: string;
+  bindings: ResolvedBinding[];
+  generated: GeneratedArtifact[];
+  actions: InstallAction[];
+  unresolved: Requirement[];
+};
+```
+
+inputDigest 根据实际读取的源码/配置内容及选项计算，不能只用 HEAD。生成目录、本地运行日志、被忽略的大文件和凭据不进入语义分析输入。源码引用以仓库相对路径和必要范围表示。
+
+事实与政策分开。已有显式配置优先；普遍惯例可形成规范候选，局部历史模式和建议改进不能自动成为阻断规则。
+
+sourcesOfTruth 按需求、规格、实现计划和审批分别声明权威来源。仓库文件可以是正文或客户系统的工作副本，必须记录外部 id、版本和读取时间；源记录变更时重新检查，不能保留两个互不关联的“最终版本”。
+
+### 2.3 Adapter 的 Interface
+
+Agent adapter 提供 probe、render 和 validate：返回 skills 发现方式、入口文档、MCP 注册方式、项目/用户级范围、非交互运行和独立评估能力。Claude Code、Codex、OpenCode、Oh My Pi 分别实现；同项目共用事实和模板，分别渲染。
+
+SDD adapter 提供 resolveCapabilities(version) 和 resolveArtifacts(change)：将语义动作映射为真实 skill、宿主命令或 CLI 操作，同时返回前置条件、原生产物和必须保留的人工决策点。
+
+Tool adapter 提供 planInstall、planInitialize 和 verify；将安装程序、MCP 配置与项目初始化分成独立动作。OpenWiki 和 CodeGraph 不共用一个假设相同的初始化流程。
+
+Environment extension 提供能力描述和入口，例如需求读取、MR 提交、CI 状态、评审意见、部署、状态查询和回退。每项声明读写效果、所需配置、作用环境、幂等键和结果格式。只有真实提供的能力才允许绑定。
+
+Quality recipe 将用户选择的通用工具和既有检查生成对应配置，不实现业务检测语义。
+
+适配器负责差异，Core 负责协议。不要求客户 skill 实现 TypeScript Interface。客户可导入普通 SKILL.md；需要流程调用时补充轻量能力描述并显式绑定。没有描述时只安装为独立 skill，不自动把它接入有副作用的阶段。
+
+SDD 的最小内部能力集合为 draft-spec、plan-work、implement-work、verify-work、close-change。manifest 可将一个能力映射到多个原生调用，也可将多个能力合并到同一次原生操作；verify/close 等能力不存在时按具体 flow 的必需性报告 unresolved 或使用明确绑定的项目检查，不能发明上游命令。每个映射附产物角色、必需 gate 和受支持版本范围。
+
+framework 为 null 时仍可安装知识工具、hooks、harness-configure 和独立客户 skill。change-prepare/change-deliver 需要所选框架或用户显式提供的兼容能力绑定，否则不安装这两个可执行入口；不隐式生成一套自有 SDD。change-release 可读取符合交付契约的外部候选，但仍需真实部署能力及动作授权。
+
+### 2.4 流程编译
+
+内置 FlowSpec 是有序工作段及条件分支的模板，不是供用户编辑的 DAG 平台。它包含：
+
+- 输入和产物角色；
+- 内部步骤与所需能力；
+- 执行范围、检查、循环预算；
+- 人类决策条件及恢复入口；
+- 对宿主能力的要求。
+
+编译顺序固定：
+
+1. 选择内置 flow，解析项目上下文和权威来源。
+2. 解析所选 SDD 的版本、真实能力和原生产物。
+3. 绑定客户系统、检查与部署能力。
+4. 合成客户政策、平台限制和上游必需 gate。
+5. 计算有效决策点，合并可以一起审阅的决策。
+6. 渲染 SKILL.md、references、配置和必要 helper。
+7. 校验无悬空引用、未绑定副作用、缺失必需能力或矛盾政策。
+8. 输出安装计划和差异，不在编译中直接安装。
+
+原生 skill 调用保留其必须遵守的约束。能通过上游支持的 preset/配置调整的行为由 adapter 显式适配；不可调整的原生 gate 在同一公开 skill 内暂停，不擅自跳过，也不因此新增公开入口。安装报告展示实际 gate 集合。
+
+### 2.5 安装计划与事务范围
+
+每个 InstallAction 至少包含 id、kind、dependsOn、目标、beforeDigest、desiredDigest、参数、验证方式和 idempotencyKey。kind 限定为文件合并、工具安装、项目初始化、明确的远端配置和验证。
+
+文件先生成候选内容，再按所有权合并。全量托管文件三方合并，混合文件只改拥有的结构键/标记块，用户 skill 默认只读校验；工具内部状态只能通过官方接口维护。
+
+每仓库一个安装写入锁。执行前校验输入和目标摘要，动作完成后记录后置条件。恢复先检查实际效果，尤其是包已安装、MCP 已注册或远端资源已创建的情况，避免重复副作用。
+
+单文件原子替换，多文件使用日志和备份。外部调用不承诺整体回滚，失败报告列出已完成效果。无法证明所有权的文件不自动接管；缺失本地 state 时从锁文件、实际安装和远端状态重建。
+
+## 3. Skill 清单与人类决策点
+
+### 3.1 首版公开入口
+
+首版建议四个公开 skill：
+
+1. harness-configure：项目 harness 的首次接入与增量更新。
+2. change-prepare：将需求、缺陷或事件整理成可执行的变更方案。
+3. change-deliver：实现、验证、评审、提交，并将变更推进到可集成/可发布状态。
+4. change-release：执行已授权的集成/发布动作并验证结果。
+
+harness-improve 是后续可选入口，用于提出 harness 策略改进，不属于首版必装能力。
+
+不另设公开的 code-review、test-run、ci-fix、handoff、resume、bug-fix、incident-triage 等 skill：检查/评审/修复是内部步骤，恢复是每个入口的共同参数；缺陷和事件从 change-prepare 的不同输入模式进入。上游自带 skills 仍按框架方式安装，这里只限定本产品新增的公开流程入口。
+
+用户可停用任意入口或显式选择兼容的自定义入口。停用某段后，前段在交接包中明确指出由用户/外部流程接手，不假设后段存在。
+
+### 3.2 harness-configure
+
+输入：仓库、init/update 模式、目标 agents、框架、工具、扩展和已有用户配置。
+
+连续执行：发现 → 分析 → 选项补齐 → 编译 → 差异计划 → 安装 → 初始化 → 接入验证。
+
+产物：ProjectProfile、Selection、版本锁、生成清单、宿主配置、检查接线、安装报告和开发者待办。项目业务代码及测试体系不在输出范围。
+
+只因缺少有影响的选择/凭据、配置冲突、超出原授权的写入或政策决策而询问用户。已明确授权的同范围安装不逐项重复确认。CLI 和该 skill 是同一安装生命周期的两种入口，不是两套 setup 工具。
+
+独立 CLI 先探测并装载适配器再执行；宿主模式由最小 bootstrap 先注册此 skill 和 setup MCP，随后使用同一生命周期生成其余产物，避免首次配置依赖尚未安装的完整环境。
+
+### 3.3 change-prepare
+
+输入：自然语言需求、工单、缺陷/事件证据，或已有规格；附目标仓库和 changeId。已批准的输入附权威来源与版本。
+
+连续执行：
+
+1. 读取规范、as-is 和代码关系，核实相关现状；缺陷模式增加复现与根因调查。
+2. 明确范围、非目标、验收依据、风险和待定业务决策。
+3. 对比方案并产出技术设计：数据/Interface 变化、影响范围、兼容与迁移、失败/回退处理。
+4. 形成实现计划、可验证完成条件、执行范围和所需客户能力。
+5. 内部一致性评估，修正无须人决定的问题。
+6. 汇总未决事项与构建授权请求，交付一次可审阅的方案包。
+
+产物角色为 intent、design/spec、plan、acceptance、risk；实际路径由 SDD adapter 返回，不强制另造五份同义文件。一个原生文件可以承担多个角色。
+
+正常停止点是“方案与实施范围需要人决定”。若完整输入和实施授权已经存在且仍有效，则不重复请求审批，直接交给 change-deliver。业务含义不清或必须先选择技术路线时可提前询问，但不能因“写完一个文档”而停顿。
+
+本段可修改规划文档，不修改业务实现。缺少项目测试时说明验证缺口，不将建设整个测试体系塞进计划；具体需求确实需要的测试工作由开发者确认其范围。
+
+### 3.4 change-deliver
+
+输入：已接受且未失效的方案包、实施授权、工作分支与框架产物。
+
+连续执行：
+
+1. 校验范围和输入版本，建立隔离工作区或复用客户指定分支。
+2. 按计划实施；可按能力和风险拆成内部工作项，不固定引入 sprint。
+3. 运行已有检查，针对本次需求执行授权的测试工作。
+4. 以完成标准评估，按政策执行需要的独立评审；修复问题并复验。
+5. 在允许范围内提交并创建/更新同一 MR，读取 CI 和 AI CR。
+6. 对依据充分的同范围问题修复、推送、重新检查，直到形成可交付候选。
+7. 准备部署/回退说明及审批所需证据，交接给 change-release。
+
+不在实现、测试、评审和 CI 修复之间要求用户重启 skill。CI 未返回时等待或记录 awaiting_external；上下文不足时写交接点；预算用尽或问题需要业务决定才交接给人。
+
+产物：diff/commits、检查记录、评审结果、MR、候选清单和未解决项。候选清单绑定具体提交、内容摘要和可获得的构建 artifact；有问题的候选不标为 ready。
+
+独立评估在客户政策要求或选定评审模式下执行。宿主可使用独立上下文或外部 CI reviewer；只在同一上下文换个角色不能声明“独立评审”。必需评审能力缺失时报告阻塞，不悄悄降低要求。
+
+发布前的集成是否由本段执行，取决于客户实际效果：普通非生产集成可预授权；若合并会触发生产发布，则在合并前进入对应发布 gate，不能先合并再请求授权。
+
+无 MR/CI 扩展时，使用显式的 local 交付模式：完成本地实现、检查、评估和候选记录后结束，不声称 MR/远端 CI 已完成。gitlab 模式增加 MR、CI/CR 循环；若项目政策要求远端检查，则不能降为 local 规避门禁。两种模式由编译结果写明，不影响其他独立工具的安装。
+
+### 3.5 change-release
+
+输入：可交付候选、目标环境、有效动作授权，以及客户扩展提供的集成/部署、状态查询和回退入口。
+
+连续执行：复核候选与审批 → 需要时合并 → 部署指定 artifact → 等待部署状态 → 运行已有冒烟/健康检查 → 在授权条件内回退或记录发布成功。
+
+默认采用不可变 artifact 交付：change-deliver 通过客户已有构建入口产出 artifact，并在请求发布批准前冻结其摘要。change-release 只部署该对象，不以同名 tag 或当前分支重新构建替代。无构建/部署能力时可以完成本地交付，但不能报告已准备好自动发布。
+
+客户采用“合并后构建”时，release 包含明确的 preflight 子步骤：先取得集成授权并合并，等待客户流水线构建，把新 artifact 和检查结果记入候选，再取得所需发布授权；同一 skill 内续跑。合并若会直接发布且无法在 CI 中阻断，则不支持这条自动发布路径，必须由客户调整门禁或改为外部人工发布。不能对尚不存在的构建产物无条件授权。
+
+发布授权必须涵盖即将发生的真实效果；开发/测试环境可以按客户政策预授权。生产授权默认建议由客户指定负责人提供。已有有效授权时直接继续，不因进入新 skill 再问一次。
+
+部署失败时区分重试、已授权回退和需要代码修改。前两者在 runbook/预算内执行；代码问题回到 change-deliver，同范围修复不重复讨论全部需求，但旧候选授权失效。新范围或不可逆处理重新交给人。
+
+产物：部署 id、artifact/commit、目标环境、运行检查、回退结果和发布记录。缺少客户部署能力时报告“未接入”，不生成虚假的部署命令；该入口按需安装。
+
+### 3.6 合并与暂停的规则
+
+默认建议只有两个业务决策包：方案/实施授权，以及候选/集成发布授权。它们不是强制两个审批次数。
+
+对每个有副作用动作按客户政策求值：
+
+```text
+已有授权覆盖当前对象、动作、环境和版本 → 连续执行
+必须人决定且缺少有效决定                 → awaiting_human
+必须外部审批/检查尚未返回                 → awaiting_external
+被政策禁止、必需能力缺失                 → blocked
+```
+
+同一负责人可以在同一时点看完、且证据全部已就绪的决策合并为一个请求。不同审批人、不同就绪时机、职责分离要求和上游不可取消的 gate 必须保留。代码 owner 审批、变更委员会或生产审批若是客户现有要求，就是真实 gate，不能为减少次数而绕过。
+
+自动步骤的分段、检查失败、上下文切换和 skill 加载都不自动产生人工审批点。技术阻塞仍可能终止自动执行，但应交付原因和恢复入口，不能伪装成人工批准即可解决。
+
+示意主线：
+
+```mermaid
+flowchart LR
+  A[需求 / 缺陷 / 事件] --> B[change-prepare]
+  B --> C{方案与范围授权}
+  C --> D[change-deliver]
+  D --> E{候选与动作授权}
+  E --> F[change-release]
+  F --> G[发布证据]
+  G -->|新问题| A
+```
+
+图中决策若已被有效授权覆盖，则自动通过；客户额外必需 gate 在相关动作之前插入，不增加公开 skill。
+
+## 4. 流程协议与长期运行
+
+### 4.1 持久化布局
 
 ```text
 .harness/
-  config.yaml                 # 用户选择，不含密钥
-  lock.json                   # 工具、框架、适配器、模板版本与来源
-  project-profile.json        # 项目事实、证据、未知项
-  skills/                     # 本产品生成的规范 skill 来源
-  extensions/                 # 用户导入的本地扩展
-  controls.yaml               # 目标、规则、反馈检查与阶段绑定
-  evals/                      # 适用时保存经确认的 harness 回归用例
-  feedback/                   # 经整理的改进提案与处理记录，不存原始日志
-  state/                      # 本地 run、写入清单、上次生成基线；不入库
-docs/harness/
-  overview.md                 # harness 使用说明、入口与责任边界
-  conventions.md              # 全局规范与模块规范索引
-  integrations.md             # 客户系统接入与运维说明
+  config.yaml                       # 选择、政策和权威来源引用
+  lock.json                         # adapter/框架/工具/模板版本
+  project-profile.json              # 事实及证据
+  controls.yaml                     # 检查绑定
+  skills/<flow>/                    # 规范来源，adapter 再渲染宿主版本
+  runtime/                          # 生成时携带的状态 helper
+  changes/<changeId>/
+    change.yaml                     # 流程记录与原生产物引用
+    handoff.md                      # 恢复所需摘要
+    delivery.yaml                   # 候选和交付证据引用
+    release.yaml                    # 适用时保存发布结果引用
+  state/runs/<runId>/                # 本地锁、日志、临时执行结果；不入库
 ```
 
-### 3.3 文件归属、更新与失败恢复
+SDD 原生规格、任务文件仍在框架目录；客户系统的权威记录仍在客户系统。change.yaml 存角色引用和版本，不复制第二套可独立漂移的规格正文。跨框架在途产物不自动迁移。
 
-每项产物记录 owner、生成版本、来源、输入摘要、目标摘要和上次生成基线，区分本产品管理、上游工具管理与用户管理。
+流程记录在有意义的交接/决策/提交检查点随工作分支保存；MR/CI/审批原始记录留在权威系统。凭据、完整会话和原始日志不提交。
 
-- 全量托管文件：基线未被用户修改时更新；已修改则三方合并，冲突保留用户内容并输出候选差异。
-- 混合文件：只合并本产品拥有的标记块或结构键，保留其他配置及第三方标记块。
-- 用户自定义 skill：默认只校验引用和依赖，不重写内容。
-- 上游工具状态：仅调用官方接口，不越权覆盖。
+运行中的共享状态位于 Git common dir 下的 harness/changes/<changeId>/，包含 current.json、lease.json 和动作日志，所有本机 worktree 指向同一位置。分支内 change.yaml 是可审阅和跨会话交接的投影，不是多个 worktree 各自维护的运行权威。无本地共享状态时从最新交接产物及远端事实重建，并重新验证门禁和未完成动作。
 
-本地 state 缺失时从实际安装与锁文件重建清单，无法证明所有权的已有文件视为外部文件，禁止直接接管覆盖。单文件原子写入；多文件变更有执行日志与备份。外部安装、远端调用不能承诺整体事务回滚，恢复报告需列明已完成副作用与剩余工作。
+### 4.2 ChangeRecord 契约
 
-重复 apply 在输入不变时不产生重复配置；update 无实际变化时为 noop。工具升级只在明确更新工具版本的计划中发生，常规项目重分析不顺便升级所有依赖。
+```yaml
+schemaVersion: 1
+changeId: example-change
+kind: feature                 # feature | bug | incident | maintenance
+phase: prepare                # prepare | deliver | release
+status: awaiting_human
+sequence: 4
+framework: selected-profile
+inputs:
+  sourceRefs: []
+  snapshotDigest: "<digest>"
+  policyDigest: "<digest>"
+artifacts:
+  intent: { uri: "<native-or-external-ref>", digest: "<digest>" }
+  design: { uri: "<native-ref>", digest: "<digest>" }
+  plan: { uri: "<native-ref>", digest: "<digest>" }
+scope:
+  allowedPaths: []
+  allowedEffects: []
+  exclusions: []
+progress:
+  completedItems: []
+  activeItem: null
+  unresolved: []
+evidenceRefs: []
+gateRefs: []
+next:
+  action: accept-solution
+  reason: "<decision-needed>"
+```
 
-## 4. SDD 流程与客户扩展
+这只是数据形状示例，不是可以直接执行的客户配置。范围和政策由真实输入填充，空字段不意味着允许全部路径或动作。
 
-### 4.1 SDD 包装与流程 skills
+状态限定为 ready、running、awaiting_human、awaiting_external、blocked、succeeded、failed。phase 与 status 分离；succeeded 只表示该工作段完成，release 的部署失败不能被 deliver 成功掩盖。
 
-内置 spec-gen、code-gen、deploy 的模板是生成输入，安装后的 SKILL.md 是 agent 实际执行的产物。用户可全部不用，可选部分，也可把入口显式绑定到自己的 skill；不做模板设计器或通用 DAG 执行器。
+每次 checkpoint 必须带 expectedSequence 和输入摘要。helper 用仓库/变更 id 锁加序号校验，原子写入，过期写者重读后再决定。安装锁与研发变更锁分开；不同变更允许独立运行，同一变更不能有两个写者覆盖状态。
 
-模板包含目的、输入、前置条件、项目上下文、原生能力调用、客户扩展接入点、产物与完成条件。还包含阶段检查、反馈读取、有限修复与复验，以及无法收敛时的交接方式。生成依赖项目证据和已选项，不能只做 skill 名称的文本替换。
+写入锁之外，还需贯穿一段执行的 run lease：开始前 claim(changeId) 获取 ownerRunId 和 fencingToken，受控动作在执行前验证 token，动作意图先入日志再产生远端效果，checkpoint 也必须携带 token。进入人工/外部等待或正常结束时显式交接/释放执行权。进程中断后不因超时自动抢占，恢复者先核实旧执行已停止并对账在途动作，再生成新 token；旧写者和旧 token 被拒绝。
 
-SDD adapter 将语义环节映射成一项或多项原生能力。缺失环节不得伪造命令：可由内置包装补充普通操作，或明确显示不支持；涉及原生规格语义时必须保留框架约束。
+首版 lease 保证范围是同一 Git common dir 的本机 worktrees，不提供分布式锁服务。客户 CI 对同一 change 串行唤起；跨机器的外部写操作还必须依赖远端版本条件、动作幂等键和平台侧串行机制。发布扩展若不能提供这些保证，就不开放重叠自动发布，转为外部受控发布。任意人工绕过 helper 的操作不在工作流一致性保证内，仍由平台权限保护。
 
-- Superpowers：围绕其澄清、计划、实现、测试与评审 skills 串联；尊重原生设计确认等前置条件。
-- OpenSpec：围绕所选版本的探索、提案、实现、归档能力串联，保留 openspec 原生变更结构。
-- Spec Kit：围绕所选版本的项目原则、规格、计划、任务、实现与验证能力串联，保留其原生产物。
+### 4.3 产物、证据与授权的绑定
 
-以上是映射意图，不是跨版本调用契约。安装时锁定受支持版本，发现实际 skill / command 和宿主调用语法；不存在的绑定让计划失败，不生成表面可用的 skill。
+检查记录绑定检查版本、命令、环境、代码内容摘要和阶段；commit 尚未产生时绑定工作区内容摘要，提交后补充对应 commit。证据不能只写“测试通过”。
 
-spec-gen 引入 as-is、代码关系与客户需求来源，调用原生规格能力。code-gen 接收原生产物，按项目规范实现并运行实际测试。deploy 调用客户代码托管/CI 扩展，支持提交、查看流水线与 AI CR、修复有依据的问题并重新验证。deploy 的名称不意味着默认拥有生产发布或自动合并权限；执行范围由客户配置、当前授权和平台规则决定。
+delivery.yaml 的最小契约包含 changeId、方案/政策摘要、commit/tree 摘要、必需检查与评审证据、MR、artifact 的不可变摘要（如已构建）、目标动作、未决问题和 ready 状态。candidateDigest 对这些引用和版本做规范化摘要；ready 必须带 local-delivery、integration 或 release 的目标，不能用“本地可交付”冒充“可发布”。缺少该目标的必需结果时 ready 为 false。若目标动作需要的 artifact 尚未产生，不能对未知 artifact 请求无条件发布批准。
 
-包装 skill 引用原生能力，不复制上游整套正文。框架切换、能力签名变化或关键版本升级都需重新解析绑定。
+决策请求包含待决定事项、范围/风险、候选摘要、将发生的动作、目标环境、验证及回退条件。已有授权的复用必须匹配这些对象。
 
-### 4.2 默认扩展与自定义 skills
+GateRequest 的必填字段为 id、changeId、subjectDigest、policyDigest、effects、environment、requiredAuthorities 和 evidenceRefs；GateDecision 记录 requestId、decision、决策来源/外部 id 及有效条件。方案级 subjectDigest 指向方案包，动作级指向具体候选及目标；helper 记录引用，受保护动作执行前由 extension 向权威系统复核。
 
-建议首批内置 OpenWiki、CodeGraph 工具接入，以及 GitLab 仓库/流水线/CR 接入方案。项目管理先提供通用接入点与自定义 skill 示例；尚未指定 Jira、飞书等具体平台，不在首版默认承诺全部实现。
+发布动作的 subjectDigest 由不可变 artifact、源码树、目标环境、runbook/回退范围及政策摘要组成，不由可变分支名或 tag 代替。合并后若源码树或 artifact 改变，重新检查并请求该对象所需授权。仅 commit 元数据改变而源码树、artifact、目标和政策均可证明一致时，可按政策复用发布授权；受合并基线影响的检查仍需重跑。交付候选的审计记录同时保留合并前后 commit，不要求为纯元数据变化制造新的人工审批。
 
-用户可导入一个标准 skill 目录，包括 SKILL.md，以及可选的 scripts、references、assets。无额外元数据时作为独立 skill 安装即可，不强行自动接入流程。
+规格、政策、关键依赖或实现内容变化会使相关批准或检查失效；只失效实际依赖的部分，不无差别重做全部流程。代码内容修改一定使旧交付候选失效；重新构建 artifact 不同则不能沿用原 artifact 的发布授权。
 
-需要被流程引用时，用轻量扩展描述文件或交互配置声明：稳定 id、用途、输入/输出、所需配置、MCP/命令依赖、可提供的能力和引用入口。例如 customer-requirements、pipeline-submit、pipeline-status、review-fetch。名称冲突时要求显式绑定，不按目录扫描顺序覆盖。
+审批记录不是权限凭据。客户要求强制审批的动作由 GitLab/部署系统等权威系统核实并执行；本地 YAML 中的 approved 字段或模型声称“已批准”不能取得生产权限。对话中的方案确认用于工作流意图，不能替代受保护分支或生产环境授权。
 
-用户通过“能力 → skill”配置选择覆盖内置实现。Core 只解析绑定和验证依赖；实际接入逻辑可保留在客户 skill 和脚本中。第一版支持本地目录导入，不建设远程市场、自动安装传递依赖或任意代码插件运行机制。
+### 4.4 续跑与上下文切换
 
-凭据使用环境变量/宿主配置引用，不写入可提交文档或 skill。所需变量缺失时标记接入未就绪；模板生成与接入验证分别报告。
+每个公开 skill 支持 changeId 的续跑，不另设 resume skill：
 
-### 4.3 GitLab 自动维护 OpenWiki
+1. 读取 change.yaml、handoff.md、原生产物及权威状态。
+2. 验证仓库、源码、政策和能力绑定版本。
+3. 重查正在进行的远端动作，确认实际完成、失败或仍在运行。
+4. 定位首个未完成且前置条件有效的工作项。
+5. 同段续跑或加载已安装的下一段 skill；只有真实决策缺失才询问用户。
 
-GitLab 扩展生成独立的 OpenWiki 更新 job / include，按现有流水线结构合并，避免重写根 CI 文件。默认在目标分支代码变化后更新，产出文档 MR；过滤纯生成文档变化，避免自触发循环。同一分支串行更新，推送前检查源 revision，发生变化时重新生成。
+handoff.md 记录当前目标、已完成/未完成、证据引用、失败调查、下一步和权限限制，不复述全会话。上下文切换按需要发生，不强制每个工作项重启 agent，也不把模型上下文压缩视为批准失效。
 
-CI 是全新环境，需要安装锁定工具并配置独立模型凭据；不能依赖开发者交互式 agent 登录。项目配置指定 OpenWiki 原生非交互运行或受支持宿主的无头模式；适配器需实际验证入口。仅生成 YAML 不能算流水线已验证，未提供真实 GitLab 环境时报告“本地配置检查通过、远端执行待验证”。
+当前会话中用户给出决定后直接恢复并衔接下一段，无需再输入下一条 skill 命令。宿主进程结束后不能假装 skills 会自行运行：无后台驱动时由用户续跑；配置客户 CI/webhook 驱动时由该系统重新唤起。CLI 不承担常驻调度。
 
-不把 CodeGraph 本地索引默认提交进 Git；本地通过自身机制维护，CI 如有需要独立构建，不共享开发者机器的运行状态。
+Flow State helper 建议使用产品声明的 Node 运行时，以独立脚本随生成产物分发，仅做文件协议和校验；确定性 hooks/项目检查仍直接调用项目原生入口，不依赖此 helper 或模型在线。
 
-## 5. 工程反馈接入
+### 4.5 外部动作、等待与失败
 
-首版反馈机制的主要交付是已选反馈工具与已有检查的接入：Git hooks、通用静态检查配置、已有构建/测试命令的调用、CI job 和结果报告。测试用例、测试环境和项目质量策略由开发者提供。controls.yaml 只用于描述和保持接入产物的一致性；新增一个文件或复盘 skill 不算完成反馈接入。长期反馈复盘是可选后续能力。
+创建 MR、触发流水线、部署等动作使用 changeId、分支、候选摘要等组成幂等键。超时后先查询实际结果，再决定重试，避免重复 MR 或重复发布。远端完成但本地记录丢失时按幂等键恢复。
 
-本地 hooks、已有检查入口的识别与接线、用户所选通用工具配置的生成和接入验证属于基础产品能力，由 core 组合内置质量 recipe 交付。GitLab 等外部系统的 job 渲染、报告上传和已确定合并策略的配置通过环境扩展接入。
+同范围机械失败继续内部修复，不触发新的人工 gate；规则冲突、验收含义变化、超出授权范围、需受保护路径/不可逆操作时形成具体决策请求。
 
-### 5.1 检查绑定、执行计划与结果记录
+预算建议包括总耗时、模型预算、无进展轮次和重试上限；默认最多三轮连续修复作为可调整提案。需要人判断时提前停止，不通过放宽检查和改写验收标准制造成功。等待外部系统与耗尽主动修复预算分别记录。
 
-建议在 controls.yaml 中记录每项关键控制的稳定 id、目标、规则来源、责任人、适用模块、检查入口、阶段、成本/超时、是否阻断、修复指引、验证证据与例外状态。把需求或风险与规则及检查关联起来，允许一条规则有多个检查，也允许明确标记尚无可执行检查。
+## 5. 接入与工程反馈实现
 
-检查类型分为确定性工具与模型评审；检查目标分为可维护性、架构特性和业务行为。二者是独立属性，不合并成一个项目健康分数。确定性工具的结论取决于其实际覆盖范围，也不能证明所有业务语义正确。
+### 5.1 上游能力如何接入
 
-Core 解析这些描述并生成选定宿主、skills、脚本与 CI 的配置，检查缺失入口、重复绑定、阶段冲突和规则版本不一致。一次性脚本可以执行明确的检查清单并规范化输出，但不负责自主决定下一研发阶段或常驻调度 agent。
+OpenWiki：安装与 MCP 注册后使用官方生命周期生成/更新 as-is，不改写其内部 Claims、索引或运行状态。GitLab include 调用已验证的非交互入口，使用独立凭据，过滤纯生成文档变化并串行更新，产出文档 MR。
 
-首版不建立覆盖所有语言的自研质量分析器。优先接入已有 lint、typecheck、测试和客户检查；缺少检查时报告缺口和可选通用工具，用户选择后安装配置。需要项目知识的自定义检查交由开发者建设，完成后可重新接入。
+CodeGraph：分别执行工具安装、目标 agent 注册和项目初始化，验证索引状态及 MCP 握手。本地索引不默认提交；无源码时记录 deferred。Pi 与 Oh My Pi 不混同，缺少原生安装目标时由实际宿主能力适配，无法满足则报告不支持。
 
-每个建议引入的检查必须列出：复用/新增的工具与版本、真实命令、cwd、输入范围、生成/修改文件、依赖与环境、挂载 hook/CI 阶段、失败是否阻断，以及安装后的验证动作。用户审阅的是这份具体变更，不是只有“增强反馈能力”的描述。
+SDD：以版本化 capability manifest 声明真实调用、产物角色和 gate。Superpowers、OpenSpec、Spec Kit 各自映射到同一组内部工作意图，但不假定它们拥有同名 skill、相同目录或等价审批约束。
 
-安装报告按检查项区分：配置已生成、依赖已安装、本地执行已验证、hook 已启用、远端门禁已验证、待环境/策略确认。以真实可运行条件推进，不将生成产物数量作为完成指标。
+客户扩展：读需求、提交 MR、查询 CI/CR、部署/回退分别可选。没有部署扩展时不安装可执行发布入口；没有工单集成仍可用人工输入。自定义 skill 的普通安装与有副作用能力绑定分开。
 
-例如，某个已有 pnpm、formatter、ESLint、tsc 和测试 runner 的 TS 项目，计划应具体到：合并现有 scripts；接入暂存检查；pre-push 运行模块级类型检查和快速测试；生成 GitLab include 运行相同入口并上传报告；在隔离仓库验证一个格式错误能阻断提交、一次测试失败能使 job 非零退出。这个示例不是当前空仓库的已执行结果。
+### 5.2 Git hooks 与静态检查
 
-反馈应包含：check/control id、执行类型、运行 id、输入 revision/变更摘要、阶段、状态、耗时、证据定位、问题详情，以及可能的修复方向。模型评审额外记录不确定性，不能把置信程度当成通过证明。
+安装先读取原 hook manager、core.hooksPath、现有 hook、包管理器和安装脚本。优先合并已有方案，避免重复管理器和覆盖原 hook；新工具仅按用户选择安装。
 
-状态至少区分 pass、fail、error、skipped、not-applicable。error 表示检查未正常完成，不等于发现代码缺陷；skipped 不能算 pass。not-applicable 需要适用性依据。任何必需检查失败、出错或缺少有效结果都不得被汇总为全部通过。
+pre-commit 调用已选的暂存格式/lint 等快速检查；pre-push 调用既有模块类型检查、构建和快速测试；commit-msg 仅按客户消息政策接入。参考预算为 10/60 秒，超出则明确调整阶段，不把超时当通过。
 
-保留原始工具结果和结构化摘要的关联；建议修复与实际证据分开。日志、CI 输出和 CR 文本作为待判断的外部数据，不自动获得修改规范或执行任意指令的权限。
+检查对象必须正确：
 
-原始日志与临时运行结果放到不入库的 state；脱敏后的证据可引用 CI artifact 或 MR。反馈记录保留周期、日志大小和外部系统访问方式由客户扩展配置。无需默认上传 coding agent 的完整会话。
+- pre-commit 针对暂存快照，保留部分暂存与未暂存修改，覆盖删除、重命名和特殊路径。
+- pre-push 根据真实 ref 更新确定范围，检查实际待推送内容；工作区不匹配时使用隔离快照，处理新分支和多 ref。
+- hooks 可绕过，不能作为唯一远端门禁；每 clone 的安装与启用由 doctor 单独验证。
 
-### 5.2 Git hooks
+通用 formatter/linter、类型/编译、安全扫描可以接入现有配置或所选预设；专属架构检查只绑定开发者提供的命令。项目级类型检查不传入 lint-staged 自动追加的文件参数，不默认全仓库自动修复。
 
-项目分析先读取已有 hook manager、有效 core.hooksPath、现有 hook 文件、包管理器和安装脚本。已有 Husky、pre-commit、Lefthook 或自定义体系时优先集成，不再叠加第二套管理器；冲突进入安装计划，不能覆盖原 hook。无现成方案时按技术栈选受支持的方案，例如 Node 项目的 Husky + lint-staged，或已使用 Python 工具链项目的 pre-commit；不为装 hooks 强迫其他语言项目引入 Node。
+### 5.3 测试接线与阶段检查
 
-建议的默认分工：
+setup 只发现既有 runner、命令、环境要求和报告，并接入 hooks/CI/skills。缺失测试时报告输入要求，不创建测试目录、runner、fixtures 或测试环境。新项目同样遵守。
 
-- pre-commit：暂存内容的格式检查、lint、冲突标记和所选密钥扫描；目标快速返回，不默认调用模型或全量测试。只启用已安装并验证的检查，目标预算建议 10 秒，超出时调整到更后阶段，不静默跳过。
-- pre-push：受影响模块的类型检查、构建检查与快速测试；建议本地预算 60 秒。耗时超限的检查显式留到 CI，缺少覆盖时保留提示，而不是超时后当通过。
-- commit-msg：客户明确要求提交消息规范时才启用；不把消息格式当成代码质量反馈的主要内容。
-- post-checkout / post-merge：仅在必要且用户选择时触发低成本状态刷新；不隐式安装依赖、跑重测试或调用大模型。OpenWiki 更新默认由既定 CI 执行，避免每次切分支重复生成。
+change-deliver 可按该需求已确认的范围新增/修复测试，属于研发，不是 setup 补齐测试体系。验收依据仍由开发者和项目政策提供。
 
-pre-commit 校验的对象是暂存快照，不能只把暂存文件名交给工具却读到未暂存内容。部分暂存、文件删除/重命名和带空格路径都纳入验收；使用 hook manager 已验证的隔离机制或隔离快照，不自写会破坏工作区的 stash 流程。默认 check 模式不改文件；如客户选择自动修复，必须保持未暂存修改并让实际待提交内容可检查。项目级 typecheck 不接受 lint-staged 自动追加的源文件参数。
+同一 CheckBinding 定义 id、命令参数、cwd、环境引用、输入范围、阶段、超时、是否必需和报告解析器。执行时保留原始退出码，输出 pass、fail、error、skipped、not-applicable，后者需适用性证据。缺结果、零测试或全 skipped 不当作行为验证成功。
 
-pre-push 根据 hook 提供的实际 ref 更新范围确定待推送变更，不固定使用 HEAD~1；处理新分支、多提交与多个 ref。执行对象必须是实际待推送 commit 的内容：工作区干净且与该 ref 一致时可复用，否则在隔离快照执行，不能让工作区未提交的修复掩盖提交中的错误。多个 ref 分别验证，结果绑定 commit；无法可靠计算影响范围时扩大检查范围。Git hooks 可被跳过，本地 hooks 不作为最终合并门禁的唯一依据。
+本地和 CI 引用相同真实项目入口。CI 为既有命令及所选通用检查生成 include，保留失败报告，不用 || true 或错误 allow_failure 吃掉失败。JUnit 上传不自动决定 job 状态；MR 合并条件由客户已确定政策和远端配置实施。
 
-安装产物包含可提交的 hook 配置与每 clone 的 setup 入口：Node 项目可复用受支持的包安装生命周期，其他项目提供明确 bootstrap 命令。doctor 检查“配置存在”与“当前 clone 实际启用”两件事，并在临时 Git 仓库验证原 hook 与新 hook 都执行、失败能阻断提交/推送。通过 Git 解析 hook 路径，兼容 .git 为文件的 worktree 布局。
+安装完成报告至少分别列出：配置生成、工具安装、hook 启用、命令调用验证、项目检查结果、远端门禁验证和开发者待办。业务测试失败不触发 installer 修改业务代码。
 
-### 5.3 静态检查
+### 5.4 评估与自纠正
 
-按项目已有能力和用户选择接入下列检查；工具版本与配置进入锁定和更新清单：
+内部评估读取已批准的完成标准，核对实际代码、运行行为及证据，不把实现者自评当最终事实。确定性检查先行；语义评审处理工具未覆盖的问题，按客户要求选择独立上下文，记录结论的不确定性。
 
-- 格式与代码质量：复用 formatter/linter 的配置、ignore 与 package/module 范围；新项目按已选择的技术栈 recipe 初始化，老项目不改写为另一套风格。
-- 类型、编译与构建：使用真实项目配置执行，覆盖共享类型、构建配置与依赖变化，不能靠“修改文件中没有报错”代替模块检查。
-- 架构边界：接入开发者提供的依赖检查器配置、结构测试或检查脚本；CodeGraph 可辅助识别潜在问题，但脚手架不自行定义分层或生成项目专属规则。
-- 安全与依赖：按客户选择接入密钥扫描、静态安全规则、依赖漏洞和许可检查。网络、凭据及更新数据库等条件要明确；失败不能被转换成无风险结论。
-- 配置与生成物：按项目需要检查 CI/配置语法、生成代码一致性、文档链接等；不默认给每个仓库塞入所有检查。
+修改后重跑受影响检查，段落交付前运行该阶段全部必需 gate。评审政策和证据不足时报告缺口，不自行更改测试覆盖门槛、架构约束或将历史失败加入豁免。
 
-举例：已有 JS/TS 工具链可绑定 formatter、ESLint 和项目级 tsc；已有 Python 工具链可绑定其 lint/format、类型检查和测试命令；Go/JVM 等使用其现有构建与检查入口。完整初始化 recipe 按实际支持矩阵交付；未知技术栈允许显式提供命令，不能声称已自动建立全部检查。
+长期重复问题可以生成 harness-improve 提案：修改规范、skill 或检查接入方案。政策变更经用户审阅和相关回归验证；需要业务测试/专属规则时生成开发待办。项目测试质量与脚手架接入质量分别衡量。
 
-通用规则可由选定预设实施；“代码清晰”“抽象恰当”等语义判断保留为评审建议，不伪装成确定性 lint。开发者负责选择项目政策和处理历史 lint 债务，脚手架报告现状，不默认建立豁免或对整个仓库运行自动修复。
+## 6. 端到端示例与验证
 
-### 5.4 测试的发现与接入
+### 6.1 一次普通功能变更
 
-脚手架负责识别已有测试 runner、运行命令、现有 CI 和报告格式，读取开发者提供的环境/依赖要求；把已有测试命令接入所选 hooks、CI 与研发 skill，并验证命令解析、环境可用性、退出码与报告路径。可按用户选择配置现有 runner 支持的报告器，不改变测试语义。
+以已有 lint、构建、测试入口及 GitLab 的老项目为例：
 
-开发者单独负责：
+1. 用户输入“订单列表增加状态筛选”。change-prepare 连续读取现状、确认语义、形成设计、计划和验收包。
+2. 用户接受范围和实施方案。当前宿主直接加载 change-deliver，不要求用户手动启动“代码生成”。
+3. 实现后单元检查失败，agent 修复并复验；内部评审发现边界问题，在同一段处理。
+4. 按授权创建同一 MR，CI 失败后修复并更新 MR，结果绑定新 commit。
+5. 形成候选清单。若客户要求 code owner 批准，则停在相关集成动作前；若合并会触发生产发布，则发布 gate 必须已在合并前成立。
+6. 权威审批就绪后继续 change-release，部署指定 artifact，调用已有健康检查并记录结果。需回退时仅按已授权 runbook 执行。
+7. 新缺陷或运行事件携带证据回到 change-prepare 的 bug/incident 模式，无需新增一套运维 skill 流程。
 
-- 测试框架选型、目录结构与单元/集成/契约/E2E 等分层策略。
-- 业务用例、预期行为、断言、测试数据与 fixtures。
-- 数据库、缓存、消息队列和外部服务的测试环境及隔离/清理方案。
-- 关键路径覆盖、性能目标、覆盖率门槛和不稳定测试治理。
-- 为缺少测试的历史代码补 characterization、冒烟和缺陷回归测试。
+如果第 3 步发现项目根本没有约定的测试入口，记录验证缺口并按必需检查政策处理；不能由 setup 安装阶段悄悄补完整测试体系。
 
-项目没有测试命令时，标记“测试未接入：待开发者提供”，给出所需命令、环境与报告接口的说明，不创建空测试目录、恒真样例或默认安装 runner。新项目同样适用；用户后续建立测试入口，再运行 update 接入。已有测试命令依赖缺失时报告配置项，由开发者补齐环境，不能顺便搭建项目测试数据库或改造业务代码。
+### 6.2 安装与编译验证
 
-测试结果保留原始退出码和报告，遵循项目已确定的门槛；不存在门槛时不自行发明 80% 等指标。测试数量为零、全部 skipped、环境未就绪与真实通过分别展示。缺失测试不阻止其他独立的 harness 接入任务完成，但总体报告必须保留该缺口，不能声称已具备完整行为验证。
+- 同一 snapshot/selection/registry 编译结果稳定；任一输入变动使摘要变化。
+- 四种 agent、三种 SDD 的绑定和额外 gate 在计划中可见，无悬空引用。
+- 同项目多 agent 的生成文件不互相覆盖，共享同一事实来源。
+- 已有配置和自定义 skill 合并可恢复；重复安装无重复配置。
+- 工具安装、项目初始化、MCP 可用性分别验证；无环境时只报告已验证部分。
+- 客户扩展缺失、不兼容或凭据不足时，只阻塞依赖该能力的工作段，不伪造功能。
+- 开放文件合并和外部安装失败恢复的契约测试，不仅验证模板文本长得正确。
 
-code-gen 在后续研发任务中遵循开发者的测试规范，调用既有入口；有需求和授权时可辅助编写/修复测试。setup 生成该流程约定，不代替开发者预先实现业务测试。
+### 6.3 流程与恢复验证
 
-### 5.5 标准命令与 CI 门禁
+- 直接批准输入时不重复询问；真正未决的业务问题集中形成决策请求。
+- 实现、测试、评审和 CI 修复在同一 skill 中连续执行，只有真实 gate 才请求人判断。
+- 源码内容或相关输入变化使旧检查/候选失效，新 artifact 使原发布授权不能直接复用；纯 commit 元数据变化只按受影响依赖重新验证。
+- 修改本地批准字段不能越过远端保护或获得生产权限。
+- kill/restart 后依赖持久产物恢复，远端已建 MR/已触发部署不重复创建。
+- 旧 sequence 的状态写入被拒绝，同一 change 不出现两个覆盖状态的写者。
+- 同机多个 worktree 共用状态与执行 lease；旧 fencingToken 不能继续受控动作，接管先对账在途远端操作。跨机器写入依赖的平台约束单独验证，不宣称拥有分布式锁。
+- 宿主无独立评审或某种 hook 能力时，明确替代路径或 blocked，不冒充等价支持。
+- 总预算或无进展上限触发可恢复交接，不删检查、不降验收标准来结束任务。
 
-生成技术栈原生的标准入口，例如项目 scripts / Make targets / 构建任务中的 check:staged、check:fast、test:unit、test:integration、test:smoke、check:ci。这些是语义示例，最终名称与命令适配项目现状；不创建指向不存在命令的空壳脚本。
+### 6.4 验证职责与实施顺序
 
-hooks、agent skill 和 GitLab job 引用同一批真实命令与锁定配置，本地可按范围执行，CI 必需任务做完整或可证明安全的范围检查。安装后的检查脚本独立执行，不要求每次先启动本产品 CLI、MCP 或模型。脚本使用明确命令和参数，保留失败退出码，不通过解析自然语言决定是否通过。
+脚手架自己的测试使用隔离仓库和 fixtures，验证合并、绑定、状态、暂存区、退出码及报告，不向客户业务代码注入缺陷。客户测试用例和验收策略由开发者提供。
 
-建议生成独立 CI include，仅为已有命令及用户明确选择的通用检查生成 job，并接入可用报告。没有集成/契约/冒烟命令时不虚构对应任务；依赖缓存不缓存过期通过结论，失败时仍保留报告和诊断产物。GitLab JUnit 报告本身不会使 job 失败，必须传播测试进程的非零退出码；不能用 || true 或误配 allow_failure 消除用户已确定的必需 gate 的失败。
+建议实施顺序是先贯通一个宿主、一个 SDD、一个 GitLab 接入的纵向链路，验证生成到恢复；再补四宿主/三框架矩阵和可选发布适配。完整首版仍按四种宿主与三种框架验收，不能将阶段演示宣称为全部兼容。
 
-MR 级影响分析使用实际目标分支基线；修改共享配置、依赖锁或无法判断关联时扩大范围。受影响测试只是本地提速手段，不作为未经验证的唯一 CI 测试策略。AI CR 是附加反馈，不代替 lint、编译或测试结果。
+实现前锁定上游版本并验证实际路径、skill 调用、非交互能力和审批约束；库选择和内部文件拆分可以调整，不改变本设计的模块 Interface、产物协议和职责。
 
-“有 CI YAML”与“合并受门禁保护”分别验证。GitLab 扩展在拥有相应权限且属于客户选择的安装动作时配置必要的项目/分支合并条件；否则明确交付待管理员设置项。生成文件不能声称已阻止所有绕过检查的合并。
+## 附录：参考与兼容性依据
 
-### 5.6 日常研发中的修复与复验
+- [Anthropic：Harness design for long-running application development](https://www.anthropic.com/research/harness-design-long-running-apps)
+- [Birgitta Böckeler：Harness engineering for coding agent users](https://martinfowler.com/articles/harness-engineering.html)
+- [Anthropic：The AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook)
+- [OpenWiki](https://github.com/langchain-ai/openwiki)、[CodeGraph](https://github.com/colbymchenry/codegraph)
+- [Superpowers](https://github.com/obra/superpowers)、[OpenSpec](https://github.com/Fission-AI/OpenSpec)、[Spec Kit](https://github.com/github/spec-kit)
+- [Git hooks](https://git-scm.com/docs/githooks)、[lint-staged](https://github.com/lint-staged/lint-staged)、[pre-commit](https://pre-commit.com/)、[Husky](https://typicode.github.io/husky/get-started.html)
+- [GitLab unit test reports](https://docs.gitlab.com/ci/testing/unit_test_reports/)
 
-已安装的 code-gen / deploy skill 按以下约定执行：
-
-1. 获取目标 revision、变更范围及当前阶段应运行的检查。
-2. 运行确定性检查，按配置调用需要的语义评审，收集人类评审反馈。
-3. 将反馈定位到规则、证据和代码；区分代码缺陷、环境问题、旧失败、误报和需求不清。
-4. 对授权范围内且依据充分的问题修复；需求不清或规则冲突转交用户判断。
-5. 修复后重跑受影响检查；交付前重新运行该阶段全部必需 gate，记录对应的新 revision。
-6. 记录已解决、未解决和未运行的项目；达不到完成条件时不宣称阶段通过。
-
-建议默认每次自主修复最多三轮，总耗时上限可配置；连续没有进展时提前停止。此为生成进 skill 的执行约定，不是 CLI 内部的研发状态机，也不替代宿主的权限限制。
-
-agent hook 能力不可跨宿主假定相同。支持的宿主可增加工具执行后等 hooks；不支持时通过显式流程检查点与 CI 实现。只读检查绑定后应避免与上游框架重复运行同一昂贵任务；以阶段、输入 revision 与检查版本识别可复用结果，无法证明等价时重跑。
-
-### 5.7 现有失败与基线政策
-
-老项目可采集带 revision 的检查现状，将既有失败、新增回归、环境阻塞分开。采集不产生自动豁免；团队决定是否采用基线、是否阻断和例外范围，脚手架只保存并接入明确政策。不能通过扩大豁免掩盖本次引入的失败，也不能把关键行为检查未运行当成项目可交付。
-
-### 5.8 可选的长期改进
-
-feedback-review 作为可选后续 skill，读取选定的本地检查结果、CI/CR 记录及用户主动提供的纠正，归并重复问题，提出 harness 改进草案。该能力实现后支持显式运行与 GitLab job 产出建议，不默认后台实时监听所有 agent 会话。
-
-每项草案记录问题证据、发生范围、根因假设、拟修改的引导/检查、预期效果、所需验证和回退方式。例如，同一模块反复越界依赖时，提出更新边界说明及新增结构检查的开发待办。需要定制规则或业务测试的提案属于开发工作，不成为脚手架自动生成任务。
-
-提案状态为 proposed、accepted、rejected、superseded；只有用户接受的策略变更才进入配置和生成更新计划。接受不等于立即无条件生效，还需运行相关回归检查并通过现有文件合并机制。用户自定义 skill 的内容仍归用户所有，工具只能提出候选差异。
-
-普通事实刷新（例如源码移动后的 as-is 更新）与策略修改（例如增加提交阻断条件）分开。现有持续更新配置可以覆盖事实刷新；反馈积累不能隐式升级成改变团队政策的授权。
-
-周期性技术债与知识漂移检查作为可选扩展，由客户流水线/调度系统触发；运行态指标、日志和用户反馈保留扩展接入点，首版不默认安装监控平台或自治生产修复器。新项目可按已知技术栈选择默认检查组合；老项目优先复用现有工具，不为套模板迁移技术栈。
-
-## 6. 交付范围与验收
-
-### 6.1 建议默认值与实施待定项
-
-建议使用 TypeScript / Node.js 实现 CLI 与 MCP，共享 core。外部工具仍使用自身运行环境；例如选择 Spec Kit 时按其受支持版本检查 Python / uv，不能假定所有依赖都能通过 npm 安装。
-
-首版以单个 Git 仓库为安装与状态边界，识别 monorepo 中的模块；跨仓库编排后续再做。支持本机 CLI 与 GitLab CI 使用的无交互入口，优先验证 macOS / Linux，Windows 不在首版完整兼容承诺中。
-
-每个项目选择一个主 SDD 框架，也可不选；允许同时配置多个 coding agent。切换框架重新生成绑定，不自动迁移在途规格；存在在途工作时先提示保留与迁移方案。
-
-默认项目级配置。仅当目标 agent 或工具不支持所需项目级能力时，计划中明确列出所需用户级变更。不因安装一个项目的 harness 而默认配置所有已检测的 agent。
-
-上述默认值尚待确认。
-
-实施前需要锁定各上游的具体版本，并核实四种宿主的项目级 skills、MCP、无交互能力与受支持调用方式；不在设计阶段凭经验固定未经核实的配置路径。实现者可自行选择内部包结构、模型运行时库、schema 库、CLI 交互库和测试工具，但不得改变本文的产品边界与归属原则。
-
-### 6.2 首版验收
-
-首版目标覆盖 Claude Code、Codex、OpenCode、Oh My Pi 四种 agent，Superpowers、OpenSpec、Spec Kit 三种框架，以及所选工具和反馈接入。可先贯通一条纵向链路，再补全兼容矩阵；阶段性实现不能宣称为完整首版。
-
-1. 新项目生成明确的默认 harness；没有源码时标记 deferred，不生成虚假现状。
-2. 未接入 AI 的老项目提炼有证据的规范；工具安装、项目初始化与 agent 可用性分别验证。
-3. 已有入口、skills、MCP、hooks 和 CI 保留；同项目多个 agent 共享事实且配置互不覆盖。
-4. 框架绑定指向真实 skill/命令；不支持的组合在安装前报告，不以静默降级冒充兼容。
-5. 内置流程可停用或替换，自定义 skill 的能力绑定明确且不被自动重写。
-6. 当前 clone 的 hooks 真正启用，原 hooks 保留；检查实际暂存和待推送内容，覆盖部分暂存、非当前分支、多 ref 与未提交修复，不丢失用户修改。
-7. 既有检查使用真实命令，失败退出码和报告被保留；没有测试时只记录缺口，不生成业务测试、测试目录或环境方案。
-8. 接入状态与项目检查状态分别报告；必需检查 error、skipped、缺结果时不能汇总为全部通过。
-9. 已安装流程 skill 可读取反馈、在授权研发任务内修复并复验；无进展或超过预算时交接，setup 不顺便修业务代码。
-10. GitLab job 的失败传播和远端合并条件分别验证；OpenWiki 更新无文档触发循环、无凭据泄漏，无真实环境时明确待验证。
-11. 重复安装无重复项，update 保留定制或报告冲突；输入漂移使旧动作失效，中断后可恢复，并发写入受限。
-
-### 6.3 脚手架自身的验证
-
-脚手架自身的回归测试覆盖配置合并、任务恢复、能力绑定、工具调用、hook 失败传播、工作区保留和报告接入，在隔离仓库验证合法与违规输入。外部 agent 与模型兼容性还需在受支持版本上进行契约和冒烟验证，不能仅凭 mock 证明接入成功。
-
-项目规则的正反例、历史业务失败回放和语义评审标准由开发者提供，与脚手架自身回归测试分别报告；不向真实项目注入业务缺陷来证明接入成功。
-
-### 6.4 可选后续能力
-
-feedback-review、周期性技术债与知识维护、运行态反馈和跨项目模板改进属于可选后续能力，不作为首版基础接入的前置要求。专属架构规则、业务测试和验收依据始终由开发者负责。
-
-建议记录同类问题复发、修复轮次、检查耗时、误报/被否决建议、人工返工与关键验收覆盖；无观测数据时显示未知。模板或 skill 升级先回放相关案例，再生成更新计划；不能为了降低告警数而移除控制，并把结果解释为质量改善。
-
-## 附录：参考来源
-
-以下资料于 2026-11-02 查阅，用于确定接入方向，不代表已完成安装。具体配置以实施时锁定的受支持版本为准。
-
-- [OpenWiki README](https://github.com/langchain-ai/openwiki)：独立 CLI 和宿主 agent 两种入口。
-- [OpenWiki 架构](https://github.com/langchain-ai/openwiki/blob/main/openwiki/architecture/overview.md)：宿主语义研究与持久队列/校验/收尾分离。
-- [CodeGraph README](https://github.com/colbymchenry/codegraph)：install 配置 agent，init 建索引，serve --mcp 提供服务；未据 Pi 支持推断 Oh My Pi 支持。
-- [Superpowers README](https://github.com/obra/superpowers)：可组合 skills 和分宿主安装方式。
-- [OpenSpec README](https://github.com/Fission-AI/OpenSpec)：原生提案、实施、归档工作流。
-- [Spec Kit README](https://github.com/github/spec-kit)：SDD 流程与宿主相关调用语法。
-- [Harness engineering for coding agent users](https://martinfowler.com/articles/harness-engineering.html)，Birgitta Böckeler，2026-04-02：用于反馈与持续改进设计的参考；具体数据结构、skill 和接入方案为本产品建议。
-- [Git hooks 官方文档](https://git-scm.com/docs/githooks)：核实 hook 触发、退出码与路径语义。
-- [lint-staged 官方说明](https://github.com/lint-staged/lint-staged)：核实部分暂存处理及项目级 tsc 调用的参数问题。
-- [pre-commit 官方文档](https://pre-commit.com/)：核实 hook 安装类型与保留已有 hooks 的迁移方式。
-- [Husky 入门](https://typicode.github.io/husky/get-started.html)：核实 Node 项目的 hooks 初始化与安装生命周期接入方式。
-- [GitLab unit test reports](https://docs.gitlab.com/ci/testing/unit_test_reports/)：核实报告与 job 退出状态是独立事项。
+本设计不把参考资料里的示例技术栈、角色数量和审批流程直接作为本产品默认值，也不把兼容性方向当作已验证的工具版本支持。
