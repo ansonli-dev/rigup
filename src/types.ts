@@ -3,6 +3,8 @@ export interface SetupOptions {
   agents: Agent[];
   backend: 'native' | 'host';
   profile?: string;
+  scope?: string[];
+  readBudget?: {maxFiles:number;maxBytes:number};
   templates?: {source:string;target:string;values?:Record<string,string>}[];
   mcp?: {id:string;agents:Agent[];url?:string;command?:CommandSpec;envRefs?:string[]}[];
 }

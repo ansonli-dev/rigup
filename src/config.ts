@@ -20,7 +20,15 @@ async function readConfig(path: string, required = false): Promise<Record<string
 
 function validate(value: Record<string, unknown>): void {
   for (const key of Object.keys(value)) {
-    if (!['agents','backend','profile','templates','mcp'].includes(key)) throw new Error(key + ': unknown field');
+    if (!['agents','backend','profile','templates','mcp','readBudget','scope'].includes(key)) throw new Error(key + ': unknown field');
+  }
+  if(value.scope !== undefined && (!Array.isArray(value.scope) || value.scope.some(s=>typeof s !== 'string' || s.startsWith('/') || s.split('/').includes('..')))) throw new Error('scope: expected relative paths');
+  if(value.readBudget !== undefined) {
+   if(!value.readBudget || typeof value.readBudget !== 'object' || Array.isArray(value.readBudget)) throw new Error('readBudget: expected object');
+   for(const field of ['maxFiles','maxBytes']) {
+    const n=(value.readBudget as Record<string,unknown>)[field];
+    if(typeof n !== 'number' || !Number.isSafeInteger(n) || n<1) throw new Error('readBudget.'+field+': expected positive integer');
+   }
   }
   for(const key of ['templates','mcp']) {
     if(value[key] === undefined) continue;

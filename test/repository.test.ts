@@ -1,0 +1,94 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,mkdir,rm,symlink,access} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {scanRepository} from '../src/analyzer/repository.js';
+import {readEvidence} from '../src/analyzer/evidence.js';
+import {project} from './helpers.js';
+const options={agents:[],backend:'host'} as const;
+test('empty_and_non_git_are_valid_profiles',()=>project(async root=>{
+ const p=await scanRepository(root,{agents:[],backend:'host'});assert.equal(p.root,root);assert.equal(p.git.available,false);assert.deepEqual(p.files,[]);
+}));
+test('dirty_add_delete_changes_fingerprint',()=>project(async root=>{
+ const scan=()=>scanRepository(root,{agents:[],backend:'host'});
+ const a=await scan();await writeFile(join(root,'a.ts'),'first');const b=await scan();
+ await writeFile(join(root,'a.ts'),'second');const c=await scan();await rm(join(root,'a.ts'));const d=await scan();
+ assert.notEqual(a.fingerprint,b.fingerprint);assert.notEqual(b.fingerprint,c.fingerprint);assert.equal(a.fingerprint,d.fingerprint);
+}));
+test('monorepo_commands_keep_cwd_and_never_execute',()=>project(async root=>{
+ await mkdir(join(root,'packages/a'),{recursive:true});
+ await writeFile(join(root,'packages/a/package.json'),JSON.stringify({scripts:{test:'touch marker',build:'tsc'}}));
+ const p=await scanRepository(root,{agents:[],backend:'host'});
+ assert.equal(p.commands.test[0].cwd,'packages/a');assert.deepEqual(p.commands.test[0].args,['run','test']);
+ await assert.rejects(access(join(root,'packages/a/marker')));
+}));
+test('symlink_escape_and_secret_files_are_denied',()=>project(async root=>{
+ await symlink(tmpdir(),join(root,'escape'));await writeFile(join(root,'.env'),'TOKEN=secret');
+ await assert.rejects(readEvidence(root,'escape/anything',1,2));
+ await assert.rejects(readEvidence(root,'../outside',1,1));await assert.rejects(readEvidence(root,'.env',1,1));
+}));
+test('budget_returns_unknowns',()=>project(async root=>{
+ await writeFile(join(root,'a.ts'),'a');await writeFile(join(root,'b.ts'),'b');
+ const p=await scanRepository(root,{agents:[],backend:'host',readBudget:{maxFiles:1,maxBytes:1000}});
+ assert.equal(p.truncated,true);assert.ok(p.unknowns.length);
+}));
+test('managed_outputs_do_not_change_research_fingerprint',()=>project(async root=>{
+ const {digest}=await import('../src/analyzer/evidence.js');
+ await mkdir(join(root,'.rigup/baseline/install'),{recursive:true});
+ await writeFile(join(root,'.rigup/baseline/install/guide'),'generated v1');
+ await writeFile(join(root,'guide.md'),'generated v1');
+ await writeFile(join(root,'.rigup/manifest.json'),JSON.stringify({schemaVersion:1,installId:'install',assets:[{logicalId:'guide',target:'guide.md',ownership:{kind:'file'},baseline:'.rigup/baseline/install/guide',digest:digest('generated v1')}]}));
+ const a=await scanRepository(root,{agents:[],backend:'host'});
+ await writeFile(join(root,'guide.md'),'user modified generated');
+ const b=await scanRepository(root,{agents:[],backend:'host'});
+ assert.equal(a.fingerprint,b.fingerprint);assert.equal(a.files.includes('guide.md'),false);
+}));
+test('search_snippets_use_same_policy',()=>project(async root=>{
+ const {repositoryReader}=await import('../src/analyzer/repository.js');
+ await writeFile(join(root,'config.yaml'),'token: hidden-value\nname: visible\n');
+ const reader=await repositoryReader(root,{agents:[],backend:'host'});
+ assert.deepEqual(await reader.search('hidden-value'),[]);
+ assert.equal((await reader.search('visible'))[0].evidence.startLine,2);
+}));
+test('worktree_root_is_not_common_git_dir',()=>project(async root=>{
+ const {execFileSync}=await import('node:child_process');
+ const {realpath}=await import('node:fs/promises');
+ const repo=join(root,'repo'),work=join(root,'work');await mkdir(repo);
+ execFileSync('git',['init',repo]);execFileSync('git',['-C',repo,'-c','user.name=Test','-c','user.email=test@example.test','commit','--allow-empty','-m','initial']);
+ execFileSync('git',['-C',repo,'worktree','add','--detach',work]);
+ const p=await scanRepository(work,{agents:[],backend:'host'});
+ assert.equal(p.root,await realpath(work));assert.equal(p.git.available,true);
+}));
+test('reader_and_search_share_cumulative_budget_and_scope',()=>project(async root=>{
+ const {repositoryReader}=await import('../src/analyzer/repository.js');
+ await mkdir(join(root,'selected'));await writeFile(join(root,'selected/a.ts'),'four');await writeFile(join(root,'outside.ts'),'x');
+ const reader=await repositoryReader(root,{agents:[],backend:'host',scope:['selected'],readBudget:{maxFiles:10,maxBytes:5}});
+ assert.deepEqual(await reader.list(),['selected/a.ts']);
+ assert.equal((await reader.read('selected/a.ts',1,1)).content,'four');
+ await assert.rejects(reader.search('four'),/budget/);
+ await assert.rejects(reader.read('outside.ts',1,1),/inventory/);
+}));
+test('missing_baseline_disables_cache_and_is_not_silent',()=>project(async root=>{
+ await mkdir(join(root,'.rigup'));
+ await writeFile(join(root,'.rigup/manifest.json'),JSON.stringify({schemaVersion:1,assets:[{target:'guide.md',baseline:'.rigup/baseline/missing',ownership:{kind:'file'},digest:'unknown'}]}));
+ const profile=await scanRepository(root,{agents:[],backend:'host'});
+ assert.equal(profile.truncated,true);assert.match(profile.unknowns.join(' '),/ownership/);
+}));
+test('generated_blocks_are_not_normative_reader_evidence',()=>project(async root=>{
+ const {digest}=await import('../src/analyzer/evidence.js');const {repositoryReader}=await import('../src/analyzer/repository.js');
+ await mkdir(join(root,'.rigup/baseline/i'),{recursive:true});
+ const generated='<!-- start -->\ngenerated rule\n<!-- end -->';
+ await writeFile(join(root,'.rigup/baseline/i/block'),generated);
+ await writeFile(join(root,'AGENTS.md'),'user rule\n'+generated+'\nmore user');
+ await writeFile(join(root,'.rigup/manifest.json'),JSON.stringify({schemaVersion:1,assets:[{target:'AGENTS.md',baseline:'.rigup/baseline/i/block',digest:digest(generated),ownership:{kind:'block',start:'<!-- start -->',end:'<!-- end -->'}}]}));
+ const reader=await repositoryReader(root,{agents:[],backend:'host'});
+ assert.deepEqual(await reader.search('generated rule'),[]);
+ assert.match((await reader.read('AGENTS.md',1,5)).content,/user rule/);
+ assert.doesNotMatch((await reader.read('AGENTS.md',1,5)).content,/generated rule/);
+}));
+test('unborn_git_repository_is_reported_as_git',()=>project(async root=>{
+ const {execFileSync}=await import('node:child_process');execFileSync('git',['init',root]);
+ const profile=await scanRepository(root,{agents:[],backend:'host'});
+ assert.equal(profile.git.available,true);assert.equal(profile.git.head,undefined);
+}));

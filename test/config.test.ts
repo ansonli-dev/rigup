@@ -43,3 +43,7 @@ test('customer_templates_and_mcp_validate_fields',async()=>{
   assert.equal((await loadOptions(root,{})).mcp?.[0].id,'customer');
  });
 });
+test('read_budget_is_validated_before_scan',async()=>{
+ await fixture('readBudget: {maxFiles: 10, maxBytes: 1000}\n',async root=>assert.equal((await loadOptions(root,{})).readBudget?.maxFiles,10));
+ await fixture('readBudget: {maxFiles: -1, maxBytes: 1000}\n',async root=>{await assert.rejects(loadOptions(root,{}),/maxFiles/);});
+});
