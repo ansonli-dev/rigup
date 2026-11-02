@@ -20,7 +20,15 @@ async function readConfig(path: string, required = false): Promise<Record<string
 
 function validate(value: Record<string, unknown>): void {
   for (const key of Object.keys(value)) {
-    if (!['agents','backend','profile','templates','mcp','readBudget','scope'].includes(key)) throw new Error(key + ': unknown field');
+    if (!['agents','backend','profile','templates','mcp','readBudget','scope','model'].includes(key)) throw new Error(key + ': unknown field');
+  }
+  if(value.model !== undefined) {
+   if(!value.model || typeof value.model !== 'object' || Array.isArray(value.model)) throw new Error('model: expected object');
+   const model=value.model as Record<string,unknown>;
+   for(const field of Object.keys(model)) if(!['provider','model','apiKeyEnv'].includes(field)) throw new Error('model.'+field+': unknown field');
+   if(model.provider !== 'anthropic') throw new Error('model.provider: expected anthropic');
+   if(typeof model.model !== 'string' || !model.model.trim()) throw new Error('model.model: required');
+   if(typeof model.apiKeyEnv !== 'string' || !/^[A-Z_][A-Z0-9_]*$/.test(model.apiKeyEnv)) throw new Error('model.apiKeyEnv: environment reference required');
   }
   if(value.scope !== undefined && (!Array.isArray(value.scope) || value.scope.some(s=>typeof s !== 'string' || s.startsWith('/') || s.split('/').includes('..')))) throw new Error('scope: expected relative paths');
   if(value.readBudget !== undefined) {

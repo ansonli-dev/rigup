@@ -1,6 +1,7 @@
 export type Agent = 'claude' | 'codex' | 'opencode' | 'omp';
 export interface SetupOptions {
   agents: Agent[];
+  model?: {provider:'anthropic';model:string;apiKeyEnv:string};
   backend: 'native' | 'host';
   profile?: string;
   scope?: string[];

@@ -58,13 +58,14 @@ export async function repositoryReader(root:string,options:SetupOptions){
  };
  let readBytes=0;let readCalls=0;
  const maxBytes=options.readBudget?.maxBytes ?? 8_000_000;const maxCalls=options.readBudget?.maxFiles ?? 2000;
- const read=async(path:string,start:number,end:number)=>{
+ const read=async(path:string,start:number,end?:number)=>{
   if(!allowed.has(path)) throw new Error('path outside reader inventory');
   if(readCalls>=maxCalls) throw new Error('reader file budget exceeded');
   const file=await safePath(root,path);const size=(await stat(file)).size;
   if(readBytes+size>maxBytes) throw new Error('reader byte budget exceeded');
   readCalls++;readBytes+=size;
   const lines=(await visibleText(path)).split('\n');
+  end ??= lines.length;
   if(!Number.isInteger(start)||!Number.isInteger(end)||start<1||end<start||end>lines.length) throw new Error('invalid evidence range');
   const content=lines.slice(start-1,end).join('\n');
   return {content,evidence:{path,startLine:start,endLine:end,digest:digest(content)}};

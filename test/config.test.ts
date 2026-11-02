@@ -47,3 +47,9 @@ test('read_budget_is_validated_before_scan',async()=>{
  await fixture('readBudget: {maxFiles: 10, maxBytes: 1000}\n',async root=>assert.equal((await loadOptions(root,{})).readBudget?.maxFiles,10));
  await fixture('readBudget: {maxFiles: -1, maxBytes: 1000}\n',async root=>{await assert.rejects(loadOptions(root,{}),/maxFiles/);});
 });
+test('model_configuration_saves_reference_instead_of_secret',async()=>{
+ await fixture('model: {provider: anthropic, model: user-selected-model, apiKeyEnv: TEAM_API_KEY}\n',async root=>{
+  const options=await loadOptions(root,{});assert.equal(options.model?.model,'user-selected-model');assert.equal(options.model?.apiKeyEnv,'TEAM_API_KEY');
+ });
+ await fixture('model: {provider: anthropic, model: selected, apiKey: literal-secret}\n',async root=>{await assert.rejects(loadOptions(root,{}),/apiKey|unknown/);});
+});
