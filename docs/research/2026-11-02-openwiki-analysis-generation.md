@@ -4,6 +4,8 @@
 
 本文区分上游已证实机制和本产品设计建议。重点是“如何研究后决定产物，并受控生成”，不将 OpenWiki 的知识产品生命周期移入脚手架。下文的设计差距指本轮源码学习前的版本；已采纳的修订以模块设计文档为准。
 
+后续复杂度评审已将脚手架收敛为项目分析、配置生成、安装更新、工具集成四个模块。本文第 7 节中的 M1—M6 是当时的旧编号，保留用于说明研究过程，不代表当前仍需这些独立模块或完整协议；现行方案见[简化架构](../superpowers/specs/2026-11-02-smart-harness-design.md)。
+
 ## 1. 主要结论
 
 OpenWiki 的动态生成不是从目录名直接套固定 Markdown 模板。它先让 planner 研究真实系统并提出产物结构，再把语义计划规范化为持久 PageJob；每个 worker 围绕自己的主题继续研究、编写和提交，确定性核心接受提交、维护证据与状态，最后执行确定性收尾。[规划提示词](https://github.com/langchain-ai/openwiki/blob/b290e6915349c985dc1ea210ac4e8a6f6f7db5ef/src/agent/repository-prompts.ts#L62-L104)、[计划规范化](https://github.com/langchain-ai/openwiki/blob/b290e6915349c985dc1ea210ac4e8a6f6f7db5ef/src/generation/page-jobs.ts#L123-L224)、[执行主线](https://github.com/langchain-ai/openwiki/blob/b290e6915349c985dc1ea210ac4e8a6f6f7db5ef/src/agent/repository-runner.ts#L363-L416)。
