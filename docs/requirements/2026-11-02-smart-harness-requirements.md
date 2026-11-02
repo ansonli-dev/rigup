@@ -1,10 +1,10 @@
 # 智能 Harness 脚手架：需求与约束基线
 
-日期：2026-11-02。本文记录用户需求；具体模块、skill 划分和执行协议见[技术设计](../superpowers/specs/2026-11-02-smart-harness-design.md)。
+日期：2026-11-02。本文记录用户需求；脚手架模块与安装协议见[安装与更新设计](../superpowers/specs/2026-11-02-smart-harness-design.md)，研发 skill 划分与执行协议见[安装后的 skills 设计](../superpowers/specs/2026-11-02-installed-skills-design.md)。
 
 ## 1. 产品目标
 
-提供智能 CLI，帮助新项目和老项目快速 setup harness；能分析现状并动态生成配置，后续支持重新分析和增量更新。持续研发由安装到项目中的 skills 牵引，CLI 不作为研发流程的常驻执行器。
+提供智能 CLI，帮助新项目和老项目快速 setup harness；能分析现状并动态生成配置，后续支持重新分析和增量更新。脚手架 setup 完成后退出，仅在更新 harness 等维护场景再次使用。持续研发由已安装到项目中的 skills 牵引；skills 不依赖脚手架 CLI，也不将 harness 配置入口与研发入口混为一组。
 
 ## 2. 兼容与可选能力
 
