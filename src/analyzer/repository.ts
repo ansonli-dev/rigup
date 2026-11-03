@@ -11,7 +11,7 @@ import {readEvidence} from './evidence.js';
 import {digest,safePath} from './evidence.js';
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
 const exec=promisify(execFile);
-export interface ProjectProfile {installedTools?:Record<string,{version:string;packageLockDigest:string}>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;unknowns:string[];truncated:boolean;readPolicyVersion:string}
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;unknowns:string[];truncated:boolean;readPolicyVersion:string}
 export async function scanRepository(root:string,options:SetupOptions):Promise<ProjectProfile>{
  root=await realpath(root);
  if(options.scope?.some(s=>s.startsWith('/')||s.split('/').includes('..')||s.includes('\\'))) throw new Error('scope: invalid relative path');
@@ -29,7 +29,7 @@ export async function scanRepository(root:string,options:SetupOptions):Promise<P
    if(['.git','node_modules','dist','.superpowers'].includes(entry.name)||secretName.test(entry.name)) continue;
    const file=join(dir,entry.name);const path=relative(root,file).split('\\').join('/');
    if(options.scope?.length && !options.scope.some(s=>path === s || path.startsWith(s+'/') || s.startsWith(path+'/'))) continue;
-   if(path.startsWith('.rigup/baseline/')||path === '.rigup/manifest.json') continue;
+   if(path.startsWith('.rigup/baseline/')||path === '.rigup/manifest.json'||path === '.rigup/config.yaml'||path.startsWith('.rigup/tools/')) continue;
    if(entry.isSymbolicLink()){profile.unknowns.push(path+': symlink skipped');continue;}
    if(entry.isDirectory()){await walk(file);continue;}
    if(!entry.isFile()) continue;

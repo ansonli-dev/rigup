@@ -48,7 +48,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string}):Ana
    catch(error){if((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;if((await lstat(acceptedPath)).isSymbolicLink()) throw new Error('accepted path symlink denied');const prior=JSON.parse(await readFile(acceptedPath,'utf8'));if(prior.requestDigest !== requestDigest || stable(prior.result) !== stable(result)) throw new Error('response already consumed with different result');}
    return {status:'complete',value:result};
   }
-  const {kind,artifact,...runContext}=context;
+  const {kind,artifact,expectedOutput,input,spent,...runContext}=context;
   const runDigest=createHash('sha256').update(stable({runId:request.runId,root})).digest('hex');
   const budgetPath=join(cache,runDigest+'.budget.json');
   let state:{context:string;requests:string[];tokens:'unknown'}={context:stable(runContext),requests:[],tokens:'unknown'};

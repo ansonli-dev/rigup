@@ -1,7 +1,7 @@
 import {validateOptions} from '../config.js';
 import type {Evidence,StepResult} from '../types.js';
 export interface RepositoryReader {list():Promise<string[]>;read(path:string,start:number,end?:number):Promise<{content:string;evidence:Evidence}>;search(query:string):Promise<{content:string;evidence:Evidence}[]>}
-export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;previousInventoryDigest:string;templateSourcesDigest:string}
+export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;expectedOutput?:'plan'|'content'|'acceptance';input?:unknown;previousInventoryDigest:string;templateSourcesDigest:string}
 export interface ResearchResult {data:unknown;model:string;unknowns:string[];usage:{calls:number|'unknown';tokens:number|'unknown'}}
 export interface AnalysisBackend {run(request:ResearchRequest,reader:RepositoryReader):Promise<StepResult<ResearchResult>>}
 export async function validateResearch(data:unknown,reader:RepositoryReader):Promise<void>{
