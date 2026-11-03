@@ -1,5 +1,5 @@
 import {saveDurable} from './state.js';
-import {join,resolve,isAbsolute} from 'node:path';
+import {join,resolve,isAbsolute,posix} from 'node:path';
 import {spawn} from 'node:child_process';
 import {mkdir,readFile,lstat,realpath} from 'node:fs/promises';
 import type {SetupOperation} from '../types.js';
@@ -28,7 +28,8 @@ export async function queryOperation(operation:SetupOperation):Promise<Operation
   }
   const binaryName=operation.integrationId;const relativeBin=typeof installed.bin==='string'?installed.bin:installed.bin?.[binaryName];
   if(typeof relativeBin!=='string')return {status:'unknown',message:'Expected installed binary missing'};
-  const binary=await targetPath(root,operation.protection.target+'/node_modules/'+q.name+'/'+relativeBin);
+  if(isAbsolute(relativeBin)||relativeBin.split('/').includes('..'))return {status:'unknown',message:'Installed binary path escapes package'};
+  const binary=await targetPath(root,operation.protection.target+'/node_modules/'+q.name+'/'+posix.normalize(relativeBin));
   if(!((await lstat(binary)).mode&0o111))return {status:'unknown',message:'Installed binary is not executable'};
   const launcher=await realpath(join(root,operation.protection.target,'node_modules/.bin',binaryName));
   if(launcher!==await realpath(binary))return {status:'unknown',message:'Native binary launcher does not match installed package'};

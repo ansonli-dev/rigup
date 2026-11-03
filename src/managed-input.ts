@@ -1,6 +1,6 @@
 import {parseTree,findNodeAtLocation,type ParseError} from 'jsonc-parser';
 import {parse as parseToml} from 'smol-toml';
-export type Ownership={kind:'file'}|{kind:'block';start:string;end:string}|{kind:'json-key';path:string[]}|{kind:'toml-table';path:string[]};
+export type Ownership={kind:'file'}|{kind:'block';start:string;end:string;insert?:{kind:'yaml-sequence';key:'include'}}|{kind:'json-key';path:string[]}|{kind:'toml-table';path:string[]};
 export function projectInput(text:string,ownership:Ownership[],preserveLines=false):string|null{if(ownership.some(o=>o.kind === 'file')) return null;
  for(const selector of ownership) {
   if(selector.kind === 'json-key') {

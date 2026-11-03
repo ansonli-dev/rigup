@@ -65,3 +65,8 @@ test('mcp_does_not_accept_literal_env_credentials_or_credential_urls',async()=>{
 test('mcp_credential_arguments_require_environment_references',async()=>{
  await fixture('mcp: [{id: customer, agents: [claude], command: {executable: node, args: ["--token", "literal-secret"], cwd: ".", envRefs: []}}]\n',async root=>{await assert.rejects(loadOptions(root,{}),/args|credential/);});
 });
+test('customer_and_mcp_header_credentials_are_environment_references_only',async()=>{
+ const {validateOptions}=await import('../src/config.js');
+ for(const args of [['-H','Authorization: Bearer literal-secret'],['--header=X-API-Key: literal-secret'],['--user','user:password']])assert.throws(()=>validateOptions({mcp:[{id:'customer',agents:['codex'],command:{executable:'server',args,cwd:'.',envRefs:[]}}]}),/credential|args|reference/);
+ assert.doesNotThrow(()=>validateOptions({customer:{commands:{feedback:{executable:'client',args:['-H','Authorization: Bearer ${TOKEN}'],cwd:'.',envRefs:['TOKEN']}}}}));
+});

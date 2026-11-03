@@ -11,7 +11,7 @@ const link=(from:string,to:string,label=to)=>`[${label.replaceAll('[','').replac
 export async function renderFixed(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,semantic:PreparedAsset[],guidance:GuidanceBinding[]):Promise<PreparedAsset[]>{
  const result=[...integration.assets,...semantic];
  if(!options.sdd && !(options.customSkills?.some(s=>s.position))) return result;
- const refs=[...new Set([...semantic.map(a=>a.target),...guidance.filter(g=>g.coverageStatus==='reusable'||g.coverageStatus==='partial').map(g=>g.sourceRef.path)])];
+ const refs=[...new Set([...integration.assets.filter(a=>a.consumer==='change-deliver:review').map(a=>a.target),...semantic.map(a=>a.target),...guidance.filter(g=>g.coverageStatus==='reusable'||g.coverageStatus==='partial').map(g=>g.sourceRef.path)])];
  const add=(logicalId:string,target:string,content:string,ownership:PreparedAsset['ownership']={kind:'file'})=>result.push({logicalId,target,content,ownership,source:{kind:'fixed-template',ref:TEMPLATE_VERSION,digest:digest(content)}});
  const entryTargets=new Set<string>();
  for(const agent of options.agents) {

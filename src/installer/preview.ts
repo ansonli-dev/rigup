@@ -1,3 +1,4 @@
+import {parseDocument} from 'yaml';
 import {parse as parseJsonc} from 'jsonc-parser';
 import {parse as parseToml} from 'smol-toml';
 import {filterContent} from '../analyzer/read-policy.js';
@@ -114,6 +115,8 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   const asset=entry.candidate??entry.old!;const file=fileMap.get(asset.target)!;if(file.encoding==='base64')continue;
   let text:string|undefined;try{text=ownedContent(file.text,asset.ownership);}catch{continue;}
   if(text===undefined){blockers.push(asset.target+': required owned binding missing');continue;}
+  if(entry.candidate&&['quality-template','customer-runtime'].includes(entry.candidate.source.kind)&&text!==entry.candidate.content)blockers.push(asset.target+': fixed executable/configuration binding changed; resolve against the deterministic candidate');
+  if(entry.candidate?.source.kind==='customer-mcp'&&asset.target.endsWith('.mjs')&&text!==entry.candidate.content)blockers.push(asset.target+': fixed MCP runner changed; resolve before apply');
   if(asset.target.endsWith('.md')) {
    try{validateTemplateContent(text);}catch{blockers.push(asset.target+': local content conflicts with mandatory workflow gate; regenerate or resolve');}
    for(const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)){
@@ -126,6 +129,16 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    // A locally changed executable binding cannot inherit semantic acceptance of N.
    if(entry.candidate&&signature(asset.ownership.kind==='json-key'?parseJsonc(text):parseToml(text))!==signature(asset.ownership.kind==='json-key'?parseJsonc(entry.candidate.content):parseToml(entry.candidate.content)))blockers.push(asset.target+': selected machine binding differs from accepted configuration');
   }
+ }
+ if(plan.options.quality?.gitlab){
+  try{
+   const text=fileMap.get('.gitlab-ci.yml')?.text??(await readTarget(root,'.gitlab-ci.yml'))?.toString('utf8');const doc=parseDocument(text??'');if(doc.errors.length)throw new Error('CI YAML invalid');
+   const include=doc.toJS()?.include;const includes=Array.isArray(include)?include:[include];
+   if(!includes.some(v=>v==='.rigup/gitlab-ci.yml'||v?.local==='.rigup/gitlab-ci.yml')||!await available('.rigup/gitlab-ci.yml'))throw new Error('required CI include binding missing');
+   const jobs=parseDocument(fileMap.get('.rigup/gitlab-ci.yml')?.text??'');if(jobs.errors.length)throw new Error('CI jobs YAML invalid');
+   const expected=parseDocument(plan.assets.find(a=>a.target==='.rigup/gitlab-ci.yml')?.content??'').toJS();const actual=jobs.toJS();
+   for(const [name,job] of Object.entries(expected??{}))for(const [key,value] of Object.entries(job as object))if(signature(actual?.[name]?.[key])!==signature(value))throw new Error('required CI job binding changed');
+  }catch{blockers.push('.gitlab-ci.yml: required CI include/job binding invalid or unavailable; preserve local content and re-prepare');}
  }
  const previewId=digest(randomUUID()+signature({plan,items,resolutions}));
  const publicPreview:Preview={previewId,root,executable:blockers.length===0,items,blockers,operations:plan.operations,warnings:plan.warnings};

@@ -1,7 +1,8 @@
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
-import type {SetupOptions} from './types.js';
+import {runProjectChecks} from './integrations/tools/quality.js';
+import type {SetupOptions,CheckKind} from './types.js';
 import type {AnalysisBackend,ResearchResult} from './analyzer/backend.js';
 import {scanRepository,repositoryReader} from './analyzer/repository.js';
 import {hostBackend} from './analyzer/host.js';
@@ -20,7 +21,7 @@ import {preview} from './installer/preview.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
 import {apply,type CheckResult} from './installer/apply.js';
-export interface LifecycleFlags {dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[]}
+export interface LifecycleFlags {dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[]}
 export interface LifecycleServices {backend?:AnalysisBackend;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>}
 interface Run {root:string;options:SetupOptions;mode:LifecycleFlags;runId:string;research?:ResearchResult;spent:{calls:number;tokens:number|'unknown'};consent:string}
 export async function executeLifecycle(root:string,options:SetupOptions,flags:LifecycleFlags,write:(s:string)=>void,services:LifecycleServices={}):Promise<number>{
@@ -35,9 +36,9 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const profile=await scanRepository(root,options);const old=await loadManifest(root);profile.installedTools=old?.installedTools;
   const prepared=await prepareIntegrations(profile,options);
   const config=await readTarget(root,'.rigup/config.yaml');
-  const consent=signature({root,options,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},fingerprint:profile.fingerprint});
+  const consent=signature({root,options,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},fingerprint:profile.fingerprint});
   if(flags.continuation&&flags.continuation!==consent)throw new Error('continuation input/configuration changed; restart preparation');
-  const runPath=join(runs,consent+'.json');let run=await readCache<Run>(runPath);if(!run||run.consent!==consent)run={root,options,mode:{dryRun:flags.dryRun,yes:flags.yes,review:flags.review,retireIds:flags.retireIds},runId:randomUUID(),spent:{calls:0,tokens:0},consent};
+  const runPath=join(runs,consent+'.json');let run=await readCache<Run>(runPath);if(!run||run.consent!==consent)run={root,options,mode:{dryRun:flags.dryRun,yes:flags.yes,review:flags.review,retireIds:flags.retireIds,runChecks:flags.runChecks},runId:randomUUID(),spent:{calls:0,tokens:0},consent};
   await saveCache(runPath,JSON.stringify(run));let responseConsumed=false;
   const quote=(s:string)=>"'"+s.replaceAll("'","'\"'\"'")+"'";
   const continuation=(requestPath:string)=>'rigup update '+quote(root)+' --continue '+consent+' --response '+quote(requestPath.replace(/\.request\.json$/,'.response.json'));
@@ -60,7 +61,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(flags.dryRun)return 0;
   const active=!!(process.env.CODEX_THREAD_ID||process.env.CLAUDECODE||process.env.OPENCODE||process.env.PI_CODING_AGENT_DIR);
   if(flags.review||options.backend==='host'&&active&&!flags.sessionsEnded){write('Pending review/session handoff. End affected sessions, then run from an independent terminal:\nrigup update '+JSON.stringify(root)+' --apply '+result.previewId+' --sessions-ended\n');return 3;}
-  const installed=await apply(result.previewId,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});
+  const installed=await apply(result.previewId,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,recover:flags.resume,signal:services.signal,runChecks:services.runChecks??(flags.runChecks?.length?async()=>runProjectChecks(await scanRepository(root,options),flags.runChecks!,services.signal):undefined)});
+  for(const warning of installed.warnings)write('Pending/note: '+warning+'\n');
   write('Install '+installed.status+'; written '+installed.written.length+'; checks '+installed.checks.map(c=>c.name+':'+c.status).join(', ')+'\n');return installed.exitCode;
  }finally{await lock.release();}
 }

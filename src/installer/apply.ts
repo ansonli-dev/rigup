@@ -17,7 +17,7 @@ import {scanRepository} from '../analyzer/repository.js';
 import {atomicProjectWrite} from './manifest.js';
 import {targetPath,ownedContent} from './ownership.js';
 import {loadManifest,type Manifest} from './baseline.js';
-export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string}
+export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;environment?:{node:string;platform:string};exitCode?:number}
 export interface InstallReport {status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
 export interface ApplyDependencies {cacheRoot?:string;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
 interface Transaction {previewId:string;installId:string;status:'prepared'|'complete';files:Record<string,{before:string;after:string}>;checks?:CheckResult[];receipts:NonNullable<Manifest['installedTools']>;report?:InstallReport}
@@ -91,6 +91,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   await dependencies.hook?.('before-manifest');await verifyFiles();
   await atomicProjectWrite(root,'.rigup/manifest.json',Buffer.from(JSON.stringify(manifest,null,2)+'\n'),0o600);
   await dependencies.hook?.('after-manifest');
+  if(data.plan.options.agents.length&&data.plan.assets.length)report.warnings.push('Native host loading/reload is unverified; configuration installation is separate from live host acceptance');
   report.status='complete';report.exitCode=report.checks.some(c=>c.status==='failed')?1:report.checks.some(c=>c.status==='pending')?3:0;
   tx.status='complete';tx.report=report;await saveDurable(statePath,JSON.stringify(tx));return report;
  }finally{await release();}

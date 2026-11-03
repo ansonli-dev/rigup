@@ -20,7 +20,24 @@ async function readConfig(path: string, required = false): Promise<Record<string
 
 export function validateOptions(value: Record<string, unknown>): void {
   for (const key of Object.keys(value)) {
-    if (!['agents','backend','profile','templates','mcp','readBudget','scope','model','sdd','tools','customSkills','projectConventions'].includes(key)) throw new Error(key + ': unknown field');
+    if (!['agents','backend','quality','customer','profile','templates','mcp','readBudget','scope','model','sdd','tools','customSkills','projectConventions'].includes(key)) throw new Error(key + ': unknown field');
+  }
+  const kinds=['build','lint','test','environment','eval'];
+  if(value.quality!==undefined){
+   const q=value.quality as Record<string,unknown>;if(!q||typeof q!=='object'||Array.isArray(q))throw new Error('quality: expected object');
+   for(const key of Object.keys(q))if(!['preCommit','prePush','maxPushCommits','gitlab'].includes(key))throw new Error('quality.'+key+': unknown field');
+   for(const key of ['preCommit','prePush'])if(q[key]!==undefined&&(!Array.isArray(q[key])||(q[key] as unknown[]).some(k=>!kinds.includes(String(k)))))throw new Error('quality.'+key+': existing check kinds required');
+   if(q.maxPushCommits!==undefined&&(!Number.isSafeInteger(q.maxPushCommits)||Number(q.maxPushCommits)<1))throw new Error('quality.maxPushCommits: positive integer required');
+   if(q.gitlab!==undefined){const g=q.gitlab as Record<string,unknown>;if(!g||typeof g!=='object'||Array.isArray(g)||Object.keys(g).some(k=>!['checks','reportPaths','openwiki'].includes(k))||!Array.isArray(g.checks)||g.checks.some(k=>!kinds.includes(String(k))))throw new Error('quality.gitlab: invalid selection');
+    if(g.reportPaths!==undefined&&(!Array.isArray(g.reportPaths)||g.reportPaths.some(p=>typeof p!=='string'||p.startsWith('/')||p.split('/').includes('..')||p.includes('\\')||/[?*]/.test(p))))throw new Error('quality.gitlab.reportPaths: exact relative report paths required');
+    if(g.openwiki!==undefined){const w=g.openwiki as Record<string,unknown>;if(!w||typeof w!=='object'||Object.keys(w).some(k=>!['envRefs','sourcePaths'].includes(k))||!Array.isArray(w.envRefs)||w.envRefs.some(v=>typeof v!=='string'||!/^[A-Z_][A-Z0-9_]*$/.test(v))||!Array.isArray(w.sourcePaths)||!w.sourcePaths.length||w.sourcePaths.some(p=>typeof p!=='string'||p.startsWith('/')||p.split('/').includes('..')||p.startsWith('openwiki/')||p==='**/*'))throw new Error('quality.gitlab.openwiki: explicit environment references and source-only paths required');}
+   }
+  }
+  if(value.customer!==undefined){
+   const c=value.customer as Record<string,unknown>;if(!c||typeof c!=='object'||Array.isArray(c)||Object.keys(c).some(k=>!['commands','envRefs','deployment'].includes(k)))throw new Error('customer: invalid configuration');
+   if(c.envRefs!==undefined&&(!Array.isArray(c.envRefs)||c.envRefs.some(v=>typeof v!=='string'||!/^[A-Z_][A-Z0-9_]*$/.test(v))))throw new Error('customer.envRefs: reference names required');
+   if(c.commands!==undefined){if(!c.commands||typeof c.commands!=='object'||Array.isArray(c.commands))throw new Error('customer.commands: expected map');for(const [name,command] of Object.entries(c.commands)){if(!['issue','mr','ci','deploy','rollback','feedback','environment'].includes(name))throw new Error('customer.commands: unsupported runtime capability');validateOptions({mcp:[{id:'customer-'+name,agents:['codex'],command}]});}}
+   if(c.deployment!==undefined){const d=c.deployment as Record<string,unknown>;if(!d||typeof d!=='object'||Object.keys(d).some(k=>!['adapter','target','authorizationReference','recoveryRunbook'].includes(k))||['adapter','target','authorizationReference','recoveryRunbook'].some(k=>typeof d[k]!=='string'||!d[k]))throw new Error('customer.deployment: target, authorization and recovery reference required');}
   }
   if(value.sdd !== undefined && !['superpowers','openspec','spec-kit'].includes(String(value.sdd))) throw new Error('sdd: unsupported selection');
   if(value.tools !== undefined) {
@@ -97,11 +114,14 @@ export function validateOptions(value: Record<string, unknown>): void {
          for(const name of Object.keys(command)) if(!['executable','args','cwd','envRefs'].includes(name)) throw new Error(field+'.command.'+name+': unknown field');
          if(typeof command.executable !== 'string' || !command.executable || typeof command.cwd !== 'string' || !Array.isArray(command.args) || command.args.some(a=>typeof a !== 'string')) throw new Error(field+'.command: executable/args/cwd required');
          for(const [argIndex,arg] of (command.args as string[]).entries()) {
-          const credentialFlag=/^--?(?:token|password|secret|api[-_]?key|authorization)(?:=|$)/i;
+          const credentialFlag=/^--?(?:token|access[-_]?token|password|secret|client[-_]?secret|api[-_]?key|authorization|auth|user)(?:=|$)/i;
           if(credentialFlag.test(arg)) {
            const credential=arg.includes('=') ? arg.slice(arg.indexOf('=')+1) : (command.args as string[])[argIndex+1];
            if(typeof credential !== 'string' || !/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(credential)) throw new Error(field+'.command.args: credential values forbidden; use declared environment references');
           }
+          const header=arg.match(/(?:authorization|proxy-authorization|x-api-key)\s*[:=]\s*(?:Bearer\s+|Basic\s+)?(.+)$/i);
+          if(header&&!/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(header[1]))throw new Error(field+'.command.args: literal header credential forbidden; use an environment reference');
+          for(const ref of arg.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g))if(![...(Array.isArray(command.envRefs)?command.envRefs:[]),...(Array.isArray(v.envRefs)?v.envRefs:[])].includes(ref[1]))throw new Error(field+'.command.args: undeclared environment reference');
           if(/^https?:\/\//i.test(arg)) {const url=new URL(arg);if(url.username||url.password||[...url.searchParams.keys()].some(k=>/token|password|secret|auth|key/i.test(k))) throw new Error(field+'.command.args: credential URL forbidden');}
          }
          if(!Array.isArray(command.envRefs) || command.envRefs.some(r=>typeof r !== 'string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(r))) throw new Error(field+'.command.envRefs: invalid');

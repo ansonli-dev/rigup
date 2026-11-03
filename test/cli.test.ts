@@ -54,7 +54,7 @@ test('init_existing_manifest_uses_update_rules_and_doctor_is_read_only', async (
  try {
   await mkdir(join(root,'.rigup'));await writeFile(join(root,'.rigup/manifest.json'),original);
   for(const [args,expected] of [[['init'],'update'],[['doctor'],'doctor']] as const){
-   let out='';assert.equal(await runCli([...args],{cwd:root,isTTY:false,write:(s:string)=>out+=s}),expected==='doctor'?1:2);
+   let out='';assert.equal(await runCli([...args],{cwd:root,isTTY:false,write:(s:string)=>out+=s}),expected==='doctor'?3:2);
    assert.match(out,new RegExp(expected+':'));
    assert.equal(await readFile(join(root,'.rigup/manifest.json'),'utf8'),original);
   }
@@ -78,3 +78,6 @@ test('review_mode_waits_only_when_selected',()=>project(async root=>project(asyn
 test('continuation_rejects_changed_inputs_without_project_writes',()=>project(async root=>project(async cache=>project(async state=>{
  const {writeFile}=await import('node:fs/promises');let out='';const io={cwd:root,isTTY:false,write:(s:string)=>out+=s,services:{cacheRoot:cache,stateRoot:state}};assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--backend','host','--dry-run'],io),3);const id=out.match(/--continue ([a-f0-9]{64})/)![1];await writeFile(root+'/new.ts','changed');out='';assert.equal(await runCli(['update','--continue',id],io),1);assert.match(out,/changed/);assert.deepEqual(await readdir(root),['new.ts']);
 }))));
+test('apply_id_cannot_redirect_cli_to_a_different_project_root',()=>project(async root=>project(async other=>project(async cache=>project(async state=>{
+ const {preview}=await import('../src/installer/preview.js');const {scanRepository}=await import('../src/analyzer/repository.js');const options={agents:[],backend:'host' as const};const p=await preview({root:other,fingerprint:(await scanRepository(other,options)).fingerprint,options,assets:[{logicalId:'a',target:'other.md',content:'must not write',ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],operations:[],dispositions:[],warnings:[],requirements:[],versions:{}},[],{cacheRoot:cache+'/previews'});let out='';assert.equal(await runCli(['update','--apply',p.previewId,'--sessions-ended'],{cwd:root,isTTY:false,write:s=>out+=s,services:{cacheRoot:cache,stateRoot:state}}),1);assert.match(out,/root|project/);assert.deepEqual(await readdir(other),[]);
+})))));

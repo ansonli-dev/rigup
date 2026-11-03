@@ -1,3 +1,5 @@
+import {prepareQuality} from './tools/quality.js';
+import {prepareCustomer} from './gitlab/customer.js';
 import {prepareSoftwareInstall} from './tools/software.js';
 import type {SetupOperation} from '../types.js';
 import {resolve} from 'node:path';
@@ -111,6 +113,8 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
  const roots=[context,...assets.filter(a=>a.target.endsWith('/SKILL.md')).map(a=>a.target.slice(0,-9)+'/references')];
  for(const template of options.templates ?? []) push([await renderCustomerTemplate(profile.root,template,roots,'change-deliver:review')]);
  if(options.projectConventions?.tracker) warnings.push('Tracker convention recorded; executable tracker adapter is pending');
+ const quality=await prepareQuality(profile,options);push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
+ const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
  for(let i=operations.length-1;i>=0;i--) {
   const operation=operations[i];
   if(operation.declaredWrites.some(scope=>assets.some(asset=>scope === '.' || asset.target === scope || asset.target.startsWith(scope+'/')))) {

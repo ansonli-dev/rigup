@@ -1,0 +1,19 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
+import {doctor} from '../src/installer/doctor.js';import {preview} from '../src/installer/preview.js';import {apply} from '../src/installer/apply.js';import {scanRepository} from '../src/analyzer/repository.js';
+async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>{await writeFile(root+'/package.json',JSON.stringify({scripts:{test:'node -e "process.exit(7)"',environment:'node -e "process.exit(0)"'}}));const options={agents:['codex' as const],backend:'host' as const};const p=await preview({root,fingerprint:(await scanRepository(root,options)).fingerprint,options,assets:[],dispositions:[],operations:[],warnings:[],requirements:[],versions:{}},[],{cacheRoot:cache});await apply(p.previewId,{cacheRoot:cache,stateRoot:state});await fn(root,cache,state);})));}
+test('doctor_separates_config_environment_tests_and_eval',()=>fixture(async(root,cache,state)=>{
+ const r=await doctor(root,{runChecks:['environment','test','eval'],stateRoot:state});assert.equal(r.exitCode,1);assert.ok(r.diagnostics.some(d=>d.category==='config'&&d.state==='configured'));assert.ok(r.checks.some(c=>c.name==='environment'&&c.status==='passed'));assert.ok(r.checks.some(c=>c.name==='test'&&c.status==='failed'));assert.ok(r.checks.some(c=>c.name==='eval'&&c.status==='pending'));
+}));
+test('doctor_does_not_initialize_or_repair_business_by_default',()=>fixture(async(root,cache,state)=>{
+ const manifest=await readFile(root+'/.rigup/manifest.json','utf8'),before=await readdir(root);const r=await doctor(root);assert.deepEqual(r.checks,[]);assert.equal(await readFile(root+'/.rigup/manifest.json','utf8'),manifest);assert.deepEqual(await readdir(root),before);
+}));
+test('reports_bind_checks_to_actual_commit_environment_and_time',()=>fixture(async(root,cache,state)=>{
+ const r=await doctor(root,{runChecks:['environment'],stateRoot:state});const c=r.checks[0] as any;assert.ok(c.fingerprint);assert.ok(c.startedAt);assert.ok(c.finishedAt);assert.equal(c.environment.node,process.version);assert.equal(c.command.executable,'npm');assert.equal(c.commit,'unavailable');
+}));
+test('stale_result_does_not_validate_new_input',()=>fixture(async(root,cache,state)=>{
+ const first=await doctor(root,{runChecks:['environment'],stateRoot:state});await writeFile(root+'/new.ts','changed');const next=await doctor(root,{runChecks:['environment'],stateRoot:state});assert.notEqual((first.checks[0] as any).fingerprint,(next.checks[0] as any).fingerprint);
+}));
+test('missing_secrets_are_pending_without_values_or_implicit_commands',()=>fixture(async(root,cache,state)=>{
+ const file=root+'/.rigup/manifest.json';const m=JSON.parse(await readFile(file,'utf8'));m.options.customer={envRefs:['RIGUP_TEST_MISSING_SECRET'],commands:{feedback:{executable:'must-not-run',args:[],cwd:'.',envRefs:['RIGUP_TEST_MISSING_SECRET']}}};await writeFile(file,JSON.stringify(m));const report=await doctor(root);assert.ok(report.diagnostics.some(d=>d.id==='env:RIGUP_TEST_MISSING_SECRET'&&d.state==='pending'));assert.deepEqual(report.checks,[]);assert.doesNotMatch(JSON.stringify(report),/secret-value/);
+}));

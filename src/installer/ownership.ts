@@ -1,3 +1,4 @@
+import {parseDocument,isSeq} from 'yaml';
 import {lstat,realpath} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import type {Ownership} from '../managed-input.js';
@@ -5,6 +6,7 @@ import {relativeTarget} from '../generator/artifacts.js';
 import {jsonValue,editJson,tomlRange,editToml} from '../integrations/agents/config-edit.js';
 export function validateOwnership(selector:Ownership):void {
  if(!selector||!['file','block','json-key','toml-table'].includes(selector.kind))throw new Error('invalid ownership selector');
+ if(selector.kind==='block'&&selector.insert&&(selector.insert.kind!=='yaml-sequence'||selector.insert.key!=='include'))throw new Error('unsupported block insertion anchor');
  if(selector.kind==='block'&&(!selector.start||!selector.end||selector.start===selector.end))throw new Error('invalid ownership markers');
  if((selector.kind==='json-key'||selector.kind==='toml-table')&&(!Array.isArray(selector.path)||!selector.path.length||selector.path.some(p=>typeof p!=='string'||!p||['__proto__','constructor','prototype'].includes(p))))throw new Error('invalid ownership key path');
 }
@@ -27,6 +29,11 @@ export function replaceOwned(text:string|undefined,selector:Ownership,next:strin
  if(selector.kind==='json-key')return editJson(text??'{}\n',selector.path,next);
  if(selector.kind==='toml-table')return editToml(text??'',selector.path,next);
  const range=blockRange(text??'',selector);
+ if(!range&&selector.insert&&next!==undefined){
+  const doc=parseDocument(text??'');if(doc.errors.length)throw new Error('YAML configuration invalid');const node=doc.get(selector.insert.key,true);
+  if(!isSeq(node)||node.flow||!node.range)throw new Error('YAML include requires manual block-sequence normalization');
+  const end=node.range[2];return (text??'').slice(0,end)+((text??'')[end-1]==='\n'?'':'\n')+next+(text??'').slice(end);
+ }
  return range?(text??'').slice(0,range.start)+(next??'')+(text??'').slice(range.end):(text??'')+(next===undefined?'':(text&&!text.endsWith('\n')?'\n':'')+next);
 }
 export async function targetPath(root:string,target:string):Promise<string>{

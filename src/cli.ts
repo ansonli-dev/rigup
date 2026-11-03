@@ -7,13 +7,17 @@ import {terminalReader,promptChoice} from './prompt.js';
 import {loadOptions,validateOptions} from './config.js';
 import type {SetupOptions} from './types.js';
 import {loadManifest} from './installer/baseline.js';
+import {loadPreview} from './installer/preview.js';
+import {runProjectChecks} from './integrations/tools/quality.js';
+import {scanRepository} from './analyzer/repository.js';
 import {apply} from './installer/apply.js';
+import {doctor} from './installer/doctor.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
 export interface CliIO {cwd:string;isTTY:boolean;write(text:string):void;read?(secret?:boolean):Promise<string|null>;services?:LifecycleServices}
-const help='rigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none]\nrigup update [path] [--dry-run|--yes|--review] [--apply previewId] [--response path] [--sessions-ended] [--resume]\nrigup doctor [path]\nOptions: --backend native|host --profile path --model modelId --api-key-env NAME\n';
+const help='rigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none]\nrigup update [path] [--dry-run|--yes|--review] [--apply previewId] [--response path] [--sessions-ended] [--resume]\nrigup doctor [path] [--run-checks build,lint,test,environment,eval]\nOptions: --backend native|host --profile path --model modelId --api-key-env NAME\n';
 export async function runCli(argv:string[],io:CliIO):Promise<number>{
  const flags:LifecycleFlags={};const overrides:Partial<SetupOptions>={};const positional:string[]=[];let applyId:string|undefined;
- const boolean=new Set(['--dry-run','--yes','--review','--sessions-ended','--resume']);const valued=new Set(['--agents','--sdd','--backend','--profile','--response','--apply','--model','--api-key-env','--continue','--retire']);const values:Record<string,string>={};
+ const boolean=new Set(['--dry-run','--yes','--review','--sessions-ended','--resume']);const valued=new Set(['--agents','--sdd','--backend','--profile','--response','--apply','--model','--api-key-env','--continue','--retire','--run-checks']);const values:Record<string,string>={};
  for(let i=0;i<argv.length;i++){
   const arg=argv[i];if(boolean.has(arg)){values[arg]='true';continue;}if(valued.has(arg)){if(!argv[i+1]||argv[i+1].startsWith('--')){io.write(arg+': value required\n');return 2;}values[arg]=argv[++i];continue;}
   if(arg==='--help'){io.write(help);return 0;}if(arg==='--version'){io.write('0.1.0\n');return 0;}if(arg.startsWith('-')){io.write('Unknown option\n');return 2;}positional.push(arg);
@@ -27,17 +31,17 @@ export async function runCli(argv:string[],io:CliIO):Promise<number>{
  if(!command){io.write(manifest?'1. update\n2. doctor\n3. exit\n':'1. init\n2. doctor\n3. exit\n');const a=await io.read?.();if(a==null||a==='3')return 130;if(!['1','2'].includes(a))return 2;command=a==='2'?'doctor':manifest?'update':'init';}
  if(command==='init'&&manifest)command='update';
  io.write(command+': '+root+'\n');
- if(command==='doctor'){io.write('doctor: inspection adapter pending implementation\n');return 1;}
+ if(command==='doctor'){try{const runChecks=values['--run-checks']?.split(',');if(runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing check kinds required\n');return 2;}const report=await doctor(root,{runChecks:runChecks as import('./types.js').CheckKind[],stateRoot:io.services?.stateRoot,signal:io.services?.signal});for(const d of report.diagnostics)io.write(d.category+' '+d.id+': '+d.state+' — '+d.reason+'\n');for(const c of report.checks)io.write('check '+c.name+': '+c.status+' '+(c.startedAt??'')+' '+(c.commit??'')+'\n');return report.exitCode;}catch(e){io.write((e as Error).message+'\n');return 1;}}
  if(values['--agents'])overrides.agents=values['--agents'].split(',') as SetupOptions['agents'];
  if(values['--sdd']&&values['--sdd']!=='none')overrides.sdd=values['--sdd'] as SetupOptions['sdd'];
  if(values['--backend'])overrides.backend=values['--backend'] as SetupOptions['backend'];
  if(values['--profile'])overrides.profile=values['--profile'];
  if(values['--model'])overrides.model={provider:'anthropic',model:values['--model'],apiKeyEnv:values['--api-key-env']??'ANTHROPIC_API_KEY'};
- flags.dryRun=!!values['--dry-run'];flags.yes=!!values['--yes'];flags.review=!!values['--review'];flags.response=values['--response'];flags.sessionsEnded=!!values['--sessions-ended'];flags.resume=!!values['--resume'];flags.retireIds=values['--retire']?.split(',');applyId=values['--apply'];
+ flags.dryRun=!!values['--dry-run'];flags.yes=!!values['--yes'];flags.review=!!values['--review'];flags.response=values['--response'];flags.sessionsEnded=!!values['--sessions-ended'];flags.resume=!!values['--resume'];flags.retireIds=values['--retire']?.split(',');flags.runChecks=values['--run-checks']?.split(',') as import('./types.js').CheckKind[];if(flags.runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing kinds required\n');return 2;}applyId=values['--apply'];
  if([flags.dryRun,flags.yes,flags.review].filter(Boolean).length>1){io.write('execution mode: choose one\n');return 2;}
  if(applyId){
   if((process.env.CODEX_THREAD_ID||process.env.CLAUDECODE||process.env.OPENCODE)&&!flags.sessionsEnded){io.write('End affected sessions and use --sessions-ended from an independent terminal\n');return 3;}
-  try{const report=await apply(applyId,{cacheRoot:join(io.services?.cacheRoot??join(homedir(),'.cache','rigup'),'previews'),stateRoot:io.services?.stateRoot,recover:flags.resume,signal:io.services?.signal,runChecks:io.services?.runChecks});io.write('Install '+report.status+'\n');return report.exitCode;}catch(e){io.write((e as Error).message+'\n');return 1;}
+  try{const cacheRoot=join(io.services?.cacheRoot??join(homedir(),'.cache','rigup'),'previews');const prepared=await loadPreview(applyId,cacheRoot);if(prepared.plan.root!==root)throw new Error('preview project root differs from requested path');const report=await apply(applyId,{cacheRoot,stateRoot:io.services?.stateRoot,recover:flags.resume,signal:io.services?.signal,runChecks:io.services?.runChecks??(flags.runChecks?.length?async()=>runProjectChecks(await scanRepository(root,prepared.plan.options),flags.runChecks!,io.services?.signal):undefined)});io.write('Install '+report.status+'\n');return report.exitCode;}catch(e){io.write((e as Error).message+'\n');return 1;}
  }
  let options:SetupOptions;
  try {
