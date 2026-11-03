@@ -1,7 +1,7 @@
 import {mkdir,realpath,readFile,writeFile,lstat,rename} from 'node:fs/promises';
 import {join,resolve,relative,isAbsolute,parse} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
-import {validateResearch,type AnalysisBackend} from './backend.js';
+import {validateResearchRequest,validateResearch,type AnalysisBackend} from './backend.js';
 import {READ_POLICY_VERSION} from './read-policy.js';
 import {PROMPT_VERSION,researchPrompt} from './prompts.js';
 function stable(value:unknown):string {
@@ -12,6 +12,7 @@ function stable(value:unknown):string {
 function inside(root:string,path:string):boolean {const rel=relative(root,path);return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));}
 export function hostBackend(options:{cacheRoot:string;responsePath?:string}):AnalysisBackend {
  return {run:async(request,reader)=>{
+  validateResearchRequest(request);
   if(request.budget.maxCalls<1 || request.budget.maxTokens<1) throw new Error('host budget exhausted');
   const root=await realpath(request.root);
   const requestedCache=resolve(options.cacheRoot);

@@ -1,0 +1,49 @@
+{
+  "caseId": "codegraph/project-software-install",
+  "date": "2026-11-03",
+  "scope": "disposable empty project, no lifecycle scripts, no model call",
+  "platform": "darwin",
+  "arch": "arm64",
+  "node": "v24.15.0",
+  "fixtureCommit": "not-applicable; disposable empty project",
+  "fullHostCompatibility": "pending",
+  "command": {
+    "executable": "npm",
+    "args": [
+      "install",
+      "--prefix",
+      "<fixture>/.rigup/tools/codegraph",
+      "--cache",
+      "<fixture>/.rigup/tools/codegraph/.npm-cache",
+      "--ignore-scripts",
+      "--save-exact",
+      "--no-audit",
+      "--no-fund",
+      "--userconfig",
+      "<fixture>/.rigup/tools/codegraph/.npmrc.user",
+      "--globalconfig",
+      "<fixture>/.rigup/tools/codegraph/.npmrc.global",
+      "--registry",
+      "https://registry.npmjs.org/",
+      "@colbymchenry/codegraph@1.6.2"
+    ],
+    "cwd": ".",
+    "envRefs": []
+  },
+  "installExitCode": 0,
+  "packageVersion": "1.6.2",
+  "lockRootKeys": [
+    "",
+    "node_modules/@colbymchenry/codegraph",
+    "node_modules/@colbymchenry/codegraph-darwin-arm64",
+    "node_modules/@colbymchenry/codegraph-darwin-x64",
+    "node_modules/@colbymchenry/codegraph-linux-arm64",
+    "node_modules/@colbymchenry/codegraph-linux-x64",
+    "node_modules/@colbymchenry/codegraph-win32-arm64",
+    "node_modules/@colbymchenry/codegraph-win32-x64"
+  ],
+  "integrityMatches": true,
+  "versionExitCode": 1,
+  "status": "failed",
+  "logDigest": "9c76665fc78e4cbffa4239469aa337dc74337a2bd0e0868ef6daf7cd9d7b3bb7"
+}

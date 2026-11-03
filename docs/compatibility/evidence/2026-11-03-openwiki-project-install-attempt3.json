@@ -1,0 +1,48 @@
+{
+  "caseId": "openwiki/project-software-install",
+  "date": "2026-11-03",
+  "scope": "disposable empty project, no lifecycle scripts, no model call",
+  "platform": "darwin",
+  "arch": "arm64",
+  "node": "v24.15.0",
+  "fixtureCommit": "not-applicable; disposable empty project",
+  "fullHostCompatibility": "pending",
+  "command": {
+    "executable": "npm",
+    "args": [
+      "install",
+      "--prefix",
+      "<fixture>/.rigup/tools/openwiki",
+      "--cache",
+      "<fixture>/.rigup/tools/openwiki/.npm-cache",
+      "--ignore-scripts",
+      "--save-exact",
+      "--no-audit",
+      "--no-fund",
+      "--userconfig",
+      "<fixture>/.rigup/tools/openwiki/.npmrc.user",
+      "--globalconfig",
+      "<fixture>/.rigup/tools/openwiki/.npmrc.global",
+      "--registry",
+      "https://registry.npmjs.org/",
+      "openwiki@0.7.3"
+    ],
+    "cwd": ".",
+    "envRefs": []
+  },
+  "installExitCode": 0,
+  "packageVersion": "0.7.3",
+  "lockRootKeys": [
+    "",
+    "../../../../../../../../../private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-openwiki-install-nrkqcv/.rigup/tools/openwiki/node_modules/@alcalzone/ansi-tokenize",
+    "../../../../../../../../../private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-openwiki-install-nrkqcv/.rigup/tools/openwiki/node_modules/@alcalzone/ansi-tokenize/node_modules/ansi-styles",
+    "../../../../../../../../../private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-openwiki-install-nrkqcv/.rigup/tools/openwiki/node_modules/@anthropic-ai/sdk",
+    "../../../../../../../../../private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-openwiki-install-nrkqcv/.rigup/tools/openwiki/node_modules/@anthropic-ai/vertex-sdk",
+    "../../../../../../../../../private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-openwiki-install-nrkqcv/.rigup/tools/openwiki/node_modules/@anthropic-ai/vertex-sdk/node_modules/gaxios",
+    "../../../../../../../../../private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-openwiki-install-nrkqcv/.rigup/tools/openwiki/node_modules/@anthropic-ai/vertex-sdk/node_modules/gcp-metadata",
+    "../../../../../../../../../private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-openwiki-install-nrkqcv/.rigup/tools/openwiki/node_modules/@anthropic-ai/vertex-sdk/node_modules/google-auth-library"
+  ],
+  "status": "failed",
+  "error": "TypeError: Cannot read properties of undefined (reading 'integrity')",
+  "logDigest": "17ff26e61c8f1d864efb38a296c07429ef5e806807c0ccf8c09054a653459296"
+}

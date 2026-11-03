@@ -1,3 +1,6 @@
+import {parse} from 'yaml';
+import {agents} from '../integrations/agents/index.js';
+import type {Agent} from '../types.js';
 import {readdir,readFile,realpath,stat} from 'node:fs/promises';
 import {join,relative,dirname} from 'node:path';
 import {execFile} from 'node:child_process';
@@ -8,7 +11,7 @@ import {readEvidence} from './evidence.js';
 import {digest,safePath} from './evidence.js';
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
 const exec=promisify(execFile);
-export interface ProjectProfile {root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;unknowns:string[];truncated:boolean;readPolicyVersion:string}
+export interface ProjectProfile {installedTools?:Record<string,{version:string;packageLockDigest:string}>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;unknowns:string[];truncated:boolean;readPolicyVersion:string}
 export async function scanRepository(root:string,options:SetupOptions):Promise<ProjectProfile>{
  root=await realpath(root);
  if(options.scope?.some(s=>s.startsWith('/')||s.split('/').includes('..')||s.includes('\\'))) throw new Error('scope: invalid relative path');
@@ -38,7 +41,25 @@ export async function scanRepository(root:string,options:SetupOptions):Promise<P
    let projected:string|null=raw.toString('utf8');
    try {projected=projectInput(projected,managed.get(path)||[]);}catch {profile.truncated=true;profile.unknowns.push(path+': ownership projection failed');continue;}
    if(projected === null) continue;
-   profile.files.push(path);inputs.push(path+'\0'+digest(projected));
+   profile.files.push(path);
+   for(const agent of Object.keys(agents) as Agent[]) {
+    const host=agents[agent];
+    if(path.startsWith(host.skillDirectory+'/') && path.endsWith('/SKILL.md')) {
+     try {
+      const front=visible.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+      const metadata=front ? parse(front[1]) : undefined;
+      if(metadata && typeof metadata.name === 'string' && typeof metadata.description === 'string') {
+       profile.nativeEntries ??= {};profile.nativeEntries[agent] ??= [];profile.nativeEntries[agent]!.push(metadata.name);
+       profile.skillSources ??= {};profile.skillSources[agent] ??= [];profile.skillSources[agent]!.push({name:metadata.name,origin:'local',identity:path,digest:digest(raw),satisfies:!metadata.dependencies});
+      }
+     }catch {profile.unknowns.push(path+': native skill metadata invalid');}
+    }
+    const commandDir=agent === 'codex' ? undefined : agent === 'claude' ? '.claude/commands/' : agent === 'omp' ? '.omp/commands/' : '.opencode/commands/';
+    if(commandDir && path.startsWith(commandDir) && path.endsWith('.md')) {
+     profile.nativeEntries ??= {};profile.nativeEntries[agent] ??= [];profile.nativeEntries[agent]!.push(path.slice(commandDir.length,-3));
+    }
+   }
+   inputs.push(path+'\0'+digest(projected));
    if(entry.name === 'package.json') {
     try {const pkg=JSON.parse(visible);for(const kind of Object.keys(profile.commands)) if(typeof pkg.scripts?.[kind] === 'string') profile.commands[kind].push({executable:'npm',args:['run',kind],cwd:dirname(path),envRefs:[]});}catch{profile.unknowns.push(path+': unsupported package manifest');}
    }

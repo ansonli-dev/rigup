@@ -53,3 +53,15 @@ test('model_configuration_saves_reference_instead_of_secret',async()=>{
  });
  await fixture('model: {provider: anthropic, model: selected, apiKey: literal-secret}\n',async root=>{await assert.rejects(loadOptions(root,{}),/apiKey|unknown/);});
 });
+test('integration_choices_preserve_install_initialize_and_conventions',async()=>{
+ await fixture('agents: [codex]\nsdd: openspec\ntools: [{id: codegraph, install: false, initialize: true, agents: [codex]}]\ncustomSkills: [{source: customer/review, position: deliver}]\nprojectConventions: {tracker: {system: local, reference: docs/issues}}\n',async root=>{
+  const options=await loadOptions(root,{});assert.equal(options.sdd,'openspec');assert.equal(options.tools?.[0].install,false);assert.equal(options.tools?.[0].initialize,true);assert.equal(options.projectConventions?.tracker?.system,'local');
+ });
+});
+test('mcp_does_not_accept_literal_env_credentials_or_credential_urls',async()=>{
+ await fixture('mcp: [{id: customer, agents: [claude], url: "https://user:literal@example.test/mcp"}]\n',async root=>{await assert.rejects(loadOptions(root,{}),/url|credential/);});
+ await fixture('mcp: [{id: customer, agents: [claude], command: {executable: node, args: [], cwd: ".", envRefs: [], env: {TOKEN: literal}}}]\n',async root=>{await assert.rejects(loadOptions(root,{}),/command.*env|unknown/);});
+});
+test('mcp_credential_arguments_require_environment_references',async()=>{
+ await fixture('mcp: [{id: customer, agents: [claude], command: {executable: node, args: ["--token", "literal-secret"], cwd: ".", envRefs: []}}]\n',async root=>{await assert.rejects(loadOptions(root,{}),/args|credential/);});
+});

@@ -1,0 +1,9 @@
+Case: omp/native-skill-parser-component
+Version: 18.1.13
+Command: bun probe.ts <fixture>/.omp/skills
+Scope: installed OMP native directory parser; no full session or MCP acceptance claim
+Exit: 0
+Stdout:
+{"names":["rigup-smoke-check"],"warnings":[]}
+
+Stderr:

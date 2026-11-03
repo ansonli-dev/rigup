@@ -1,0 +1,90 @@
+{
+  "caseId": "openwiki/published-stdio-startup",
+  "date": "2026-11-03",
+  "scope": "disposable empty project, no lifecycle scripts, no model call",
+  "platform": "darwin",
+  "arch": "arm64",
+  "node": "v24.15.0",
+  "fixtureCommit": "not-applicable; disposable empty project",
+  "fullHostCompatibility": "pending",
+  "command": {
+    "executable": "npm",
+    "args": [
+      "install",
+      "--prefix",
+      "<fixture>/.rigup/tools/openwiki",
+      "--cache",
+      "<fixture>/.rigup/tools/openwiki/.npm-cache",
+      "--ignore-scripts",
+      "--save-exact",
+      "--no-audit",
+      "--no-fund",
+      "--userconfig",
+      "<fixture>/.rigup/tools/openwiki/.npmrc.user",
+      "--globalconfig",
+      "<fixture>/.rigup/tools/openwiki/.npmrc.global",
+      "--registry",
+      "https://registry.npmjs.org/",
+      "openwiki@0.7.3"
+    ],
+    "cwd": ".",
+    "envRefs": []
+  },
+  "installExitCode": 0,
+  "packageVersion": "0.7.3",
+  "lockRootKeys": [
+    "",
+    "node_modules/@alcalzone/ansi-tokenize",
+    "node_modules/@alcalzone/ansi-tokenize/node_modules/ansi-styles",
+    "node_modules/@anthropic-ai/sdk",
+    "node_modules/@anthropic-ai/vertex-sdk",
+    "node_modules/@anthropic-ai/vertex-sdk/node_modules/gaxios",
+    "node_modules/@anthropic-ai/vertex-sdk/node_modules/gcp-metadata",
+    "node_modules/@anthropic-ai/vertex-sdk/node_modules/google-auth-library"
+  ],
+  "integrityMatches": true,
+  "mcp": [
+    {
+      "host": "codex",
+      "status": "passed",
+      "serverInfo": {
+        "name": "openwiki",
+        "version": "0.7.3"
+      },
+      "toolNames": [
+        "openwiki_list_workspaces",
+        "openwiki_list_wikis",
+        "openwiki_search",
+        "openwiki_read",
+        "openwiki_begin",
+        "openwiki_submit_plan",
+        "openwiki_next_page",
+        "openwiki_inspect_page_claims",
+        "openwiki_submit_page",
+        "openwiki_finish"
+      ]
+    },
+    {
+      "host": "omp",
+      "status": "passed",
+      "serverInfo": {
+        "name": "openwiki",
+        "version": "0.7.3"
+      },
+      "toolNames": [
+        "openwiki_list_workspaces",
+        "openwiki_list_wikis",
+        "openwiki_search",
+        "openwiki_read",
+        "openwiki_begin",
+        "openwiki_submit_plan",
+        "openwiki_next_page",
+        "openwiki_inspect_page_claims",
+        "openwiki_submit_page",
+        "openwiki_finish"
+      ]
+    }
+  ],
+  "status": "passed",
+  "logDigest": "12cb664254f5c27778129dc6416eb60fe4cb00aa937a150a890e253915369160"
+}

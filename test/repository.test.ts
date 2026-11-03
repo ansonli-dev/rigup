@@ -92,3 +92,10 @@ test('unborn_git_repository_is_reported_as_git',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  assert.equal(profile.git.available,true);assert.equal(profile.git.head,undefined);
 }));
+test('project_native_entries_are_discovered_without_loading_skill_code',()=>project(async root=>{
+ await mkdir(join(root,'.agents/skills/openspec-propose'),{recursive:true});
+ await writeFile(join(root,'.agents/skills/openspec-propose/SKILL.md'),'---\nname: openspec-propose\ndescription: Propose changes\n---\nRead existing project guidance.\n');
+ const p=await scanRepository(root,{agents:['codex'],backend:'host'});
+ assert.ok(p.nativeEntries?.codex?.includes('openspec-propose'));
+ assert.equal(p.skillSources?.codex?.[0].origin,'local');
+}));

@@ -2,7 +2,7 @@ import {parse as parseToml} from 'smol-toml';
 import {parseTree,type Node,type ParseError} from 'jsonc-parser';
 import {parseDocument,isMap,isSeq,isScalar,isAlias} from 'yaml';
 import {basename,extname} from 'node:path';
-export const READ_POLICY_VERSION='1';
+export const READ_POLICY_VERSION='2';
 export const secretName=/(^\.env($|\.)|\.(pem|key|p12|pfx|keystore)$|credentials|id_rsa|id_ed25519)/i;
 const sensitive=/token|password|passwd|secret|authorization|api[-_]?key|private[-_]?key/i;
 export function filterContent(path:string,raw:string):string {
@@ -56,7 +56,7 @@ export function filterContent(path:string,raw:string):string {
    const original=text.slice(span.start,span.end);
    text=text.slice(0,span.start)+'"[REDACTED]"'+'\n'.repeat((original.match(/\n/g)||[]).length)+text.slice(span.end);
   }
- } else if(sensitive.test(raw) || /\[.*env.*\]/i.test(raw)) {
+ } else if(/(?:token|password|passwd|secret|authorization|api[-_]?key|private[-_]?key)[\w-]*["']?\s*[:=]/i.test(raw) || /\[.*env.*\]/i.test(raw)) {
   // Unknown sensitive syntax cannot be safely exported using line heuristics.
   throw new Error('unsupported sensitive format');
  }

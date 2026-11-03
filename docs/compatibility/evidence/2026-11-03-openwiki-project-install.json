@@ -1,0 +1,52 @@
+{
+  "caseId": "openwiki/project-software-install",
+  "date": "2026-11-03",
+  "scope": "disposable empty project, no lifecycle scripts, no model call",
+  "platform": "darwin",
+  "arch": "arm64",
+  "node": "v24.15.0",
+  "fixtureCommit": "not-applicable; disposable empty project",
+  "fullHostCompatibility": "pending",
+  "command": {
+    "executable": "npm",
+    "args": [
+      "install",
+      "--prefix",
+      "<fixture>/.rigup/tools/openwiki",
+      "--cache",
+      "<fixture>/.rigup/tools/openwiki/.npm-cache",
+      "--ignore-scripts",
+      "--save-exact",
+      "--no-audit",
+      "--no-fund",
+      "--userconfig",
+      "<fixture>/.rigup/tools/openwiki/.npmrc.user",
+      "--globalconfig",
+      "<fixture>/.rigup/tools/openwiki/.npmrc.global",
+      "--registry",
+      "https://registry.npmjs.org/",
+      "openwiki@0.7.3"
+    ],
+    "cwd": ".",
+    "envRefs": []
+  },
+  "installExitCode": 0,
+  "packageVersion": "0.7.3",
+  "lockRootKeys": [
+    "",
+    "node_modules/@alcalzone/ansi-tokenize",
+    "node_modules/@alcalzone/ansi-tokenize/node_modules/ansi-styles",
+    "node_modules/@anthropic-ai/sdk",
+    "node_modules/@anthropic-ai/vertex-sdk",
+    "node_modules/@anthropic-ai/vertex-sdk/node_modules/gaxios",
+    "node_modules/@anthropic-ai/vertex-sdk/node_modules/gcp-metadata",
+    "node_modules/@anthropic-ai/vertex-sdk/node_modules/google-auth-library"
+  ],
+  "integrityMatches": true,
+  "helpExitCode": 0,
+  "status": "failed",
+  "logDigest": "7f396e8b2a765bcc5f883fcb50996c7346656b118e232d23262426c5de753951",
+  "packageInstallStatus": "passed",
+  "helpProbeStatus": "failed",
+  "helpDiagnostic": "Ink reports raw mode unsupported on piped stdin despite exit 0; package installed and integrity matched, full native CLI/MCP availability not established"
+}

@@ -1,0 +1,10 @@
+Case: omp/native-skill-discovery
+Version: omp/18.1.13
+Command: omp read skill://rigup-smoke-check
+Environment: disposable Git project, PI_CODING_AGENT_DIR points inside the fixture
+Exit: 1
+Stdout:
+
+Stderr:
+Unknown skill: rigup-smoke-check
+Available: none

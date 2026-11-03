@@ -1,12 +1,16 @@
 export type Agent = 'claude' | 'codex' | 'opencode' | 'omp';
 export interface SetupOptions {
   agents: Agent[];
+  sdd?: 'superpowers'|'openspec'|'spec-kit';
+  tools?: {id:'openwiki'|'codegraph';install:boolean;initialize:boolean;agents:Agent[]}[];
+  customSkills?: {source:string;position?:'prepare'|'deliver'|'release'}[];
+  projectConventions?: {tracker?:{system:'gitlab'|'github'|'local'|'other';reference?:string;description?:string};documentRoutes?:Record<string,string>;labelMapping?:Record<string,string>};
   model?: {provider:'anthropic';model:string;apiKeyEnv:string};
   backend: 'native' | 'host';
   profile?: string;
   scope?: string[];
   readBudget?: {maxFiles:number;maxBytes:number};
-  templates?: {source:string;target:string;values?:Record<string,string>}[];
+  templates?: {source:string;target:string;values?:Record<string,string|number|boolean>}[];
   mcp?: {id:string;agents:Agent[];url?:string;command?:CommandSpec;envRefs?:string[]}[];
 }
 export type StepResult<T> =
@@ -27,3 +31,8 @@ export function validateInventory(ids:string[],items:{logicalId:string;action:st
 export interface CommandSpec {executable:string;args:string[];cwd:string;envRefs:string[]}
 export interface Evidence {path:string;startLine:number;endLine:number;digest:string}
 
+export interface SetupOperation {
+ id:string;integrationId:string;kind:'install'|'initialize'|'check';parameters:CommandSpec;prerequisiteIds:string[];declaredWrites:string[];version:string;timeoutMs:number;
+ protection:{kind:'new-empty-scope';target:string};
+ query:{kind:'npm-package';packageJson:string;packageLock:string;name:string;version:string;integrity?:string};
+}

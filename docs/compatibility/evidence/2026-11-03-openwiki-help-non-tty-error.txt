@@ -1,0 +1,5 @@
+Case: openwiki/non-tty-help
+Version: 0.7.3
+Exit code: 0
+Observed diagnostic: ERROR Raw mode is not supported on the current process.stdin, which Ink uses as input stream by default.
+Result: failed despite exit 0; no model request made.

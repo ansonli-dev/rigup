@@ -235,3 +235,8 @@ test('native_result_preserves_reused_source_scope_and_explicit_rule',async()=>{
   }
  });
 });
+test('backend_cannot_export_literal_mcp_credentials_in_request_options',async()=>{
+ let sent=false;const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async()=>{sent=true;throw new Error('unexpected');}});
+ const invalid={...request,options:{mcp:[{id:'customer',agents:['claude'],url:'https://name:literal@example.test/mcp'}]}};
+ await assert.rejects(backend.run(invalid,reader),/credential|url/);assert.equal(sent,false);
+});

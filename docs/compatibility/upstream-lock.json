@@ -1,0 +1,601 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-11-03",
+  "integrations": [
+    {
+      "integrationId": "claude",
+      "kind": "agent",
+      "name": "Claude Code",
+      "repository": "https://github.com/anthropics/claude-code",
+      "version": "2.1.273",
+      "packageIntegrity": "sha512-ym42/WNRf6H43FQdIPigvzzTW0DeQ1CPqrTdYnAlkWVGj8x8NaysCE0TU148mb3lpny5yo1/94+7dQK5USmBEQ==",
+      "sources": [
+        {
+          "url": "https://code.claude.com/docs/en/skills",
+          "revision": "official-docs-as-of-2026-11-03",
+          "verifiedAt": "2026-11-03",
+          "supports": "Documented project skill/MCP interface; version-specific runtime acceptance pending"
+        },
+        {
+          "url": "https://code.claude.com/docs/en/mcp",
+          "revision": "official-docs-as-of-2026-11-03",
+          "verifiedAt": "2026-11-03",
+          "supports": "Documented project skill/MCP interface; version-specific runtime acceptance pending"
+        }
+      ],
+      "runtime": {
+        "node": ">=22.0.0",
+        "platforms": "pending; version probe on darwin-arm64 only",
+        "installationScope": "project assets; host installation external"
+      },
+      "entries": {
+        "skillDirectory": ".claude/skills",
+        "entry": "CLAUDE.md",
+        "mcpTarget": ".mcp.json",
+        "format": "json"
+      },
+      "operations": [],
+      "projectionRules": [],
+      "evidenceStatus": {
+        "source": true,
+        "contract": true,
+        "live": false
+      },
+      "evidenceRefs": [
+        {
+          "capability": "local adapter contracts",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-local-contracts.txt"
+        }
+      ],
+      "pending": [
+        "Closed host implementation; real skill discovery/MCP acceptance remains pending"
+      ]
+    },
+    {
+      "integrationId": "omp",
+      "kind": "agent",
+      "name": "omp",
+      "repository": "https://github.com/can1357/oh-my-pi",
+      "version": "18.1.13",
+      "sourceRevision": "a1b254047d12e143b7c6011536e918c6c35c5906",
+      "sources": [
+        {
+          "url": "https://github.com/can1357/oh-my-pi/blob/a1b254047d12e143b7c6011536e918c6c35c5906/docs/mcp-config.md",
+          "revision": "a1b254047d12e143b7c6011536e918c6c35c5906",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:81bf7137c74365640da71e49fcfbc6063a23799feb43d393d714066e6107fb92",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/can1357/oh-my-pi/blob/a1b254047d12e143b7c6011536e918c6c35c5906/docs/config-usage.md",
+          "revision": "a1b254047d12e143b7c6011536e918c6c35c5906",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:67161ee6ba4812cd39d0c90cfdbc5be5c911aadb04fc85337e00343d8bf7d2ad",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        }
+      ],
+      "runtime": {
+        "bun": ">=1.3.14",
+        "platforms": "pending; local version probes only",
+        "installationScope": "project preferred; no automatic software installation enabled"
+      },
+      "entries": {
+        "skillDirectory": ".omp/skills",
+        "entry": ".omp/AGENTS.md",
+        "mcpTarget": ".omp/mcp.json",
+        "format": "json"
+      },
+      "operations": [],
+      "projectionRules": [],
+      "evidenceStatus": {
+        "source": true,
+        "contract": true,
+        "live": false
+      },
+      "evidenceRefs": [
+        {
+          "capability": "local adapter contracts",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-local-contracts.txt"
+        },
+        {
+          "capability": "native directory parser component",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-omp-skill-parser.txt"
+        },
+        {
+          "capability": "standalone read skill URL without active session",
+          "status": "failed",
+          "path": "docs/compatibility/evidence/2026-11-03-omp-skill-discovery.txt"
+        }
+      ],
+      "pending": [
+        "Native discovery and MCP/runtime compatibility still unverified",
+        "External setup operations require target protection and reconciliation evidence before enabling"
+      ]
+    },
+    {
+      "integrationId": "codex",
+      "kind": "agent",
+      "name": "codex",
+      "repository": "https://github.com/openai/codex",
+      "version": "0.166.0",
+      "sourceRevision": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+      "sources": [
+        {
+          "url": "https://github.com/openai/codex/blob/6ff1e1ca3b30fc8b914720681fcf5fe62e95f856/codex-rs/config/src/mcp_types.rs",
+          "revision": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:af5fb824c092cd74e3a42297979a4d250c332008f5409e14890253728747e71a",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/openai/codex/blob/6ff1e1ca3b30fc8b914720681fcf5fe62e95f856/codex-rs/skills/src/selection.rs",
+          "revision": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:506bc732789ffa40ad03882f2dc81e4b7f6194e1eb5b0854c5d6513f40185f91",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        }
+      ],
+      "runtime": {
+        "runtime": "native binary",
+        "platforms": "pending; local version probes only",
+        "installationScope": "project preferred; no automatic software installation enabled"
+      },
+      "entries": {
+        "skillDirectory": ".agents/skills",
+        "entry": "AGENTS.md",
+        "mcpTarget": ".codex/config.toml",
+        "format": "toml",
+        "trust": "existing project trust required"
+      },
+      "operations": [],
+      "projectionRules": [],
+      "evidenceStatus": {
+        "source": true,
+        "contract": true,
+        "live": false
+      },
+      "evidenceRefs": [
+        {
+          "capability": "local adapter contracts",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-local-contracts.txt"
+        }
+      ],
+      "pending": [
+        "Native discovery and MCP/runtime compatibility still unverified",
+        "External setup operations require target protection and reconciliation evidence before enabling"
+      ]
+    },
+    {
+      "integrationId": "opencode",
+      "kind": "agent",
+      "name": "opencode",
+      "repository": "https://github.com/anomalyco/opencode",
+      "version": "1.18.5",
+      "sourceRevision": "e5cc278dec9294a627a7b05f47ce6a564408c1a2",
+      "sources": [
+        {
+          "url": "https://github.com/anomalyco/opencode/blob/e5cc278dec9294a627a7b05f47ce6a564408c1a2/packages/core/src/v1/config/mcp.ts",
+          "revision": "e5cc278dec9294a627a7b05f47ce6a564408c1a2",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:7993ec591f75a42fc2763e5d22de20c7b216d73cb944e03c6729ecfa331072a9",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/anomalyco/opencode/blob/e5cc278dec9294a627a7b05f47ce6a564408c1a2/packages/opencode/src/skill/index.ts",
+          "revision": "e5cc278dec9294a627a7b05f47ce6a564408c1a2",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:91dce57f590e1ad3103e0555b893500e098a95cde2739422b699233889b205e6",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        }
+      ],
+      "runtime": {
+        "runtime": "bundled binary",
+        "platforms": "pending; local version probes only",
+        "installationScope": "project preferred; no automatic software installation enabled"
+      },
+      "entries": {
+        "skillDirectory": ".opencode/skills",
+        "entry": "AGENTS.md",
+        "mcpTarget": "opencode.jsonc",
+        "format": "jsonc"
+      },
+      "operations": [],
+      "projectionRules": [],
+      "evidenceStatus": {
+        "source": true,
+        "contract": true,
+        "live": false
+      },
+      "evidenceRefs": [
+        {
+          "capability": "local adapter contracts",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-local-contracts.txt"
+        }
+      ],
+      "pending": [
+        "Native discovery and MCP/runtime compatibility still unverified",
+        "External setup operations require target protection and reconciliation evidence before enabling"
+      ]
+    },
+    {
+      "integrationId": "superpowers",
+      "kind": "sdd",
+      "name": "superpowers",
+      "repository": "https://github.com/obra/superpowers",
+      "version": "7.0.1",
+      "sourceRevision": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b",
+      "sources": [
+        {
+          "url": "https://github.com/obra/superpowers/blob/2ce8aa15d05bd57213e6f746f953aafb7ded7a8b/README.md",
+          "revision": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:79f29f50c735862d2e304ea547b4c9aa67d9db6909ff6fb7b5ea922d7bcbc3e7",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/obra/superpowers/blob/2ce8aa15d05bd57213e6f746f953aafb7ded7a8b/skills/brainstorming/SKILL.md",
+          "revision": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:61a7ef918652108c76a3fd01e02dd92d39996c6b46d4cb2819cbd03f6c45e46a",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/obra/superpowers/blob/2ce8aa15d05bd57213e6f746f953aafb7ded7a8b/skills/executing-plans/SKILL.md",
+          "revision": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:e4649e59880ef2643d1da128e3d607e87e3f969410d72095a5bf65811b6036dc",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        }
+      ],
+      "runtime": {
+        "runtime": "host plugin/skills",
+        "platforms": "pending; local version probes only",
+        "installationScope": "project preferred; no automatic software installation enabled"
+      },
+      "entries": {},
+      "operations": [],
+      "projectionRules": [],
+      "evidenceStatus": {
+        "source": true,
+        "contract": true,
+        "live": false
+      },
+      "evidenceRefs": [
+        {
+          "capability": "local adapter contracts",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-local-contracts.txt"
+        }
+      ],
+      "pending": [
+        "Native discovery and MCP/runtime compatibility still unverified",
+        "External setup operations require target protection and reconciliation evidence before enabling"
+      ]
+    },
+    {
+      "integrationId": "openspec",
+      "kind": "sdd",
+      "name": "openspec",
+      "repository": "https://github.com/Fission-AI/OpenSpec",
+      "version": "1.16.0",
+      "sourceRevision": "27c0515724decc633818c735ee596481eec78a8b",
+      "sources": [
+        {
+          "url": "https://github.com/Fission-AI/OpenSpec/blob/27c0515724decc633818c735ee596481eec78a8b/docs/supported-tools.md",
+          "revision": "27c0515724decc633818c735ee596481eec78a8b",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:f8c7a2d30976ba1e925ebe6546d7df50081eaea7455c93a0e7829371c4350faf",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/Fission-AI/OpenSpec/blob/27c0515724decc633818c735ee596481eec78a8b/src/core/config.ts",
+          "revision": "27c0515724decc633818c735ee596481eec78a8b",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:0096f35fd4c472a9b9a21760c509233a4af6d4105da10c7027ab7802c0f53792",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        }
+      ],
+      "runtime": {
+        "node": ">=22.12.0",
+        "platforms": "pending; local version probes only",
+        "installationScope": "project preferred; no automatic software installation enabled"
+      },
+      "entries": {},
+      "operations": [],
+      "projectionRules": [],
+      "evidenceStatus": {
+        "source": true,
+        "contract": true,
+        "live": false
+      },
+      "evidenceRefs": [
+        {
+          "capability": "local adapter contracts",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-local-contracts.txt"
+        }
+      ],
+      "pending": [
+        "Native discovery and MCP/runtime compatibility still unverified",
+        "External setup operations require target protection and reconciliation evidence before enabling"
+      ],
+      "packageIntegrity": "sha512-WQVhZoIR5PoacH/H0qh84VKMcXFbKCIKuAI96arHS3KiKYhJStlRrjUKGxLqLYKLym0j+2hAAY5MZUrPE5qXIA=="
+    },
+    {
+      "integrationId": "spec-kit",
+      "kind": "sdd",
+      "name": "spec-kit",
+      "repository": "https://github.com/github/spec-kit",
+      "version": "e0d414929552a4084d918babfd70d859f129eb13",
+      "sourceRevision": "e0d414929552a4084d918babfd70d859f129eb13",
+      "sources": [
+        {
+          "url": "https://github.com/github/spec-kit/blob/e0d414929552a4084d918babfd70d859f129eb13/README.md",
+          "revision": "e0d414929552a4084d918babfd70d859f129eb13",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:3baa99368443f26244b3a021b40eaf6f167ee591f5759c91315ad50d0a204592",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/github/spec-kit/blob/e0d414929552a4084d918babfd70d859f129eb13/src/specify_cli/integrations/base.py",
+          "revision": "e0d414929552a4084d918babfd70d859f129eb13",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:a2f726f927939a0c9fb911d87c39a48f97702e9c755cf704ba875970dd78782e",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/github/spec-kit/blob/e0d414929552a4084d918babfd70d859f129eb13/src/specify_cli/integrations/codex/__init__.py",
+          "revision": "e0d414929552a4084d918babfd70d859f129eb13",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:e99fc2f3674aaf0a1c1a82a144b55c9772e8b7982b8f6928b2dd680b8309d0d8",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/github/spec-kit/blob/e0d414929552a4084d918babfd70d859f129eb13/templates/commands/implement.md",
+          "revision": "e0d414929552a4084d918babfd70d859f129eb13",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:feab334232940cfd4ecbcdae41cf63ccb7d581a60380230837385f296f7b49bd",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        }
+      ],
+      "runtime": {
+        "python": ">=3.11",
+        "platforms": "pending; local version probes only",
+        "installationScope": "project preferred; no automatic software installation enabled"
+      },
+      "entries": {},
+      "operations": [],
+      "projectionRules": [],
+      "evidenceStatus": {
+        "source": true,
+        "contract": true,
+        "live": false
+      },
+      "evidenceRefs": [
+        {
+          "capability": "local adapter contracts",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-local-contracts.txt"
+        }
+      ],
+      "pending": [
+        "Native discovery and MCP/runtime compatibility still unverified",
+        "External setup operations require target protection and reconciliation evidence before enabling"
+      ]
+    },
+    {
+      "integrationId": "openwiki",
+      "kind": "tool",
+      "name": "openwiki",
+      "repository": "https://github.com/langchain-ai/openwiki",
+      "version": "0.7.3",
+      "sourceRevision": "c5deb62e5bbf06c83a4530cefc82547fa3b3cc19",
+      "sources": [
+        {
+          "url": "https://github.com/langchain-ai/openwiki/blob/c5deb62e5bbf06c83a4530cefc82547fa3b3cc19/src/integrations/install/registry.ts",
+          "revision": "c5deb62e5bbf06c83a4530cefc82547fa3b3cc19",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:9a9bda5e98c694750078ffed2bfa3332d37fdd399dcae0d12598bed12a4cfc98",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/langchain-ai/openwiki/blob/c5deb62e5bbf06c83a4530cefc82547fa3b3cc19/src/cli/cli.tsx",
+          "revision": "c5deb62e5bbf06c83a4530cefc82547fa3b3cc19",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:2d2c3308213f7184507864ce5e9f2bf21589f30ed90882390503f888e9b31bc2",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://docs.npmjs.com/cli/v11/commands/npm-install/",
+          "revision": "npm-cli-v11-docs-as-of-2026-11-03",
+          "verifiedAt": "2026-11-03",
+          "supports": "Pinned project-prefix install, exact version, ignore lifecycle scripts and explicit cache"
+        },
+        {
+          "url": "https://registry.npmjs.org/openwiki/-/openwiki-0.7.3.tgz",
+          "revision": "npm:openwiki@0.7.3",
+          "verifiedAt": "2026-11-03",
+          "entryPath": "package/dist/integrations/install/registry.js",
+          "digest": "sha256:cd2ab0914522f6e8e7887feafdaa44743a01b6208a5ae4184a1f11008a657811",
+          "supports": "Published artifact registry and --host parser verified independently of repository HEAD"
+        },
+        {
+          "url": "https://registry.npmjs.org/openwiki/-/openwiki-0.7.3.tgz",
+          "revision": "npm:openwiki@0.7.3",
+          "verifiedAt": "2026-11-03",
+          "entryPath": "package/dist/cli/commands.js",
+          "digest": "sha256:bac1931e99932e8734b41824d1703fcfc425509df1c0dfd1148f22c6cdda0351",
+          "supports": "Published artifact registry and --host parser verified independently of repository HEAD"
+        }
+      ],
+      "runtime": {
+        "node": ">=22.22.0",
+        "platforms": "software install recipe currently POSIX; other platforms pending",
+        "installationScope": "project preferred; no automatic software installation enabled"
+      },
+      "entries": {},
+      "operations": [
+        {
+          "id": "install:openwiki",
+          "kind": "install",
+          "parameters": {
+            "executable": "npm",
+            "args": [
+              "install",
+              "--prefix",
+              ".rigup/tools/openwiki",
+              "--cache",
+              ".rigup/tools/openwiki/.npm-cache",
+              "--ignore-scripts",
+              "--save-exact",
+              "--no-audit",
+              "--no-fund",
+              "--userconfig",
+              ".rigup/tools/openwiki/.npmrc.user",
+              "--globalconfig",
+              ".rigup/tools/openwiki/.npmrc.global",
+              "--registry",
+              "https://registry.npmjs.org/",
+              "openwiki@0.7.3"
+            ],
+            "cwd": ".",
+            "envRefs": []
+          },
+          "declaredWrites": [
+            ".rigup/tools/openwiki"
+          ],
+          "protection": "new empty scope only; reject existing nonempty scope; recheck before dispatch",
+          "timeoutMs": 300000,
+          "reconciliation": "read package metadata and lock integrity; incomplete or unknown operations require reconciliation before retry"
+        }
+      ],
+      "projectionRules": [],
+      "evidenceStatus": {
+        "source": true,
+        "contract": true,
+        "live": false
+      },
+      "evidenceRefs": [
+        {
+          "capability": "local adapter contracts",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-local-contracts.txt"
+        },
+        {
+          "capability": "published stdio startup and tools/list; not native host loading",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-openwiki-stdio-startup.json"
+        },
+        {
+          "capability": "non-TTY help",
+          "status": "failed",
+          "path": "docs/compatibility/evidence/2026-11-03-openwiki-help-non-tty-error.txt"
+        }
+      ],
+      "pending": [
+        "Native initialization safety and real host MCP acceptance remain pending",
+        "Software installation availability must be verified separately from package metadata"
+      ],
+      "packageIntegrity": "sha512-E5kOUcST7kD7ebX9rJZ4wHfyBAsc58VkvMskEdEKBYw3m1IJ9vFt4Pouk0NkJ3gvEDteHkXEqNGI+oMb+OAwFg=="
+    },
+    {
+      "integrationId": "codegraph",
+      "kind": "tool",
+      "name": "codegraph",
+      "repository": "https://github.com/colbymchenry/codegraph",
+      "version": "1.6.2",
+      "sourceRevision": "f72c9d2efb14454ff4f9fd7b8460abd82f19a287",
+      "sources": [
+        {
+          "url": "https://github.com/colbymchenry/codegraph/blob/f72c9d2efb14454ff4f9fd7b8460abd82f19a287/src/bin/codegraph.ts",
+          "revision": "f72c9d2efb14454ff4f9fd7b8460abd82f19a287",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:5a82580b35949e595b2f1b02f2cf66931a9a64ba2f249d9d1a0370ec67843987",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://github.com/colbymchenry/codegraph/blob/f72c9d2efb14454ff4f9fd7b8460abd82f19a287/src/installer/targets/registry.ts",
+          "revision": "f72c9d2efb14454ff4f9fd7b8460abd82f19a287",
+          "verifiedAt": "2026-11-03",
+          "digest": "sha256:77c734de08dc4506f760fe245e37da5ca04b915e0cf6c18be42fef033e5f8e6b",
+          "supports": "Native interface/schema source; runtime acceptance remains pending"
+        },
+        {
+          "url": "https://docs.npmjs.com/cli/v11/commands/npm-install/",
+          "revision": "npm-cli-v11-docs-as-of-2026-11-03",
+          "verifiedAt": "2026-11-03",
+          "supports": "Pinned project-prefix install, exact version, ignore lifecycle scripts and explicit cache"
+        }
+      ],
+      "runtime": {
+        "node": ">=20.0.0 <25.0.0",
+        "platforms": "software install recipe currently POSIX; other platforms pending",
+        "installationScope": "project preferred; no automatic software installation enabled"
+      },
+      "entries": {},
+      "operations": [
+        {
+          "id": "install:codegraph",
+          "kind": "install",
+          "parameters": {
+            "executable": "npm",
+            "args": [
+              "install",
+              "--prefix",
+              ".rigup/tools/codegraph",
+              "--cache",
+              ".rigup/tools/codegraph/.npm-cache",
+              "--ignore-scripts",
+              "--save-exact",
+              "--no-audit",
+              "--no-fund",
+              "--userconfig",
+              ".rigup/tools/codegraph/.npmrc.user",
+              "--globalconfig",
+              ".rigup/tools/codegraph/.npmrc.global",
+              "--registry",
+              "https://registry.npmjs.org/",
+              "@colbymchenry/codegraph@1.6.2"
+            ],
+            "cwd": ".",
+            "envRefs": []
+          },
+          "declaredWrites": [
+            ".rigup/tools/codegraph"
+          ],
+          "protection": "new empty scope only; reject existing nonempty scope; recheck before dispatch",
+          "timeoutMs": 300000,
+          "reconciliation": "read package metadata and lock integrity; incomplete or unknown operations require reconciliation before retry"
+        }
+      ],
+      "projectionRules": [],
+      "evidenceStatus": {
+        "source": true,
+        "contract": true,
+        "live": false
+      },
+      "evidenceRefs": [
+        {
+          "capability": "local adapter contracts",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-local-contracts.txt"
+        },
+        {
+          "capability": "project software install, integrity and binary version; no indexing/MCP acceptance",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-03-codegraph-project-install.json"
+        }
+      ],
+      "pending": [
+        "Native initialization safety and real host MCP acceptance remain pending",
+        "Software installation availability must be verified separately from package metadata"
+      ],
+      "packageIntegrity": "sha512-hODH/mGnCf3IUMs6rzktv/zbecJIKJfdZAYHZ9mqecb0G7ZkHaA8CZafDVnswANFEL1YFcG+lfAwc5SIXzUH6Q=="
+    }
+  ]
+}

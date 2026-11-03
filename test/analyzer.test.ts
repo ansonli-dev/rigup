@@ -34,3 +34,7 @@ test('numeric_credentials_and_yaml_aliases_cannot_bypass_filter',()=>project(asy
  await writeFile(join(root,'config.yaml'),'shared: &value hidden-secret\ntoken: *value\n');
  await assert.rejects(readEvidence(root,'config.yaml',1,2),/alias|unsupported/);
 }));
+test('ordinary_guidance_about_credentials_remains_readable',()=>project(async root=>{
+ await writeFile(join(root,'TEAM.md'),'Keep API tokens in environment variables. Never log passwords.\n');
+ assert.match((await readEvidence(root,'TEAM.md',1,1)).content,/environment variables/);
+}));

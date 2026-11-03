@@ -1,0 +1,38 @@
+{
+  "caseId": "openwiki/project-software-install",
+  "date": "2026-11-03",
+  "scope": "disposable empty project, no lifecycle scripts, no model call",
+  "platform": "darwin",
+  "arch": "arm64",
+  "node": "v24.15.0",
+  "fixtureCommit": "not-applicable; disposable empty project",
+  "fullHostCompatibility": "pending",
+  "command": {
+    "executable": "npm",
+    "args": [
+      "install",
+      "--prefix",
+      "<fixture>/.rigup/tools/openwiki",
+      "--cache",
+      "<fixture>/.rigup/tools/openwiki/.npm-cache",
+      "--ignore-scripts",
+      "--save-exact",
+      "--no-audit",
+      "--no-fund",
+      "--userconfig",
+      "<fixture>/.rigup/tools/openwiki/.npmrc.user",
+      "--globalconfig",
+      "<fixture>/.rigup/tools/openwiki/.npmrc.global",
+      "--registry",
+      "https://registry.npmjs.org/",
+      "openwiki@0.7.3"
+    ],
+    "cwd": ".",
+    "envRefs": []
+  },
+  "installExitCode": 0,
+  "packageVersion": "0.7.3",
+  "status": "failed",
+  "error": "TypeError: Cannot read properties of undefined (reading 'integrity')",
+  "logDigest": "17ff26e61c8f1d864efb38a296c07429ef5e806807c0ccf8c09054a653459296"
+}

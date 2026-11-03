@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-03",
+  "platform": "darwin-arm64",
+  "scope": "version probes only; no skill/connection acceptance",
+  "observations": {
+    "claude": {
+      "command": "claude --version",
+      "observed": "2.1.273 (Claude Code)"
+    },
+    "codex": {
+      "command": "codex --version",
+      "observed": "codex-cli 0.166.0"
+    },
+    "opencode": {
+      "command": "opencode --version",
+      "observed": "1.18.5"
+    },
+    "omp": {
+      "command": "omp --version",
+      "observed": "omp/18.1.13"
+    },
+    "openwiki": {
+      "command": "openwiki --version",
+      "observed": "Unknown option: --version",
+      "status": "failed",
+      "packageMetadataVersion": "0.5.2"
+    }
+  }
+}

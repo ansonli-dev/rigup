@@ -1,0 +1,1 @@
+export const specKit={id:'spec-kit',prepare:['constitution','specify','plan','tasks'],deliver:['implement','converge'],artifacts:['.specify','specs'],gates:['Retain constitution checks, clarification and native prerequisite validation','Retain registered mandatory pre/post execution hooks','Review each native result before continuing when required upstream']};

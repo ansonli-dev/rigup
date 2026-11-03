@@ -1,3 +1,4 @@
+import {validateOptions} from '../config.js';
 import type {Evidence,StepResult} from '../types.js';
 export interface RepositoryReader {list():Promise<string[]>;read(path:string,start:number,end?:number):Promise<{content:string;evidence:Evidence}>;search(query:string):Promise<{content:string;evidence:Evidence}[]>}
 export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;previousInventoryDigest:string;templateSourcesDigest:string}
@@ -49,4 +50,12 @@ export async function validateResearch(data:unknown,reader:RepositoryReader):Pro
 
 export class ResearchFailure extends Error {
  constructor(message:string,readonly unknowns:string[]=['Research incomplete; no semantic result accepted']) {super(message);this.name='ResearchFailure';}
+}
+
+export function validateResearchRequest(request:ResearchRequest):void {
+ if(!['analyze','artifact-plan','artifact-content'].includes(request.kind)) throw new Error('research.kind: invalid');
+ for(const field of ['runId','root','fingerprint','previousInventoryDigest','templateSourcesDigest'] as const) if(typeof request[field] !== 'string' || !request[field]) throw new Error('research.'+field+': required');
+ if(!request.options || typeof request.options !== 'object' || Array.isArray(request.options)) throw new Error('research.options: expected object');
+ validateOptions(request.options as Record<string,unknown>);
+ for(const field of ['maxCalls','maxTokens'] as const) if(!Number.isSafeInteger(request.budget?.[field]) || request.budget[field]<0) throw new Error('research.budget.'+field+': invalid');
 }

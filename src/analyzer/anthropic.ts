@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import {ResearchFailure,validateResearch,type AnalysisBackend} from './backend.js';
+import {ResearchFailure,validateResearchRequest,validateResearch,type AnalysisBackend} from './backend.js';
 import {researchPrompt} from './prompts.js';
 const tools:Anthropic.Tool[]=[
  {name:'list',description:'List allowed source paths',input_schema:{type:'object',properties:{},additionalProperties:false}},
@@ -8,6 +8,7 @@ const tools:Anthropic.Tool[]=[
 ];
 export function nativeBackend(options:{apiKey?:string;model?:string;fetch?:typeof fetch}={apiKey:process.env.ANTHROPIC_API_KEY,model:process.env.ANTHROPIC_MODEL}):AnalysisBackend {
  return {run:async(request,reader)=>{
+  validateResearchRequest(request);
   if(!options.apiKey || !options.model) throw new Error('model configuration: API key and model required');
   if(request.budget.maxCalls<1 || request.budget.maxTokens<1) throw new ResearchFailure('research budget exhausted');
   const spent=request.spent ?? {calls:0,tokens:0};

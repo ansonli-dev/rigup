@@ -1,0 +1,36 @@
+{
+  "caseId": "openwiki/project-software-install",
+  "date": "2026-11-03",
+  "scope": "disposable empty project, no lifecycle scripts, no model call",
+  "platform": "darwin",
+  "arch": "arm64",
+  "node": "v24.15.0",
+  "fixtureCommit": "not-applicable; disposable empty project",
+  "fullHostCompatibility": "pending",
+  "command": {
+    "executable": "npm",
+    "args": [
+      "install",
+      "--prefix",
+      "<fixture>/.rigup/tools/openwiki",
+      "--cache",
+      "<fixture>/.rigup/tools/openwiki/.npm-cache",
+      "--ignore-scripts",
+      "--save-exact",
+      "--no-audit",
+      "--no-fund",
+      "--userconfig",
+      "/dev/null",
+      "--globalconfig",
+      "/dev/null",
+      "--registry",
+      "https://registry.npmjs.org/",
+      "openwiki@0.7.3"
+    ],
+    "cwd": ".",
+    "envRefs": []
+  },
+  "installExitCode": 1,
+  "status": "failed",
+  "logDigest": "250e369d730a46c4d41df37449a5c58c169b4b1d2ab546951a8bed0285805a95"
+}

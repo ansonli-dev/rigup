@@ -1,0 +1,1 @@
+export const openspec={id:'openspec',prepare:['openspec-propose'],deliver:['openspec-apply-change','openspec-archive-change'],artifacts:['openspec/specs','openspec/changes'],gates:['Retain native artifact dependency checks and archive decisions','Use existing project checks before marking implementation complete']};
