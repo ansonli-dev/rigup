@@ -1,0 +1,61 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {project} from './helpers.js';import {mkdir,writeFile,readFile,symlink} from 'node:fs/promises';
+import {preview} from '../src/installer/preview.js';import {ownedContent,replaceOwned} from '../src/installer/ownership.js';
+import type {SetupPlan,ManagedAsset} from '../src/types.js';import {digest} from '../src/analyzer/evidence.js';
+function plan(root:string,target='owned.md',content='next'):SetupPlan{return {root,fingerprint:'source',options:{agents:[],backend:'host'},assets:[{logicalId:'a',target,content,ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],dispositions:[],operations:[],warnings:[],requirements:[],versions:{}};}
+async function fixture(fn:(root:string,cache:string)=>Promise<void>){await project(async root=>project(async cache=>fn(root,cache)));}
+async function manifest(root:string,asset:Partial<ManagedAsset>={},base='base'){
+ await mkdir(root+'/.rigup/baseline/old',{recursive:true});await writeFile(root+'/.rigup/baseline/old/a',base);
+ const a={logicalId:'a',target:'owned.md',ownership:{kind:'file'},digest:digest(base),baseline:'.rigup/baseline/old/a',...asset};await writeFile(root+'/.rigup/manifest.json',JSON.stringify({schemaVersion:1,installId:'old',assets:[a]}));return a;
+}
+test('preview_is_read_only_and_existing_unowned_target_conflicts',()=>fixture(async(root,cache)=>{
+ await writeFile(root+'/owned.md','user');const p=await preview(plan(root),[],{cacheRoot:cache});assert.equal(p.executable,false);assert.equal(p.items[0].action,'conflict');assert.equal(await readFile(root+'/owned.md','utf8'),'user');
+}));
+test('jsonc_comments_and_unknown_fields_survive',()=>{
+ const text='{\n // Keep this comment\n "secret":"CUSTOMER_SECRET", "mcp":{"old":{"x":1}}\n}';const o={kind:'json-key' as const,path:['mcp','new']};const next=replaceOwned(text,o,'{"command":"tool"}')!;assert.match(next,/Keep this comment/);assert.match(next,/CUSTOMER_SECRET/);assert.match(next,/"old"/);assert.equal(JSON.parse(ownedContent(next,o)!).command,'tool');
+});
+test('toml_unowned_tables_survive',()=>{
+ const text='secret = "CUSTOMER_SECRET"\n\n[mcp_servers.old]\ncommand = "old"\n';const o={kind:'toml-table' as const,path:['mcp_servers','new']};const result=replaceOwned(text,o,'[mcp_servers.new]\ncommand = "new"\n')!;assert.ok(result.startsWith(text));assert.match(result,/command = "new"/);
+});
+test('malformed_markers_need_manual_patch',()=>assert.throws(()=>ownedContent('before\n<!-- rigup:start -->\nbroken',{kind:'block',start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'}),/marker/));
+test('baseline_never_copies_unowned_secrets_and_public_preview_does_not_leak',()=>fixture(async(root,cache)=>{
+ const p=plan(root,'config.json','{"command":"tool"}');p.assets[0].ownership={kind:'json-key',path:['mcp','tool']};await writeFile(root+'/config.json','{"secret":"CUSTOMER_SECRET"}');const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.executable,true);assert.doesNotMatch(JSON.stringify(r),/CUSTOMER_SECRET/);
+}));
+test('old_inventory_omission_and_untrusted_retained_baseline_block',()=>fixture(async(root,cache)=>{
+ await manifest(root);await assert.rejects(()=>preview(plan(root),[],{cacheRoot:cache}),/disposition/);const p=plan(root);p.assets=[];p.dispositions=[{logicalId:'a',action:'retain',reason:'keep'}];await writeFile(root+'/.rigup/baseline/old/a','tampered');const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.executable,false);
+}));
+test('resolution_binds_exact_full_target_digest_and_selector',()=>fixture(async(root,cache)=>{
+ await writeFile(root+'/owned.md','user');await assert.rejects(()=>preview(plan(root),[{target:'owned.md',selector:{kind:'file'},observedDigest:digest('stale'),action:'adopt'}],{cacheRoot:cache}),/changed|digest/);
+ const r=await preview(plan(root),[{target:'owned.md',selector:{kind:'file'},observedDigest:digest('user'),action:'replace'}],{cacheRoot:cache});assert.equal(r.executable,true);
+}));
+test('kept_local_content_cannot_break_required_bindings',()=>fixture(async(root,cache)=>{
+ const base='[guide](guide.md)\n';await manifest(root,{},base);await writeFile(root+'/owned.md','[guide](missing.md)\n');await writeFile(root+'/guide.md','guide');const p=plan(root,'owned.md',base);p.dispositions=[{logicalId:'a',action:'update',reason:'refresh'}];const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.executable,false);assert.ok(r.blockers.some((s:string)=>/link|navigation/.test(s)));
+}));
+test('preview_denies_symlinked_target',()=>fixture(async(root,cache)=>{
+ await symlink(cache,root+'/linked');await assert.rejects(()=>preview(plan(root,'linked/file.md'),[],{cacheRoot:cache}),/symlink/);
+}));
+import {loadPreview} from '../src/installer/preview.js';
+test('retained_candidate_cannot_silently_replace_old_baseline',()=>fixture(async(root,cache)=>{
+ await manifest(root);await writeFile(root+'/owned.md','base');const p=plan(root);p.dispositions=[{logicalId:'a',action:'retain',reason:'keep'}];await assert.rejects(()=>preview(p,[],{cacheRoot:cache}),/retain|baseline/);
+}));
+test('unrelated_local_edits_remain_preserved_and_baseline_contains_only_N',()=>fixture(async(root,cache)=>{
+ const o={kind:'block' as const,start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'};const base=o.start+'\nold\n'+o.end+'\n',next=o.start+'\nnew\n'+o.end+'\n';await manifest(root,{ownership:o},base);await writeFile(root+'/owned.md','User CUSTOMER_SECRET\n'+base+'Unrelated note\n');const p=plan(root,'owned.md',next);p.assets[0].ownership=o;p.dispositions=[{logicalId:'a',action:'update',reason:'refresh'}];const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.executable,true);const data=await loadPreview(r.previewId,cache);assert.match(data.files[0].next!,/CUSTOMER_SECRET/);assert.equal(data.baselines[0].content,next);assert.doesNotMatch(JSON.stringify(data.baselines),/CUSTOMER_SECRET/);assert.doesNotMatch(JSON.stringify(r),/CUSTOMER_SECRET/);
+}));
+test('nonoverlapping_merge_still_checks_reference_targets',()=>fixture(async(root,cache)=>{
+ const base='title\n\nbody\n\n[guide](guide.md)\n';await manifest(root,{},base);await writeFile(root+'/owned.md','local title\n\nbody\n\n[guide](missing.md)\n');const p=plan(root,'owned.md','title\n\nnew body\n\n[guide](guide.md)\n');p.dispositions=[{logicalId:'a',action:'update',reason:'refresh'}];const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.executable,false);assert.ok(r.blockers.some(b=>/navigation/.test(b)));
+}));
+test('candidate_overlap_and_fabricated_external_recipe_are_blocked',()=>fixture(async(root,cache)=>{
+ const p=plan(root);p.operations=[{id:'evil',integrationId:'openwiki',kind:'install',parameters:{executable:'sh',args:['-c','touch owned.md'],cwd:root,envRefs:[]},prerequisiteIds:[],declaredWrites:['.'],version:'0.7.3',timeoutMs:100,protection:{kind:'new-empty-scope',target:'.'},query:{kind:'npm-package',name:'openwiki',version:'0.7.3',packageJson:'package.json',packageLock:'package-lock.json'}}];const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.executable,false);assert.ok(r.blockers.some(b=>/recipe|protection/.test(b)));
+}));
+test('retirement_only_removes_unmodified_owned_selector',()=>fixture(async(root,cache)=>{
+ const o={kind:'json-key' as const,path:['mcp','managed']};const base='{"command":"tool"}';await manifest(root,{target:'config.json',ownership:o},base);await writeFile(root+'/config.json','{"secret":"CUSTOMER_SECRET","mcp":{"managed":'+base+',"other":{"command":"other"}}}');const p=plan(root);p.assets=[];p.dispositions=[{logicalId:'a',action:'retire',reason:'explicitly unselected'}];const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.executable,true);const d=await loadPreview(r.previewId,cache);assert.equal(d.assets.length,0);assert.match(d.files[0].next!,/CUSTOMER_SECRET/);assert.match(d.files[0].next!,/other/);assert.doesNotMatch(d.files[0].next!,/managed/);
+}));
+test('local_deletion_of_fixed_consumer_binding_blocks_even_when_N_equals_B',()=>fixture(async(root,cache)=>{
+ const base='# Entry\n\n[guide](guide.md)\n';await manifest(root,{},base);await writeFile(root+'/owned.md','# Entry\n\nA local note\n');await writeFile(root+'/guide.md','guide');const p=plan(root,'owned.md',base);p.assets[0].source.kind='fixed-template';p.dispositions=[{logicalId:'a',action:'update',reason:'refresh'}];const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.items[0].action,'keep');assert.equal(r.executable,false);assert.ok(r.blockers.some(b=>/binding removed/.test(b)));assert.equal(await readFile(root+'/owned.md','utf8'),'# Entry\n\nA local note\n');
+}));
+test('generated_candidates_cannot_target_installer_metadata',()=>fixture(async(root,cache)=>{
+ await assert.rejects(()=>preview(plan(root,'.rigup/manifest.json'),[],{cacheRoot:cache}),/metadata|reserved/);
+}));
+test('explicit_identity_replacement_uses_old_B_and_preserves_local_changes',()=>fixture(async(root,cache)=>{
+ await manifest(root,{},'line1\nline2\nline3\nline4\n');await writeFile(root+'/owned.md','local\nline2\nline3\nline4\n');const p=plan(root,'owned.md','line1\nline2\nline3\nnext\n');p.assets[0].logicalId='replacement';p.dispositions=[{logicalId:'a',action:'retire',reason:'explicit identity replacement'}];const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.executable,true);const data=await loadPreview(r.previewId,cache);assert.deepEqual(data.assets.map(a=>a.logicalId),['replacement']);assert.equal(data.files[0].next,'local\nline2\nline3\nnext\n');
+}));
