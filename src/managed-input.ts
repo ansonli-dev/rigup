@@ -24,7 +24,8 @@ export function projectInput(text:string,ownership:Ownership[],preserveLines=fal
   if(selector.kind !== 'block') continue;
   const start=text.indexOf(selector.start); const end=text.indexOf(selector.end);
   if(start<0 || end<start || text.indexOf(selector.start,start+selector.start.length)>=0 || text.indexOf(selector.end,end+selector.end.length)>=0) throw new Error('ownership markers ambiguous or missing');
-  text=text.slice(0,start)+(preserveLines ? '\n'.repeat((text.slice(start,end+selector.end.length).match(/\n/g)||[]).length) : '')+text.slice(end+selector.end.length);
+  let last=end+selector.end.length;if(text.slice(last,last+2)==='\r\n')last+=2;else if(text[last]==='\n')last++;
+  text=text.slice(0,start)+(preserveLines ? '\n'.repeat((text.slice(start,last).match(/\n/g)||[]).length) : '')+text.slice(last);
  }
  return text;}
 export async function remoteInput(version:string|undefined,read:()=>Promise<string>):Promise<string>{return read();}

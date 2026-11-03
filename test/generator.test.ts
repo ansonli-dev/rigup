@@ -116,3 +116,13 @@ test('candidate_is_saved_before_job_status_becomes_done',()=>fixture(async(root,
  const save=async(path:string,text:string)=>{const state=JSON.parse(text);const c=state.candidates.errors;if(c?.accepted&&state.plan.jobs[0].status==='pending')candidateSaved=true;if(state.plan?.jobs[0]?.status==='done'){assert.equal(candidateSaved,true);sawDone=true;}await saveCache(path,text);};
  await generate(await scanRepository(root,opts),opts,backend,[],{cacheRoot:cache,save});assert.equal(sawDone,true);
 }));
+test('bounded_repair_attempt_survives_host_pause_without_resetting_budget_or_attempt',()=>fixture(async(root,cache)=>{
+ const f=fake();let rejected=false,paused=false,resuming=false;
+ const backend:AnalysisBackend={run:async(r,reader)=>{
+  if(resuming&&r.expectedOutput==='content')assert.equal((r.input as any).attempt,1);
+  if(r.expectedOutput==='acceptance'&&!rejected){rejected=true;return {status:'complete',value:{data:{observations:[],unknowns:[],accepted:false,reason:'insufficient first candidate'},model:'test',unknowns:[],usage:{calls:1,tokens:1}}};}
+  if(r.expectedOutput==='content'&&rejected&&!paused){paused=true;return {status:'pending-host',requestId:'repair',requestPath:'/private/repair',nextCommand:'resume'};}
+  return f.backend.run(r,reader);
+ }};
+ const p=await scanRepository(root,opts);assert.equal((await generate(p,opts,backend,[],{cacheRoot:cache})).status,'pending-host');resuming=true;assert.equal((await generate(p,opts,backend,[],{cacheRoot:cache})).status,'complete');
+}));

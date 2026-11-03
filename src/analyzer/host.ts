@@ -31,6 +31,14 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string}):Ana
   const requestId=requestDigest;
   const requestPath=join(cache,requestId+'.request.json');
   const acceptedPath=join(cache,requestId+'.accepted.json');
+  if(!options.responsePath) {
+   try {
+    if((await lstat(acceptedPath)).isSymbolicLink()||(await lstat(requestPath)).isSymbolicLink())throw new Error('accepted/request path symlink denied');
+    const accepted=JSON.parse(await readFile(acceptedPath,'utf8'));const exported=JSON.parse(await readFile(requestPath,'utf8'));
+    if(accepted.requestDigest!==requestDigest||stable(exported.context)!==stable(context)||exported.instructions!==researchPrompt)throw new Error('cached host acceptance context changed');
+    await validateResearch(accepted.result.data,reader);return {status:'complete',value:accepted.result};
+   }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+  }
   if(options.responsePath) {
    const responsePath=resolve(options.responsePath);
    if(!inside(cache,responsePath) || await realpath(responsePath) !== responsePath || (await lstat(responsePath)).isSymbolicLink()) throw new Error('response must stay in private cache');

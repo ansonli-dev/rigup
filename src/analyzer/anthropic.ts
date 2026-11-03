@@ -6,7 +6,7 @@ const tools:Anthropic.Tool[]=[
  {name:'read',description:'Read filtered evidence and visible digest',input_schema:{type:'object',properties:{path:{type:'string'},startLine:{type:'integer'},endLine:{type:'integer'}},required:['path','startLine','endLine'],additionalProperties:false}},
  {name:'search',description:'Search filtered project text',input_schema:{type:'object',properties:{query:{type:'string'}},required:['query'],additionalProperties:false}},
 ];
-export function nativeBackend(options:{apiKey?:string;model?:string;fetch?:typeof fetch}={apiKey:process.env.ANTHROPIC_API_KEY,model:process.env.ANTHROPIC_MODEL}):AnalysisBackend {
+export function nativeBackend(options:{apiKey?:string;model?:string;fetch?:typeof fetch;signal?:AbortSignal}={apiKey:process.env.ANTHROPIC_API_KEY,model:process.env.ANTHROPIC_MODEL}):AnalysisBackend {
  return {run:async(request,reader)=>{
   validateResearchRequest(request);
   if(!options.apiKey || !options.model) throw new Error('model configuration: API key and model required');
@@ -19,10 +19,10 @@ export function nativeBackend(options:{apiKey?:string;model?:string;fetch?:typeo
   for(let calls=1;calls<=request.budget.maxCalls;calls++) {
    if(requests+spent.calls+2>request.budget.maxCalls) throw new ResearchFailure('research request budget exhausted');
    requests++;
-   const count=await client.messages.countTokens({model:options.model,system:researchPrompt,messages,tools}).catch(()=>{throw new ResearchFailure('provider request failed; research incomplete');});
+   const count=await client.messages.countTokens({model:options.model,system:researchPrompt,messages,tools},{signal:options.signal}).catch(()=>{throw new ResearchFailure('provider request failed; research incomplete');});
    if(!Number.isSafeInteger(count.input_tokens) || count.input_tokens<0 || count.input_tokens>=request.budget.maxTokens-tokens-spent.tokens) throw new ResearchFailure('research input token budget exhausted');
    requests++;
-   const response=await client.messages.create({model:options.model,max_tokens:Math.min(4096,request.budget.maxTokens-tokens-spent.tokens-count.input_tokens),system:researchPrompt,messages,tools}).catch(()=>{throw new ResearchFailure('provider request failed; research incomplete');});
+   const response=await client.messages.create({model:options.model,max_tokens:Math.min(4096,request.budget.maxTokens-tokens-spent.tokens-count.input_tokens),system:researchPrompt,messages,tools},{signal:options.signal}).catch(()=>{throw new ResearchFailure('provider request failed; research incomplete');});
    tokens+=response.usage.input_tokens+response.usage.output_tokens+(response.usage.cache_creation_input_tokens??0)+(response.usage.cache_read_input_tokens??0);
    if(tokens+spent.tokens>request.budget.maxTokens) throw new ResearchFailure('research token budget exhausted; incomplete research');
    if(response.stop_reason === 'end_turn') {

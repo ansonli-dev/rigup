@@ -15,9 +15,9 @@ import {validateArtifactList,type ArtifactJob} from './artifacts.js';
 import {validateDocumentJob,validateDocumentContent,validateTemplateContent,DOCUMENT_POLICY_VERSION} from './document-policy.js';
 import {renderFixed,validateNavigation,TEMPLATE_VERSION,type GuidanceBinding} from './render.js';
 import {signature,privateDirectory,readCache,saveCache} from './cache.js';
-export interface GenerationDependencies {cacheRoot?:string;save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
+export interface GenerationDependencies {cacheRoot?:string;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
 interface Candidate {job:ArtifactJob;content:string;digest:string;accepted:boolean}
-interface State {version:1;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;spent:{calls:number;tokens:number|'unknown'}}
+interface State {version:1;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;spent:{calls:number;tokens:number|'unknown'}}
 export function inventorySignature(assets:ManagedAsset[]):string {return signature(assets.map(a=>({logicalId:a.logicalId,target:a.target,ownership:a.ownership,digest:a.digest})).sort((a,b)=>a.logicalId.localeCompare(b.logicalId)));}
 export async function generate(profile:ProjectProfile,options:SetupOptions,backend:AnalysisBackend,previousAssets:ManagedAsset[]=[],dependencies:GenerationDependencies={}):Promise<StepResult<SetupPlan>> {
  const integration=await prepareIntegrations(profile,options);
@@ -31,7 +31,8 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  const path=join(cache,baseKey+'.json');const save=dependencies.save??saveCache;
  const inv=inventorySignature(previousAssets);
  let state=await readCache<State>(path);
- if(!state||state.version!==1||![state.inputInventory,state.resultInventory].includes(inv)||!state.candidates||!state.spent)state={version:1,inputInventory:inv,runId:randomUUID(),candidates:{},spent:{calls:0,tokens:0}};
+ if(!state||state.version!==1||![state.inputInventory,state.resultInventory].includes(inv)||!state.candidates||!state.spent)state={version:1,inputInventory:inv,runId:dependencies.runId??randomUUID(),candidates:{},spent:dependencies.spent??{calls:0,tokens:0}};
+ state.attempts??={};
  const persist=()=>save(path,JSON.stringify(state));
  const reader=await repositoryReader(profile.root,options);
  const run=async(expectedOutput:'plan'|'content'|'acceptance',input:unknown,artifact?:string):Promise<StepResult<ResearchResult>>=>{
@@ -69,7 +70,8 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   if(candidate && (candidate.digest!==digest(candidate.content)||signature({...candidate.job,status:'pending'})!==signature({...job,status:'pending'}))) {delete state.candidates[job.logicalId];candidate=undefined!;}
   if(!candidate?.accepted) {
    let accepted=false;
-   for(let attempt=0;attempt<2&&!accepted;attempt++) {
+   for(let attempt=state.attempts[job.logicalId]??0;attempt<2&&!accepted;attempt++) {
+    state.attempts[job.logicalId]=attempt;
     let content=candidate?.content;
     if(!candidate) {
      const response=await run('content',{job,research:state.plan.research,attempt},job.logicalId);
@@ -87,7 +89,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
     if(accepted) {
      // Persist accepted bytes and digest atomically before marking this job done.
      candidate={job:{...job},content:content!,digest:digest(content!),accepted:true};state.candidates[job.logicalId]=candidate;await persist();
-    } else {delete state.candidates[job.logicalId];candidate=undefined!;await persist();}
+    } else {delete state.candidates[job.logicalId];candidate=undefined!;state.attempts[job.logicalId]=attempt+1;await persist();}
    }
    if(!accepted)throw new Error('required artifact failed semantic acceptance: '+job.logicalId);
   }
@@ -103,7 +105,8 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  validateNavigation(assets,profile.files);
  const seen=new Set<string>();for(const a of assets){const key=a.target+signature(a.ownership);if(seen.has(key))throw new Error('duplicate candidate target');seen.add(key);}
  const effectiveDispositions=state.resultInventory===inv ? previousAssets.map(a=>({logicalId:a.logicalId,action:'retain' as const,reason:'Inventory matches accepted candidates'})) : state.plan.dispositions;
- const dispositions=effectiveDispositions.map(d=>{
+ const dispositions=effectiveDispositions.map(original=>{
+  const d=!options.sdd&&assets.some(a=>a.logicalId===original.logicalId)?{...original,action:'update' as const,reason:'Explicit deterministic selection refreshed'}:original;
   const replacement=assets.find(a=>a.logicalId===d.logicalId);
   if(d.action==='update'&&!replacement)throw new Error('update disposition lacks replacement');
   if(d.action==='retire'&&replacement)throw new Error('retired asset still active');

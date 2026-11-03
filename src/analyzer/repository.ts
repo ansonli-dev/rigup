@@ -40,7 +40,7 @@ export async function scanRepository(root:string,options:SetupOptions):Promise<P
    bytes+=raw.length;
    let projected:string|null=raw.toString('utf8');
    try {projected=projectInput(projected,managed.get(path)||[]);}catch {profile.truncated=true;profile.unknowns.push(path+': ownership projection failed');continue;}
-   if(projected === null) continue;
+   if(projected === null || projected === '' && managed.has(path)) continue;
    profile.files.push(path);
    for(const agent of Object.keys(agents) as Agent[]) {
     const host=agents[agent];

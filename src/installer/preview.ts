@@ -1,5 +1,8 @@
 import {parse as parseJsonc} from 'jsonc-parser';
 import {parse as parseToml} from 'smol-toml';
+import {filterContent} from '../analyzer/read-policy.js';
+import {scanRepository} from '../analyzer/repository.js';
+import {projectInput} from '../managed-input.js';
 import {readFile,lstat,readdir,realpath} from 'node:fs/promises';
 import {join,posix} from 'node:path';
 import {homedir} from 'node:os';
@@ -16,10 +19,10 @@ import {loadManifest,trustedBaseline,type Manifest} from './baseline.js';
 import {mergeManaged,type MergeResult} from './merge.js';
 import {targetPath,ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;action:'adopt'|'restore'|'replace'|'remove'}
-export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string}
+export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;before?:string;after?:string}
 export interface Preview {previewId:string;root:string;executable:boolean;items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;next?:string;encoding:'utf8'|'base64';mode?:number}
-export interface PreviewData {schemaVersion:1;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[];operationPreconditions:{id:string;state:'missing'|'empty'}[]}
+export interface PreviewData {schemaVersion:1;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[];operationPreconditions:{id:string;state:'missing'|'empty'}[]}
 export const absentDigest=digest('rigup:absent');
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
 export async function readTarget(root:string,target:string):Promise<Buffer|undefined>{try{return await readFile(await targetPath(root,target));}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return;throw e;}}
@@ -86,11 +89,12 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    if(result.action!=='conflict'&&entry.action!=='remove') {
     if(entry.candidate){
      const content=entry.candidate.content;const bytes=asset.encoding==='base64'?Buffer.from(content,'base64'):Buffer.from(content);
-     nextAssets.push({...entry.candidate,digest:digest(bytes)});baselineRecords.push({logicalId:asset.logicalId,content,encoding:asset.encoding??'utf8'});
+     const {content:generatedContent,...metadata}=entry.candidate;nextAssets.push({...metadata,digest:digest(bytes)});baselineRecords.push({logicalId:asset.logicalId,content,encoding:asset.encoding??'utf8'});
     }else if(entry.old){nextAssets.push(entry.old);baselineRecords.push({logicalId:asset.logicalId,content:base!,encoding:asset.encoding??'utf8'});}
    }
   }
-  items.push({logicalId:asset.logicalId,target:asset.target,ownership:asset.ownership,action:result.action,reason:result.reason,observedDigest});
+  const display=(content:string|undefined)=>{if(content===undefined)return undefined;if(asset.encoding==='base64')return '[binary content]';try{return filterContent(asset.target,content).slice(0,4000);}catch{return '[content withheld by read policy]';}};
+  items.push({logicalId:asset.logicalId,target:asset.target,ownership:asset.ownership,action:result.action,reason:result.reason,observedDigest,...(!['noop','keep'].includes(result.action)?{before:display(local),after:display(result.action==='remove'?undefined:result.content??entry.candidate?.content)}:{})});
  }
  if(usedResolutions.size!==resolutions.length)throw new Error('resolution target/selector does not match planned item');
  const operationPreconditions:PreviewData['operationPreconditions']=[];
@@ -127,7 +131,19 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const publicPreview:Preview={previewId,root,executable:blockers.length===0,items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,next:f.text,encoding:f.encoding,mode:f.mode}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
- const data:PreviewData={schemaVersion:1,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,files,assets:nextAssets,baselines:baselineRecords,operationPreconditions};
+ const data:PreviewData={schemaVersion:1,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan),files,assets:nextAssets,baselines:baselineRecords,operationPreconditions};
  const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
  return publicPreview;
+}
+
+export async function installationInput(root:string,plan:SetupPlan):Promise<string>{
+ const profile=await scanRepository(root,plan.options);const old=(await loadManifest(root))?.assets??[];const values:string[]=[];
+ for(const path of profile.files) {
+  let raw=(await readTarget(root,path))!.toString('utf8');
+  const selectors=[...old,...plan.assets].filter(a=>a.target===path).map(a=>a.ownership);
+  const unique=[...new Map(selectors.map(s=>[signature(s),s])).values()];
+  const present=unique.filter(s=>ownedContent(raw,s)!==undefined);
+  const text=projectInput(raw,present);if(text!==null)values.push(path+'\0'+digest(text));
+ }
+ const config=await readTarget(root,'.rigup/config.yaml');return signature({values,config:config?digest(config):absentDigest});
 }
