@@ -8,7 +8,7 @@ export interface SetupOptions {
   customSkills?: {source:string;position?:'prepare'|'deliver'|'release'}[];
   projectConventions?: {tracker?:{system:'gitlab'|'github'|'local'|'other';reference?:string;description?:string};documentRoutes?:Record<string,string>;labelMapping?:Record<string,string>};
   model?: {provider:'anthropic';model:string;apiKeyEnv:string};
-  backend: 'native' | 'host';
+  backend: 'codex' | 'native' | 'host';
   executionPolicy?:{mode:'continuous'|'review'};
   profile?: string;
   scope?: string[];

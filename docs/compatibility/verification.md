@@ -96,3 +96,16 @@ pending 表示缺条件或未验证；尚无足够已核实限制将这些场景
 - doctor 只读核验原生初始化，unchanged update 不重装、不重新初始化。真实 Codex app-server 加载两个 MCP，调用 CodeGraph 原生主入口 explore 并恢复 OpenWiki。此组连接验收 modelCalls=0，没有模型选择或切换。
 
 Claude 及其他宿主、其他平台、独立模型矩阵按用户要求延后。OpenWiki 正文生成的语义质量、GitLab/部署等需要外部目标或凭据的场景不由本组证据推定通过。
+
+## 默认本机 Codex 研究主线（2026-11-04）
+
+新增 `backend: codex`，并作为 fresh setup 的默认研究后端；agent 默认为 Codex。显式 `host` 文件交换和 Anthropic `native` 保留；仅有既存 Anthropic model 配置而未写 backend 的项目继续使用 native，不被默认值更换提供方。
+
+[最新真实结果](evidence/2026-11-04-native-initialization/codex-mainline.json)：Codex CLI 0.166.0、官方 OpenSpec 1.16.0、当前默认模型，无 `--model` 覆盖。研究/规划实际 2 次请求，分别 48378 和 53192 token，合计 101570，在 fixture 开始前明确的 8 请求/300000 token 预算内。固定 workflows/references 与根入口共写入 5 项；下一次 update 写入 0 项、预算日志逐字不变，没有新模型调用；原 README 和业务源码保持原样。这是执行/接线验收，不替代正式语义或人工批准。实际模型 ID 未由 CLI 暴露，结果明确标为 default/unknown，不推断成指定模型已通过。
+
+- 只把既有 RepositoryReader/host 协议过滤后的证据交给 Codex，在项目外新建空私有 cwd；忽略用户配置并禁用 shell、浏览器、应用、图像读取、子 agent、宿主 skill 发现等入口。接收的 JSON 必须继续通过真实 Evidence 校验，观察到工具活动就拒绝，原始错误/模型文本不进入用户错误信息。
+- 输入发送前持久保留未知用量和进程身份；完成后从真实 turn.completed 记录 input+output token（缓存输入不重复加计），已接收结果复用消费 0 新调用。预算与未决尝试保存到独立 state/codex；普通缓存删除、日志损坏或遗失均不能把已知消费静默归零或自动重发未决请求。
+- CLI 未暴露服务器端总输入/推理 token 硬封顶接口；本后端按每次实际返回用量检查，单次调用可能先超出上限，超额结果被拒绝且用量保留。调用次数及项目读取范围仍有独立边界；现有 Anthropic native 的发送前 token 检查单独保留。
+- [首次启动提示误判记录](evidence/2026-11-04-native-initialization/codex-mainline-attempt1-startup-warning.json) 保留。其错误项是 skip_host_skill_discovery 的原生启动提示，未发生工具调用；精确分类回归后复用了当时已保存的真实结果，没有重发该请求。其他错误和工具事件继续拒绝。进程身份记录失败时的真实子进程清理也有失败到通过回归。
+
+本轮没有运行 Claude/其他宿主或模型切换矩阵；GitLab/部署等外部目标仍保留原待办。本地 Codex 后端入口和参数以 [官方 App Server/CLI 文档](https://learn.chatgpt.com/docs/app-server) 及本机精确版本的 `exec --help`/`features list` 核实。

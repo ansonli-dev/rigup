@@ -134,7 +134,7 @@ export function validateOptions(value: Record<string, unknown>): void {
   }
   if (value.agents !== undefined && (!Array.isArray(value.agents) ||
     value.agents.some(a => !['claude','codex','opencode','omp'].includes(a)))) throw new Error('agents: expected supported agent list');
-  if (value.backend !== undefined && !['native','host'].includes(String(value.backend))) throw new Error('backend: expected native or host');
+  if (value.backend !== undefined && !['codex','native','host'].includes(String(value.backend))) throw new Error('backend: expected codex, native or host');
   if (value.profile !== undefined && typeof value.profile !== 'string') throw new Error('profile: expected path');
 }
 
@@ -144,7 +144,9 @@ export async function loadOptions(root: string, overrides: Partial<SetupOptions>
   const profilePath = overrides.profile ?? project.profile;
   const profile = typeof profilePath === 'string' ? await readConfig(join(root,profilePath), true) : {};
   validateOptions(profile);
-  return {...{agents: ['codex'], backend:'native'}, ...profile, ...project, ...overrides} as SetupOptions;
+  const options={...{agents: ['codex'], backend:'codex'}, ...profile, ...project, ...overrides} as SetupOptions;
+  if(options.model&&profile.backend===undefined&&project.backend===undefined&&overrides.backend===undefined)options.backend='native';
+  return options;
 }
 
 export async function configurationCandidate(root:string,options:SetupOptions):Promise<import('./integrations/registry.js').PreparedAsset>{

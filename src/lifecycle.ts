@@ -12,6 +12,7 @@ import type {AnalysisBackend,ResearchResult} from './analyzer/backend.js';
 import {scanRepository,repositoryReader} from './analyzer/repository.js';
 import {hostBackend} from './analyzer/host.js';
 import {nativeBackend} from './analyzer/anthropic.js';
+import {codexBackend} from './analyzer/codex.js';
 import {PROMPT_VERSION} from './analyzer/prompts.js';
 import {READ_POLICY_VERSION} from './analyzer/read-policy.js';
 import {generate,inventorySignature} from './generator/generate.js';
@@ -70,9 +71,9 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     if(accepted){await hostBackend({cacheRoot:requests,responsePath:flags.response}).run(original.context,reader);responseConsumed=true;}
    }
    const result=await hostBackend({cacheRoot:requests,requestPath:responseConsumed?undefined:flags.request,responsePath:responseConsumed?undefined:flags.response}).run(request,reader);if(result.status==='complete'&&flags.response)responseConsumed=true;return result;
-  }}:nativeBackend({apiKey:services.credentials?.apiKey??process.env[options.model?.apiKeyEnv??'ANTHROPIC_API_KEY'],model:options.model?.model??services.credentials?.model??process.env.ANTHROPIC_MODEL,signal:services.signal,onUsage:async usage=>{run.spent={calls:activeNativeBase.calls+usage.calls,tokens:activeNativeBase.tokens==='unknown'||usage.tokens==='unknown'?'unknown':activeNativeBase.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));}}));
+  }}:options.backend==='codex'?codexBackend({cacheRoot:join(base,'codex'),stateRoot:join(lock.stateRoot,'codex'),signal:services.signal,onUsage:async usage=>{run.spent=usage;await saveDurable(runPath,JSON.stringify(run));}}):nativeBackend({apiKey:services.credentials?.apiKey??process.env[options.model?.apiKeyEnv??'ANTHROPIC_API_KEY'],model:options.model?.model??services.credentials?.model??process.env.ANTHROPIC_MODEL,signal:services.signal,onUsage:async usage=>{run.spent={calls:activeNativeBase.calls+usage.calls,tokens:activeNativeBase.tokens==='unknown'||usage.tokens==='unknown'?'unknown':activeNativeBase.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));}}));
   const addUsage=async(usage:{calls:number|'unknown';tokens:number|'unknown'})=>{run.spent={calls:run.spent.calls+(typeof usage.calls==='number'?usage.calls:1),tokens:run.spent.tokens==='unknown'||usage.tokens==='unknown'?'unknown':run.spent.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));};
-  const backend:AnalysisBackend=options.backend==='native'?{run:async(request,source)=>{
+  const backend:AnalysisBackend=options.backend==='native'||options.backend==='codex'&&!!services.backend?{run:async(request,source)=>{
    if(run.spent.calls>=budget.maxCalls||run.spent.tokens==='unknown'||run.spent.tokens>=budget.maxTokens)throw new ResearchFailure('restored research budget exhausted or unknown');
    activeNativeBase=run.spent;
    try{const result=await rawBackend.run({...request,spent:run.spent},source);if(result.status==='complete'&&!durableNative)await addUsage(result.value.usage);return result;}
@@ -89,7 +90,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    run.research=result.value;await saveCache(analysisPath,JSON.stringify(result.value));if(options.backend==='host')run.spent={calls:typeof result.value.usage.calls==='number'?result.value.usage.calls:1,tokens:result.value.usage.tokens};await saveDurable(runPath,JSON.stringify(run));
   }
   if(options.sdd)emit({stage:'research',completed:1,total:1,status:newResearch?'complete':'reused',next:'generation'});
-  profile.research=run.research;emit({stage:'generation',completed:0,task:'artifact planning and fixed assets',next:'preview',waiting:options.backend==='native'?'provider research':'local preparation / host response'});write('Generate: assembling selected capabilities\n');
+  profile.research=run.research;emit({stage:'generation',completed:0,task:'artifact planning and fixed assets',next:'preview',waiting:options.backend==='codex'?'local Codex research':options.backend==='native'?'provider research':'local preparation / host response'});write('Generate: assembling selected capabilities\n');
   const generated=await generate(profile,options,backend,previousAssets,{cacheRoot:cache,runId:run.runId,spent:run.spent,onProgress:emit,reader,effectiveModel});
   if(generated.status==='pending-host'){emit({...active,status:'waiting',requiresUserAction:true,waiting:'host response',next:continuation(generated.requestPath)});services.report?.({phase:'generation',installStatus:'pending',pending:[generated.requestId],requestPath:generated.requestPath,nextCommand:continuation(generated.requestPath)});write('Pending host generation: '+generated.requestPath+'\nResume: '+continuation(generated.requestPath)+'\n');return 3;}
   const oldConfiguration=old?.assets.find(a=>a.logicalId==='rigup:configuration');

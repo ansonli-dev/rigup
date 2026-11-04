@@ -1,6 +1,6 @@
 # Protected Native Initialization Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Complete protected OpenWiki/CodeGraph initialization and recovery, using Codex for the credential-free mainline.
 
@@ -33,10 +33,10 @@
 
 **Interfaces:** Consumes `SetupOptions.tools`, pinned upstream recipes and installed package receipts. Produces a closed `SetupOperation` initialization recipe plus an actual native-state query; existing software-install recipes remain valid.
 
-- [ ] Inspect exact pinned artifacts, recording entry points, write scopes, disabled hooks/daemon behavior, and native recovery semantics.
-- [ ] Write failing behavioral tests for initialization planning, existing user state, unsafe scopes, and non-Codex defaults. Run `node --import tsx --test test/native-initialization.test.ts`; expected FAIL because initialization is manual today.
-- [ ] Implement pinned adapters and planning with safe preconditions and explicit prerequisites. Native outputs are queried rather than fabricated.
-- [ ] Run the focused tests and `npm run typecheck`; expected PASS. Commit `feat: plan protected native tool initialization`.
+- [x] Inspect exact pinned artifacts, recording entry points, write scopes, disabled hooks/daemon behavior, and native recovery semantics.
+- [x] Write failing behavioral tests for initialization planning, existing user state, unsafe scopes, and non-Codex defaults. Run `node --import tsx --test test/native-initialization.test.ts`; expected FAIL because initialization is manual today.
+- [x] Implement pinned adapters and planning with safe preconditions and explicit prerequisites. Native outputs are queried rather than fabricated.
+- [x] Run the focused tests and `npm run typecheck`; expected PASS. Commit `feat: plan protected native tool initialization`.
 
 ### Task 2: Durable initialization execution and recovery
 
@@ -44,9 +44,9 @@
 
 **Interfaces:** Consumes Task 1 operations and native-state queries. Produces distinct durable initialization receipts, dependency-aware execution and resumable recovery bound to the approved preview.
 
-- [ ] Add failing tests for installation plus initialization, partial/interrupted state, cache deletion, writer liveness, stale previews, source edits, and preserved existing content. Run the relevant focused tests; expected FAIL for missing initialization dispatch/reconciliation.
-- [ ] Implement closed native dispatch with protected state promotion or verified narrow native write scopes, durable process identity and intent, and native recovery after writer death. Preserve software receipts independently of initialization receipts.
-- [ ] Run `npm test` and `npm run typecheck`; expected no failures. Commit `feat: execute and recover protected native initialization`.
+- [x] Add failing tests for installation plus initialization, partial/interrupted state, cache deletion, writer liveness, stale previews, source edits, and preserved existing content. Run the relevant focused tests; expected FAIL for missing initialization dispatch/reconciliation.
+- [x] Implement closed native dispatch with protected state promotion or verified narrow native write scopes, durable process identity and intent, and native recovery after writer death. Preserve software receipts independently of initialization receipts.
+- [x] Run `npm test` and `npm run typecheck`; expected no failures. Commit `feat: execute and recover protected native initialization`.
 
 ### Task 3: Codex mainline acceptance and evidence
 
@@ -54,9 +54,9 @@
 
 **Interfaces:** Consumes Task 2 public preview/apply path. Produces repeatable real pinned-tool initialization/recovery/query proof and Codex host registration proof, with truthful remaining external requirements.
 
-- [ ] Add failing acceptance cases for public mainline initialization/recovery and Codex default selection. Run focused cases; expected FAIL before the missing behavior exists.
-- [ ] Install required pinned tools in private temporary environments and exercise official native initialization and recovery against disposable projects. Use Codex only for host acceptance; no alternate model/host probes.
-- [ ] Run `npm test`, `npm run typecheck`, `npm run build`, appropriate Codex/native live tests and `npm pack --dry-run`; expected no failures and no scratch/customer state in the package. Archive evidence and commit `test: verify Codex native initialization and recovery`.
+- [x] Add failing acceptance cases for public mainline initialization/recovery and Codex default selection. Run focused cases; expected FAIL before the missing behavior exists.
+- [x] Install required pinned tools in private temporary environments and exercise official native initialization and recovery against disposable projects. Use Codex only for host acceptance; no alternate model/host probes.
+- [x] Run `npm test`, `npm run typecheck`, `npm run build`, appropriate Codex/native live tests and `npm pack --dry-run`; expected no failures and no scratch/customer state in the package. Archive evidence and commit `test: verify Codex native initialization and recovery`.
 
 ### Task 4: Local Codex research mainline
 
@@ -64,9 +64,9 @@
 
 **Interfaces:** Consumes the existing `AnalysisBackend`, bounded `RepositoryReader` and verified private host-export protocol. Produces `backend: codex` as the default local agent backend, while explicit `host` and Anthropic `native` remain available.
 
-- [ ] Write failing tests for the Codex default, filtered private context, strict evidence/response validation, charged failed requests, refused tool execution, accepted-result reuse and missing Codex availability. Run `node --import tsx --test test/codex-backend.test.ts`; expected FAIL because this backend does not exist.
-- [ ] Implement `codexBackend({cacheRoot,signal,onUsage,invoke?}): AnalysisBackend`: export bounded filtered context through the existing host protocol, invoke `codex exec` in a private empty directory with user config ignored and shell/browser/apps/subagents disabled, parse structured JSON and observed token usage, validate evidence before acceptance, and durably account for requests before dispatch. Use existing Codex authentication without copying credentials or forcing another model. No model switch is tested.
-- [ ] Wire explicit backend selection, default Codex, noninteractive execution and safe recovery. Keep manual request/response exchange explicit through `backend: host`.
-- [ ] Run focused tests, `npm test`, typecheck/build/pack and one small real Codex research→generation→apply→unchanged update case using the current default model. Expected PASS with actual observed usage and no extra API credential.
-- [ ] Commit `feat: complete the local Codex research mainline`.
+- [x] Write failing tests for the Codex default, filtered private context, strict evidence/response validation, charged failed requests, refused tool execution, accepted-result reuse and missing Codex availability. Run `node --import tsx --test test/codex-backend.test.ts`; expected FAIL because this backend does not exist.
+- [x] Implement `codexBackend({cacheRoot,signal,onUsage,invoke?}): AnalysisBackend`: export bounded filtered context through the existing host protocol, invoke `codex exec` in a private empty directory with user config ignored and shell/browser/apps/subagents disabled, parse structured JSON and observed token usage, validate evidence before acceptance, and durably account for requests before dispatch. Use existing Codex authentication without copying credentials or forcing another model. No model switch is tested.
+- [x] Wire explicit backend selection, default Codex, noninteractive execution and safe recovery. Keep manual request/response exchange explicit through `backend: host`.
+- [x] Run focused tests, `npm test`, typecheck/build/pack and one small real Codex research→generation→apply→unchanged update case using the current default model. Expected PASS with actual observed usage and no extra API credential.
+- [x] Commit `feat: complete the local Codex research mainline`.
 - [ ] Run one fresh-context whole-change review as required by executing-plans. Re-grade findings, fix Important/Critical findings in one RED→GREEN pass, run the suite, archive rulings and remove only this plan's scratch workspace. Keep the branch for review without merge/push.

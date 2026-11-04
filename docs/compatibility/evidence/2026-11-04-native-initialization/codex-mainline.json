@@ -1,0 +1,69 @@
+{
+  "caseId": "codex/default-local-mainline",
+  "status": "passed",
+  "root": "/private/tmp/rigup-codex-mainline-YCovn3",
+  "control": "/private/tmp/rigup-codex-mainline-control-sYT4iy",
+  "startedAt": "2026-11-04T14:03:33.940Z",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "reports": [
+    {
+      "phase": "apply",
+      "installStatus": "complete",
+      "checks": [],
+      "pending": [],
+      "conflicts": [],
+      "requiredInput": [],
+      "nextCommand": null,
+      "status": "complete",
+      "exitCode": 0,
+      "previewId": "d8983d3dbd06d7e18895c23fc00faaee4e2abfb82207ce6e6e1540cc20ab0505",
+      "written": [
+        ".agents/skills/change-prepare/SKILL.md",
+        ".agents/skills/change-prepare/references/project.md",
+        ".agents/skills/change-deliver/SKILL.md",
+        ".agents/skills/change-deliver/references/project.md",
+        "AGENTS.md"
+      ],
+      "operations": [],
+      "warnings": [
+        "Git HEAD: unborn",
+        "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+      ]
+    },
+    {
+      "phase": "apply",
+      "installStatus": "complete",
+      "checks": [],
+      "pending": [],
+      "conflicts": [],
+      "requiredInput": [],
+      "nextCommand": null,
+      "status": "complete",
+      "exitCode": 0,
+      "previewId": "5c6d5b00c39e6c1216a8ae7cd42954ef175bb8f1cbbb0238a09b8ef38ba9d316",
+      "written": [],
+      "operations": [],
+      "warnings": [
+        "Git HEAD: unborn",
+        "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+      ]
+    }
+  ],
+  "usage": [
+    {
+      "attempts": {
+        "d77dd7e549c8ab537e75a77fbe9eb4a03fcd702ffa724bd9778b395a671165ab": {
+          "status": "observed",
+          "tokens": 48378
+        },
+        "88ed62ead8018db02ddc0f01510f3b0ef15550ff0a52bb9e536337c8e5b3fd11": {
+          "status": "observed",
+          "tokens": 53192
+        }
+      }
+    }
+  ],
+  "scope": "Actual default local Codex backend, official OpenSpec bindings, bounded filtered research, generation/apply and unchanged reuse. No model override/switch or Anthropic credential.",
+  "finishedAt": "2026-11-04T14:06:19.920Z"
+}

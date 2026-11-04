@@ -1,0 +1,24 @@
+{
+  "caseId": "codex/default-local-mainline",
+  "status": "failed",
+  "root": "/private/tmp/rigup-codex-mainline-HJhmai",
+  "control": "/private/tmp/rigup-codex-mainline-control-C72xzT",
+  "startedAt": "2026-11-04T13:52:14.819Z",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "reports": [
+    {
+      "phase": "preflight",
+      "installStatus": "failed",
+      "checks": [],
+      "pending": [],
+      "conflicts": [],
+      "requiredInput": [],
+      "nextCommand": null,
+      "exitCode": 1,
+      "error": "Codex result rejected: unexpected tool activity"
+    }
+  ],
+  "reason": "{\"phase\":\"preflight\",\"installStatus\":\"failed\",\"checks\":[],\"pending\":[],\"conflicts\":[],\"requiredInput\":[],\"nextCommand\":null,\"exitCode\":1,\"error\":\"Codex result rejected: unexpected tool activity\"}\n\n1 !== 0\n",
+  "finishedAt": "2026-11-04T13:53:17.557Z"
+}

@@ -17,10 +17,10 @@ node dist/cli.js --help
 
 先在目标目录或宿主可发现的用户/插件位置准备所选 SDD 的官方入口。Rigup 核对原生调用名、来源身份和已声明依赖；可核实的启用插件会参与发现，多来源冲突、依赖缺失或版本不明确时保持待处理。原生客户端实际加载仍需独立验证。框架与工具的精确来源见 [upstream-lock.json](docs/compatibility/upstream-lock.json)。
 
-仅接入明确配置的工具或普通本地 skill 时，不需要模型凭据，也不必选择 SDD：
+默认 agent 和研究后端为本机 Codex；语义研究使用已有 Codex 登录，不需要额外 API key。仅接入工具或普通本地 skill 时不调用模型，也不必选择 SDD：
 
 ```sh
-node dist/cli.js init /path/to/project --agents codex --dry-run --json
+node dist/cli.js init /path/to/project --tools openwiki,codegraph --dry-run --json
 node dist/cli.js init /path/to/project --agents codex
 node dist/cli.js update /path/to/project --json
 node dist/cli.js doctor /path/to/project --json
@@ -33,8 +33,8 @@ node dist/cli.js doctor /path/to/project --json
 唯一的项目设置文件是 `.rigup/config.yaml`。优先级为 CLI 覆盖、项目设置、显式选择的 profile、默认值。profile 路径通过 `--profile path` 或 `profile:` 选择，不扫描其他 profile。
 
 ```yaml
-agents: [codex, opencode]
-backend: host
+agents: [codex]
+backend: codex
 sdd: openspec
 executionPolicy:
   mode: continuous
@@ -62,7 +62,9 @@ MCP 登记不会启动服务。环境变量在已安装 runner 运行时解析�
 
 本地上下文模板使用 `templates: [{source, target, values}]`，仅支持标量 `{{name}}` 替换。目标限于所选文档或 skill references/assets；不能替换固定 SKILL 主流程、可执行脚本、hooks/CI 或机器配置。原文充足时优先引用现有规范，系统现状正文由 OpenWiki 维护。
 
-## 两种研究后端
+## 研究后端
+
+`codex` 是默认本机后端，目前验证 Codex CLI 0.166.0。它在项目外的空私有目录运行，只接收经过读取策略过滤的证据；忽略用户配置，禁用 shell、浏览器、应用和子 agent，不选择另一个模型，也不复制登录凭据。研究、规划、正文和验收沿同一条主线连续执行。结果先通过 Evidence 校验，再进入安装候选。
 
 `native` 是 Rigup 的独立模型后端，目前使用 Anthropic SDK，与目标 coding agent 无关。通过 `--model` 或 `model.model` 选择已开通的模型；也可使用 `ANTHROPIC_MODEL`。API key 来自 `model.apiKeyEnv` 指定的变量，默认 `ANTHROPIC_API_KEY`。TTY 临时输入的隐藏密钥只在本轮内存中使用，不保存到配置。
 
@@ -78,7 +80,7 @@ node dist/cli.js init /path/to/project --backend host --sdd openspec --agents co
 
 `--request /absolute/private/path.json` 可指定导出位置，必须在本机私有 host 缓存目录内；它与 `--response` 互斥。默认缓存为 `~/.cache/rigup/host/`。响应可从显式本地文件读取，仍须通过原请求和当前上下文校验。源码、库存、有效选项、版本或执行方式变化会拒绝旧上下文。不要手写批准、通过状态或执行命令来代替研究结果。
 
-native 将 token 预检和模型请求计入请求预算。host 的人工往返无法自行证明模型 token 用量，报告明确标为 unknown；执行宿主的一方需另外约束、记录真实用量。研究读取范围和字节预算在所有阶段共享，不能通过正文任务越界。
+codex 在发送输入前持久记录请求与未知用量，完成后记录 CLI 实际 input/output token；失败、缺损日志或未知结果不会自动重发。预算日志独立于普通缓存；结果复用不新增调用。CLI 的总输入/推理用量无法在服务器端硬封顶，当前在每次实际用量返回后核验剩余上限，超额结果不被接受；这与 native 的发送前 token 预检分别记录。native 将 token 预检和模型请求计入请求预算。host 的人工往返无法自行证明模型 token 用量，报告明确标为 unknown；执行宿主的一方需另外约束、记录真实用量。研究读取范围和字节预算在所有阶段共享，不能通过正文任务越界。
 
 ## 预览、更新和恢复
 
@@ -95,9 +97,9 @@ node dist/cli.js update /path/to/project --apply PREVIEW_ID --sessions-ended --j
 
 同一目标使用同一执行锁。写入前保存持久未决记录和必要备份；外部进程通过启动屏障，记录持久保存后才开始写。manifest 最后切换，新基线使用独立目录，旧 B 保留。多文件写入并非整体事务，失败后可能已有部分效果；Rigup 不 reset 工作区或假装失败前什么都没发生。
 
-崩溃后使用当前预览和 `--resume` 对账。活动进程或未确认结果仍会阻止后续写入。普通缓存丢失不能清除持久未决状态；无可信基线时保留冲突。状态目录为 `~/.local/state/rigup/`，普通候选/请求在 `~/.cache/rigup/`。不要通过删除持久状态来绕过未确认的写进程。
+崩溃后使用 `rigup update /path/to/project --resume` 对账。已批准的中断预览有独立持久副本，普通候选缓存删除后也能恢复；恢复 apply 不要求重新提供研究模型凭据。活动进程或未确认结果仍会阻止后续写入。普通缓存丢失不能清除持久未决状态；无可信基线时保留冲突。状态目录为 `~/.local/state/rigup/`，普通候选/请求在 `~/.cache/rigup/`。不要通过删除持久状态来绕过未确认的写进程。
 
-当前自动软件安装仅针对锁定的 OpenWiki/CodeGraph，位于新的空 `.rigup/tools/<id>/` 范围，禁用 npm lifecycle scripts，并验证包、依赖树、launcher 和安装回执。无法限定安全写入的原生初始化保持人工待办；Superpowers+OMP 的绑定也尚未验证。没有已验证部署适配器时不安装 `change-release`。
+当前自动软件安装仅针对锁定的 OpenWiki/CodeGraph，位于新的空 `.rigup/tools/<id>/` 范围，禁用 npm lifecycle scripts，并验证包、依赖树、launcher 和安装回执。`--tools openwiki,codegraph` 同时规划受保护原生初始化：官方接口先写入空暂存区，验证后原子提升工具状态。已有非空用户状态不被接管；软件回执与初始化回执分别保存。OpenWiki 初始化到可由 Codex 恢复的规划 run，不能据此声称全部 wiki 正文已生成。根 agent 指令、计划工作流和 Git hooks 不由该初始化覆盖。无法证明安全的既有状态保持待对账；Superpowers+OMP 的绑定也尚未验证。没有已验证部署适配器时不安装 `change-release`。
 
 ## 工程检查与报告
 
@@ -139,4 +141,13 @@ npm run test:live
 
 普通测试使用固定项目和受控协议，不等于真实语义验收。live 测试写入脱敏证据；独立模型需要 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_MODEL`，宿主生成需要已登录的 Codex 与 `RIGUP_OPENSPEC_BIN` 指向官方 OpenSpec 1.16.0。可用 `RIGUP_LIVE_PROJECTS=service` 限定单个生成 fixture，`RIGUP_LIVE_HOST_MODEL` 选择该宿主实际可用的模型。每次 live setup/update 最多 12 个宿主请求，默认 300000 个观察到的 token；复杂 fixture 可在启动前用 `RIGUP_LIVE_MAX_TOKENS=500000` 提高到硬上限 500000，历史失败用量仍留证。`RIGUP_CODEGRAPH_BIN` 可指向官方 1.6.2 二进制，验证独立临时项目的真实索引、查询和增量更新。
 
-缺失环境会明确记录 pending。真实生成还需对预标注的支持样例、反例、范围、原规范复用、源码变化和用户修改保护逐项复核。GitLab 服务端 lint、四宿主/三框架组合、工具初始化恢复和发布接入各有独立状态，不能由一个成功案例推广；详见 [验收记录](docs/compatibility/verification.md)。
+缺失环境会明确记录 pending。真实生成还需对预标注的支持样例、反例、范围、原规范复用、源码变化和用户修改保护逐项复核。GitLab 服务端 lint、其他宿主/框架组合、其他平台和发布接入各有独立状态，不能由一个成功案例推广；详见 [验收记录](docs/compatibility/verification.md)。
+
+本机 Codex/原生工具主线可单独复验，其他宿主与模型矩阵无需一起运行：
+
+```sh
+RIGUP_LIVE_NATIVE=1 RIGUP_LIVE_CODEX=1 node --import tsx --test test/live-native-initialization.test.ts
+RIGUP_LIVE_CODEX_BACKEND=1 RIGUP_OPENSPEC_BIN=/path/to/openspec node --import tsx --test test/live-codex-backend.test.ts
+```
+
+第一组验证官方固定版本安装、初始化、缓存丢失恢复、部分索引终止恢复及 Codex MCP 连接，不调用模型。第二组使用本机默认 Codex 模型验证研究到安装与无变化复用；不运行模型切换。

@@ -21,6 +21,9 @@ backend: host
    assert.equal((await loadOptions(root,{agents:['codex']})).backend,'host');
  });
 });
+test('existing Anthropic model configuration without a backend keeps its provider',async()=>{
+ await fixture('agents: [codex]\nmodel: {provider: anthropic, model: selected, apiKeyEnv: TEAM_API_KEY}\n',async root=>{assert.equal((await loadOptions(root,{})).backend,'native');});
+});
 test('invalid_config_has_field_error', async () => {
  await fixture(`agents: [invented]
 `, async root => {
