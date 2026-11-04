@@ -46,9 +46,10 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  const phases=[...(options.sdd?['research']:[]),'generation','preview',...(!flags.dryRun?['apply']:[])];
  const progress=createProgressReporter({runId:lock.id,phases,isTTY:!!services.isTTY,write,clock:services.clock});let active:RunProgressEvent={stage:phases[0],task:'bounded source scan',completed:0,next:'prepare selected integrations'};const emit=(event:RunProgressEvent)=>{active=event;progress.event(event);};emit(active);
  const heartbeat=setInterval(()=>progress.tick(),1000);heartbeat.unref();
+  const quote=(s:string)=>"'"+s.replaceAll("'","'\"'\"'")+"'";
  const handoff=async(result:Preview):Promise<boolean>=>{
   if(!flags.review&&!await sessionHandoffRequired(root,flags.sessionsEnded))return false;
-  const nextCommand='rigup update '+JSON.stringify(root)+' --apply '+result.previewId+' --sessions-ended'+(flags.resume?' --resume':'');
+  const nextCommand='rigup update '+quote(root)+' --apply '+result.previewId+' --sessions-ended'+(flags.resume?' --resume':'');
   emit({stage:'apply',completed:0,status:'waiting',requiresUserAction:true,waiting:'review / affected host session exit',next:'independent terminal apply'});services.report?.({phase:'handoff',installStatus:'pending',...result,pending:['End affected sessions / review the concrete preview'],nextCommand});write('Pending review/session handoff. End affected sessions, then run from an independent terminal:\n'+nextCommand+'\n');return true;
  };
 
@@ -72,7 +73,6 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const runPath=join(runs,consent+'.json');let run=await readRun(runPath,root,consent)??await readRun(join(base,'runs',consent+'.json'),root,consent);if(!run)run={root,options,effectiveModel,mode:{dryRun:flags.dryRun,yes:flags.yes,review:flags.review,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent};
   if(signature(run.options)!==signature(options))throw Error('durable research options changed; reconciliation required');
   await saveDurable(runPath,JSON.stringify(run));let responseConsumed=false;
-  const quote=(s:string)=>"'"+s.replaceAll("'","'\"'\"'")+"'";
   const continuation=(requestPath:string)=>'rigup update '+quote(root)+' --continue '+consent+' --response '+quote(requestPath.replace(/(?:\.request)?\.json$/,'.response.json'));
   run.readSpent??={calls:0,bytes:0};const reader=await repositoryReader(root,options,{budget:run.readSpent,persist:()=>saveDurable(runPath,JSON.stringify(run)),expectedFingerprint:profile.fingerprint});
   const durableNative=!services.backend&&options.backend==='native';let activeNativeBase=run.spent;
@@ -118,7 +118,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   generated.value.runChecks=flags.runChecks??[];
   const result=await preview(generated.value,resolutions,{cacheRoot:previews});
   services.report?.({phase:'preview',installStatus:'not-installed',...result,pending:generated.value.requirements,conflicts:result.items.filter(i=>i.action==='conflict')});
-  write('Preview '+result.previewId+'\n');for(const item of result.items){write(item.action+' '+item.target+'\n');if(item.before!==undefined)write('--- owned before (filtered, max 4000 chars)\n'+item.before+'\n');if(item.after!==undefined)write('+++ owned after (filtered, max 4000 chars)\n'+item.after+'\n');}for(const operation of result.operations)write('operation '+operation.id+' '+operation.version+' scope '+operation.declaredWrites.join(', ')+'\n');
+  write('Preview '+result.previewId+'\n');for(const item of result.items){write(item.action+' '+item.target+'\n');if(item.beforeMode!==item.afterMode){const format=(value:number|undefined)=>value===undefined?'absent':value.toString(8).padStart(4,'0');write('mode '+format(item.beforeMode)+' -> '+format(item.afterMode)+'\n');}if(item.before!==undefined)write('--- owned before (filtered, max 4000 chars)\n'+item.before+'\n');if(item.after!==undefined)write('+++ owned after (filtered, max 4000 chars)\n'+item.after+'\n');}for(const operation of result.operations)write('operation '+operation.id+' '+operation.version+' scope '+operation.declaredWrites.join(', ')+'\n');
   for(const blocker of result.blockers)write('Blocked: '+blocker+'\n');
   emit({stage:'preview',completed:result.items.length,total:result.items.length,status:result.executable?'complete':result.items.some(i=>i.action==='conflict')?'failed':'waiting',requiresUserAction:!result.executable,next:flags.dryRun?'dry-run preview finished; not installed':'apply'});
   if(!result.executable)return result.items.some(i=>i.action==='conflict')||!generated.value.requirements.length?1:3;

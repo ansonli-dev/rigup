@@ -1,12 +1,17 @@
 import {parse as parseToml} from 'smol-toml';
-import {parseTree,type Node,type ParseError} from 'jsonc-parser';
-import {parseDocument,isMap,isSeq,isScalar,isAlias} from 'yaml';
+import {parseTree,createScanner,SyntaxKind,type Node,type ParseError} from 'jsonc-parser';
+import {parseDocument,Parser,isMap,isSeq,isScalar,isAlias} from 'yaml';
 import {basename,extname} from 'node:path';
-export const READ_POLICY_VERSION='4';
-export const secretName=/(^\.env($|\.)|\.(pem|key|p12|pfx|keystore)$|credentials|id_rsa|id_ed25519)/i;
+export const READ_POLICY_VERSION='5';
+export const secretName=/(^\.env($|\.)|^(?:\.netrc|_netrc|\.git-credentials|\.npmrc|\.pypirc|\.pgpass|\.dockercfg)$|\.(pem|key|p12|pfx|keystore)$|credentials|id_rsa|id_ed25519)/i;
 const sensitive=/token|password|passwd|secret|credential|authorization|api[-_]?key|private[-_]?key|^(?:auth|authentication|creds)$/i;
 const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|credentials?)$/i;
 const credentialAssignment=/(?:token|password|passwd|secret|credentials?|creds|authorization|api[-_]?key|private[-_]?key)[\w-]*["']?\s*[:=]|(?:^|[\s"'])auth(?:entication)?["']?\s*[:=]/i;
+function redactComment(token:string):string {
+ if(!sensitive.test(token)&&!credentialAssignment.test(token)&&! /\b(?:auth(?:entication)?|api\s+key|private\s+key|access\s+key)\b/i.test(token))return token;
+ const prefix=token.startsWith('/*')?'/*':token.startsWith('//')?'//':'#';
+ return prefix+' [REDACTED]'+(token.match(/\r\n|\r|\n/g)??[]).join('')+(prefix==='/*'?' */':'');
+}
 export function filterContent(path:string,raw:string):string {
  if(secretName.test(basename(path))) throw new Error('sensitive file denied');
  if(raw.includes('\0')) throw new Error('binary file denied');
@@ -23,7 +28,7 @@ export function filterContent(path:string,raw:string):string {
   // Tokenize only after the full document has passed TOML syntax validation.
   const tokens=/#.*$|"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'[^']*'/gm;
   text=raw.replace(tokens,token=>{
-   if(token.startsWith('#')) return token;
+   if(token.startsWith('#')) return redactComment(token);
    let value:unknown;try {value=parseToml('value = '+token).value;}catch {throw new Error('unsupported TOML token');}
    if(!secrets.has(value)) return token;
    return '"[REDACTED]"'+'\n'.repeat((token.match(/\n/g)||[]).length);
@@ -32,7 +37,7 @@ export function filterContent(path:string,raw:string):string {
  } else if(extension === '.jsonc') {
   const errors:ParseError[]=[];const tree=parseTree(raw,errors,{allowTrailingComma:true});
   if(errors.length || !tree) throw new Error('unsupported JSONC syntax');
-  const spans:{start:number;end:number}[]=[];
+  const spans:{start:number;end:number;replacement?:string}[]=[];
   function walk(node:Node,hidden=false):void {
    if(node.type === 'property') {
     const key=String(node.children?.[0].value);const value=node.children?.[1];
@@ -42,10 +47,12 @@ export function filterContent(path:string,raw:string):string {
    else for(const child of node.children||[]) walk(child,hidden);
   }
   walk(tree);
-  for(const span of spans.sort((a,b)=>b.start-a.start)) text=text.slice(0,span.start)+'"[REDACTED]"'+text.slice(span.end);
+  const scanner=createScanner(raw,false);
+  for(let kind=scanner.scan();kind!==SyntaxKind.EOF;kind=scanner.scan())if(kind===SyntaxKind.LineCommentTrivia||kind===SyntaxKind.BlockCommentTrivia){const start=scanner.getTokenOffset(),end=start+scanner.getTokenLength();const original=raw.slice(start,end),replacement=redactComment(original);if(replacement!==original)spans.push({start,end,replacement});}
+  for(const span of spans.sort((a,b)=>b.start-a.start)) text=text.slice(0,span.start)+(span.replacement??'"[REDACTED]"')+text.slice(span.end);
  } else if(['.json','.yaml','.yml'].includes(extension)) {
   const doc=parseDocument(raw);if(doc.errors.length) throw new Error('unsupported configuration syntax');
-  const spans:{start:number;end:number}[]=[];
+  const spans:{start:number;end:number;replacement?:string}[]=[];
   function walk(node:any,hidden=false):void {
    if(isAlias(node)) throw new Error('unsupported YAML alias');
    if(isMap(node)) for(const pair of node.items) {
@@ -55,9 +62,18 @@ export function filterContent(path:string,raw:string):string {
    else if(isScalar(node) && (hidden||typeof node.value==='string'&&credentialAssignment.test(node.value)) && node.range && !/^\$\{[A-Z_][A-Z0-9_]*\}$/.test(String(node.value))) spans.push({start:node.range[0],end:node.range[1]});
   }
   walk(doc.contents);
+  function comments(value:unknown):void {
+   if(Array.isArray(value)){for(const item of value)comments(item);return;}
+   if(!value||typeof value!=='object')return;
+   const token=value as Record<string,unknown>;
+   if(token.type==='comment'&&typeof token.offset==='number'&&typeof token.source==='string'){
+    const replacement=redactComment(token.source);if(replacement!==token.source)spans.push({start:token.offset,end:token.offset+token.source.length,replacement});
+   }else for(const item of Object.values(token))comments(item);
+  }
+  for(const token of new Parser().parse(raw))comments(token);
   for(const span of spans.sort((a,b)=>b.start-a.start)) {
    const original=text.slice(span.start,span.end);
-   text=text.slice(0,span.start)+'"[REDACTED]"'+'\n'.repeat((original.match(/\n/g)||[]).length)+text.slice(span.end);
+   text=text.slice(0,span.start)+(span.replacement??'"[REDACTED]"'+'\n'.repeat((original.match(/\n/g)||[]).length))+text.slice(span.end);
   }
  } else if(credentialAssignment.test(raw) || /\[.*env.*\]/i.test(raw)) {
   // Unknown sensitive syntax cannot be safely exported using line heuristics.

@@ -8,7 +8,8 @@ import {DOCUMENT_POLICY_VERSION} from '../generator/document-policy.js';
 import {saveDurable} from './state.js';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {unlink,lstat,readFile} from 'node:fs/promises';
+import {unlink} from 'node:fs/promises';
+import {readFileState,matchesFileState} from './file-state.js';
 import type {CommandSpec,SetupOptions} from '../types.js';
 import {initializationRecipe,type NativeTool} from '../integrations/tools/initialization.js';
 import {loadPreview,readTarget,operationPrecondition,installationInput,absentDigest,type PreviewData} from './preview.js';
@@ -24,7 +25,7 @@ import {runProjectChecks} from '../integrations/tools/quality.js';
 export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;environment?:{node:string;platform:string};exitCode?:number}
 export interface InstallReport {status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
 export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
-interface Transaction {previewId:string;installId:string;status:'prepared'|'complete';files:Record<string,{before:string;after:string}>;checks?:CheckResult[];receipts:NonNullable<Manifest['installedTools']>;initialized?:NonNullable<Manifest['initializedTools']>;preview?:{digest:string;data:PreviewData};report?:InstallReport}
+interface Transaction {previewId:string;installId:string;status:'prepared'|'complete';files:Record<string,{before:string;after:string;beforeMode?:number;afterMode?:number}>;checks?:CheckResult[];receipts:NonNullable<Manifest['installedTools']>;initialized?:NonNullable<Manifest['initializedTools']>;preview?:{digest:string;data:PreviewData};report?:InstallReport}
 export async function restoreInterruptedPreview(root:string,options:SetupOptions,cacheRoot:string,stateRoot:string):Promise<string|undefined>{
  const tx=await readCache<Transaction>(join(stateRoot,signature(root)+'.apply.json'));
  if(tx?.status!=='prepared')return;
@@ -34,7 +35,7 @@ export async function restoreInterruptedPreview(root:string,options:SetupOptions
  await privateDirectory(cacheRoot,root);await saveCache(join(cacheRoot,tx.previewId+'.json'),JSON.stringify(stored));return tx.previewId;
 }
 export async function apply(previewId:string,dependencies:ApplyDependencies={}):Promise<InstallReport>{
- const data=await loadPreview(previewId,dependencies.cacheRoot);if(!data.preview.executable)throw new Error('preview is blocked; prepare a new preview');
+ const data=await loadPreview(previewId,dependencies.cacheRoot);if(data.modePolicyVersion!==1)throw Error('permission preview version changed; regenerate preview without discarding durable state');if(!data.preview.executable)throw new Error('preview is blocked; prepare a new preview');
  const root=data.plan.root;const lock=dependencies.lock??await acquireLock(root,{stateRoot:dependencies.stateRoot,recover:dependencies.recover});
  if(lock.root!==root)throw new Error('execution lock root mismatch');
  const release=dependencies.lock?async()=>{}:()=>lock.release();
@@ -76,7 +77,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    await verifyInstalledTools(true);
    await verifyInitializedTools(true);
    const m=await loadManifest(root);if(m?.installId!==tx.installId)throw new Error('completed manifest changed');
-   for(const f of data.files){const actual=await readTarget(root,f.target);if((actual?digest(actual):absentDigest)!==tx.files[f.target].after)throw new Error('installed target changed; prepare a new update preview');}
+   for(const f of data.files){const actual=await readFileState(root,f.target);if(!matchesFileState(actual,tx.files[f.target].after,tx.files[f.target].afterMode))throw new Error('installed target content or mode changed; prepare a new update preview');}
    completed=total;step('verified completed installation','reused');return {...tx.report!,written:[]};
   }
   if((currentManifest?digest(currentManifest):absentDigest)!==data.manifestDigest)throw new Error('manifest changed since preview');
@@ -84,9 +85,9 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(!tx) {
    if((await scanRepository(root,data.plan.options)).fingerprint!==data.plan.fingerprint)throw new Error('research input changed since generation');
    tx={previewId,installId:randomUUID(),status:'prepared',files:{},receipts:{...(data.oldManifest?.installedTools??{})},initialized:{...(data.oldManifest?.initializedTools??{})},preview:{digest:signature(data),data}};
-   for(const f of data.files){const actual=await readTarget(root,f.target);if((actual?digest(actual):absentDigest)!==f.observedDigest)throw new Error('stale preview: target changed');tx.files[f.target]={before:f.observedDigest,after:f.next===undefined?absentDigest:digest(f.encoding==='base64'?Buffer.from(f.next,'base64'):f.next)};}
+   for(const f of data.files){const actual=await readFileState(root,f.target);if(!matchesFileState(actual,f.observedDigest,f.observedMode))throw new Error('stale preview: target content or mode changed');tx.files[f.target]={before:f.observedDigest,beforeMode:f.observedMode,after:f.next===undefined?absentDigest:digest(f.encoding==='base64'?Buffer.from(f.next,'base64'):f.next),afterMode:f.next===undefined?undefined:f.mode};}
    await saveDurable(statePath,JSON.stringify(tx));
-  }else for(const f of data.files){const actual=await readTarget(root,f.target);const hash=actual?digest(actual):absentDigest;if(![tx.files[f.target].before,tx.files[f.target].after].includes(hash))throw new Error('interrupted target changed; preserve local edits and re-preview');}
+  }else for(const f of data.files){const actual=await readFileState(root,f.target),expected=tx.files[f.target];if(!matchesFileState(actual,expected.before,expected.beforeMode)&&!matchesFileState(actual,expected.after,expected.afterMode))throw new Error('interrupted target content or mode changed; preserve local edits and re-preview');}
   if(dependencies.signal?.aborted)return {...report,exitCode:130};
   const completedOperations=new Set<string>();
   for(const operation of data.plan.operations){
@@ -104,17 +105,17 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   }
   for(const f of data.files){
    if(dependencies.signal?.aborted)return {...report,exitCode:130};
-   const actual=await readTarget(root,f.target);const current=actual?digest(actual):absentDigest;const expected=tx.files[f.target];
-   if(current===expected.after){completed++;step(f.target,'reused');continue;}
-   if(current!==expected.before)throw new Error('target changed before write');
+   const actual=await readFileState(root,f.target);const expected=tx.files[f.target];
+   if(matchesFileState(actual,expected.after,expected.afterMode)){completed++;step(f.target,'reused');continue;}
+   if(!matchesFileState(actual,expected.before,expected.beforeMode))throw new Error('target content or mode changed before write');
    // Backups are private and preserve actual L, never become the generated baseline.
-   if(actual){const backup=join(lock.stateRoot,signature(root)+'.'+tx.installId+'.'+signature(f.target)+'.backup.json');await saveDurable(backup,JSON.stringify({target:f.target,bytes:actual.toString('base64')}));}
-   if(f.next===undefined){if(actual)await unlink(await targetPath(root,f.target));}
-   else {const mode=f.mode??(actual?(await lstat(await targetPath(root,f.target))).mode&0o777:0o644);await atomicProjectWrite(root,f.target,f.encoding==='base64'?Buffer.from(f.next,'base64'):Buffer.from(f.next),mode);}
+   if(actual.bytes){const backup=join(lock.stateRoot,signature(root)+'.'+tx.installId+'.'+signature(f.target)+'.backup.json');await saveDurable(backup,JSON.stringify({target:f.target,bytes:actual.bytes.toString('base64'),mode:actual.mode}));}
+   if(f.next===undefined){if(actual.bytes)await unlink(await targetPath(root,f.target));}
+   else {await atomicProjectWrite(root,f.target,f.encoding==='base64'?Buffer.from(f.next,'base64'):Buffer.from(f.next),expected.afterMode);}
    completed++;step(f.target);report.written.push(f.target);await dependencies.hook?.('after-file');
   }
   if(dependencies.signal?.aborted)return {...report,exitCode:130};
-  const verifyFiles=async()=>{for(const f of data.files){const actual=await readTarget(root,f.target);if((actual?digest(actual):absentDigest)!==tx!.files[f.target].after)throw new Error('written configuration differs from preview; baseline not committed');}};
+  const verifyFiles=async()=>{for(const f of data.files){const actual=await readFileState(root,f.target),expected=tx!.files[f.target];if(!matchesFileState(actual,expected.after,expected.afterMode))throw new Error('written configuration differs from preview (content or mode); baseline not committed');}};
   await verifyFiles();
   if(!tx.checks){tx.checks=dependencies.runChecks?await dependencies.runChecks():data.plan.runChecks?.length?await runProjectChecks(await scanRepository(root,data.plan.options),data.plan.runChecks,dependencies.signal):[];await saveDurable(statePath,JSON.stringify(tx));}
   report.checks=tx.checks;await dependencies.hook?.('after-checks');await verifyFiles();await verifyInstalledTools(true);await verifyInitializedTools(true);if(dependencies.signal?.aborted)return {...report,exitCode:130};

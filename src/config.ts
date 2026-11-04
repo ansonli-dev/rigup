@@ -1,5 +1,5 @@
 import {readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
 import {parse} from 'yaml';
 import type {SetupOptions} from './types.js';
 
@@ -143,7 +143,7 @@ export async function loadOptions(root: string, overrides: Partial<SetupOptions>
   const project = await readConfig(join(root,'.rigup','config.yaml'));
   validateOptions(project); validateOptions(overrides);
   const profilePath = overrides.profile ?? project.profile;
-  const profile = typeof profilePath === 'string' ? await readConfig(join(root,profilePath), true) : {};
+  const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath), true) : {};
   validateOptions(profile);
   const options={...{agents: ['codex'], backend:'codex'}, ...profile, ...project, ...overrides} as SetupOptions;
   const layers=[profile,project,overrides];const backendLayer=layers.findLastIndex(layer=>layer.backend!==undefined),modelLayer=layers.findLastIndex(layer=>layer.model!==undefined);

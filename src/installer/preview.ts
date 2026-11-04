@@ -4,7 +4,7 @@ import {parse as parseToml} from 'smol-toml';
 import {filterContent} from '../analyzer/read-policy.js';
 import {scanRepository} from '../analyzer/repository.js';
 import {projectInput} from '../managed-input.js';
-import {readFile,lstat,readdir,realpath} from 'node:fs/promises';
+import {lstat,readdir,realpath} from 'node:fs/promises';
 import {join,posix,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
@@ -16,19 +16,20 @@ import {prepareSoftwareInstall} from '../integrations/tools/software.js';
 import {initializationRecipe,emptyNativeScope,type NativeTool} from '../integrations/tools/initialization.js';
 import {queryInstalledTool} from '../integrations/tools/installed-state.js';
 import {digest} from '../analyzer/evidence.js';
+import {readFileState,absentDigest} from './file-state.js';
+export {absentDigest} from './file-state.js';
 import {privateDirectory,signature,readCache,saveCache} from '../generator/cache.js';
 import {validateTemplateContent} from '../generator/document-policy.js';
 import {loadManifest,trustedBaseline,type Manifest} from './baseline.js';
 import {mergeManaged,type MergeResult} from './merge.js';
 import {targetPath,ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
-export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;action:'adopt'|'restore'|'replace'|'remove'}
-export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;before?:string;after?:string}
+export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
+export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
 export interface Preview {previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
-export interface PreviewFile {target:string;observedDigest:string;next?:string;encoding:'utf8'|'base64';mode?:number}
-export interface PreviewData {schemaVersion:1;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[];operationPreconditions:{id:string;state:'missing'|'empty'}[]}
-export const absentDigest=digest('rigup:absent');
+export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number}
+export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[];operationPreconditions:{id:string;state:'missing'|'empty'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
-export async function readTarget(root:string,target:string):Promise<Buffer|undefined>{try{return await readFile(await targetPath(root,target));}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return;throw e;}}
+export async function readTarget(root:string,target:string):Promise<Buffer|undefined>{return (await readFileState(root,target)).bytes;}
 export async function operationPrecondition(root:string,target:string):Promise<'missing'|'empty'>{
  const path=await targetPath(root,target);try {const st=await lstat(path);if(!st.isDirectory()||(await readdir(path)).length)throw new Error('external operation requires a new empty scope');return 'empty';}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return 'missing';throw e;}
 }
@@ -44,17 +45,18 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  for(const a of old)if(plan.dispositions.filter(d=>d.logicalId===a.logicalId).length!==1)throw new Error('every old inventory item requires a disposition: '+a.logicalId);
  for(const d of plan.dispositions)if(!old.some(a=>a.logicalId===d.logicalId)||!['retain','update','retire','pending'].includes(d.action))throw new Error('invalid old inventory disposition');
  const inputAssets=[...plan.assets];const baselineRecords:PreviewData['baselines']=[];const nextAssets:ManagedAsset[]=[];
- const fileMap=new Map<string,{raw?:Buffer;text?:string;encoding:'utf8'|'base64';mode?:number}>();
+ const fileMap=new Map<string,{raw?:Buffer;text?:string;encoding:'utf8'|'base64';observedMode?:number;mode?:number}>();
  const allTargets=[...new Set([...inputAssets.map(a=>a.target),...old.map(a=>a.target)])];
- for(const target of allTargets){const raw=await readTarget(root,target);const encoding=inputAssets.find(a=>a.target===target)?.encoding??old.find(a=>a.target===target)?.encoding??'utf8';fileMap.set(target,{raw,text:raw?.toString(encoding==='base64'?'base64':'utf8'),encoding});}
+ for(const target of allTargets){const actual=await readFileState(root,target),raw=actual.bytes;const encoding=inputAssets.find(a=>a.target===target)?.encoding??old.find(a=>a.target===target)?.encoding??'utf8';fileMap.set(target,{raw,text:raw?.toString(encoding==='base64'?'base64':'utf8'),encoding,observedMode:actual.mode,mode:actual.mode});}
  const usedResolutions=new Set<PreviewResolution>();
  const entries:{candidate?:PreparedAsset;old?:ManagedAsset;action:'update'|'remove'|'retain'|'pending'}[]=[];
  for(const asset of inputAssets){
+  if(asset.mode!==undefined&&(!Number.isInteger(asset.mode)||asset.mode<0||asset.mode>0o777||asset.ownership.kind!=='file'))throw Error('managed file mode requires ordinary permissions and full-file ownership');
   if(asset.target==='.rigup/manifest.json'||asset.target.startsWith('.rigup/baseline/'))throw new Error('installer metadata target reserved');
   const prior=old.find(a=>a.logicalId===asset.logicalId)??old.find(a=>a.target===asset.target&&signature(a.ownership)===signature(asset.ownership)&&plan.dispositions.some(d=>d.logicalId===a.logicalId&&d.action==='retire'));
   if(prior&&(prior.target!==asset.target||signature(prior.ownership)!==signature(asset.ownership)))throw new Error('logicalId target/selector changed; explicit old retirement and new identity required');
   const disposition=plan.dispositions.find(d=>d.logicalId===asset.logicalId);
-  if(disposition?.action==='retain'&&prior&&digest(asset.encoding==='base64'?Buffer.from(asset.content,'base64'):asset.content)!==prior.digest)throw new Error('retained candidate differs from trusted baseline');
+  if(disposition?.action==='retain'&&prior&&(digest(asset.encoding==='base64'?Buffer.from(asset.content,'base64'):asset.content)!==prior.digest||asset.mode!==prior.mode))throw new Error('retained candidate differs from trusted baseline');
   if(disposition?.action==='retire'||disposition?.action==='pending')throw new Error('candidate contradicts old disposition');
   entries.push({candidate:asset,old:prior,action:disposition?.action==='retain'?'retain':'update'});
  }
@@ -71,9 +73,19 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   if(entry.action==='pending'){result={action:'conflict',reason:'Unresolved old asset disposition'};}
   else if(entry.action==='retain') {result=base===undefined?{action:'conflict',reason:'Retained item has no trusted baseline'}:{action:'keep',content:local};}
   else result=mergeManaged(base,local,entry.candidate?.content,{action:entry.action,binary:asset.encoding==='base64'});
+  let nextMode=file.mode;
+  const localMode=file.observedMode,baseMode=entry.old?.mode,newMode=entry.candidate?.mode;
+  let modeConflict=false;
+  if(entry.action==='remove'&&baseMode!==undefined&&localMode!==undefined&&localMode!==baseMode)modeConflict=true;
+  else if(newMode!==undefined){
+   if(localMode===undefined||localMode===baseMode||localMode===newMode)nextMode=newMode;
+   else if(newMode!==baseMode)modeConflict=true;
+  }
+  if(modeConflict)result={action:'conflict',reason:'File mode changed locally and upstream, or has no trusted baseline; review permissions explicitly'};
   const resolution=resolutions.find(r=>r.target===asset.target&&signature(r.selector)===signature(asset.ownership));
   if(resolution){
    usedResolutions.add(resolution);if(resolution.observedDigest!==observedDigest)throw new Error('resolution target digest changed');
+   if((newMode!==undefined||baseMode!==undefined)&&resolution.observedMode!==localMode)throw Error('resolution target mode changed or was not explicitly reviewed');
    if(resolution.action==='remove'){if(entry.action!=='remove')throw new Error('remove resolution requires explicit retirement');result={action:local===undefined?'noop':'remove'};}
    else {
     if(!entry.candidate)throw new Error('resolution requires new generated baseline');
@@ -81,12 +93,14 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
     if(resolution.action==='adopt'&&entry.old&&base!==undefined)throw new Error('adoption only applies to untrusted ownership');
     if(!['adopt','restore','replace'].includes(resolution.action))throw new Error('invalid resolution action');
     result={action:local===undefined?'create':'update',content:entry.candidate.content};
+    if(newMode!==undefined)nextMode=newMode;
    }
   }
+  if(result.action!=='conflict'&&entry.action!=='remove'&&file.text!==undefined&&nextMode!==file.observedMode&&['keep','noop'].includes(result.action))result={action:'update',content:result.content??local};
   if(result.action==='conflict')blockers.push(asset.target+': '+result.reason);
   else {
    if(['create','update','remove'].includes(result.action)) {
-    try{file.text=replaceOwned(file.text,asset.ownership,result.action==='remove'?undefined:result.content);file.mode=asset.mode;}
+    try{file.text=replaceOwned(file.text,asset.ownership,result.action==='remove'?undefined:result.content);file.mode=file.text===undefined?undefined:nextMode??0o644;}
     catch{result={action:'conflict',reason:'Configuration cannot be safely edited'};blockers.push(asset.target+': configuration edit conflict');}
    }
    if(result.action!=='conflict'&&entry.action!=='remove') {
@@ -97,7 +111,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    }
   }
   const display=(content:string|undefined)=>{if(content===undefined)return undefined;if(asset.encoding==='base64')return '[binary content]';try{return filterContent(asset.target,content).slice(0,4000);}catch{return '[content withheld by read policy]';}};
-  items.push({logicalId:asset.logicalId,target:asset.target,ownership:asset.ownership,action:result.action,reason:result.reason,observedDigest,...(!['noop','keep'].includes(result.action)?{before:display(local),after:display(result.action==='remove'?undefined:result.content??entry.candidate?.content)}:{})});
+  items.push({logicalId:asset.logicalId,target:asset.target,ownership:asset.ownership,action:result.action,reason:result.reason,observedDigest,beforeMode:file.observedMode,afterMode:file.mode,...(!['noop','keep'].includes(result.action)?{before:display(local),after:display(result.action==='remove'?undefined:result.content??entry.candidate?.content)}:{})});
  }
  if(usedResolutions.size!==resolutions.length)throw new Error('resolution target/selector does not match planned item');
  const operationPreconditions:PreviewData['operationPreconditions']=[];
@@ -153,9 +167,9 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  }
  const previewId=digest(randomUUID()+signature({plan,items,resolutions}));
  const publicPreview:Preview={previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
- const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,next:f.text,encoding:f.encoding,mode:f.mode}));
+ const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
- const data:PreviewData={schemaVersion:1,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan),files,assets:nextAssets,baselines:baselineRecords,operationPreconditions};
+ const data:PreviewData={schemaVersion:1,modePolicyVersion:1,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan),files,assets:nextAssets,baselines:baselineRecords,operationPreconditions};
  const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
  return publicPreview;
 }

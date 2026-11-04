@@ -137,12 +137,12 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  }) : [...state.plan.dispositions.filter(d=>!fixedInventory.some(a=>a.logicalId===d.logicalId)),...fixedInventory.map(a=>({logicalId:a.logicalId,action:'retain' as const,reason:'Explicit deterministic selection maintained'}))];
  const dispositions=effectiveDispositions.map(original=>{
   const current=assets.find(a=>a.logicalId===original.logicalId);const oldItem=previousAssets.find(a=>a.logicalId===original.logicalId);
-  const d=!current&&fixedKinds.has(oldItem?.source?.kind??'')?{...original,action:'retire' as const,reason:'Deterministic capability no longer selected; explicit retirement consent required'}:current&&(!options.sdd||fixedKinds.has(current.source.kind))?{...original,action:(digest(current.encoding==='base64'?Buffer.from(current.content,'base64'):current.content)===oldItem?.digest?'retain':'update') as 'retain'|'update',reason:'Disposition derived from selected deterministic candidate and original baseline'}:original;
+  const d=!current&&fixedKinds.has(oldItem?.source?.kind??'')?{...original,action:'retire' as const,reason:'Deterministic capability no longer selected; explicit retirement consent required'}:current&&(!options.sdd||fixedKinds.has(current.source.kind))?{...original,action:(digest(current.encoding==='base64'?Buffer.from(current.content,'base64'):current.content)===oldItem?.digest&&current.mode===oldItem?.mode?'retain':'update') as 'retain'|'update',reason:'Disposition derived from selected deterministic candidate and original baseline'}:original;
   const replacement=assets.find(a=>a.logicalId===d.logicalId);
   if(d.action==='update'&&!replacement)throw new Error('update disposition lacks replacement');
   if(d.action==='retire'&&replacement)throw new Error('retired asset still active');
   const old=previousAssets.find(a=>a.logicalId===d.logicalId);
-  if(d.action==='retain'&&replacement&&old&&digest(replacement.content)!==old.digest)throw new Error('retained asset changed without update disposition');
+  if(d.action==='retain'&&replacement&&old&&(digest(replacement.encoding==='base64'?Buffer.from(replacement.content,'base64'):replacement.content)!==old.digest||replacement.mode!==old.mode))throw new Error('retained asset changed without update disposition');
   return d;
  });
  // After installation the inventory changes from the input to these accepted candidates.

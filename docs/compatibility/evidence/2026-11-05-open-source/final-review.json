@@ -1,0 +1,98 @@
+{
+  "reviewedHead": "d77464a714f77cb86c4bb5e4a2ec4c54a48b9366",
+  "base": "0214ffdb147e5747361fe796b8e1f09422793dc8",
+  "reviewer": "fresh gpt-6-astra high; read-only; no delegated subreviews",
+  "assessment": "With fixes",
+  "findings": [
+    {
+      "id": 1,
+      "reviewerSeverity": "Important",
+      "finding": "Shell expansion in handoff nextCommand",
+      "location": "src/lifecycle.ts:51",
+      "resolution": "fixed in the single closure pass",
+      "verification": "review handoff shell command round-trips hostile directory names without expansion",
+      "redObserved": true,
+      "greenObserved": true
+    },
+    {
+      "id": 2,
+      "reviewerSeverity": "Important",
+      "finding": "Sensitive JSONC/TOML/YAML comments and .netrc cross research filter",
+      "location": "src/analyzer/read-policy.ts",
+      "resolution": "fixed in the single closure pass",
+      "verification": "review structured credential comments + real host export excludes containers/comments under revised policy",
+      "redObserved": true,
+      "greenObserved": true
+    },
+    {
+      "id": 3,
+      "reviewerSeverity": "Important",
+      "finding": "Unchanged binary custom-skill resource fails retain digest comparison",
+      "location": "src/generator/generate.ts:145",
+      "resolution": "fixed in the single closure pass",
+      "verification": "review binary skill resources survive repeated lifecycle and byte updates",
+      "redObserved": true,
+      "greenObserved": true
+    },
+    {
+      "id": 4,
+      "reviewerSeverity": "Important",
+      "finding": "Mode-only resource update lost; manifest/doctor false configured state",
+      "location": "src/installer/preview.ts:87; src/installer/apply.ts:108; src/installer/doctor.ts:28",
+      "resolution": "fixed in the single closure pass",
+      "verification": "seven mode lifecycle/preview/recovery/doctor/legacy-precondition regressions",
+      "redObserved": true,
+      "greenObserved": true
+    },
+    {
+      "id": 5,
+      "reviewerSeverity": "Minor",
+      "finding": "Absolute profile path is appended under project root",
+      "location": "src/config.ts:146",
+      "resolution": "fixed in the single closure pass",
+      "verification": "review profiles accept absolute and project-relative paths",
+      "redObserved": true,
+      "greenObserved": true
+    },
+    {
+      "id": 6,
+      "reviewerSeverity": "Minor",
+      "finding": "Usage guide still says only macOS tested",
+      "location": "docs/guides/usage.md:9",
+      "resolution": "fixed in the single closure pass",
+      "verification": "usage reference corrected and local links checked",
+      "redObserved": false,
+      "greenObserved": true
+    }
+  ],
+  "independentChecks": [
+    "typecheck passed",
+    "docs links passed",
+    "all-history Gitleaks: 42 commits / approximately 3.40 MB / no leaks",
+    "disposable lifecycle, config, reader/export and shell reproductions; no model calls"
+  ],
+  "declined": [
+    "Full four-host × three-SDD behavior/unavailable providers",
+    "New semantic quality or formal human approval",
+    "Complete OpenWiki generation/model-backed remote GitLab updates",
+    "Windows/native portability outside recorded environments",
+    "Deployment/release adapters without actual target",
+    "Formal OS isolation against arbitrary same-user concurrent replacement/dependency modification"
+  ],
+  "fixPassChecks": {
+    "fullTests": 351,
+    "passed": 336,
+    "optInSkipped": 15,
+    "failed": 0,
+    "focusedInstallerRecovery": 72,
+    "typecheck": "passed",
+    "build": "passed",
+    "docs": "38 Markdown files / 324 local targets",
+    "package": "79 files; isolated lifecycle passed",
+    "dependencyAudit": "zero vulnerabilities",
+    "additionalReview": "none; one fresh review plus executor TDD fix pass",
+    "deferredMinors": []
+  },
+  "readPolicyRevision": "5",
+  "modePolicy": "ordinary permissions on full-file assets use baseline/local/new; local-only chmod preserved and diagnosed, divergent mode changes conflict, mode tuples bind preflight/write/recovery/final verification; old unbound previews require regeneration"
+}

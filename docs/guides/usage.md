@@ -6,7 +6,7 @@ Rigup 为项目接入 coding agent、原生研发流程、MCP 和已有工程检
 
 ## 本地运行
 
-需要 Node.js 24+、npm；快照检查还需要 Git。当前实际验证环境为 macOS，其他平台需要单独验证。
+需要 Node.js 24+、npm；快照检查还需要 Git。macOS 和干净 Linux ARM64 已完成不依赖模型凭据的检查；Windows 与其他原生宿主/工具组合仍需单独验证，详见[当前验证状态](../compatibility/status.md)。
 
 ```sh
 npm ci
@@ -30,7 +30,7 @@ node dist/cli.js doctor /path/to/project --json
 
 ## 项目设置
 
-唯一的项目设置文件是 `.rigup/config.yaml`。优先级为 CLI 覆盖、项目设置、显式选择的 profile、默认值。profile 路径通过 `--profile path` 或 `profile:` 选择，不扫描其他 profile。
+唯一的项目设置文件是 `.rigup/config.yaml`。优先级为 CLI 覆盖、项目设置、显式选择的 profile、默认值。profile 路径通过 `--profile path` 或 `profile:` 选择；支持绝对路径，相对路径以目标项目根目录为基准，不扫描其他 profile。
 
 ```yaml
 agents: [codex]
@@ -85,6 +85,8 @@ node dist/cli.js init /path/to/project --backend host --sdd openspec --agents co
 codex 在发送输入前持久记录请求与未知用量，完成后记录 CLI 实际 input/output token；失败、缺损日志或未知结果不会自动重发。本轮身份、累计预算和已返回结果保存在普通缓存之外，缓存删除不建立新一轮请求，结果复用不新增调用。CLI 的总输入/推理用量无法在服务器端硬封顶，当前在每次实际用量返回后核验剩余上限，超额结果不被接受；这与 native 的发送前 token 预检分别记录。native 将 token 预检和模型请求计入请求预算。host 的人工往返无法自行证明模型 token 用量，报告明确标为 unknown；执行宿主的一方需另外约束、记录真实用量。研究读取范围和字节预算在所有阶段共享，不能通过正文任务越界。
 
 ## 预览、更新和恢复
+
+完整文件显式声明的普通权限位也参与 B/L/N 比较：仅来源改变时更新权限，仅用户 chmod 时保留并由 doctor 标出待审；双方改成不同权限时报告冲突。预览显示权限差异，apply 和中断恢复同时核对正文与权限。权限策略升级前、没有权限前置条件的旧预览会被拒绝，不得手工补写批准或删除持久记录绕过；先核对旧版本的未决效果，再重新准备可审阅的预览。部分所有权不会接管整个文件的权限。
 
 每项比较 B（上次生成）、L（本地）和 N（新候选）。L=B 时更新，N=B 时保留用户修改；非交叠改动可合并，重叠冲突则保留 L。已知托管资产的基线损坏时，先隔离这些目标并停止语义研究/复用，等待对账；不会把旧生成规则当新规范。缺少可信基线不会自动接管既有内容；用户删除的托管项也不会自动重建。混合配置只编辑拥有的键、表或标记块，基线不复制无关字段。
 
