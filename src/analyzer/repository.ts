@@ -111,12 +111,13 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
 }
 
 async function loadManaged(root:string,profile:Pick<ProjectProfile,'unknowns'|'truncated'|'researchBlocked'>):Promise<Map<string,Ownership[]>>{
- const managed=new Map<string,Ownership[]>();let sawManifest=false;let untrusted=false;
+ const managed=new Map<string,Ownership[]>();const committedNative=new Set<string>();let sawManifest=false;let untrusted=false;
  try{
   const manifest=JSON.parse(await readFile(await safePath(root,'.rigup/manifest.json'),'utf8'));sawManifest=true;
   if(manifest.schemaVersion!==1||!Array.isArray(manifest.assets))throw new Error('manifest structure');
   for(const [id,receipt] of Object.entries(manifest.initializedTools??{}) as [string,import('../types.js').NativeInitializationReceipt][]){
    if(!['codegraph','openwiki'].includes(id)){untrusted=true;continue;}
+   committedNative.add(id);
    const target=id==='codegraph'?'.codegraph':'openwiki',control='.rigup/native/'+id;
    // Quarantine a known native output even when its ownership proof broke.
    for(const scope of [target,control,...(id==='codegraph'?['.codegraph-rigup-init']:[])])managed.set(scope,[{kind:'file'}]);
@@ -136,6 +137,17 @@ async function loadManaged(root:string,profile:Pick<ProjectProfile,'unknowns'|'t
  }catch(error){
   if(sawManifest||(error as NodeJS.ErrnoException).code!=='ENOENT')untrusted=true;
   else {try{await safePath(root,'.rigup/baseline');untrusted=true;}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')untrusted=true;}}
+ }
+ for(const id of ['openwiki','codegraph']){
+  if(committedNative.has(id))continue;
+  const control='.rigup/native/'+id,target=id==='openwiki'?'openwiki':'.codegraph';let pending=false;
+  // These are explicit Rigup intent/promotion metadata, not a directory-name
+  // heuristic. An interrupted or ambiguous record blocks research rather than
+  // claiming ownership of similarly named user material.
+  for(const marker of ['intent.json','promotion.json'])try{await lstat(await safePath(root,control+'/'+marker));pending=true;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')pending=true;}
+  if(!pending)continue;
+  for(const scope of [control,target,...(id==='codegraph'?['.codegraph-rigup-init']:[])])managed.set(scope,[{kind:'file'}]);
+  profile.unknowns.push(id+': native ownership pending; semantic research blocked');profile.truncated=true;profile.researchBlocked='native initialization has no committed ownership receipt; resume or reconcile before semantic research';
  }
  if(untrusted){for(const target of managed.keys())managed.set(target,[{kind:'file'}]);profile.unknowns.push('ownership metadata untrusted; semantic cache disabled');profile.truncated=true;profile.researchBlocked='ownership/baseline untrusted; reconcile metadata before semantic research or reuse';}
  return managed;

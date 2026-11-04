@@ -66,7 +66,7 @@ MCP 登记不会启动服务。环境变量在已安装 runner 运行时解析�
 
 `codex` 是默认本机后端，目前验证 Codex CLI 0.166.0。它在项目外的空私有目录运行，只接收经过读取策略过滤的证据；忽略用户配置，禁用 shell、浏览器、应用和子 agent，不选择另一个模型，也不复制登录凭据。研究、规划、正文和验收沿同一条主线连续执行。结果先通过 Evidence 校验，再进入安装候选。
 
-`native` 是 Rigup 的独立模型后端，目前使用 Anthropic SDK，与目标 coding agent 无关。通过 `--model` 或 `model.model` 选择已开通的模型；也可使用 `ANTHROPIC_MODEL`。API key 来自 `model.apiKeyEnv` 指定的变量，默认 `ANTHROPIC_API_KEY`。TTY 临时输入的隐藏密钥只在本轮内存中使用，不保存到配置。
+`native` 是 Rigup 的独立模型后端，目前使用 Anthropic SDK，与目标 coding agent 无关。通过 `--model` 或 `model.model` 选择已开通的模型；也可使用 `ANTHROPIC_MODEL`。显式 `--model`/`--api-key-env` 默认选择 native；与 `--backend codex` 同时使用会在研究前拒绝，避免静默忽略提供方选择。API key 来自 `model.apiKeyEnv` 指定的变量，默认 `ANTHROPIC_API_KEY`。TTY 临时输入的隐藏密钥只在本轮内存中使用，不保存到配置。
 
 `host` 导出经过读取策略过滤的研究请求，交给宿主 agent 返回 JSON。沿同一条 init/update 主线逐阶段续跑，不产生可安装的半成品：
 
@@ -80,7 +80,7 @@ node dist/cli.js init /path/to/project --backend host --sdd openspec --agents co
 
 `--request /absolute/private/path.json` 可指定导出位置，必须在本机私有 host 缓存目录内；它与 `--response` 互斥。默认缓存为 `~/.cache/rigup/host/`。响应可从显式本地文件读取，仍须通过原请求和当前上下文校验。源码、库存、有效选项、版本或执行方式变化会拒绝旧上下文。不要手写批准、通过状态或执行命令来代替研究结果。
 
-codex 在发送输入前持久记录请求与未知用量，完成后记录 CLI 实际 input/output token；失败、缺损日志或未知结果不会自动重发。预算日志独立于普通缓存；结果复用不新增调用。CLI 的总输入/推理用量无法在服务器端硬封顶，当前在每次实际用量返回后核验剩余上限，超额结果不被接受；这与 native 的发送前 token 预检分别记录。native 将 token 预检和模型请求计入请求预算。host 的人工往返无法自行证明模型 token 用量，报告明确标为 unknown；执行宿主的一方需另外约束、记录真实用量。研究读取范围和字节预算在所有阶段共享，不能通过正文任务越界。
+codex 在发送输入前持久记录请求与未知用量，完成后记录 CLI 实际 input/output token；失败、缺损日志或未知结果不会自动重发。本轮身份、累计预算和已返回结果保存在普通缓存之外，缓存删除不建立新一轮请求，结果复用不新增调用。CLI 的总输入/推理用量无法在服务器端硬封顶，当前在每次实际用量返回后核验剩余上限，超额结果不被接受；这与 native 的发送前 token 预检分别记录。native 将 token 预检和模型请求计入请求预算。host 的人工往返无法自行证明模型 token 用量，报告明确标为 unknown；执行宿主的一方需另外约束、记录真实用量。研究读取范围和字节预算在所有阶段共享，不能通过正文任务越界。
 
 ## 预览、更新和恢复
 
@@ -93,13 +93,15 @@ node dist/cli.js update /path/to/project --review --json
 node dist/cli.js update /path/to/project --apply PREVIEW_ID --sessions-ended --json
 ```
 
-结束会加载待改资产的宿主会话，再从独立终端 apply，之后重载配置。响应本身不授权热更新。
+结束会加载待改资产的宿主会话，再从独立终端 apply，之后重载配置。此交接也适用于默认 Codex 后端和中断恢复；报告保留具体预览及下一条命令。响应本身不授权热更新。
 
 同一目标使用同一执行锁。写入前保存持久未决记录和必要备份；外部进程通过启动屏障，记录持久保存后才开始写。manifest 最后切换，新基线使用独立目录，旧 B 保留。多文件写入并非整体事务，失败后可能已有部分效果；Rigup 不 reset 工作区或假装失败前什么都没发生。
 
 崩溃后使用 `rigup update /path/to/project --resume` 对账。已批准的中断预览有独立持久副本，普通候选缓存删除后也能恢复；恢复 apply 不要求重新提供研究模型凭据。活动进程或未确认结果仍会阻止后续写入。普通缓存丢失不能清除持久未决状态；无可信基线时保留冲突。状态目录为 `~/.local/state/rigup/`，普通候选/请求在 `~/.cache/rigup/`。不要通过删除持久状态来绕过未确认的写进程。
 
 当前自动软件安装仅针对锁定的 OpenWiki/CodeGraph，位于新的空 `.rigup/tools/<id>/` 范围，禁用 npm lifecycle scripts，并验证包、依赖树、launcher 和安装回执。`--tools openwiki,codegraph` 同时规划受保护原生初始化：官方接口先写入空暂存区，验证后原子提升工具状态。已有非空用户状态不被接管；软件回执与初始化回执分别保存。OpenWiki 初始化到可由 Codex 恢复的规划 run，不能据此声称全部 wiki 正文已生成。根 agent 指令、计划工作流和 Git hooks 不由该初始化覆盖。无法证明安全的既有状态保持待对账；Superpowers+OMP 的绑定也尚未验证。没有已验证部署适配器时不安装 `change-release`。
+
+原生生成开始前就保存初始化意图；manifest 尚未提交时，已知生成区同样被隔离，避免中断产物回流成研究依据。中断期间源码变化会拒绝旧预览，需先对账再重新准备；不会自动认领同名用户目录来绕过该边界。
 
 ## 工程检查与报告
 

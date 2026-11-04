@@ -1,0 +1,164 @@
+✖ public lifecycle preserves unresolved Codex identity when ordinary cache is lost (1252.709125ms)
+✖ explicit Anthropic CLI flags select their provider after default resolution (54.829ms)
+✖ conflicting Codex model configuration is rejected before dispatch (45.840667ms)
+✖ default Codex setup preserves a concrete preview until the affected session ends (143.875708ms)
+✖ durable resume applies the same affected-session handoff as normal setup (150.490875ms)
+✖ interrupted native output cannot become research after source drift rejects resume (249.665ms)
+✖ native intent quarantines unpublished staging but similar user directories stay visible (30.179875ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 0
+ℹ fail 7
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2705.536375
+
+✖ failing tests:
+
+test at test/native-review.test.ts:1:1246
+✖ public lifecycle preserves unresolved Codex identity when ordinary cache is lost (1252.709125ms)
+  AssertionError [ERR_ASSERTION]: cache loss must not authorize another model request
+  + actual - expected
+
+  + 'called\ncalled\n'
+  - 'called\n'
+             ^
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:27:10)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:173)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:98)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'called\ncalled\n',
+    expected: 'called\n',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/native-review.test.ts:2:1042
+✖ explicit Anthropic CLI flags select their provider after default resolution (54.829ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  'codex' !== 'native'
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:35:10)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:173)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:98)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'codex',
+    expected: 'native',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/native-review.test.ts:2:1914
+✖ conflicting Codex model configuration is rejected before dispatch (45.840667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  1 !== 2
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:40:9)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:173)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:98)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/native-review.test.ts:2:2491
+✖ default Codex setup preserves a concrete preview until the affected session ends (143.875708ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 3
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:46:33)
+      at async activeCodex (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:15:194)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:45:2)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:173)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:98)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 3,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/native-review.test.ts:2:3263
+✖ durable resume applies the same affected-session handoff as normal setup (150.490875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 3
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:58:10)
+      at async activeCodex (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:15:194)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:57:2)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:173)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:98)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 3,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/native-review.test.ts:2:4526
+✖ interrupted native output cannot become research after source drift rejects resume (249.665ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(!after.files.some(p=>p.startsWith('openwiki/')||p.startsWith('.rigup/native/')))
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:84:56)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:173)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:98)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/native-review.test.ts:2:7311
+✖ native intent quarantines unpublished staging but similar user directories stay visible (30.179875ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(!pending.files.some(p=>p.startsWith('.rigup/native/')))
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:92:58)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:173)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/native-review.test.ts:14:98)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

@@ -1,0 +1,15 @@
+✔ public lifecycle preserves unresolved Codex identity when ordinary cache is lost (1001.452ms)
+✔ explicit Anthropic CLI flags select their provider after default resolution (102.114208ms)
+✔ conflicting Codex model configuration is rejected before dispatch (1.457625ms)
+✔ default Codex setup preserves a concrete preview until the affected session ends (186.335583ms)
+✔ durable resume applies the same affected-session handoff as normal setup (165.170375ms)
+✔ interrupted native output cannot become research after source drift rejects resume (246.1915ms)
+✔ native intent quarantines unpublished staging but similar user directories stay visible (35.701ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1914.696166

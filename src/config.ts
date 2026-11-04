@@ -77,6 +77,7 @@ export function validateOptions(value: Record<string, unknown>): void {
    if(typeof model.model !== 'string' || !model.model.trim()) throw new Error('model.model: required');
    if(typeof model.apiKeyEnv !== 'string' || !/^[A-Z_][A-Z0-9_]*$/.test(model.apiKeyEnv)) throw new Error('model.apiKeyEnv: environment reference required');
   }
+  if(value.backend==='codex'&&value.model!==undefined)throw Error('model: Anthropic configuration conflicts with the Codex backend');
   if(value.scope !== undefined && (!Array.isArray(value.scope) || value.scope.some(s=>typeof s !== 'string' || s.startsWith('/') || s.split('/').includes('..')))) throw new Error('scope: expected relative paths');
   if(value.readBudget !== undefined) {
    if(!value.readBudget || typeof value.readBudget !== 'object' || Array.isArray(value.readBudget)) throw new Error('readBudget: expected object');
@@ -145,7 +146,10 @@ export async function loadOptions(root: string, overrides: Partial<SetupOptions>
   const profile = typeof profilePath === 'string' ? await readConfig(join(root,profilePath), true) : {};
   validateOptions(profile);
   const options={...{agents: ['codex'], backend:'codex'}, ...profile, ...project, ...overrides} as SetupOptions;
-  if(options.model&&profile.backend===undefined&&project.backend===undefined&&overrides.backend===undefined)options.backend='native';
+  const layers=[profile,project,overrides];const backendLayer=layers.findLastIndex(layer=>layer.backend!==undefined),modelLayer=layers.findLastIndex(layer=>layer.model!==undefined);
+  if(options.model&&modelLayer>backendLayer)options.backend='native';
+  else if(options.backend==='codex'&&options.model)delete options.model;
+  validateOptions(options as unknown as Record<string,unknown>);
   return options;
 }
 

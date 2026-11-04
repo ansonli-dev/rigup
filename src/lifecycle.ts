@@ -1,5 +1,5 @@
 import {createProgressReporter,type RunProgressEvent} from './progress.js';
-import {readFile} from 'node:fs/promises';
+import {readFile,lstat} from 'node:fs/promises';
 import {saveDurable} from './installer/state.js';
 import {configurationCandidate} from './config.js';
 import {validateResearch,ResearchFailure} from './analyzer/backend.js';
@@ -21,15 +21,22 @@ import {TEMPLATE_VERSION} from './generator/render.js';
 import {privateDirectory,signature,readCache,saveCache} from './generator/cache.js';
 import {prepareIntegrations} from './integrations/registry.js';
 import {loadManifest} from './installer/baseline.js';
-import {acquireLock} from './installer/lock.js';
+import {acquireLock,defaultStateRoot} from './installer/lock.js';
 import {assertNoUnknownWriters} from './installer/operations.js';
-import {preview} from './installer/preview.js';
+import {preview,loadPreview,type Preview} from './installer/preview.js';
+import {sessionHandoffRequired} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
 import {apply,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
 export interface LifecycleFlags {dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean}
 export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;report?:(value:Record<string,unknown>)=>void}
 interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string}
+async function readRun(path:string,root:string,consent:string):Promise<Run|undefined>{
+ const run=await readCache<Run>(path);
+ if(!run){try{await lstat(path);throw Error('durable research run corrupted; reconciliation required');}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return;throw error;}}
+ if(run.root!==root||run.consent!==consent||typeof run.runId!=='string'||!run.runId||!run.spent||!Number.isSafeInteger(run.spent.calls)||run.spent.calls<0||run.spent.tokens!=='unknown'&&(!Number.isSafeInteger(run.spent.tokens)||run.spent.tokens<0))throw Error('durable research run invalid; reconciliation required');
+ return run;
+}
 export async function executeLifecycle(root:string,options:SetupOptions,flags:LifecycleFlags,write:(s:string)=>void,services:LifecycleServices={}):Promise<number>{
  if(!options.agents.length){write('agents: choose at least one native host before research\n');services.report?.({phase:'preflight',installStatus:'pending',requiredInput:[{field:'agents',sources:['project configuration','selected profile','CLI overrides'],provide:'--agents codex (or another supported host)'}]});return 3;}
  const budget=options.researchBudget??{maxCalls:60,maxTokens:100000};
@@ -39,13 +46,20 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  const phases=[...(options.sdd?['research']:[]),'generation','preview',...(!flags.dryRun?['apply']:[])];
  const progress=createProgressReporter({runId:lock.id,phases,isTTY:!!services.isTTY,write,clock:services.clock});let active:RunProgressEvent={stage:phases[0],task:'bounded source scan',completed:0,next:'prepare selected integrations'};const emit=(event:RunProgressEvent)=>{active=event;progress.event(event);};emit(active);
  const heartbeat=setInterval(()=>progress.tick(),1000);heartbeat.unref();
+ const handoff=async(result:Preview):Promise<boolean>=>{
+  if(!flags.review&&!await sessionHandoffRequired(root,flags.sessionsEnded))return false;
+  const nextCommand='rigup update '+JSON.stringify(root)+' --apply '+result.previewId+' --sessions-ended'+(flags.resume?' --resume':'');
+  emit({stage:'apply',completed:0,status:'waiting',requiresUserAction:true,waiting:'review / affected host session exit',next:'independent terminal apply'});services.report?.({phase:'handoff',installStatus:'pending',...result,pending:['End affected sessions / review the concrete preview'],nextCommand});write('Pending review/session handoff. End affected sessions, then run from an independent terminal:\n'+nextCommand+'\n');return true;
+ };
 
  try {
   await assertNoUnknownWriters(root,lock.stateRoot);
   const base=await privateDirectory(services.cacheRoot??join(homedir(),'.cache','rigup'),root);
-  const cache=await privateDirectory(join(base,'generation'),root);const requests=await privateDirectory(join(base,'host'),root);const previews=await privateDirectory(join(base,'previews'),root);const runs=await privateDirectory(join(base,'runs'),root);
+  const cache=await privateDirectory(join(base,'generation'),root);const requests=await privateDirectory(join(base,'host'),root);const previews=await privateDirectory(join(base,'previews'),root);const runs=await privateDirectory(join(lock.stateRoot,'runs'),root);
   if(flags.resume){const interrupted=await restoreInterruptedPreview(root,options,previews,lock.stateRoot);if(interrupted){
-   if(flags.dryRun||flags.review){services.report?.({phase:'preview',previewId:interrupted,installStatus:'pending',message:'Durable interrupted preview restored; resume without dry-run/review to apply'});return 3;}
+   const restored=(await loadPreview(interrupted,previews)).preview;
+   if(flags.dryRun){services.report?.({phase:'preview',...restored,installStatus:'pending',message:'Durable interrupted preview restored; resume without dry-run to apply'});return 3;}
+   if(await handoff(restored))return 3;
    const installed=await apply(interrupted,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,recover:true,signal:services.signal,onProgress:emit,runChecks:services.runChecks});services.report?.({phase:'apply',installStatus:installed.status,...installed});write('Resumed protected installation '+installed.status+'\n');return installed.exitCode;
   }}
  if(options.sdd&&options.backend==='native'&&!services.backend&&(!(options.model?.model??services.credentials?.model??process.env.ANTHROPIC_MODEL)||!(services.credentials?.apiKey??process.env[options.model?.apiKeyEnv??'ANTHROPIC_API_KEY']))){write('model: model ID and API-key environment reference required before research\n');services.report?.({phase:'preflight',installStatus:'pending',requiredInput:[{field:'model',sources:['effective configuration','ANTHROPIC_MODEL','API-key environment reference'],provide:'Configure model.model and model.apiKeyEnv; set the referenced variable outside project configuration'}]});return 3;}
@@ -55,7 +69,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const config=await readTarget(root,'.rigup/config.yaml');
   const consent=signature({root,options,effectiveModel,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,executionMode:flags.dryRun?'dry-run':flags.review?'review':'continuous',versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},fingerprint:profile.fingerprint});
   if(flags.continuation&&flags.continuation!==consent)throw new Error('continuation input/configuration changed; restart preparation');
-  const runPath=join(runs,consent+'.json');let run=await readCache<Run>(runPath);if(!run||run.consent!==consent)run={root,options,effectiveModel,mode:{dryRun:flags.dryRun,yes:flags.yes,review:flags.review,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent};
+  const runPath=join(runs,consent+'.json');let run=await readRun(runPath,root,consent)??await readRun(join(base,'runs',consent+'.json'),root,consent);if(!run)run={root,options,effectiveModel,mode:{dryRun:flags.dryRun,yes:flags.yes,review:flags.review,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent};
+  if(signature(run.options)!==signature(options))throw Error('durable research options changed; reconciliation required');
   await saveDurable(runPath,JSON.stringify(run));let responseConsumed=false;
   const quote=(s:string)=>"'"+s.replaceAll("'","'\"'\"'")+"'";
   const continuation=(requestPath:string)=>'rigup update '+quote(root)+' --continue '+consent+' --response '+quote(requestPath.replace(/(?:\.request)?\.json$/,'.response.json'));
@@ -108,9 +123,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   emit({stage:'preview',completed:result.items.length,total:result.items.length,status:result.executable?'complete':result.items.some(i=>i.action==='conflict')?'failed':'waiting',requiresUserAction:!result.executable,next:flags.dryRun?'dry-run preview finished; not installed':'apply'});
   if(!result.executable)return result.items.some(i=>i.action==='conflict')||!generated.value.requirements.length?1:3;
   if(flags.dryRun)return 0;
-  const activeHost=!!(process.env.CODEX_THREAD_ID||process.env.CLAUDECODE||process.env.OPENCODE||process.env.PI_CODING_AGENT_DIR);
-  const cwd=await import('node:fs/promises').then(fs=>fs.realpath(process.cwd()));const related=root===cwd||root.startsWith(cwd+'/')||cwd.startsWith(root+'/');
-  if(flags.review||options.backend==='host'&&activeHost&&related&&!flags.sessionsEnded){emit({stage:'apply',completed:0,status:'waiting',requiresUserAction:true,waiting:'review / affected host session exit',next:'independent terminal apply'});services.report?.({phase:'handoff',installStatus:'pending',...result,pending:['End affected sessions / review the concrete preview'],nextCommand:'rigup update '+JSON.stringify(root)+' --apply '+result.previewId+' --sessions-ended'});write('Pending review/session handoff. End affected sessions, then run from an independent terminal:\nrigup update '+JSON.stringify(root)+' --apply '+result.previewId+' --sessions-ended\n');return 3;}
+  if(await handoff(result))return 3;
   const installed=await apply(result.previewId,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,onProgress:emit,recover:flags.resume,signal:services.signal,runChecks:services.runChecks??(flags.runChecks?.length?async()=>runProjectChecks(await scanRepository(root,options),flags.runChecks!,services.signal):undefined)});
   services.report?.({phase:'apply',installStatus:installed.status,...installed});
   for(const warning of installed.warnings)write('Pending/note: '+warning+'\n');
@@ -120,6 +133,6 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
 
 export async function loadContinuation(root:string,id:string,services:LifecycleServices={}):Promise<{options:SetupOptions;flags:LifecycleFlags}>{
  if(!/^[a-f0-9]{64}$/.test(id))throw new Error('continuation id invalid');
- const base=await privateDirectory(services.cacheRoot??join(homedir(),'.cache','rigup'),root);const run=await readCache<Run>(join(base,'runs',id+'.json'));
+ const state=await privateDirectory(services.stateRoot??defaultStateRoot(),root);const base=await privateDirectory(services.cacheRoot??join(homedir(),'.cache','rigup'),root);const run=await readRun(join(state,'runs',id+'.json'),root,id)??await readRun(join(base,'runs',id+'.json'),root,id);
  if(!run||run.root!==root||run.consent!==id)throw new Error('continuation missing; restart preparation');return {options:run.options,flags:{...run.mode,continuation:id}};
 }

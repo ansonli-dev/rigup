@@ -58,6 +58,17 @@ test('ordinary cache deletion does not authorize repeating an unresolved Codex r
  await rm(cache+'/ordinary',{recursive:true});
  await assert.rejects(()=>(createBackend(settings)).then(b=>b.run(request,reader)),/Unresolved|reconcile/);assert.equal(calls,1);
 }));
+test('completed durable Codex result survives cache loss without another charge',()=>fixture(async(root,cache,request,reader)=>{
+ let calls=0;const settings={cacheRoot:cache+'/ordinary',stateRoot:cache+'/durable',invoke:async()=>{calls++;return result();}};
+ await (await createBackend(settings)).run(request,reader);await rm(cache+'/ordinary',{recursive:true});
+ const recovered=await (await createBackend(settings)).run({...request,spent:{calls:1,tokens:'unknown'}},reader);
+ assert.equal(recovered.status,'complete');if(recovered.status==='complete')assert.deepEqual(recovered.value.usage,{calls:0,tokens:0});assert.equal(calls,1);
+}));
+test('verified durable Codex accounting supersedes stale unknown consumer totals',()=>fixture(async(root,cache,request,reader)=>{
+ let calls=0;const backend=await createBackend({cacheRoot:cache,invoke:async()=>{calls++;return result();}});await backend.run(request,reader);
+ const next=await backend.run({...request,kind:'artifact-plan',expectedOutput:'plan',input:{phase:'next'},spent:{calls:1,tokens:'unknown'}},reader);
+ assert.equal(next.status,'complete');assert.equal(calls,2);
+}));
 test('Codex output with fabricated evidence never becomes accepted research',()=>fixture(async(root,cache,request,reader)=>{
  const invalid={observations:[{statement:'Invented',classification:'explicit-rule',scope:['source.js'],supportingEvidence:[{path:'source.js',startLine:1,endLine:1,digest:'sha256:invented'}],counterEvidence:[],guidanceDisposition:'follow-existing'}],unknowns:[]};
  const backend=await createBackend({cacheRoot:cache,invoke:async()=>result(invalid)});await assert.rejects(()=>backend.run(request,reader),/evidence|Codex/);

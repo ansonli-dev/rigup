@@ -43,12 +43,13 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
    if(!accepted||accepted.dataSignature!==dataSignature)throw new ResearchFailure('Codex cached acceptance lacks verified provenance');
    await options.onUsage?.(totals(ledger));return {status:'complete',value:{...exported.value,model:accepted.model,unknowns:exported.value.unknowns.filter(s=>s!=='host token usage unknown'),usage:{calls:0,tokens:0}}};
   }
-  const id=exported.requestId,attemptPath=join(cache,id+'.outcome.json');
+  const id=exported.requestId,attemptPath=join(durable,id+'.outcome.json');
   let outcome=await readCache<CodexOutcome>(attemptPath);
+  const recoveredOutcome=!!outcome;
   if(ledger.attempts[id]?.identity&&await isAlive(ledger.attempts[id].identity!))throw new ResearchFailure('Prior Codex attempt is still active; reconcile before retry');
   if(!outcome){
    if(ledger.attempts[id])throw new ResearchFailure('Unresolved Codex attempt; refusing to repeat it automatically',[],{calls:0,tokens:'unknown'});
-   const spent=totals(ledger);if(spent.calls>=request.budget.maxCalls||spent.tokens==='unknown'||spent.tokens>=request.budget.maxTokens||request.spent&&(request.spent.calls>=request.budget.maxCalls||request.spent.tokens==='unknown'||request.spent.tokens>=request.budget.maxTokens))throw new ResearchFailure('Codex budget exhausted or unknown',[],{calls:0,tokens:0});
+   const spent=totals(ledger);if(spent.calls>=request.budget.maxCalls||spent.tokens==='unknown'||spent.tokens>=request.budget.maxTokens||request.spent&&(request.spent.calls>spent.calls||request.spent.tokens!=='unknown'&&request.spent.tokens>spent.tokens))throw new ResearchFailure('Codex budget exhausted, unknown, or inconsistent with durable accounting',[],{calls:0,tokens:0});
    if(!options.invoke)try{await codexAvailable();}catch(error){throw new ResearchFailure((error as Error).message,[],{calls:0,tokens:0});}
    const work=join(cache,id+'.work');await privateDirectory(work,request.root);
    const cwd=join(work,'workspace');await mkdir(cwd,{mode:0o700});
@@ -70,7 +71,7 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
    await saveDurable(join(cache,signature(context)+'.result.json'),JSON.stringify({dataSignature:signature(data),model}));
    const accepted=await hostBackend({cacheRoot:exchange,responsePath}).run(context,reader);
    if(accepted.status!=='complete')throw Error('Codex response not accepted');
-   const value:ResearchResult={data,model,unknowns:accepted.value.unknowns.filter(s=>s!=='host token usage unknown'),usage:{calls:1,tokens}};
+   const value:ResearchResult={data,model,unknowns:accepted.value.unknowns.filter(s=>s!=='host token usage unknown'),usage:recoveredOutcome?{calls:0,tokens:0}:{calls:1,tokens}};
    return {status:'complete',value};
   }catch(error){if(error instanceof ResearchFailure)throw error;throw new ResearchFailure('Codex result rejected: '+((error as Error).message.includes('tool')?'unexpected tool activity':(error as Error).message.includes('usage')?'usage unavailable':'invalid evidence, output, or observed budget'),[],{calls:1,tokens:ledger.attempts[id]?.tokens??'unknown'});}
  }};

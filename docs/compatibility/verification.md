@@ -109,3 +109,16 @@ Claude 及其他宿主、其他平台、独立模型矩阵按用户要求延后�
 - [首次启动提示误判记录](evidence/2026-11-04-native-initialization/codex-mainline-attempt1-startup-warning.json) 保留。其错误项是 skip_host_skill_discovery 的原生启动提示，未发生工具调用；精确分类回归后复用了当时已保存的真实结果，没有重发该请求。其他错误和工具事件继续拒绝。进程身份记录失败时的真实子进程清理也有失败到通过回归。
 
 本轮没有运行 Claude/其他宿主或模型切换矩阵；GitLab/部署等外部目标仍保留原待办。本地 Codex 后端入口和参数以 [官方 App Server/CLI 文档](https://learn.chatgpt.com/docs/app-server) 及本机精确版本的 `exec --help`/`features list` 核实。
+
+## 原生初始化补齐后的最终审查与回归
+
+一次独立上下文、只读的 gpt-6-astra 审查覆盖分支 0214ffd..7c4db91，并重点检查 1ffacb2..7c4db91 的新增主线。4 项 Important 全部接受并在同一修复轮完成；无 Critical、无 deferred minor，未追加复审。[审查、裁决与校验摘要](evidence/2026-11-04-native-initialization/final-review-results.json) 保留每项影响、回归入口和本轮完整裁决。
+
+- 缓存删除恢复：生命周期 run 身份、累计读取/模型预算及 Codex 已返回结果改为独立持久状态；同一未知调用不会因普通缓存删除而重发，已完成结果恢复消费 0 新请求。权威预算可纠正调用方尚未更新的 unknown 用量，损坏的持久 run 明确阻止续跑。
+- 提供方选择：CLI 显式 Anthropic model/API-key 引用进入 native 后端；与显式 Codex 选择冲突时研究前拒绝。配置层的优先级同样处理，避免选择被默认值静默忽略。
+- 活动会话：默认 Codex 和持久 apply 恢复共用受影响宿主会话交接，保留同一具体预览，声明会话结束前不写配置。
+- 未提交原生状态：写原生产物前保存 intent；manifest 提交前即隔离已知生成区。中断后源码改变仍安全拒绝旧预览，并阻止这些产物成为新研究依据。没有 Rigup 意图/提升记录的同名用户目录仍正常可读。
+
+四项发现的 7 个回归先全部失败，再全部通过；另外验证了已完成结果跨缓存恢复和权威预算恢复。最终 `npm test` 为 **298 项：285 passed、13 skipped、0 failed**；13 项跳过为需显式启用的真实验收入口，不计作通过。`npm run typecheck`、构建（pack 的 prepack）及 `npm pack --dry-run --json` 均通过；发布清单 67 文件，包含原生 worker、Codex 后端和会话交接模块，无测试、缓存、scratch 或客户数据。完整 [测试日志](evidence/2026-11-04-native-initialization/final-tests.txt)、[失败回归](evidence/2026-11-04-native-initialization/review-regressions-red.txt)、[通过回归](evidence/2026-11-04-native-initialization/review-regressions-green.txt) 已归档。
+
+真实原生安装/中断恢复/Codex MCP 验收在 intent/隔离修复后再次通过，见最新 initialization-recovery.json。默认 Codex 真实模型验收沿用上节已记录的 2 请求结果；最终防护修复使用本地进程/协议回归，没有新增模型调用，也未宣称替代全部组合、对抗性模型评测或人工语义批准。源码变化后的中断安装仍可能需要手工回执对账；后续 wiki/index 更新继续由原生工具承担。

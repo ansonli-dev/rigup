@@ -1,0 +1,245 @@
+{
+  "caseId": "protected-native/final-review-and-verification",
+  "status": "passed-with-declared-limits",
+  "recordedAt": "2026-11-04T14:59:46.114194+00:00",
+  "review": {
+    "mode": "one fresh-context read-only reviewer",
+    "model": "gpt-6-astra",
+    "reasoningEffort": "high",
+    "range": "0214ffdb147e5747361fe796b8e1f09422793dc8..7c4db91",
+    "incrementalFocus": "1ffacb2..7c4db91",
+    "packageSha256": "57b5b16ba5f0752589c02f94a0f8d4f3d81e75dd3b9330dbe961ec8b156435a9",
+    "critical": 0,
+    "important": 4,
+    "minor": 0,
+    "fixPasses": 1,
+    "reReview": false,
+    "findings": [
+      {
+        "id": "F1",
+        "priority": "P1",
+        "grade": "Important",
+        "decision": "accepted; fixed",
+        "impact": "Deleting ordinary caches could create a new lifecycle UUID despite an unresolved durable Codex charge, repeating the request and bypassing its budget.",
+        "fix": "Store lifecycle run identity, cumulative budgets and completed Codex outcomes in independent durable state; reject corrupt runs; reuse recovered outcomes with zero new usage and honor authoritative accounting.",
+        "tests": [
+          "public lifecycle preserves unresolved Codex identity when ordinary cache is lost",
+          "completed durable Codex result survives cache loss without another charge",
+          "verified durable Codex accounting supersedes stale unknown consumer totals"
+        ]
+      },
+      {
+        "id": "F2",
+        "priority": "P2",
+        "grade": "Important",
+        "decision": "accepted; fixed",
+        "impact": "Explicit CLI Anthropic model/API-key flags could be silently ignored by the new default Codex backend.",
+        "fix": "Resolve explicit provider choices and layered configuration consistently; reject explicit Codex plus Anthropic model flags before dispatch.",
+        "tests": [
+          "explicit Anthropic CLI flags select their provider after default resolution",
+          "conflicting Codex model configuration is rejected before dispatch"
+        ]
+      },
+      {
+        "id": "F3",
+        "priority": "P2",
+        "grade": "Important",
+        "decision": "accepted; fixed",
+        "impact": "Default Codex and durable apply recovery could mutate assets already loaded by an active affected host session without the handoff required on the host path.",
+        "fix": "Use one backend-independent active-session check on normal lifecycle, durable resume and CLI apply; preserve the concrete preview and next command.",
+        "tests": [
+          "default Codex setup preserves a concrete preview until the affected session ends",
+          "durable resume applies the same affected-session handoff as normal setup"
+        ]
+      },
+      {
+        "id": "F4",
+        "priority": "P2",
+        "grade": "Important",
+        "decision": "accepted; fixed",
+        "impact": "Native outputs created before manifest commit could be exported as project evidence after source changes invalidated the interrupted preview.",
+        "fix": "Persist native intent before generated writes; quarantine exact pending native scopes and block semantic research until receipts reconcile; retain similarly named unowned user files.",
+        "tests": [
+          "interrupted native output cannot become research after source drift rejects resume",
+          "native intent quarantines unpublished staging but similar user directories stay visible"
+        ]
+      }
+    ],
+    "deferredMinors": []
+  },
+  "verification": {
+    "local": {
+      "command": "npm test",
+      "counts": {
+        "tests": 298,
+        "pass": 285,
+        "fail": 0,
+        "skipped": 13,
+        "cancelled": 0
+      },
+      "log": "final-tests.txt",
+      "scope": "Ordinary local tests; opt-in live entry points are skipped, not reported as passed."
+    },
+    "redGreen": {
+      "command": "node --import tsx --test test/native-review.test.ts",
+      "red": {
+        "tests": 7,
+        "pass": 0,
+        "fail": 7,
+        "log": "review-regressions-red.txt"
+      },
+      "green": {
+        "tests": 7,
+        "pass": 7,
+        "fail": 0,
+        "log": "review-regressions-green.txt"
+      },
+      "additionalF1Cases": "Two completed-outcome/accounting cases also observed RED→GREEN in the same fix pass and are included in the final suite."
+    },
+    "typecheck": {
+      "command": "npm run typecheck",
+      "exitCode": 0
+    },
+    "build": {
+      "command": "npm run build (npm prepack)",
+      "exitCode": 0
+    },
+    "package": {
+      "command": "npm pack --dry-run --json --cache /private/tmp/rigup-native-pack-cache",
+      "exitCode": 0,
+      "entryCount": 67,
+      "filePaths": [
+        "README.md",
+        "dist/analyzer/analyze.js",
+        "dist/analyzer/anthropic.js",
+        "dist/analyzer/backend.js",
+        "dist/analyzer/codex-process.js",
+        "dist/analyzer/codex.js",
+        "dist/analyzer/evidence.js",
+        "dist/analyzer/host.js",
+        "dist/analyzer/native-sources.js",
+        "dist/analyzer/prompts.js",
+        "dist/analyzer/read-policy.js",
+        "dist/analyzer/repository.js",
+        "dist/cli.js",
+        "dist/config.js",
+        "dist/generator/artifacts.js",
+        "dist/generator/cache.js",
+        "dist/generator/document-policy.js",
+        "dist/generator/generate.js",
+        "dist/generator/render.js",
+        "dist/installer/apply.js",
+        "dist/installer/baseline.js",
+        "dist/installer/doctor.js",
+        "dist/installer/lock.js",
+        "dist/installer/manifest.js",
+        "dist/installer/merge.js",
+        "dist/installer/operations.js",
+        "dist/installer/ownership.js",
+        "dist/installer/preview.js",
+        "dist/installer/session.js",
+        "dist/installer/state.js",
+        "dist/integrations/agents/claude.js",
+        "dist/integrations/agents/codex.js",
+        "dist/integrations/agents/config-edit.js",
+        "dist/integrations/agents/index.js",
+        "dist/integrations/agents/omp.js",
+        "dist/integrations/agents/opencode.js",
+        "dist/integrations/custom-skills.js",
+        "dist/integrations/custom-templates.js",
+        "dist/integrations/gitlab/ci.js",
+        "dist/integrations/gitlab/customer.js",
+        "dist/integrations/registry.js",
+        "dist/integrations/sdd/openspec.js",
+        "dist/integrations/sdd/spec-kit.js",
+        "dist/integrations/sdd/superpowers.js",
+        "dist/integrations/tools/codegraph.js",
+        "dist/integrations/tools/customer-mcp.js",
+        "dist/integrations/tools/initialization.js",
+        "dist/integrations/tools/installed-state.js",
+        "dist/integrations/tools/native-state.js",
+        "dist/integrations/tools/native-worker.mjs",
+        "dist/integrations/tools/openwiki.js",
+        "dist/integrations/tools/quality.js",
+        "dist/integrations/tools/software.js",
+        "dist/lifecycle.js",
+        "dist/managed-input.js",
+        "dist/onboarding.js",
+        "dist/progress.js",
+        "dist/prompt.js",
+        "dist/types.js",
+        "docs/compatibility/README.md",
+        "docs/compatibility/upstream-lock.json",
+        "package.json",
+        "templates/scripts/check-snapshot.mjs",
+        "templates/scripts/openwiki-ci-update.mjs",
+        "templates/skills/change-deliver/SKILL.md",
+        "templates/skills/change-prepare/SKILL.md",
+        "templates/skills/change-release/SKILL.md"
+      ],
+      "excluded": "Tests, caches, scratch and customer data"
+    },
+    "liveNative": {
+      "status": "passed",
+      "evidence": "initialization-recovery.json",
+      "afterNativeIntentAndQuarantineFix": true,
+      "modelCalls": 0
+    },
+    "liveCodexMainline": {
+      "status": "passed",
+      "evidence": "codex-mainline.json",
+      "sourceRevision": "7c4db91",
+      "calls": 2,
+      "observedTokens": 101570,
+      "predeclaredBudget": {
+        "maxCalls": 8,
+        "maxTokens": 300000
+      },
+      "modelOverride": false,
+      "note": "Real default-Codex model evidence predates final guards; the final guard changes were verified locally without new model calls."
+    },
+    "logNormalization": "Only trailing line whitespace removed from archived command logs; assertions and outcomes preserved."
+  },
+  "fixedSourceSha256": {
+    "src/analyzer/codex.ts": "f24996f19d8b3502a982fabd3f9803adcc5e2e5c3f4580224c3adf40a3f17ca7",
+    "src/analyzer/repository.ts": "d2d08bfe39a24ddabdb4ec76286e8f06ab0e6ae52ad491590f747686437dc47b",
+    "src/cli.ts": "a3e6ee55699a6c58eb05a5173d1148ed707cadf0e08be63b69b3928ba419320a",
+    "src/config.ts": "48275dd43aaeb70ec837cccdc2637089346210708fc9630c7ad9d8f5185127b7",
+    "src/integrations/tools/native-worker.mjs": "b5487051ac204b2a8853e981e944bc3add22ed6f7f721f7c7619266f25b2056a",
+    "src/lifecycle.ts": "a3882c308439e873a68ff75b1d64fb1a409b04606f99faaff9ec2e98f2ff1fbf",
+    "src/installer/session.ts": "4498e8afe0813d3dec5e0bcb91601c8dcb6479ac71758180dd1b954eb07973c5",
+    "test/codex-backend.test.ts": "88c36a886cfbae771898a202a3fd46a03383d55949bbd01e2b49abea1739104b",
+    "test/host-lifecycle.test.ts": "0e22131a9f2599d4584233b7735b460af1564d41c6b2e4bb398ae44c411f52cb",
+    "test/native-review.test.ts": "754318cc4c3d00de090c8f98a14c89d799440c3225b692cb550c9dfdea050ccd"
+  },
+  "rulings": [
+    "Ruling: Execute the supplemental plan inline without another approval checkpoint — the user explicitly authorized continuous work and environment setup — a wrong scope decision would require a corrective commit.",
+    "Ruling: Default all agent-dependent mainline work to Codex; defer alternate models and Claude/other-host runs — only Codex is available per user — cross-host behavior remains unverified here.",
+    "Ruling: Use official SDK staging instead of CodeGraph init --yes, and promote only OpenWiki native state from an isolated repository — native CLI init can install Git hooks or write root instructions/workflows — OpenWiki source drift is intentionally handled by native replanning on Codex resume, and generated wiki completion is a later host task.",
+    "Ruling: Add a dedicated default local Codex backend instead of leaving the default research path dependent on Anthropic credentials — the user has only Codex and explicitly requested the credential-free mainline — this adds a pinned CLI dependency and requires its own bounded-context, budget, and real acceptance tests.",
+    "Ruling: Enforce Codex token budgets on observed CLI usage after each response — the pinned CLI exposes no hard server-side total-token cap — one call can exceed its limit before rejection; its actual/unknown usage is retained and no unresolved attempt is retried automatically.",
+    "Final: Ruling: Actual model quality, adversarial model behavior and alternate providers are not established by this read-only review — structural validation and scoped default-Codex evidence stand — untested model behaviors may need further evaluation.",
+    "Final: Ruling: Other hosts and other-platform initialization remain deferred — the user explicitly deferred them and local contracts do not establish those combinations — those environments may need adapter work.",
+    "Final: Ruling: Server-enforced total-token cap remains unavailable — retain documented observed-usage enforcement — one call can overrun before rejection.",
+    "Final: Ruling: Do not add automatic ongoing native index/wiki maintenance — this plan covers initialization and recovery and delegates later refresh to native tools — knowledge may need native update/sync after development.",
+    "Final: Ruling: Keep source-change stale-preview rejection and manual reconciliation — specification permits it and unsafe generated-evidence reuse is now blocked — after source edits an interrupted installation may require manual receipt/re-preview reconciliation.",
+    "Final: Ruling: Actual GitLab runner/deployment/remote mutations remain deferred — target environment and credentials are absent — remote behavior is not verified.",
+    "Final: Ruling: Formal human acceptance remains pending — code review and evidence checks are not a human approval — generated guidance quality is not formally approved.",
+    "Final: Ruling: Preserve unrelated user draft/spec changes without including them in product commits — they were read as requirements, not implemented modifications — those drafts remain uncommitted and outside this change set."
+  ],
+  "ledger": "# SDD ledger — plan: docs/superpowers/plans/2026-11-04-protected-native-initialization.md\n\nPre-flight: Task 1 → Task 2: SetupOperation must discriminate install versus initialization queries/protection; preserve old install signatures and receipts.\nPre-flight: Task 2 → Task 3: public preview/apply remains the acceptance path; journal survives ordinary cache deletion; native state must be queried.\nRuling: Execute the supplemental plan inline without another approval checkpoint — the user explicitly authorized continuous work and environment setup — a wrong scope decision would require a corrective commit.\nRuling: Default all agent-dependent mainline work to Codex; defer alternate models and Claude/other-host runs — only Codex is available per user — cross-host behavior remains unverified here.\n\nTask 1: RED: initialization planner lacked both operations (2 expected failures); GREEN: native/integration tests 25/25 and typecheck passed.\nRuling: Use official SDK staging instead of CodeGraph init --yes, and promote only OpenWiki native state from an isolated repository — native CLI init can install Git hooks or write root instructions/workflows — OpenWiki source drift is intentionally handled by native replanning on Codex resume, and generated wiki completion is a later host task.\nTask 1: complete (commits 1ffacb2..debb825, tests: npm test → ℹ duration_ms 7063.271333)\n\nTask 2: RED: native preview rejected both initialize operations; published-tool acceptance failed at that boundary. Additional RED→GREEN cases prove generated-state ownership projection and refusal to execute substituted query commands.\nTask 2: Native evidence: official 0.7.3/1.6.2 installations, OpenWiki native acceptance interrupted before terminal persistence, ordinary cache deleted, lifecycle --resume restored durable preview, both distinct receipts committed, CodeGraph query found src/order.js:createOrder, root instructions/workflow and Git hooks preserved. See initialization-recovery.json.\nTask 2: Debugging: CodeGraph recreate requires an initialized staging directory; first run now uses init, interrupted initialized staging uses recreate, and malformed unpublished staging is retained before a fresh native attempt. Full regression: 259 pass, 12 skip, 0 fail; typecheck passed.\nTask 2: complete (commits debb825..e2a0f1d, tests: npm test → ℹ duration_ms 6783.186542)\n\nPre-flight: Task 4 consumes the existing host-export privacy/evidence contract and the native backend's usage persistence; it must not open the customer repository to Codex tools or turn host exchange into an implicit model call.\nRuling: Add a dedicated default local Codex backend instead of leaving the default research path dependent on Anthropic credentials — the user has only Codex and explicitly requested the credential-free mainline — this adds a pinned CLI dependency and requires its own bounded-context, budget, and real acceptance tests.\n\nTask 3: RED→GREEN: default Codex selection, CLI --tools protected init planning, no-credential durable apply resume, doctor actual initialization state. Source/backend guard remains explicit.\nTask 3: Real acceptance PASSED: pinned software installs, interruption after native success + complete cache loss + resume, unchanged receipt reuse, killed CodeGraph partial DB + native rebuild (80 files / 160 nodes), Codex app-server discovers both MCPs, explore returns actual createOrder source, OpenWiki begins on actual root with same runId and resumed=true. No model calls in this tool acceptance.\nTask 3: Debugging: preserved relative bin symlinks in copied fixture, kept bootstrap alive while native child exits after SIGTERM, bounded final process-group exit reconciliation, and used CodeGraph advertised primary explore tool. Complete evidence initialization-recovery.json; no fresh reviewer yet (Task 4 is part of same supplemental plan).\nTask 3: Verification: 262 pass / 12 skip / 0 fail, typecheck/build passed, pack dry-run 64 files including native-worker.mjs and no scratch/customer state. npm default cache was sandbox-denied; used private temporary npm cache without changing global ownership.\nTask 3: complete (commits e2a0f1d..5a7b1bc, tests: npm test → ℹ duration_ms 6889.999375)\n\nTask 4: RED: Codex backend/default missing; seven initial failures. Additional observed RED→GREEN: feature startup warning misclassified as tool activity; identity-persistence failure leaked waiting child; corrupted/missing ledger erased known cost; cache deletion replayed an unresolved call; implicit old Anthropic configuration changed provider. All covered by real filesystem/process/protocol tests.\nTask 4: Native acceptance final PASSED: default local Codex, official OpenSpec 1.16.0, 2 real requests / 101570 observed tokens within predeclared 8 / 300000 fixture budget. Five fixed assets installed, unchanged update zero writes/no new requests, authoritative README and source unchanged. No model override, alternate model, or extra API credential. See codex-mainline.json. Latest independent state/codex budget path used in real acceptance.\nRuling: Enforce Codex token budgets on observed CLI usage after each response — the pinned CLI exposes no hard server-side total-token cap — one call can exceed its limit before rejection; its actual/unknown usage is retained and no unresolved attempt is retried automatically.\nTask 4: Tests: 276 pass / 13 skip / 0 fail; typecheck/build passed; pack 66 files includes both Codex modules and native worker, no caches/customer data. Models matrix, alternate hosts, GitLab/deployment remain deferred as authorized.\nTask 4: complete (commits 5a7b1bc..7c4db91, tests: npm test → ℹ duration_ms 7644.588917)\n\nFinal review: one fresh-context gpt-6-astra high, read-only, full branch package 0214ffd..7c4db91 with incremental focus 1ffacb2..7c4db91. Four Important findings accepted; no Critical or Minor. No re-review will be dispatched.\nFinal: fixed F1 durable lifecycle run identity and outcomes across cache loss — public lifecycle unknown-call replay RED→GREEN; completed-result reuse/new usage and authoritative accounting RED→GREEN.\nFinal: fixed F2 explicit CLI Anthropic flags/provider resolution — model/API-key choices and conflicting Codex configuration RED→GREEN.\nFinal: fixed F3 backend-independent affected-session handoff — default Codex and durable-resume paths RED→GREEN; concrete preview preserved, no config writes until session-end declaration.\nFinal: fixed F4 native ownership before manifest — source drift after interrupted init and unpublished native intent RED→GREEN; generated scopes quarantined and research blocked until reconciliation; similarly named unowned user directories remain visible.\nFinal: native OpenWiki/CodeGraph/Codex MCP acceptance PASSED again after native intent/quarantine fix; no model calls. See updated initialization-recovery.json.\nFinal: Ruling: Actual model quality, adversarial model behavior and alternate providers are not established by this read-only review — structural validation and scoped default-Codex evidence stand — untested model behaviors may need further evaluation.\nFinal: Ruling: Other hosts and other-platform initialization remain deferred — the user explicitly deferred them and local contracts do not establish those combinations — those environments may need adapter work.\nFinal: Ruling: Server-enforced total-token cap remains unavailable — retain documented observed-usage enforcement — one call can overrun before rejection.\nFinal: Ruling: Do not add automatic ongoing native index/wiki maintenance — this plan covers initialization and recovery and delegates later refresh to native tools — knowledge may need native update/sync after development.\nFinal: Ruling: Keep source-change stale-preview rejection and manual reconciliation — specification permits it and unsafe generated-evidence reuse is now blocked — after source edits an interrupted installation may require manual receipt/re-preview reconciliation.\nFinal: Ruling: Actual GitLab runner/deployment/remote mutations remain deferred — target environment and credentials are absent — remote behavior is not verified.\nFinal: Ruling: Formal human acceptance remains pending — code review and evidence checks are not a human approval — generated guidance quality is not formally approved.\nFinal: Ruling: Preserve unrelated user draft/spec changes without including them in product commits — they were read as requirements, not implemented modifications — those drafts remain uncommitted and outside this change set.\n",
+  "integration": {
+    "branch": "codex/rigup-implementation",
+    "action": "keep existing worktree/branch; no merge, push or publish",
+    "unrelatedUserDrafts": "preserved and excluded from product commits"
+  },
+  "limitations": [
+    "OpenWiki initialized into resumable native planning state; wiki pages were not generated in the initialization acceptance.",
+    "Codex actual served model ID is not exposed; total-token checks are post-response and a single request can overrun before rejection.",
+    "Source changes during an interrupted installation invalidate the preview and may require manual receipt/re-preview reconciliation.",
+    "Other hosts/platforms, alternate models/providers and the complete SDD gate matrix remain unverified; user deferred other-host/model work.",
+    "Automatic ongoing native wiki/index maintenance is delegated to native update/sync.",
+    "Actual GitLab runner, deployment and remote mutation acceptance remain pending without target credentials.",
+    "Structural/code review and fixture source checks do not constitute formal human semantic acceptance."
+  ]
+}

@@ -58,6 +58,7 @@ async function query(){
 async function initialize(){
  await safeTree(await safe(control));await safeTree(await safe(staging));await empty(await safe(target));
  await mkdir(await safe(control),{recursive:true,mode:0o700});
+ await durable(await safe(control+'/intent.json'),{schemaVersion:1,root,id,target,staging,version,adapterDigest});
  for(const name of ['home','tmp','cache','data','config'])await mkdir(await safe(control+'/'+name),{recursive:true,mode:0o700});
  let output;
  if(id==='codegraph'){
