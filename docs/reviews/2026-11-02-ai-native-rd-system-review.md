@@ -1,9 +1,9 @@
 # 结合《AI Native 研发体系》的设计审稿
 
 日期：2026-11-02。审前基线：6a92b71（四模块简化版）。
-依据：[本地文章](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md)；本次读取内容 SHA-256：e2264fc1f224377bd97016a98ec932d03a7a83a2e5ffe1b2b4a872e217d29264。
+依据：本地文章（历史本地输入，未随本仓库分发）；本次读取内容 SHA-256：e2264fc1f224377bd97016a98ec932d03a7a83a2e5ffe1b2b4a872e217d29264。
 
-对象：[脚手架架构](../superpowers/specs/2026-11-02-smart-harness-design.md)、四个模块内部设计，以及独立的[研发 skills 设计](../superpowers/specs/2026-11-02-installed-skills-design.md)。这是文档对照审阅，未验证外部文章所引研究，也未运行产品或客户检查。
+对象：[脚手架架构](../superpowers/specs/2026-11-02-rigup-design.md)、四个模块内部设计，以及独立的[研发 skills 设计](../superpowers/specs/2026-11-02-installed-skills-design.md)。这是文档对照审阅，未验证外部文章所引研究，也未运行产品或客户检查。
 
 ## 1. 结论
 
@@ -17,7 +17,7 @@
 
 ### [P1] 任务约定和失败接收人不明确
 
-依据：[文章“开发”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:55)及[责任分工](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:153)。
+依据：文章“开发”（历史本地输入，未随本仓库分发，第 55 行）及责任分工（历史本地输入，未随本仓库分发，第 153 行）。
 
 问题：skills 说明了方案/范围，但没有完整要求允许操作、预算、停止条件和接手人；简单任务也容易套上同样厚的设计流程。
 
@@ -27,7 +27,7 @@
 
 ### [P1] 软件测试与 Agent 评估混为一层反馈
 
-依据：[文章“质量层”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:109)。
+依据：文章“质量层”（历史本地输入，未随本仓库分发，第 109 行）。
 
 问题：原设计验证了接线、软件检查和模板协议，却没有说明如何接入模型/skills/工具配置的任务表现评估；不能由测试通过推导 Agent 可靠。
 
@@ -37,7 +37,7 @@
 
 ### [P2] 交付证据缺少明确字段和关联方式
 
-依据：[文章“验证”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:67)及[观测层](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:143)。
+依据：文章“验证”（历史本地输入，未随本仓库分发，第 67 行）及观测层（历史本地输入，未随本仓库分发，第 143 行）。
 
 问题：已有 handoff 与外部事实来源，但没有要求 commit、环境、真实检查命令、报告及未验证项关联到同一次需求/发布。
 
@@ -47,7 +47,7 @@
 
 ### [P2] 工具配置完成不等于任务环境可运行
 
-依据：[文章“执行层”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:101)。
+依据：文章“执行层”（历史本地输入，未随本仓库分发，第 101 行）。
 
 问题：已有构建/测试入口发现，但启动脚本、开发容器、依赖服务和环境要求未明确成为画像与就绪结果。
 
@@ -57,7 +57,7 @@
 
 ### [P2] 发布观察、恢复类型与运维回流不完整
 
-依据：[文章“发布/运维”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:69)。
+依据：文章“发布/运维”（历史本地输入，未随本仓库分发，第 69 行）。
 
 问题：通用健康检查/runbook 没有区分应用回退、数据库变化与外部副作用，也未明确事故如何回到普通开发流程。
 
@@ -67,7 +67,7 @@
 
 ## 3. 贯穿以上问题的权限约束
 
-依据：[文章“治理层”](/Users/yuan.li/Documents/ChatGPT/ai-native-sldc/docs/articles/ai-native-rd-system.md:125)。
+依据：文章“治理层”（历史本地输入，未随本仓库分发，第 125 行）。
 
 项目说明、skills 和本地 hooks 不替代仓库/CI/身份的真实执行权限。集成默认不扩大授权；客户政策和有权负责人决定高风险操作，管理员才能配置的条件列待办。
 

@@ -2,7 +2,7 @@
 
 日期：2026-11-03。状态：基础实现及首批源码/发行包锁已建立；本地契约和有限组件冒烟已有记录，完整宿主兼容矩阵仍未验收。
 
-本目录是 Rigup 的产品开发证据，不是安装到客户项目的一套新文档。关联：[实施计划](../superpowers/plans/2026-11-02-rigup-implementation.md)、[验收状态](verification.md)。
+本目录是 Rigup 的产品开发证据，不是安装到客户项目的一套新文档。关联：[实施计划](https://github.com/ansonli-dev/rigup/blob/main/docs/superpowers/plans/2026-11-02-rigup-implementation.md)、[验收状态](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/verification.md)。
 
 ## 1. 实施顺序与支持边界
 

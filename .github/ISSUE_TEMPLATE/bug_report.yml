@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible problem in Rigup.
+body:
+  - type: markdown
+    attributes:
+      value: For security issues, follow SECURITY.md. Do not include credentials, private source, or complete model exchanges.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Rigup commit/version, OS, Node version, agent and SDD versions if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Minimal disposable fixture and exact commands; sanitize paths and values.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Include exit code and a short sanitized report. Say whether this was preview, apply, update, resume, or doctor.
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks and workaround
+      description: What did you try? Preserve recovery state and budget ledgers; do not delete them to bypass an error.

@@ -1,7 +1,11 @@
 # 安装后的研发 Skills：简化设计
 
 日期：2026-11-02。状态：首版提案，未实现。
-关联：[脚手架设计](2026-11-02-smart-harness-design.md)、[需求基线](../../requirements/2026-11-02-smart-harness-requirements.md)。
+关联：[脚手架设计](2026-11-02-rigup-design.md)、[需求基线](../../requirements/2026-11-02-rigup-requirements.md)。
+
+开发指南、流程指引与变更工作文档的最低内容和更新职责遵循[文档体系与生成标准](2026-11-03-documentation-system-design.md)。setup 配置开发指南、skills 及原生产物落点；本文件的 skills 在任务真实发生时维护需求/设计/计划，交付/发布和反馈使用现有任务/MR/CI/平台记录，不强制另建文档。
+
+所有入口按任务范围加载项目已有规范的原始引用：prepare 将其作为方案约束，deliver 在编码和评审中使用同一来源；只补来源缺少的上下文，不复制另一份规范。规则适用范围/冲突及文字指导与已有自动检查的区别，遵循文档标准第 4 节。
 
 本文件描述被安装到项目的 skills。它们由 coding agent 执行，使用所选 SDD、项目命令和客户系统，不依赖脚手架 CLI，也不负责 setup/update。
 
@@ -59,7 +63,7 @@
 
 首版不生成 ChangeRecord 状态机、共享 lease、fencing token 或统一 flow runtime。默认同一变更由一个执行者处理，多执行者协作留给宿主/框架原有能力。
 
-更新 harness 前结束相关会话，更新后重载。没有多版本 bundle 或热迁移承诺；研发状态仍由项目维护，installer 不覆盖。
+实际 apply 更新 rigup 前结束会加载待改资产的会话，更新后重载；host 只读研究和响应可以先完成，再退出并从独立终端续跑 apply。没有多版本 bundle 或热迁移承诺；研发状态仍由项目维护，installer 不覆盖。
 
 ## 4. 反馈、失败与恢复
 
