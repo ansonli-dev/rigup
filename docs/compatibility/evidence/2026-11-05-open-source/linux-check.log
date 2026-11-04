@@ -1,0 +1,409 @@
+debconf: delaying package configuration, since apt-utils is not installed
+v24.22.2
+11.19.1
+
+added 19 packages in 3s
+npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn install-scripts   esbuild@0.28.2 (postinstall: node install.js)
+npm warn install-scripts
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+npm notice
+npm notice New major version of npm available! 11.19.1 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice
+
+> rigup@0.1.0 check
+> npm run typecheck && npm test && npm run build && npm run check:docs && npm run test:package
+
+
+> rigup@0.1.0 typecheck
+> tsc --noEmit
+
+
+> rigup@0.1.0 test
+> node --import tsx --test test/*.test.ts
+
+✔ embedded_credentials_are_filtered_and_line_mapping_kept (14.341625ms)
+✔ unknown_sensitive_format_is_denied (3.387583ms)
+✔ jsonc_credentials_are_filtered (2.6715ms)
+✔ toml_sensitive_env_and_multiline_values_are_filtered (2.223125ms)
+✔ numeric_credentials_and_yaml_aliases_cannot_bypass_filter (4.187416ms)
+✔ ordinary_guidance_about_credentials_remains_readable (1.679667ms)
+✔ tool_loop_only_exposes_read_tools_and_preserves_actual_model (20.581125ms)
+✔ fabricated_evidence_is_rejected (0.245167ms)
+✔ missing_credentials_and_budget_do_not_complete (0.868542ms)
+✔ host_response_requires_matching_request_and_changed_options_reject_old_response (55.582625ms)
+✔ analyze_propagates_pending_without_success_profile (1810.966251ms)
+✔ token_preflight_rejects_oversized_input_before_generation (1.338959ms)
+✔ single_example_and_copied_support_cannot_be_promoted_to_convention (0.340042ms)
+✔ suggestions_do_not_become_rules_and_missing_refutation_is_not_promoted (0.0855ms)
+✔ conflicting recommendations may remain suggestions awaiting a human decision (0.275125ms)
+✔ host_rejects_request_file_tampering (10.344542ms)
+✔ host_export_contains_only_filtered_evidence (15.372959ms)
+✔ provider_cannot_invoke_exec_even_after_reading_source_instructions (2.105375ms)
+✔ host_response_changes_in_phase_versions_run_or_templates_are_rejected (11.628541ms)
+✔ host_symlinked_cache_cannot_create_project_directories (3.66925ms)
+✔ host_roundtrips_all_research_kinds_across_processes (816.439542ms)
+✔ unexplained_counterexamples_require_decision_instead_of_follow_existing (0.396792ms)
+✔ reusable_guidance_blocks_redundant_inference_and_partial_guidance_limits_gaps (0.1905ms)
+✔ convention_requires_replayable_counterexample_search (0.097375ms)
+✔ host_new_instance_does_not_reset_run_request_budget (4.399083ms)
+✔ conflicting_guidance_is_not_resolved_to_follow_existing (0.170625ms)
+✔ response_requires_existing_export_not_only_matching_digest (2.888708ms)
+✔ provider_failure_reports_unknowns_without_echoing_provider_payload (0.839667ms)
+✔ reusable_guidance_requires_verifiable_source_reference (0.089291ms)
+✔ accepted_host_response_cannot_change_model_on_replay (3.926916ms)
+✔ all_native_research_kinds_use_filtered_reader_content (30.949292ms)
+✔ restored_native_budget_is_not_reset_for_new_job (0.174584ms)
+✔ native_failure_reports_actual_requests_and_known_or_unknown_usage (0.997334ms)
+✔ native_reserves_budget_before_dispatch_and_blocks_when_persistence_fails (0.287125ms)
+✔ native_result_preserves_reused_source_scope_and_explicit_rule (6.3225ms)
+✔ backend_cannot_export_literal_mcp_credentials_in_request_options (0.2705ms)
+✔ help_lists_lifecycle_commands (1.332917ms)
+✔ unknown_option_does_not_touch_project (6.628667ms)
+✔ bare_non_tty_exits_2_without_writes (1.611459ms)
+✔ bare_tty_routes_by_project_state (104.800542ms)
+✔ eof_never_confirms (0.91875ms)
+✔ damaged_manifest_is_not_fresh_project (2.695166ms)
+✔ init_existing_manifest_uses_update_rules_and_doctor_is_read_only (5.09575ms)
+✔ tools flag keeps OpenWiki generation separate from protected CodeGraph initialization (65.015083ms)
+✔ explicit_dry_run_and_preflight_missing_inputs_never_call_backend_or_write_project (73.758ms)
+✔ continuous_run_never_prompts_after_start (51.034333ms)
+✔ host_pending_returns_3_and_preserves_project_bytes (30.520625ms)
+✔ review_mode_waits_only_when_selected (40.371292ms)
+✔ continuation_rejects_changed_inputs_without_project_writes (47.461541ms)
+✔ apply_id_cannot_redirect_cli_to_a_different_project_root (13.96475ms)
+✔ Codex adapter upgrade continues a known charged run without resetting consumption (178.067041ms)
+✔ Codex adapter upgrade retains unknown and exhausted legacy charges before dispatch (67.61325ms)
+✔ fresh mainline selects local Codex without a provider API key (6.636ms)
+✔ Codex receives only filtered evidence in a private cwd and cached acceptance costs no new call (64.411917ms)
+✔ Codex planning prompt uses stage-selected evidence instead of repeating the source scan (66.176166ms)
+✔ failed Codex attempts are charged before dispatch and never silently repeated (43.729875ms)
+✔ corrupt Codex usage ledger cannot reset an already charged budget (36.597875ms)
+✔ missing durable Codex budget cannot erase known spent usage (32.319541ms)
+✔ observed Codex token overrun is charged and rejected before acceptance (48.789542ms)
+✔ ordinary cache deletion does not authorize repeating an unresolved Codex request (21.412041ms)
+✔ completed durable Codex result survives cache loss without another charge (43.104417ms)
+✔ verified durable Codex accounting supersedes stale unknown consumer totals (73.181083ms)
+✔ Codex output with fabricated evidence never becomes accepted research (54.08175ms)
+✔ Codex tool events and missing usage fail instead of claiming a safe accepted result (37.455041ms)
+✔ Codex feature-discovery startup warning is not mistaken for a tool call (39.630042ms)
+✔ remaining Codex budget and cancellation are checked before invoking the model (24.408958ms)
+✔ missing local Codex reports unavailable without asking for an unrelated API key (33.228292ms)
+✔ Codex process is stopped if its durable process identity cannot be recorded (608.338458ms)
+✔ fresh setup defaults to the available Codex agent (6.126ms)
+✔ explicit_options_override_project_config (33.125792ms)
+✔ existing Anthropic model configuration without a backend keeps its provider (3.626458ms)
+✔ invalid_config_has_field_error (2.410208ms)
+✔ project_config_overrides_explicitly_selected_profile (2.417458ms)
+✔ missing_selected_profile_is_an_error (3.926ms)
+✔ customer_templates_and_mcp_validate_fields (4.953041ms)
+✔ read_budget_is_validated_before_scan (3.887416ms)
+✔ model_configuration_saves_reference_instead_of_secret (12.353958ms)
+✔ integration_choices_preserve_install_initialize_and_conventions (2.186125ms)
+✔ mcp_does_not_accept_literal_env_credentials_or_credential_urls (3.033791ms)
+✔ mcp_credential_arguments_require_environment_references (2.607791ms)
+✔ customer_and_mcp_header_credentials_are_environment_references_only (1.02ms)
+✔ pending_host_cannot_carry_success_plan (0.907875ms)
+✔ inventory_requires_disposition_for_every_old_asset (0.31825ms)
+✔ doctor_separates_config_environment_tests_and_eval (355.324292ms)
+✔ doctor_does_not_initialize_or_repair_business_by_default (47.377667ms)
+✔ reports_bind_checks_to_actual_commit_environment_and_time (200.585625ms)
+✔ stale_result_does_not_validate_new_input (303.738917ms)
+✔ missing_secrets_are_pending_without_values_or_implicit_commands (100.217167ms)
+✔ document_jobs_require_real_consumer_and_generation_reason (1.203ms)
+✔ as_is_and_future_change_records_are_outside_setup (0.372333ms)
+✔ required_semantics_cannot_be_placeholder_or_override_native_flow (0.329083ms)
+✔ navigation_reaches_generated_docs_and_has_no_dangling_links (0.3165ms)
+✔ mandatory_gate_prohibitions_are_not_misread_as_bypass_instructions (0.579583ms)
+✔ configured_automation_runs_without_yes_or_no_prompt_switches_and_json_is_one_object (154.214709ms)
+✔ required_missing_credentials_are_pending_before_research_not_placeholder_success (21.2715ms)
+✔ deterministic_only_setup_does_not_require_model_credentials (66.962083ms)
+✔ explicit_host_request_stays_private_and_response_may_be_an_explicit_external_file (108.418375ms)
+✔ configure_persists_only_explicit_settings_and_following_update_reuses_them (189.53725ms)
+✔ request_export_rejects_project_paths_as_input_error_without_writes (1.797292ms)
+✔ replaying_an_already_accepted_host_response_advances_the_same_run (143.548083ms)
+✔ onboarding_collects_all_choices_before_first_backend_request_and_masks_key (146.258291ms)
+✔ technical_continuation_cannot_silently_change_execution_mode (28.066417ms)
+✔ invalid_host_json_does_not_echo_response_fragments_into_reports (114.808625ms)
+✔ failure_after_preview_is_present_in_the_final_json_report (63.353125ms)
+✔ research_reader_budget_survives_lifecycle_pause_and_new_cli_instance (109.318375ms)
+✔ failed_native_research_retains_spent_budget_before_retry (74.302042ms)
+✔ deselected_capability_requires_explicit_retirement_before_old_wiring_can_remain_active (230.818917ms)
+✔ model_cli_overrides_update_individual_fields_without_discarding_existing_key_reference (119.597916ms)
+✔ review_credentials_environment_lists_and_argument_headers_never_reach_host_export (41.42075ms)
+✔ review_snapshot_materializes_exact_git_blobs_despite_archive_attributes (49.647917ms)
+✔ review_apply_restores_checks_bound_to_preview_after_session_handoff (234.600917ms)
+✔ review_superpowers_local_unprefixed_native_names_satisfy_binding (17.774417ms)
+✔ review_enabled_global_plugin_sources_are_discovered_with_native_identity (23.819917ms)
+✔ review_sdd_dependencies_and_conflicting_identities_are_not_name_only_bindings (28.327583ms)
+✔ review_effective_runtime_model_changes_invalidate_consent_and_semantics (154.30425ms)
+✔ review_broken_baseline_quarantines_generated_evidence_and_blocks_research (59.007208ms)
+✔ review_tool_reuse_reconciles_launcher_executable_and_dependency_tree (9.944958ms)
+✔ review_global_custom_skill_reuses_native_invocation_without_external_file_links (27.440167ms)
+✔ review_same_named_skills_with_different_resources_cannot_be_reused_as_equivalent (12.359959ms)
+✔ review_changed_global_native_source_blocks_resuming_an_interrupted_preview (82.943834ms)
+✔ review_credential_option_-u_is_rejected_before_export (0.357458ms)
+✔ review_credential_option_--oauth2-bearer_is_rejected_before_export (0.147875ms)
+✔ review_unrelated_multiversion_plugin_does_not_invent_skill_conflicts (51.568208ms)
+✔ review_reused_tool_changed_after_preview_is_rejected_before_apply_writes (90.127417ms)
+✔ duplicate_or_escaping_targets_are_rejected (0.788541ms)
+✔ valid_artifact_list_starts_pending_and_preserves_evidence_contract (0.125583ms)
+✔ deterministic_assets_render_without_model (67.041209ms)
+✔ cached_semantics_do_not_repeat_backend_calls_and_inventory_aligns (27.289208ms)
+✔ artifact context upgrades regenerate content and acceptance without resetting plan run or charges (53.710375ms)
+✔ artifact context upgrades cannot reset an exhausted cached generation budget (24.841ms)
+✔ required_failed_job_blocks_plan (16.727125ms)
+✔ candidate_is_saved_before_done_and_failed_write_is_not_accepted (37.957084ms)
+✔ empty_repo_has_no_invented_as_is (19.931417ms)
+✔ old_asset_omission_does_not_authorize_retirement (13.517041ms)
+✔ corrupt_candidate_is_regenerated (36.781708ms)
+✔ host_pending_acceptance_resumes_saved_content_without_regeneration (33.90525ms)
+✔ existing_guidance_is_bound_into_agent_prepare_deliver_and_review (26.589833ms)
+✔ raw_config_is_not_semantic_input_but_effective_options_are (13.197042ms)
+✔ service_and_monorepo_have_different_evidenced_artifacts (35.412625ms)
+✔ semantic_candidate_cannot_override_fixed_skill_flow_or_gates (14.150167ms)
+✔ initial_research_can_plan_before_all_topics_are_resolved_and_reads_are_not_seed_limited (26.354583ms)
+✔ changed_effective_options_invalidates_cache_and_markdown_commands_are_not_operations (25.005791ms)
+✔ customer_template_cannot_override_fixed_skill_flow (5.6375ms)
+✔ source_move_or_delete_invalidates_binding (16.53ms)
+✔ old_update_requires_replacement_and_retirement_cannot_leave_active_asset (11.968334ms)
+✔ guidance_preserves_pattern_scope_examples_and_exceptions (38.899084ms)
+✔ no_sdd_only_installs_explicitly_selected_custom_flow (27.982875ms)
+✔ multi_agent_sdd_context_uses_each_hosts_native_command_names (12.043417ms)
+✔ positioned_customer_skills_are_bound_to_their_selected_flow_without_sdd (27.33875ms)
+✔ reused_native_customer_skill_keeps_its_flow_consumer (40.996708ms)
+✔ customer_release_position_requires_a_verified_release_adapter (10.741292ms)
+✔ replanning_can_inspect_filtered_previous_baseline_without_treating_it_as_source_authority (40.917208ms)
+✔ candidate_is_saved_before_job_status_becomes_done (48.627084ms)
+✔ bounded_repair_attempt_survives_host_pause_without_resetting_budget_or_attempt (52.616ms)
+✔ invalid_navigation_is_repaired_before_acceptance_and_never_cached_done (56.802375ms)
+✔ fixed_inventory_dispositions_follow_actual_candidates_without_model_prediction (47.270958ms)
+✔ gitlab_include_preserves_existing_jobs_comments_and_includes (29.877709ms)
+✔ wiki_update_has_no_self_trigger_loop (4.372708ms)
+✔ standalone_gitlab_jobs_have_a_regular_stage_on_initial_and_repeated_setup (50.136375ms)
+✔ gitlab_jobs_use_an_existing_regular_stage_without_replacing_customer_stages (8.566292ms)
+✔ gitlab_reserved_only_stages_require_a_customer_decision (2.004667ms)
+✔ gitlab_external_include_stages_are_not_guessed (2.30675ms)
+✔ ci_preserves_exit_status_and_reports (49.738625ms)
+✔ missing_secrets_are_pending_and_generated_wiki_updates_are_skipped (0.338084ms)
+✔ customer_runtime_declarations_are_not_install_plugins_or_release_adapters (1.042042ms)
+✔ precommit_checks_index_not_worktree (85.458459ms)
+✔ prepush_checks_pushed_commits_including_deleted_and_added_files (120.45625ms)
+✔ existing_hook_is_not_overwritten_or_implicitly_chained (50.526583ms)
+✔ dependency context omits lock bodies even when an older complete snapshot exists (57.2225ms)
+✔ dependency context is used for analysis planning content and acceptance (20.170667ms)
+✔ an evidence policy cannot import a response from a different export policy (26.928292ms)
+✔ tampered omission metadata cannot be accepted as the approved context (33.195625ms)
+✔ accepted dependency context can be reused without another request (53.197542ms)
+✔ omitting dependency bodies does not hide lock changes from the source fingerprint (40.354125ms)
+✔ multi_process_host_analyze_plan_two_candidates_acceptance_and_preview (2979.246418ms)
+✔ second_cli_cannot_mutate_active_generation_run_and_host_pending_releases_lock (463.26775ms)
+✔ dry_run_has_no_project_side_effect (39.827167ms)
+✔ apply_saves_generated_baseline_and_second_apply_is_idempotent (77.119458ms)
+✔ stale_preview_is_rejected_before_any_writes (23.032375ms)
+✔ manifest_failure_keeps_old_baseline_valid_and_recovery_does_not_overwrite (135.763708ms)
+✔ project_check_failure_saves_successful_wiring_but_check_damage_does_not (63.346958ms)
+✔ lost_cache_does_not_authorize_overwrite (9.176791ms)
+✔ unchanged_update_reuses_candidates_after_install (326.85675ms)
+✔ cached_generation_still_detects_managed_edits_and_deletes (141.449292ms)
+✔ selected_check_that_damages_wiring_does_not_commit_manifest (138.580542ms)
+✔ crash_after_manifest_switch_reconciles_committed_result (101.112416ms)
+✔ sigint_waits_for_inflight_local_write_before_unlock_and_returns_130 (104.899917ms)
+✔ deterministic_mcp_update_does_not_require_a_model_or_overwrite_unrelated_config (265.887334ms)
+✔ changed_external_template_source_rejects_old_preview (31.829417ms)
+✔ sigkill_after_file_reconciles_real_files_with_explicit_stale_lock_recovery (191.356292ms)
+✔ sigkill_plus_lost_cache_keeps_partial_unowned_files_protected (157.154041ms)
+✔ external_scope_changed_after_preview_stops_before_dispatch_or_text_writes (36.597834ms)
+✔ customer_template_renders_declared_scalars_and_keeps_consumer (23.575167ms)
+✔ template_expressions_missing_values_and_fixed_flows_are_rejected (5.452291ms)
+✔ unverified_recipe_cannot_execute_and_version_change_requires_evidence (0.244041ms)
+✔ ordinary_update_keeps_locked_version (0.071166ms)
+✔ custom_skill_copies_resources_without_execution (12.313416ms)
+✔ customer_mcp_maps_four_hosts_without_starting_server (2.436917ms)
+✔ rendered_mcp_runner_uses_declared_module_cwd_without_rigup_imports (47.975708ms)
+✔ mcp_rejects_embedded_credentials_and_path_escape (1.182458ms)
+✔ upstream_lock_has_versioned_sources_and_separate_evidence_levels (1.561041ms)
+✔ missing_native_entry_fails_binding_for_each_sdd (0.661416ms)
+✔ skill_source_conflicts_require_choice_and_satisfied_source_is_reused (0.19975ms)
+✔ prepare_plans_protected_tool_initialization_and_rejects_unknown_adapter (8.108958ms)
+✔ multi_agent_openwiki_uses_separate_host_arguments_without_collision (10.380833ms)
+✔ software_install_requires_new_empty_owned_scope (6.878458ms)
+✔ selected_project_install_is_the_executable_used_by_mcp (47.504291ms)
+✔ npm_software_recipe_installs_local_fixture_offline_without_lifecycle (222.825583ms)
+✔ software_install_canonicalizes_project_alias_before_npm (5.267291ms)
+✔ unchanged_receipted_software_is_reused_without_reinstall (13.181125ms)
+✔ external_install_overlap_is_reported_as_manual_not_executable (9.910125ms)
+✔ four_host_mcp_fragments_parse_in_their_declared_formats (2.641666ms)
+✔ mcp_runner_resolves_only_declared_environment_references_at_runtime (44.416125ms)
+﹣ live default Codex researches generates applies and reuses without another API credential (0.397708ms) # SKIP
+﹣ live Codex native skill discovery and customer MCP connection (0.4325ms) # SKIP
+﹣ live OpenCode native discovery and MCP connection (0.079333ms) # SKIP
+﹣ live OMP session discovery and MCP connection (0.053458ms) # SKIP
+﹣ live packaged assets stay discoverable after CLI and dependencies are removed (0.048584ms) # SKIP
+﹣ live Claude native prerequisites (0.132375ms) # SKIP
+﹣ live Codex OpenSpec fixed delivery gate consumes customer reference (0.043583ms) # SKIP
+﹣ live native service generation and counterexample update (0.587417ms) # SKIP
+﹣ live native monorepo generation and counterexample update (0.097125ms) # SKIP
+﹣ live host service generation and counterexample update (0.052416ms) # SKIP
+﹣ live host monorepo generation and counterexample update (0.051875ms) # SKIP
+﹣ live Bulletproof React completes semantic setup within its unchanged budget (0.488292ms) # SKIP
+﹣ live local GitLab lints and runs generated checks reports and wiki guards (0.615959ms) # SKIP
+﹣ live scaffold recovers CodeGraph initialization and hands OpenWiki to a separate Codex session (5.818167ms) # SKIP
+﹣ live pinned CodeGraph indexes queries and syncs a real source fixture (0.378292ms) # SKIP
+✔ managed_outputs_excluded_but_unmanaged_config_remains (0.885292ms)
+✔ remote_unknown_version_requires_reread_and_unavailable_invalidates (0.286666ms)
+✔ json_key_projection_retains_unmanaged_keys_and_comments (0.932875ms)
+✔ toml_table_projection_retains_other_tables (0.787833ms)
+✔ tool_output_projection_keeps_user_inputs_in_same_directory (0.066917ms)
+✔ remote_content_and_version_changes_are_observed_without_stale_cache (0.159458ms)
+✔ B/L/N new (0.416417ms)
+✔ B/L/N same (0.050625ms)
+✔ B/L/N unedited (0.038ms)
+✔ B/L/N user edited (0.032167ms)
+✔ B/L/N user deleted (0.055375ms)
+✔ B/L/N unowned (0.038791ms)
+✔ B/L/N unowned identical (0.036542ms)
+✔ B/L/N remove owned (0.164334ms)
+✔ B/L/N remove edited (0.054875ms)
+✔ B/L/N remove gone (0.067458ms)
+✔ nonoverlapping_edits_merge (0.289458ms)
+✔ overlapping_edits_conflict (0.11875ms)
+✔ scaffolding installs OpenWiki and stages only CodeGraph initialization (29.070709ms)
+✔ unowned wiki and index remain untouched and are never implicitly adopted (23.968791ms)
+✔ native initialization rejects unsafe target and staging ancestors (30.39425ms)
+✔ registering an unverified external binary does not authorize initialization (9.838959ms)
+✔ preview authorizes staged CodeGraph initialization without OpenWiki generation (27.648583ms)
+✔ preview refuses missing or reordered initialization dependencies (33.1255ms)
+✔ preview refuses native scope edits and unsafe staging after planning (18.450125ms)
+✔ receipted native output is excluded from source research while unowned state stays visible (28.750041ms)
+✔ native state query never executes substituted adapter commands (13.345792ms)
+✔ durable apply resumes without research credentials after its preview cache is deleted (213.294958ms)
+✔ public lifecycle preserves unresolved Codex identity when ordinary cache is lost (293.622584ms)
+✔ explicit Anthropic CLI flags select their provider after default resolution (88.850375ms)
+✔ conflicting Codex model configuration is rejected before dispatch (2.108667ms)
+✔ default Codex setup preserves a concrete preview until the affected session ends (118.71775ms)
+✔ durable resume applies the same affected-session handoff as normal setup (94.772625ms)
+✔ interrupted native output cannot become research after source drift rejects resume (163.444875ms)
+✔ native intent quarantines unpublished staging but similar user directories stay visible (31.092125ms)
+✔ OpenWiki setup installs and registers without taking ownership of a user wiki (27.589542ms)
+✔ onboarding separates OpenWiki generation while retaining protected CodeGraph indexing (0.817416ms)
+✔ onboarding does not restore automatic OpenWiki generation from saved selections (0.422292ms)
+✔ legacy OpenWiki initialization cannot dispatch a new native write (12.444542ms)
+✔ already accepted legacy OpenWiki initialization is reconciled without another native write (86.068875ms)
+✔ manual OpenWiki initialization appears in successful setup, update and doctor reports (227.219375ms)
+✔ installed_assets_work_without_cli_or_its_dependencies (5458.242127ms)
+✔ preview_is_read_only_and_existing_unowned_target_conflicts (35.135333ms)
+✔ jsonc_comments_and_unknown_fields_survive (2.421292ms)
+✔ toml_unowned_tables_survive (1.176541ms)
+✔ malformed_markers_need_manual_patch (0.274875ms)
+✔ baseline_never_copies_unowned_secrets_and_public_preview_does_not_leak (13.041ms)
+✔ old_inventory_omission_and_untrusted_retained_baseline_block (12.132459ms)
+✔ resolution_binds_exact_full_target_digest_and_selector (16.471417ms)
+✔ kept_local_content_cannot_break_required_bindings (20.51125ms)
+✔ preview_denies_symlinked_target (2.032083ms)
+✔ retained_candidate_cannot_silently_replace_old_baseline (5.060667ms)
+✔ unrelated_local_edits_remain_preserved_and_baseline_contains_only_N (11.226292ms)
+✔ nonoverlapping_merge_still_checks_reference_targets (12.975375ms)
+✔ candidate_overlap_and_fabricated_external_recipe_are_blocked (20.896541ms)
+✔ retirement_only_removes_unmodified_owned_selector (55.952458ms)
+✔ local_deletion_of_fixed_consumer_binding_blocks_even_when_N_equals_B (26.946ms)
+✔ generated_candidates_cannot_target_installer_metadata (3.449542ms)
+✔ explicit_identity_replacement_uses_old_B_and_preserves_local_changes (23.356917ms)
+✔ kept_local_gitlab_include_cannot_remove_required_ci_binding (180.208ms)
+✔ research_without_denominator_does_not_invent_percentage (2.691042ms)
+✔ unknown_required_stage_and_overrun_withdraw_eta (0.145916ms)
+✔ progress_explains_current_and_next_steps (1.130041ms)
+✔ quiet_task_emits_liveness_without_fake_completion (0.198666ms)
+✔ retry_and_manual_wait_update_eta (0.302875ms)
+✔ replan_explains_denominator_change_and_failure_is_not_completion (0.132958ms)
+✔ plain_terminal_uses_numbered_input (0.864625ms)
+✔ secret_input_never_echoes (0.093666ms)
+✔ back_invalidates_dependent_choices (0.090708ms)
+✔ prompt_eof_and_escape_never_confirm (0.077625ms)
+✔ native_input_adapter_consumes_lines_and_eof (4.782833ms)
+✔ native_secret_reader_restores_raw_mode_without_output (0.943208ms)
+✔ same_target_lock_prevents_second_apply (73.465875ms)
+✔ pending_record_is_durable_before_dispatch (21.287959ms)
+✔ unsupported_remote_operation_is_not_dispatched_or_retried (24.822333ms)
+✔ crash_after_acceptance_reconciles_without_recreate_even_if_cache_is_lost (53.684042ms)
+✔ unconfirmed_process_exit_keeps_project_blocked (20.364417ms)
+✔ empty_and_non_git_are_valid_profiles (29.094208ms)
+✔ dirty_add_delete_changes_fingerprint (23.769958ms)
+✔ monorepo_commands_keep_cwd_and_never_execute (17.064125ms)
+✔ symlink_escape_and_secret_files_are_denied (1.954208ms)
+✔ budget_returns_unknowns (9.519125ms)
+✔ managed_outputs_do_not_change_research_fingerprint (28.242042ms)
+✔ search_snippets_use_same_policy (9.17825ms)
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: is subject to change. To configure the initial branch name to use in all
+hint: of your new repositories, which will suppress this warning, call:
+hint: 
+hint: 	git config --global init.defaultBranch <name>
+hint: 
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint: 
+hint: 	git branch -m <name>
+Preparing worktree (detached HEAD 7ae0500)
+✔ worktree_root_is_not_common_git_dir (26.535ms)
+✔ reader_and_search_share_cumulative_budget_and_scope (9.863792ms)
+✔ missing_baseline_disables_cache_and_is_not_silent (6.864959ms)
+✔ generated_blocks_are_not_normative_reader_evidence (11.441875ms)
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: is subject to change. To configure the initial branch name to use in all
+hint: of your new repositories, which will suppress this warning, call:
+hint: 
+hint: 	git config --global init.defaultBranch <name>
+hint: 
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint: 
+hint: 	git branch -m <name>
+✔ unborn_git_repository_is_reported_as_git (16.970666ms)
+✔ project_native_entries_are_discovered_without_loading_skill_code (7.2565ms)
+✔ research_fingerprint_uses_filtered_values_and_coverage_unknowns (14.318042ms)
+✔ managed_sensitive_words_do_not_add_research_unknowns_or_change_fingerprint (10.460917ms)
+✔ workflow_reuses_selected_sdd_artifacts_and_release_requires_real_adapter (15.601292ms)
+✔ installed_skills_do_not_invoke_rigup_and_preserve_native_human_gates (1.47325ms)
+✔ stage analysis retains its bounded non-lock scan and full inventory (109.168834ms)
+✔ planning sends cited ranges and guardrails without unrelated project bodies or duplicate inventory (52.322334ms)
+✔ planning projects the analysis contract without replaying unrelated backend payload fields (36.8425ms)
+✔ content keeps current-topic counterexamples conflicts and native gates while excluding unrelated research (49.175666ms)
+✔ related artifact cycles retain only the connected jobs and their evidence (36.065584ms)
+✔ acceptance adds candidate-linked sources beyond seeds but never follows outside the inventory (24.054584ms)
+✔ missing seeds and omitted lock evidence are explicit and do not trigger a full-project fallback (29.323375ms)
+✔ stage selection rejects fabricated ranges digests and references outside the allowed reader (63.583542ms)
+✔ stage-only context changes preserve one run budget and incompatible policies cannot share acceptance (149.732834ms)
+✔ projected-away inputs still bind identity through their original digest (82.436125ms)
+✔ tampering selection or adding even self-digested unselected evidence cannot be accepted (70.934792ms)
+✔ unselected source changes still invalidate the full source fingerprint (67.9725ms)
+✔ invalid or missing stage output cannot fall back to exporting the whole project (27.872583ms)
+✔ missing topic labels do not group unrelated records or discard scoped counterexamples (39.982125ms)
+✔ root and output-target scopes preserve explicit rules and unavailable guidance in both artifact stages (78.698791ms)
+✔ scope-applicable reusable and partial guidance need no duplicate observation or job reference (78.84325ms)
+✔ authority scopes normalize directory paths and disclose unresolved scope instead of dropping its source (51.715292ms)
+ℹ tests 339
+ℹ suites 0
+ℹ pass 324
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 15
+ℹ todo 0
+ℹ duration_ms 6816.363837
+
+> rigup@0.1.0 build
+> tsc
+
+
+> rigup@0.1.0 check:docs
+> node scripts/check-docs.mjs
+
+Documentation links passed: 37 Markdown files, 309 local targets.
+
+> rigup@0.1.0 test:package
+> node scripts/check-package.mjs
+
+{"status":"passed","package":"rigup-0.1.0.tgz","integrity":"sha512-NVqOFLRP1/Xhn4sJ4KFnf/ZVc3bB4h6MqpKLLk9eao/v2iZOMIU0CxPl/Jmhh9YnTU+5lIy/2pnuBb/yyDCIFQ==","files":78,"lifecycle":["help","version","preview","session handoff","independent apply","no-op update","doctor"],"doctorExit":3,"doctorHostState":"reload-required","modelCalls":0}
+found 0 vulnerabilities

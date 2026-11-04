@@ -1,0 +1,237 @@
+{
+  "caseId": "scaffold-scope/codegraph-recovery-openwiki-handoff",
+  "status": "passed",
+  "root": "/private/tmp/rigup-protected-native-ivPto6",
+  "startedAt": "2026-11-04T20:30:54.101Z",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "interrupted": [
+    {
+      "id": "install:openwiki",
+      "stage": "terminal",
+      "status": "done"
+    },
+    {
+      "id": "install:codegraph",
+      "stage": "terminal",
+      "status": "done"
+    },
+    {
+      "id": "initialize:codegraph",
+      "stage": "dispatching"
+    }
+  ],
+  "scaffoldOpenWiki": {
+    "initialized": false,
+    "nativeWrites": [],
+    "handoff": "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it."
+  },
+  "cancellation": {
+    "status": "unknown",
+    "message": "Operation cancelled/timed out; reconcile actual state before retry"
+  },
+  "partialRecovery": {
+    "first": {
+      "status": "unknown",
+      "message": "Operation cancelled/timed out; reconcile actual state before retry"
+    },
+    "recovered": {
+      "status": "done",
+      "message": "Complete native CodeGraph index verified",
+      "nativeReceipt": {
+        "version": "1.6.2",
+        "target": ".codegraph",
+        "identity": "16777229:67127046"
+      },
+      "state": {
+        "phase": "complete",
+        "files": 80,
+        "nodes": 160
+      }
+    }
+  },
+  "codex": {
+    "version": "codex-cli 0.166.0",
+    "servers": [
+      {
+        "name": "codegraph",
+        "tools": [
+          "codegraph_explore"
+        ]
+      },
+      {
+        "name": "openwiki",
+        "tools": [
+          "openwiki_begin",
+          "openwiki_finish",
+          "openwiki_list_wikis",
+          "openwiki_submit_plan",
+          "openwiki_read",
+          "openwiki_inspect_page_claims",
+          "openwiki_search",
+          "openwiki_list_workspaces",
+          "openwiki_next_page",
+          "openwiki_submit_page"
+        ]
+      }
+    ],
+    "search": {
+      "content": [
+        {
+          "type": "text",
+          "text": "**Exploration: createOrder**\n\nFound 1 symbol across 1 file.\n\n**Source Code**\n\n> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.\n\n**`src/order.js`** — createOrder(function)\n\n```javascript\n1\texport function createOrder(reference) { return {reference}; }\n```\n"
+        }
+      ]
+    },
+    "begin": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"status\":\"active\",\"runId\":\"a7b659b8-f005-464a-af66-d77bdfeb14d1\",\"root\":\"/private/tmp/rigup-protected-native-ivPto6\",\"mode\":\"init\",\"language\":\"en\",\"languageChanged\":false,\"phase\":\"planning\",\"resumed\":false,\"lastUpdate\":null,\"changedPaths\":[],\"pageUpdateWindows\":[],\"claimIssues\":[],\"completedPages\":0}"
+        }
+      ],
+      "structuredContent": {
+        "status": "active",
+        "runId": "a7b659b8-f005-464a-af66-d77bdfeb14d1",
+        "root": "/private/tmp/rigup-protected-native-ivPto6",
+        "mode": "init",
+        "language": "en",
+        "languageChanged": false,
+        "phase": "planning",
+        "resumed": false,
+        "lastUpdate": null,
+        "changedPaths": [],
+        "pageUpdateWindows": [],
+        "claimIssues": [],
+        "completedPages": 0
+      }
+    },
+    "resume": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"status\":\"active\",\"runId\":\"a7b659b8-f005-464a-af66-d77bdfeb14d1\",\"root\":\"/private/tmp/rigup-protected-native-ivPto6\",\"mode\":\"init\",\"language\":\"en\",\"languageChanged\":false,\"phase\":\"planning\",\"resumed\":true,\"lastUpdate\":null,\"changedPaths\":[],\"pageUpdateWindows\":[],\"claimIssues\":[],\"completedPages\":0}"
+        }
+      ],
+      "structuredContent": {
+        "status": "active",
+        "runId": "a7b659b8-f005-464a-af66-d77bdfeb14d1",
+        "root": "/private/tmp/rigup-protected-native-ivPto6",
+        "mode": "init",
+        "language": "en",
+        "languageChanged": false,
+        "phase": "planning",
+        "resumed": true,
+        "lastUpdate": null,
+        "changedPaths": [],
+        "pageUpdateWindows": [],
+        "claimIssues": [],
+        "completedPages": 0
+      }
+    },
+    "modelCalls": 0
+  },
+  "manualOpenWiki": {
+    "runId": "a7b659b8-f005-464a-af66-d77bdfeb14d1",
+    "phase": "planning",
+    "resumed": true,
+    "wikiPagesCompleted": false
+  },
+  "query": [
+    {
+      "node": {
+        "id": "function:82a52997200357c9b792f4d9b49e77bd",
+        "kind": "function",
+        "name": "createOrder",
+        "qualifiedName": "createOrder",
+        "filePath": "src/order.js",
+        "language": "javascript",
+        "startLine": 1,
+        "endLine": 1,
+        "startColumn": 7,
+        "endColumn": 62,
+        "signature": "(reference)",
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1793824289579
+      },
+      "score": 103.00000212004406
+    }
+  ],
+  "receipts": {
+    "software": {
+      "openwiki": {
+        "version": "0.7.3",
+        "packageLockDigest": "2b8d80fddcee16ed1897345c81c63ac623e3f2d1e179e0638f48d33d63539ada"
+      },
+      "codegraph": {
+        "version": "1.6.2",
+        "packageLockDigest": "7ec5b868e8cc4c77ab6a04373e3072883ec39ee5d18604797d4310bd49d27f27"
+      }
+    },
+    "initialization": {
+      "codegraph": {
+        "version": "1.6.2",
+        "target": ".codegraph",
+        "identity": "16777229:67118932"
+      }
+    }
+  },
+  "reports": [
+    {
+      "phase": "apply",
+      "installStatus": "complete",
+      "status": "complete",
+      "exitCode": 0,
+      "previewId": "1130fa156a2dbd745aae23ae19050ee57f5314c3053d151ce598c42cbc2c5c74",
+      "written": [
+        ".rigup/mcp/openwiki-codex.mjs",
+        ".codex/config.toml",
+        ".rigup/mcp/codegraph-codex.mjs"
+      ],
+      "operations": [
+        {
+          "status": "done",
+          "message": "Pinned installation verified",
+          "receipt": {
+            "version": "0.7.3",
+            "packageLockDigest": "2b8d80fddcee16ed1897345c81c63ac623e3f2d1e179e0638f48d33d63539ada"
+          }
+        },
+        {
+          "status": "done",
+          "message": "Pinned installation verified",
+          "receipt": {
+            "version": "1.6.2",
+            "packageLockDigest": "7ec5b868e8cc4c77ab6a04373e3072883ec39ee5d18604797d4310bd49d27f27"
+          }
+        },
+        {
+          "status": "done",
+          "message": "Complete native CodeGraph index verified",
+          "nativeReceipt": {
+            "version": "1.6.2",
+            "target": ".codegraph",
+            "identity": "16777229:67118932"
+          },
+          "state": {
+            "phase": "complete",
+            "files": 2,
+            "nodes": 2
+          }
+        }
+      ],
+      "checks": [],
+      "warnings": [
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending",
+        "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+      ]
+    }
+  ],
+  "finishedAt": "2026-11-04T20:31:55.871Z"
+}

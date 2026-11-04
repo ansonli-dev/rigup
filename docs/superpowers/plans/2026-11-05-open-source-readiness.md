@@ -45,12 +45,12 @@
 
 **Interfaces:** Consumes Task 1's repeatable check commands and the existing live test entry points. Produces a current evidence index, explicit external prerequisites and a reviewed push candidate.
 
-- [ ] Audit production/development dependencies and Git history for secrets. Inspect existing pending states against current evidence; investigate locally reproducible gaps rather than copying old pending labels.
-- [ ] Run available real Codex discovery/gates, packaged assets, native tools/CodeGraph recovery and Linux checks where practical. Reuse verified fixtures, record actual versions, costs and commands. Do not repeat unchanged paid semantic generation solely to refresh a date.
-- [ ] For each discovered defect, record reproduction and write a regression; observe RED, implement the smallest root-cause fix, observe GREEN. Run the relevant complete suite after changes.
-- [ ] Update the current support/validation index and prerequisite/resume instructions. Preserve historical failures and tested-source attribution.
-- [ ] Commit fixes and evidence.
-- [ ] Task gate: `npm run check` passes, dependency audit has no unmitigated locally fixable vulnerability, secret scan has no real credential finding.
+- [x] Audit production/development dependencies and Git history for secrets. Inspect existing pending states against current evidence; investigate locally reproducible gaps rather than copying old pending labels.
+- [x] Run available real Codex discovery/gates, packaged assets, native tools/CodeGraph recovery and Linux checks where practical. Reuse verified fixtures, record actual versions, costs and commands. Do not repeat unchanged paid semantic generation solely to refresh a date.
+- [x] For each discovered defect, record reproduction and write a regression; observe RED, implement the smallest root-cause fix, observe GREEN. Run the relevant complete suite after changes.
+- [x] Update the current support/validation index and prerequisite/resume instructions. Preserve historical failures and tested-source attribution.
+- [x] Commit fixes and evidence.
+- [x] Task gate: `npm run check` passes, dependency audit has no unmitigated locally fixable vulnerability, secret scan has no real credential finding.
 
 ### Task 3: Final review, verification and remote delivery
 

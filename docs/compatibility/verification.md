@@ -1,5 +1,7 @@
 # Rigup 实现与真实验收记录
 
+> 历史追加记录：以下早期 pending 会被后续证据更新。当前支持范围、最新本机验证和继续所需条件以[验证状态](status.md)为入口。2026-11-05 开源收尾已补齐真实本地 GitLab lint/Runner、干净 Linux 和公开分发验证，见[本轮证据](evidence/2026-11-05-open-source/README.md)。
+
 更新：2026-11-05。依据 [上游核验标准](README.md)、[实施计划](../superpowers/plans/2026-11-02-rigup-implementation.md) 和 [文档生成标准](../superpowers/specs/2026-11-03-documentation-system-design.md)。所有状态绑定下列精确对象；协议解析、组件冒烟、真实模型和完整兼容分别留证。
 
 最新范围调整：OpenWiki 仅安装/接线并交接独立初始化；CodeGraph 保留受保护索引与恢复。最新本地结果为 320 passed、14 opt-in live skipped、0 failed。前端阶段优化及权威范围修复在原运行内通过，累计 6 请求 / 499754 token，包含修复前消费；各轮历史结果保留，最终结果见文末。

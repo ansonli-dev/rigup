@@ -1,0 +1,117 @@
+{
+  "source": "b85e74991143182b972e13cae6e8cf177cf14b56",
+  "date": "2026-11-05",
+  "macos": {
+    "node": "v24.15.0",
+    "npm": "11.12.1",
+    "architecture": "arm64",
+    "command": "npm run check",
+    "tests": 339,
+    "passed": 324,
+    "failed": 0,
+    "optInSkipped": 15
+  },
+  "linux": {
+    "node": "v24.22.2",
+    "npm": "11.19.1",
+    "architecture": "arm64",
+    "sourceArchive": "git archive HEAD",
+    "image": "node@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c",
+    "prerequisites": [
+      "git",
+      "procps"
+    ],
+    "command": "npm ci --no-audit --no-fund && npm run check && npm audit --audit-level=low",
+    "tests": 339,
+    "passed": 324,
+    "failed": 0,
+    "optInSkipped": 15
+  },
+  "package": {
+    "files": 78,
+    "integrity": "sha512-NVqOFLRP1/Xhn4sJ4KFnf/ZVc3bB4h6MqpKLLk9eao/v2iZOMIU0CxPl/Jmhh9YnTU+5lIy/2pnuBb/yyDCIFQ==",
+    "sameIntegrityOnBothPlatforms": true,
+    "lifecycle": [
+      "help",
+      "version",
+      "preview",
+      "controlled session handoff",
+      "independent apply",
+      "no-op update",
+      "read-only doctor"
+    ],
+    "doctorExit": 3,
+    "doctorReason": "Native client reload has not been observed; installed configuration intact",
+    "modelCalls": 0
+  },
+  "live": {
+    "nativeInitialization": {
+      "status": "passed",
+      "testedSource": "3107093dfa27ca96b192b75beaeef4a4171877bf",
+      "cases": [
+        "pinned software install",
+        "CodeGraph isolated init",
+        "receipt recovery",
+        "partial native init interruption and recovery",
+        "Codex native MCP tools",
+        "separate OpenWiki native planning begin/resume without page generation"
+      ],
+      "testCount": 1
+    },
+    "clients": {
+      "status": "passed",
+      "testedSource": "b85e74991143182b972e13cae6e8cf177cf14b56",
+      "testCount": 3,
+      "cases": [
+        "Codex discovery/customer MCP",
+        "OpenCode discovery/customer MCP",
+        "packaged standalone assets after CLI removal"
+      ]
+    },
+    "gitlab": {
+      "status": "passed",
+      "testedSource": "b85e74991143182b972e13cae6e8cf177cf14b56",
+      "server": "19.5.3 CE",
+      "runner": "19.5.2 darwin/arm64",
+      "testCount": 1,
+      "pipelines": 4,
+      "cases": [
+        "project-scoped include lint",
+        "snapshot success",
+        "snapshot exit 7 and JUnit artifact preservation",
+        "real generated wiki push guard",
+        "real source push missing model reference pending exit 3"
+      ],
+      "modelCalls": 0
+    }
+  },
+  "fixes": [
+    {
+      "problem": "GitLab .pre-only standalone pipeline was empty",
+      "regressions": "standalone first/repeated setup, customer stages, reserved-only stages, unknown external includes",
+      "redObserved": true,
+      "greenObserved": true
+    },
+    {
+      "problem": "Linux fixture used /private/tmp and changed research root to /",
+      "regressions": "existing package independence and host context rejection tests",
+      "redObserved": true,
+      "greenObserved": true
+    },
+    {
+      "problem": "Cold npm ci cache lacks packuments for offline tarball install",
+      "regressions": "clean Linux package consumer",
+      "redObserved": true,
+      "greenObserved": true
+    },
+    {
+      "problem": "Distribution session assertion inherited desktop Codex marker",
+      "regressions": "explicit controlled session marker in package smoke",
+      "redObserved": true,
+      "greenObserved": true
+    }
+  ],
+  "newPaidModelCalls": 0,
+  "priorSemanticEvidence": "../2026-11-05-stage-context/README.md",
+  "claimBoundary": "No full four-host/three-SDD compatibility, provider hard token ceiling, human semantic approval, remote GitLab authorization, Windows or real deployment claim."
+}

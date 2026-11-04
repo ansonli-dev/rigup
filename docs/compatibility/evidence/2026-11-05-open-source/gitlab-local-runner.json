@@ -1,0 +1,277 @@
+{
+  "caseId": "gitlab/local-lint-runner",
+  "status": "passed",
+  "startedAt": "2026-11-04T20:46:53.050Z",
+  "source": "b85e74991143182b972e13cae6e8cf177cf14b56",
+  "platform": "darwin",
+  "node": "v24.15.0",
+  "runnerVersion": "Version:      19.5.2\nGit revision: 66ad5002\nGit branch:   19-5-stable\nGO version:   go1.27.3\nBuilt:        2026-10-28T15:35:07+00:00\nOS/Arch:      darwin/arm64",
+  "pipelines": [
+    {
+      "id": 15,
+      "sha": "51c0e107944d36c8d41f661c3b3208fb1bb2499a",
+      "status": "success",
+      "jobs": [
+        {
+          "id": 11,
+          "name": "rigup:checks",
+          "stage": "test",
+          "status": "success",
+          "artifacts": [
+            {
+              "file_type": "archive",
+              "filename": "artifacts.zip",
+              "size": 1606
+            },
+            {
+              "file_type": "metadata",
+              "filename": "metadata.gz",
+              "size": 267
+            },
+            {
+              "file_type": "junit",
+              "filename": "junit.xml.gz",
+              "size": 209
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "sha": "2cc2e9ad7c30a12f5e0b3ffeb707db964c25f86e",
+      "status": "failed",
+      "jobs": [
+        {
+          "id": 12,
+          "name": "rigup:checks",
+          "stage": "test",
+          "status": "failed",
+          "artifacts": [
+            {
+              "file_type": "archive",
+              "filename": "artifacts.zip",
+              "size": 1677
+            },
+            {
+              "file_type": "metadata",
+              "filename": "metadata.gz",
+              "size": 266
+            },
+            {
+              "file_type": "junit",
+              "filename": "junit.xml.gz",
+              "size": 219
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "sha": "b8b64958f5faf73a9fcd2a262f8ce1e43f2a100a",
+      "status": "success",
+      "jobs": [
+        {
+          "id": 13,
+          "name": "rigup:checks",
+          "stage": "test",
+          "status": "success",
+          "artifacts": [
+            {
+              "file_type": "archive",
+              "filename": "artifacts.zip",
+              "size": 1605
+            },
+            {
+              "file_type": "metadata",
+              "filename": "metadata.gz",
+              "size": 267
+            },
+            {
+              "file_type": "junit",
+              "filename": "junit.xml.gz",
+              "size": 209
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "sha": "35bb9721f235e4504e5878b93ec03ffd00d23ad5",
+      "status": "failed",
+      "jobs": [
+        {
+          "id": 15,
+          "name": "rigup:openwiki",
+          "stage": "test",
+          "status": "failed",
+          "artifacts": [
+            {
+              "file_type": "archive",
+              "filename": "artifacts.zip",
+              "size": 437
+            },
+            {
+              "file_type": "metadata",
+              "filename": "metadata.gz",
+              "size": 192
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "name": "rigup:checks",
+          "stage": "test",
+          "status": "success",
+          "artifacts": [
+            {
+              "file_type": "archive",
+              "filename": "artifacts.zip",
+              "size": 1606
+            },
+            {
+              "file_type": "metadata",
+              "filename": "metadata.gz",
+              "size": 268
+            },
+            {
+              "file_type": "junit",
+              "filename": "junit.xml.gz",
+              "size": 209
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "scope": "Disposable local GitLab and shell runner; real generated jobs, snapshot reports, missing-secret exit and wiki skip guards. No model-backed wiki update or remote-project authorization claim.",
+  "gitlabVersion": {
+    "version": "19.5.3",
+    "revision": "0d4c9a9a2fa",
+    "kas": {
+      "enabled": true,
+      "externalUrl": "ws://127.0.0.1:42880/-/kubernetes-agent/",
+      "externalK8sProxyUrl": "http://127.0.0.1:42880/-/kubernetes-agent/k8s-proxy/",
+      "version": "19.5.3"
+    },
+    "enterprise": false
+  },
+  "lint": {
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "merged_yaml": "---\nrigup:checks:\n  stage: test\n  script:\n  - node .rigup/scripts/check-snapshot.mjs ci .rigup/checks.json\n  artifacts:\n    when: always\n    paths:\n    - rigup-reports/\n    reports:\n      junit:\n      - rigup-reports/**/reports/junit.xml\n  rules:\n  - if: $CI_PIPELINE_SOURCE == \"merge_request_event\" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH\n",
+    "includes": [
+      {
+        "type": "local",
+        "location": ".rigup/gitlab-ci.yml",
+        "blob": "http://127.0.0.1:42880/root/rigup-live-b76da8cc-f7d6-4d38-9d53-1ac638b018ff/-/blob/51c0e107944d36c8d41f661c3b3208fb1bb2499a/.rigup/gitlab-ci.yml",
+        "raw": "http://127.0.0.1:42880/root/rigup-live-b76da8cc-f7d6-4d38-9d53-1ac638b018ff/-/raw/51c0e107944d36c8d41f661c3b3208fb1bb2499a/.rigup/gitlab-ci.yml",
+        "extra": {},
+        "context_project": "root/rigup-live-b76da8cc-f7d6-4d38-9d53-1ac638b018ff",
+        "context_sha": "51c0e107944d36c8d41f661c3b3208fb1bb2499a"
+      }
+    ],
+    "jobs": [
+      {
+        "name": "rigup:checks",
+        "stage": "test",
+        "before_script": [],
+        "script": [
+          "node .rigup/scripts/check-snapshot.mjs ci .rigup/checks.json"
+        ],
+        "after_script": [],
+        "tag_list": [],
+        "environment": null,
+        "when": "on_success",
+        "allow_failure": false
+      }
+    ]
+  },
+  "successReport": {
+    "exitCode": 0,
+    "snapshots": [
+      {
+        "commit": "51c0e107944d36c8d41f661c3b3208fb1bb2499a",
+        "tree": "2edfb3c72c4663263e1a62537e8a59458cfdfba6",
+        "mode": "ci",
+        "environment": {
+          "node": "v24.15.0",
+          "platform": "darwin"
+        },
+        "checkedAt": "2026-11-04T20:46:56.766Z",
+        "commands": [
+          {
+            "command": {
+              "executable": "node",
+              "args": [
+                "check.mjs"
+              ],
+              "cwd": ".",
+              "envRefs": []
+            },
+            "exitCode": 0,
+            "status": "passed",
+            "startedAt": "2026-11-04T20:46:56.736Z",
+            "finishedAt": "2026-11-04T20:46:56.766Z",
+            "durationMs": 30
+          }
+        ],
+        "artifacts": [
+          "rigup-reports/51c0e107944d36c8d41f661c3b3208fb1bb2499a/reports/junit.xml"
+        ]
+      }
+    ]
+  },
+  "failureReport": {
+    "exitCode": 7,
+    "snapshots": [
+      {
+        "commit": "2cc2e9ad7c30a12f5e0b3ffeb707db964c25f86e",
+        "tree": "130c442ffbae160702c396e3b46239dcc9b0ba8c",
+        "mode": "ci",
+        "environment": {
+          "node": "v24.15.0",
+          "platform": "darwin"
+        },
+        "checkedAt": "2026-11-04T20:47:00.907Z",
+        "commands": [
+          {
+            "command": {
+              "executable": "node",
+              "args": [
+                "check.mjs"
+              ],
+              "cwd": ".",
+              "envRefs": []
+            },
+            "exitCode": 7,
+            "status": "failed",
+            "reason": "Snapshot check failed; dependencies must be available inside the snapshot, never the worktree",
+            "startedAt": "2026-11-04T20:47:00.882Z",
+            "finishedAt": "2026-11-04T20:47:00.907Z",
+            "durationMs": 24
+          }
+        ],
+        "artifacts": [
+          "rigup-reports/2cc2e9ad7c30a12f5e0b3ffeb707db964c25f86e/reports/junit.xml"
+        ]
+      }
+    ]
+  },
+  "wikiMissing": {
+    "startedAt": "2026-11-04T20:47:08.825Z",
+    "commit": "35bb9721f235e4504e5878b93ec03ffd00d23ad5",
+    "environment": {
+      "node": "v24.15.0",
+      "platform": "darwin"
+    },
+    "status": "pending",
+    "exitCode": 3,
+    "reason": "Missing environment references: RIGUP_MISSING_MODEL_TOKEN"
+  },
+  "projectCleanup": "deleted own disposable project",
+  "finishedAt": "2026-11-04T20:47:10.413Z"
+}

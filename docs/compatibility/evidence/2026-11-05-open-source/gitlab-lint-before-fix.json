@@ -1,0 +1,20 @@
+{
+  "source": "3107093dfa27ca96b192b75beaeef4a4171877bf",
+  "gitlabVersion": "19.5.3",
+  "phase": "before stage fix",
+  "valid": false,
+  "errors": [
+    "The resulting pipeline would have been empty. Review the rules configuration."
+  ],
+  "jobs": [
+    {
+      "name": "rigup:checks",
+      "stage": ".pre"
+    },
+    {
+      "name": "rigup:openwiki",
+      "stage": ".pre"
+    }
+  ],
+  "observation": "Actual project-scoped dry-run lint after committing the generated local include in a disposable private repository. Fixed result is in gitlab-local-runner.json."
+}
