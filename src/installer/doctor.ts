@@ -11,6 +11,8 @@ import {loadUpstreamLock} from '../integrations/registry.js';
 import {queryOperation,assertNoUnknownWriters} from './operations.js';
 import {acquireLock} from './lock.js';
 import {agents} from '../integrations/agents/index.js';
+import {initializationRecipe} from '../integrations/tools/initialization.js';
+import {signature} from '../generator/cache.js';
 export interface DoctorOptions {runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
 export interface Diagnostic {category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
 export async function doctor(root:string,options:DoctorOptions={}):Promise<InstallReport&{diagnostics:Diagnostic[]}>{
@@ -38,7 +40,10 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   const probe:SetupOperation={id:'probe:'+tool.id,integrationId:tool.id,kind:'install',version:recipe.version,parameters:{executable:'npm',args:['--prefix',resolve(root,prefix)],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],timeoutMs:1,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',name,version:recipe.version,integrity:recipe.packageIntegrity,packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json'}};
   const result=await queryOperation(probe);const receipt=manifest.installedTools?.[tool.id];const verified=result.status==='done'&&receipt?.packageLockDigest===result.receipt?.packageLockDigest;
   add('tools',tool.id+':binary',verified?'available':'pending',verified?'Pinned package, dependency tree, launcher and receipt verified':'Project installation unavailable/unreceipted; no install or global change performed');
-  add('tools',tool.id+':initialization','pending','Native initialization not observed; no database inspected or initialization executed');
+  const nativeReceipt=manifest.initializedTools?.[tool.id];
+  const native=nativeReceipt?await queryOperation(initializationRecipe(root,tool.id,recipe.version,recipe.packageIntegrity)):undefined;
+  const initialized=native?.status==='done'&&signature(native.nativeReceipt)===signature(nativeReceipt);
+  add('tools',tool.id+':initialization',initialized?'initialized':'pending',initialized?native!.message:'Native initialization unavailable or ownership/state changed; no initialization or repair executed');
  }
  if(options.runChecks?.length){const lock=await acquireLock(root,{stateRoot:options.stateRoot});try{await assertNoUnknownWriters(root,lock.stateRoot);report.checks=await runProjectChecks(await scanRepository(root,selected),options.runChecks,options.signal);}finally{await lock.release();}}
  for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??'Actual selected command result; separate from installation status');

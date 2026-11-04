@@ -4,6 +4,9 @@ import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {loadOptions} from '../src/config.js';
+test('fresh setup defaults to the available Codex agent',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'rigup-default-'));try{assert.deepEqual((await loadOptions(root,{})).agents,['codex']);}finally{await rm(root,{recursive:true,force:true});}
+});
 
 async function fixture(body:string, fn:(root:string)=>Promise<void>) {
  const root=await mkdtemp(join(tmpdir(),'rigup-'));

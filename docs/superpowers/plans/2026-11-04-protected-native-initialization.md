@@ -57,4 +57,16 @@
 - [ ] Add failing acceptance cases for public mainline initialization/recovery and Codex default selection. Run focused cases; expected FAIL before the missing behavior exists.
 - [ ] Install required pinned tools in private temporary environments and exercise official native initialization and recovery against disposable projects. Use Codex only for host acceptance; no alternate model/host probes.
 - [ ] Run `npm test`, `npm run typecheck`, `npm run build`, appropriate Codex/native live tests and `npm pack --dry-run`; expected no failures and no scratch/customer state in the package. Archive evidence and commit `test: verify Codex native initialization and recovery`.
+
+### Task 4: Local Codex research mainline
+
+**Files:** `src/analyzer/codex.ts`, `src/{types,config,onboarding,lifecycle,cli}.ts`, `src/generator/generate.ts`, `test/codex-backend.test.ts`, native acceptance support and compatibility evidence.
+
+**Interfaces:** Consumes the existing `AnalysisBackend`, bounded `RepositoryReader` and verified private host-export protocol. Produces `backend: codex` as the default local agent backend, while explicit `host` and Anthropic `native` remain available.
+
+- [ ] Write failing tests for the Codex default, filtered private context, strict evidence/response validation, charged failed requests, refused tool execution, accepted-result reuse and missing Codex availability. Run `node --import tsx --test test/codex-backend.test.ts`; expected FAIL because this backend does not exist.
+- [ ] Implement `codexBackend({cacheRoot,signal,onUsage,invoke?}): AnalysisBackend`: export bounded filtered context through the existing host protocol, invoke `codex exec` in a private empty directory with user config ignored and shell/browser/apps/subagents disabled, parse structured JSON and observed token usage, validate evidence before acceptance, and durably account for requests before dispatch. Use existing Codex authentication without copying credentials or forcing another model. No model switch is tested.
+- [ ] Wire explicit backend selection, default Codex, noninteractive execution and safe recovery. Keep manual request/response exchange explicit through `backend: host`.
+- [ ] Run focused tests, `npm test`, typecheck/build/pack and one small real Codex research→generation→apply→unchanged update case using the current default model. Expected PASS with actual observed usage and no extra API credential.
+- [ ] Commit `feat: complete the local Codex research mainline`.
 - [ ] Run one fresh-context whole-change review as required by executing-plans. Re-grade findings, fix Important/Critical findings in one RED→GREEN pass, run the suite, archive rulings and remove only this plan's scratch workspace. Keep the branch for review without merge/push.

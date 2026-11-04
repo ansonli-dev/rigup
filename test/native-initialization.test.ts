@@ -11,6 +11,9 @@ import {initializationRecipe} from '../src/integrations/tools/initialization.js'
 import {loadUpstreamLock} from '../src/integrations/registry.js';
 import {queryOperation} from '../src/installer/operations.js';
 import {chmod} from 'node:fs/promises';
+import {apply} from '../src/installer/apply.js';
+import {executeLifecycle} from '../src/lifecycle.js';
+import {rm} from 'node:fs/promises';
 
 const options:SetupOptions={agents:['codex'],backend:'host',tools:[
  {id:'openwiki',install:true,initialize:true,agents:['codex']},
@@ -94,3 +97,12 @@ test('native state query never executes substituted adapter commands',()=>projec
  await queryOperation(op);
  await assert.rejects(()=>readFile(root+'/substituted-command-ran'),{code:'ENOENT'});
 }));
+test('durable apply resumes without research credentials after its preview cache is deleted',()=>project(async root=>project(async cache=>project(async state=>{
+ const selected:SetupOptions={agents:['codex'],backend:'native',sdd:'openspec'};
+ const plan:SetupPlan={root,options:selected,fingerprint:(await scanRepository(root,selected)).fingerprint,assets:[{logicalId:'fixture',target:'owned.md',content:'Prepared content\n',ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],operations:[],requirements:[],warnings:[],versions:{},dispositions:[]};
+ const p=await preview(plan,[],{cacheRoot:cache+'/previews'});
+ await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache+'/previews',stateRoot:state,hook:async()=>{throw Error('interrupted');}}),/interrupted/);
+ await rm(cache,{recursive:true});await mkdir(cache,{mode:0o700});
+ assert.equal(await executeLifecycle(root,selected,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state}),0);
+ assert.equal(await readFile(root+'/owned.md','utf8'),'Prepared content\n');
+}))));

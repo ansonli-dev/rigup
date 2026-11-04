@@ -1,1 +1,1 @@
-export const codegraph={id:'codegraph',software:'codegraph',version:'1.6.2',mcpArgs:()=>['serve','--mcp'],initialization:'manual pending; connecting MCP may initialize/watch the tool index'};
+export const codegraph={id:'codegraph',software:'codegraph',version:'1.6.2',mcpArgs:()=>['serve','--mcp'],initialization:'protected native index with staging recovery; host MCP connection observed separately'};

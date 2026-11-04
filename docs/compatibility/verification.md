@@ -83,3 +83,16 @@ pending 表示缺条件或未验证；尚无足够已核实限制将这些场景
 - 软件复用：与操作对账共用实际安装查询，检查锁摘要、固定包/版本/完整性、依赖 manifest、launcher 和可执行文件；预览到 apply 之间、恢复及检查后的实际状态同样核验；损坏的既有范围只报告待对账，不重装覆盖。
 
 旧真实生成和 gate 证据明确绑定其 read policy 3/template 1/prompt 3 或 4。上述确定性边界修复使用本地回归复验，并未伪造为 read policy 4 下的新模型语义通过。两后端全部正式语义/人工验收仍为 pending。
+
+## 受保护原生初始化与恢复（2026-11-04 补齐）
+
+本节更新前文的初始化/MCP 待办；原历史证据保留。[完整实测](evidence/2026-11-04-native-initialization/initialization-recovery.json)、[官方源码与发布包边界](evidence/2026-11-04-native-initialization/source-boundaries.json)。OpenWiki 0.7.3、CodeGraph 1.6.2、Codex CLI 0.166.0，Node 24.15.0，darwin-arm64。
+
+- 软件安装、宿主注册、项目初始化分别留证。CLI `--tools openwiki,codegraph` 默认选择 Codex，并规划两个固定安装和两个初始化操作；交互式项目安装也包含受保护初始化。
+- CodeGraph 官方 SDK 只向新暂存目录写入，完整索引通过 native index_state、版本和只读 SQLite 完整性检查后再原子提升；不调用可能安装 Git hooks 的 `init --yes`。原生查询实际找到 createOrder 及 src/order.js。
+- OpenWiki 官方生命周期在隔离暂存仓库创建原生规划 run，只有 openwiki 状态目录被提升；不改写项目 AGENTS/CLAUDE 或创建计划任务。此时是已初始化且可恢复的规划阶段，不能声称全部 wiki 页面已生成完成。Codex 随后通过真正的 OpenWiki MCP begin 在实际项目恢复相同 runId，源码差异由上游重新规划。
+- 初始化成功后、控制器保存终态前模拟中断；删除普通缓存后 `--resume` 从独立持久日志恢复已批准预览，核验实际状态并完成后续操作，软件和初始化回执分别提交。真实 CodeGraph 写入数据库后终止进程，确认所有写进程退出，再仅重建未发布暂存区，80 文件/160 节点索引恢复成功。
+- 保留已有用户 wiki、索引、根指令、工作流和 Git hooks；不隐式认领既有非空状态。拒绝符号链接、失效预览、替换的执行/查询命令及依赖缺失/乱序。带有效目录身份和提升凭据的原生输出不回流语义研究；凭据损坏时隔离已知生成范围并停止语义复用。
+- doctor 只读核验原生初始化，unchanged update 不重装、不重新初始化。真实 Codex app-server 加载两个 MCP，调用 CodeGraph 原生主入口 explore 并恢复 OpenWiki。此组连接验收 modelCalls=0，没有模型选择或切换。
+
+Claude 及其他宿主、其他平台、独立模型矩阵按用户要求延后。OpenWiki 正文生成的语义质量、GitLab/部署等需要外部目标或凭据的场景不由本组证据推定通过。

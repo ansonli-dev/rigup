@@ -28,7 +28,7 @@ export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateR
   }
  }
 }
-const bootstrap=`const {spawn}=require('node:child_process');let started=false;process.stdin.once('data',()=>{started=true;const spec=JSON.parse(process.argv[1]);const child=spawn(spec.executable,spec.args,{cwd:spec.cwd,stdio:'ignore',shell:false,env:spec.env??process.env});child.once('error',()=>process.exit(1));child.once('exit',(code)=>process.exit(code??1));});process.stdin.once('end',()=>{if(!started)process.exit(1)});`;
+const bootstrap=`const {spawn}=require('node:child_process');let started=false,child;for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{if(!started)process.exit(1);if(child)child.kill(signal);});process.stdin.once('data',()=>{started=true;const spec=JSON.parse(process.argv[1]);child=spawn(spec.executable,spec.args,{cwd:spec.cwd,stdio:'ignore',shell:false,env:spec.env??process.env});child.once('error',()=>process.exit(1));child.once('exit',(code)=>process.exit(code??1));});process.stdin.once('end',()=>{if(!started)process.exit(1)});`;
 export async function executeOperation(operation:SetupOperation,dependencies:OperationDependencies={}):Promise<OperationResult>{
  if(!['install','initialize'].includes(operation.kind)||!['openwiki','codegraph'].includes(operation.integrationId))return {status:'pending',message:'No verified executable adapter; manual operation required'};
  if(!dependencies.authorizationRef)return {status:'pending',message:'Explicit preview authorization reference required before dispatch'};
@@ -69,7 +69,13 @@ export async function executeOperation(operation:SetupOperation,dependencies:Ope
  const hardKill=setTimeout(()=>{if(cancelled)try{process.kill(-child.pid!,'SIGKILL');}catch{}},operation.timeoutMs+3000);
  dependencies.signal?.addEventListener('abort',terminate,{once:true});
  const outcome=await completed;clearTimeout(timeout);clearTimeout(hardKill);if(forceTimer)clearTimeout(forceTimer);dependencies.signal?.removeEventListener('abort',terminate);
- if(record.identity&&await writerAlive(record.identity))throw new Error('writing process exit unconfirmed; persistent record keeps project blocked');
+ if(record.identity){
+  // The process-group leader and native worker do not exit at the same instant.
+  // Keep the durable intent unresolved until every possible writer is gone.
+  const deadline=Date.now()+3000;let alive=true;
+  do {try{alive=await writerAlive(record.identity);}catch{alive=true;}if(!alive)break;if(Date.now()<deadline)await new Promise(done=>setTimeout(done,50));}while(Date.now()<deadline);
+  if(alive)throw new Error('writing process exit unconfirmed; persistent record keeps project blocked');
+ }
  const verified=await queryOperation(operation);
  const result:OperationResult=cancelled||timedOut?{status:'unknown',message:'Operation cancelled/timed out; reconcile actual state before retry'}:outcome.code===0?verified:{status:'failed',message:'External installation failed; partial effects require reconciliation'};
  record.stage='terminal';record.result=result;await persist();return result;

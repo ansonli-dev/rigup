@@ -436,7 +436,8 @@
       "runtime": {
         "node": ">=22.22.0",
         "platforms": "software install recipe currently POSIX; other platforms pending",
-        "installationScope": "project preferred; no automatic software installation enabled"
+        "installationScope": "project preferred; no automatic software installation enabled",
+        "initializationRuntime": "Rigup Node >=24, pinned published SDK; darwin-arm64 verified; other platforms unverified"
       },
       "entries": {},
       "operations": [
@@ -472,6 +473,18 @@
           "protection": "new empty scope only; reject existing nonempty scope; recheck before dispatch",
           "timeoutMs": 300000,
           "reconciliation": "read package metadata and lock integrity; incomplete or unknown operations require reconciliation before retry"
+        },
+        {
+          "id": "initialize:openwiki",
+          "kind": "initialize",
+          "entry": "Pinned published HostSessionManager.begin(init), host=codex",
+          "declaredWrites": [
+            "openwiki",
+            ".rigup/native/openwiki"
+          ],
+          "protection": "New empty live target and staging only. Existing unowned state is preserved. Native state is generated in staging, fsynced, ownership marker durably stored, then directory atomically promoted. Root agent instructions, scheduled workflow and Git hooks are never written by Rigup initialization.",
+          "timeoutMs": 300000,
+          "reconciliation": "Confirm previous process group exited; query native checkpoint/index completeness and promotion identity; resume or rebuild only unpublished owned staging. Durable preview and distinct software/initialization receipts survive ordinary cache deletion."
         }
       ],
       "projectionRules": [],
@@ -495,11 +508,21 @@
           "capability": "non-TTY help",
           "status": "failed",
           "path": "docs/compatibility/evidence/2026-11-03-openwiki-help-non-tty-error.txt"
+        },
+        {
+          "capability": "Rigup protected initialization, accepted-state/cache-loss recovery, partial CodeGraph writer cancellation and recovery, Codex native MCP discovery/call and OpenWiki run resume",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-04-native-initialization/initialization-recovery.json"
+        },
+        {
+          "capability": "Exact repository and published-artifact SDK write boundary inspection",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-04-native-initialization/source-boundaries.json"
         }
       ],
       "pending": [
-        "Native initialization safety and real host MCP acceptance remain pending",
-        "Software installation availability must be verified separately from package metadata"
+        "Software installation availability must be verified separately from package metadata",
+        "Claude/OpenCode/OMP native tool MCP acceptance and other-platform initialization remain deferred/unverified; Codex darwin-arm64 acceptance is passed"
       ],
       "packageIntegrity": "sha512-E5kOUcST7kD7ebX9rJZ4wHfyBAsc58VkvMskEdEKBYw3m1IJ9vFt4Pouk0NkJ3gvEDteHkXEqNGI+oMb+OAwFg=="
     },
@@ -535,7 +558,8 @@
       "runtime": {
         "node": ">=20.0.0 <25.0.0",
         "platforms": "software install recipe currently POSIX; other platforms pending",
-        "installationScope": "project preferred; no automatic software installation enabled"
+        "installationScope": "project preferred; no automatic software installation enabled",
+        "initializationRuntime": "Rigup Node >=24, pinned published SDK; darwin-arm64 verified; other platforms unverified"
       },
       "entries": {},
       "operations": [
@@ -571,6 +595,19 @@
           "protection": "new empty scope only; reject existing nonempty scope; recheck before dispatch",
           "timeoutMs": 300000,
           "reconciliation": "read package metadata and lock integrity; incomplete or unknown operations require reconciliation before retry"
+        },
+        {
+          "id": "initialize:codegraph",
+          "kind": "initialize",
+          "entry": "Pinned published CodeGraph.init/recreate + indexAll SDK",
+          "declaredWrites": [
+            ".codegraph",
+            ".rigup/native/codegraph",
+            ".codegraph-rigup-init"
+          ],
+          "protection": "New empty live target and staging only. Existing unowned state is preserved. Native state is generated in staging, fsynced, ownership marker durably stored, then directory atomically promoted. Root agent instructions, scheduled workflow and Git hooks are never written by Rigup initialization.",
+          "timeoutMs": 300000,
+          "reconciliation": "Confirm previous process group exited; query native checkpoint/index completeness and promotion identity; resume or rebuild only unpublished owned staging. Durable preview and distinct software/initialization receipts survive ordinary cache deletion."
         }
       ],
       "projectionRules": [],
@@ -589,11 +626,21 @@
           "capability": "project software install, integrity and binary version; no indexing/MCP acceptance",
           "status": "passed",
           "path": "docs/compatibility/evidence/2026-11-03-codegraph-project-install.json"
+        },
+        {
+          "capability": "Rigup protected initialization, accepted-state/cache-loss recovery, partial CodeGraph writer cancellation and recovery, Codex native MCP discovery/call and OpenWiki run resume",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-04-native-initialization/initialization-recovery.json"
+        },
+        {
+          "capability": "Exact repository and published-artifact SDK write boundary inspection",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-04-native-initialization/source-boundaries.json"
         }
       ],
       "pending": [
-        "Native initialization safety and real host MCP acceptance remain pending",
-        "Software installation availability must be verified separately from package metadata"
+        "Software installation availability must be verified separately from package metadata",
+        "Claude/OpenCode/OMP native tool MCP acceptance and other-platform initialization remain deferred/unverified; Codex darwin-arm64 acceptance is passed"
       ],
       "packageIntegrity": "sha512-hODH/mGnCf3IUMs6rzktv/zbecJIKJfdZAYHZ9mqecb0G7ZkHaA8CZafDVnswANFEL1YFcG+lfAwc5SIXzUH6Q=="
     }

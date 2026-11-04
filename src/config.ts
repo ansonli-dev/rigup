@@ -144,7 +144,7 @@ export async function loadOptions(root: string, overrides: Partial<SetupOptions>
   const profilePath = overrides.profile ?? project.profile;
   const profile = typeof profilePath === 'string' ? await readConfig(join(root,profilePath), true) : {};
   validateOptions(profile);
-  return {...{agents: [], backend:'native'}, ...profile, ...project, ...overrides} as SetupOptions;
+  return {...{agents: ['codex'], backend:'native'}, ...profile, ...project, ...overrides} as SetupOptions;
 }
 
 export async function configurationCandidate(root:string,options:SetupOptions):Promise<import('./integrations/registry.js').PreparedAsset>{

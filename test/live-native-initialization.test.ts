@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,realpath,mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
+import {mkdtemp,realpath,mkdir,writeFile,readFile,readdir,rm,cp,access,constants} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {scanRepository} from '../src/analyzer/repository.js';
@@ -9,7 +9,11 @@ import {preview} from '../src/installer/preview.js';
 import {apply} from '../src/installer/apply.js';
 import {loadManifest} from '../src/installer/baseline.js';
 import {saveDurable} from '../src/installer/state.js';
-import {pendingOperations} from '../src/installer/operations.js';
+import {pendingOperations,executeOperation,assertNoUnknownWriters} from '../src/installer/operations.js';
+import {initializationRecipe} from '../src/integrations/tools/initialization.js';
+import {loadUpstreamLock} from '../src/integrations/registry.js';
+import {doctor} from '../src/installer/doctor.js';
+import {codexNativeTools} from './native-tools-support.js';
 import {executeLifecycle} from '../src/lifecycle.js';
 import type {SetupPlan,SetupOptions} from '../src/types.js';
 const exec=promisify(execFile);
@@ -50,6 +54,27 @@ test('live public install initializes both tools and resumes after native accept
   assert.equal(await readFile(root+'/CLAUDE.md','utf8'),'User Claude instructions\n');
   assert.equal(await readFile(root+'/.github/workflows/openwiki-update.yml','utf8'),'User workflow\n');
   assert.deepEqual(await readdir(root+'/.git/hooks').catch(()=>[]),[]);
+  const diagnostic=await doctor(root,{stateRoot:state});for(const id of ['openwiki','codegraph'])assert.equal(diagnostic.diagnostics.find(d=>d.id===id+':initialization')?.state,'initialized');
+  // An unchanged update reuses both kinds of receipt and never reinitializes.
+  const current=await scanRepository(root,options);current.installedTools=manifest.installedTools;current.initializedTools=manifest.initializedTools;
+  const update=await prepareIntegrations(current,options);assert.deepEqual(update.operations,[]);assert.deepEqual(update.requirements,[]);
+  assert.equal(current.truncated,false);assert.ok(!current.files.some(p=>p.startsWith('.codegraph/')||p.startsWith('openwiki/')||p.startsWith('.rigup/native/')));
+  // Kill the real CodeGraph writer after it creates a DB, then rebuild only its
+  // unpublished staging directory. The existing initialized project is retained.
+  const interruptedRoot=control+'/interrupted-project';await mkdir(interruptedRoot);await mkdir(interruptedRoot+'/.rigup/tools',{recursive:true});
+  await cp(root+'/.rigup/tools/codegraph',interruptedRoot+'/.rigup/tools/codegraph',{recursive:true,verbatimSymlinks:true,mode:constants.COPYFILE_FICLONE});
+  await mkdir(interruptedRoot+'/src');for(let i=0;i<80;i++)await writeFile(interruptedRoot+'/src/file'+i+'.js','export function createOrder'+i+'(id) { return {id}; }\n');
+  const cgRecipe=(await loadUpstreamLock()).find(r=>r.integrationId==='codegraph')!;
+  const init=initializationRecipe(interruptedRoot,'codegraph',cgRecipe.version,cgRecipe.packageIntegrity);const abort=new AbortController();
+  const poll=setInterval(()=>{void access(interruptedRoot+'/.codegraph-rigup-init/codegraph.db').then(()=>abort.abort()).catch(()=>{});},5);
+  let cancelled;try{cancelled=await executeOperation(init,{stateRoot:state,authorizationRef:'live-interruption',signal:abort.signal});}finally{clearInterval(poll);}
+  evidence.cancellation=cancelled;assert.equal(abort.signal.aborted,true,JSON.stringify(cancelled));assert.equal(cancelled.status,'unknown');await assert.rejects(access(interruptedRoot+'/.codegraph'));
+  await assertNoUnknownWriters(interruptedRoot,state);
+  const recovered=await executeOperation(init,{stateRoot:state,authorizationRef:'live-interruption'});assert.equal(recovered.status,'done',recovered.message);evidence.partialRecovery={first:cancelled,recovered};
+  if(process.env.RIGUP_LIVE_CODEX==='1'){
+   evidence.codex=await codexNativeTools(root,control);assert.ok(evidence.codex.servers.some((s:any)=>s.name==='openwiki'&&s.tools.includes('openwiki_begin')));assert.ok(evidence.codex.servers.some((s:any)=>s.name==='codegraph'&&s.tools.includes('codegraph_explore')));assert.match(JSON.stringify(evidence.codex.search),/createOrder/);
+   const resumed=JSON.parse(await readFile(root+'/openwiki/.run.json','utf8'));assert.equal(resumed.runId,run.runId);evidence.codex.resumedRunId=resumed.runId;assert.match(await readFile(root+'/AGENTS.md','utf8'),/^User agent instructions\n/);
+  }
   evidence.status='passed';evidence.query=query;evidence.runId=run.runId;evidence.receipts={software:manifest.installedTools,initialization:(manifest as any).initializedTools};evidence.reports=reports;
  }catch(error){evidence.reason=(error as Error).message;throw error;}
  finally {evidence.finishedAt=new Date().toISOString();const out=process.env.RIGUP_LIVE_EVIDENCE_DIR??'docs/compatibility/evidence/2026-11-04-native-initialization';await mkdir(out,{recursive:true});await writeFile(out+'/initialization-recovery.json',JSON.stringify(evidence,null,2)+'\n');if(evidence.status==='passed'){await rm(root,{recursive:true,force:true});await rm(control,{recursive:true,force:true});}}

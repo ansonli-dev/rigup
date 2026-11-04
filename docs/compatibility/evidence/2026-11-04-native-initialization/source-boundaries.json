@@ -42,5 +42,42 @@
     "OpenWiki begin(init) writes AGENTS.md, optional CLAUDE.md and a scheduled workflow and can replace an existing wiki. It runs in an isolated disposable repository; only the native openwiki state is promoted into a fresh empty project target. Root setup/configuration is never overwritten.",
     "OpenWiki initialization is a valid durable planning run, not a completed generated wiki. Codex resumes the same native run; source drift triggers upstream replanning. No Claims, run state, or database contents are invented or edited by Rigup.",
     "Only exact pinned project installations may initialize; external binaries may still be registered without initialization."
+  ],
+  "publishedArtifacts": [
+    {
+      "entryPath": "package/dist/integrations/core/session-manager.js",
+      "package": "openwiki",
+      "digest": "sha256:34cd82910330ebe431cda302165645fda295be3c4e8439b1156e680f0243d675"
+    },
+    {
+      "entryPath": "package/dist/generation/run-state.js",
+      "package": "openwiki",
+      "digest": "sha256:82ebbf923390fb1e66c1aa1ddf54547aeb4db0cf873328cf82a8cb5e758f37fe"
+    },
+    {
+      "entryPath": "package/dist/generation/repository-run.js",
+      "package": "openwiki",
+      "digest": "sha256:96421c48f0c1f6770fb9bbb5b43cbcfa0075bd7016bae39b60c96cfe3c00cc6a"
+    },
+    {
+      "entryPath": "package/npm-sdk.js",
+      "package": "@colbymchenry/codegraph",
+      "digest": "sha256:d3918be4847bfb387eea87074131849f7df4c21f609038ed3b7214073c190880"
+    },
+    {
+      "entryPath": "package/lib/dist/index.js",
+      "package": "@colbymchenry/codegraph-darwin-arm64",
+      "digest": "sha256:1813127b36983344d0cfbf94ecd650ec2d85885ab8936bf7a42f16558ea22b4f"
+    },
+    {
+      "entryPath": "package/lib/dist/directory.js",
+      "package": "@colbymchenry/codegraph-darwin-arm64",
+      "digest": "sha256:9608555a78d2243e9892ea4833cec893a93449d0d690afc58bf09db9ae374e5c"
+    },
+    {
+      "entryPath": "package/lib/dist/db/queries.js",
+      "package": "@colbymchenry/codegraph-darwin-arm64",
+      "digest": "sha256:7305c86d3b53e70fc5c353176e8960cae9b59535cc5c42bdf987d228d2a208af"
+    }
   ]
 }

@@ -1,1 +1,1 @@
-export const openwiki={id:'openwiki',software:'openwiki',version:'0.7.3',mcpArgs:(agent:string)=>['mcp','--host',agent],initialization:'manual pending until native writes and recovery are verified'};
+export const openwiki={id:'openwiki',software:'openwiki',version:'0.7.3',mcpArgs:(agent:string)=>['mcp','--host',agent],initialization:'protected native planning run; Codex resumes the page lifecycle'};
