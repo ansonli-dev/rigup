@@ -1,6 +1,7 @@
 import {join} from 'node:path';
 import {mkdir,readFile,lstat} from 'node:fs/promises';
 import {hostBackend} from './host.js';
+import {STAGE_EVIDENCE_POLICY} from './stage-context.js';
 import {validateResearchRequest,ResearchFailure,type AnalysisBackend,type ResearchResult} from './backend.js';
 import {privateDirectory,readCache,signature} from '../generator/cache.js';
 import {saveDurable} from '../installer/state.js';
@@ -9,7 +10,7 @@ import {codexAvailable,codexArguments,invokeCodex,type CodexInvocation,type Code
 export interface CodexBackendOptions {cacheRoot:string;stateRoot?:string;signal?:AbortSignal;onUsage?:(usage:{calls:number;tokens:number|'unknown'})=>Promise<void>;invoke?:(input:CodexInvocation)=>Promise<CodexOutcome>}
 interface Attempt {status:'reserved'|'observed';tokens:number|'unknown';identity?:ProcessIdentity}
 interface Ledger {attempts:Record<string,Attempt>}
-const codexAdapterVersion='3';
+const codexAdapterVersion='4';
 function totals(ledger:Ledger):{calls:number;tokens:number|'unknown'} {const items=Object.values(ledger.attempts);return {calls:items.length,tokens:items.some(a=>a.tokens==='unknown')?'unknown':items.reduce((n,a)=>n+Number(a.tokens),0)};}
 function observed(outcome:CodexOutcome):number {
  const events=outcome.stdout.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
@@ -22,7 +23,7 @@ function observed(outcome:CodexOutcome):number {
  return usage.input_tokens+usage.output_tokens;
 }
 export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
- return {run:async(request,reader)=>{
+ return {artifactContextVersion:STAGE_EVIDENCE_POLICY,run:async(request,reader)=>{
   validateResearchRequest(request);
   if(options.signal?.aborted)throw new ResearchFailure('Codex cancelled before dispatch',[],{calls:0,tokens:0});
   if(request.budget.maxCalls<1||request.budget.maxTokens<1)throw new ResearchFailure('Codex budget exhausted',[],{calls:0,tokens:0});

@@ -1,0 +1,356 @@
+[
+  {
+    "id": "rigup@0.1.0",
+    "name": "rigup",
+    "version": "0.1.0",
+    "size": 104519,
+    "unpackedSize": 393541,
+    "shasum": "14295f729845d9a271522092a33180501fc33656",
+    "integrity": "sha512-bqQ8c+GjWrbqBnOU8uJBX1yEaIuawosCeLTwMBYPyKZkBNnVZlBm9iiezcF4mtVzjIUAaGZoTF6jMMUMNABDAA==",
+    "filename": "rigup-0.1.0.tgz",
+    "files": [
+      {
+        "path": "README.md",
+        "size": 16613,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/analyze.js",
+        "size": 539,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/anthropic.js",
+        "size": 6556,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/backend.js",
+        "size": 5937,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/codex-process.js",
+        "size": 3906,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/codex.js",
+        "size": 9770,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/evidence.js",
+        "size": 1453,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/host.js",
+        "size": 15148,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/native-sources.js",
+        "size": 11070,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/prompts.js",
+        "size": 3891,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/read-policy.js",
+        "size": 6756,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/repository.js",
+        "size": 15787,
+        "mode": 420
+      },
+      {
+        "path": "dist/analyzer/stage-context.js",
+        "size": 11124,
+        "mode": 420
+      },
+      {
+        "path": "dist/cli.js",
+        "size": 14265,
+        "mode": 420
+      },
+      {
+        "path": "dist/config.js",
+        "size": 18628,
+        "mode": 420
+      },
+      {
+        "path": "dist/generator/artifacts.js",
+        "size": 2365,
+        "mode": 420
+      },
+      {
+        "path": "dist/generator/cache.js",
+        "size": 2186,
+        "mode": 420
+      },
+      {
+        "path": "dist/generator/document-policy.js",
+        "size": 2221,
+        "mode": 420
+      },
+      {
+        "path": "dist/generator/generate.js",
+        "size": 16847,
+        "mode": 420
+      },
+      {
+        "path": "dist/generator/render.js",
+        "size": 5101,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/apply.js",
+        "size": 18198,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/baseline.js",
+        "size": 1627,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/doctor.js",
+        "size": 7431,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/lock.js",
+        "size": 2630,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/manifest.js",
+        "size": 897,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/merge.js",
+        "size": 1506,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/operations.js",
+        "size": 10757,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/ownership.js",
+        "size": 4393,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/preview.js",
+        "size": 20455,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/session.js",
+        "size": 586,
+        "mode": 420
+      },
+      {
+        "path": "dist/installer/state.js",
+        "size": 597,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/agents/claude.js",
+        "size": 139,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/agents/codex.js",
+        "size": 148,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/agents/config-edit.js",
+        "size": 2834,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/agents/index.js",
+        "size": 204,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/agents/omp.js",
+        "size": 142,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/agents/opencode.js",
+        "size": 142,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/custom-skills.js",
+        "size": 3037,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/custom-templates.js",
+        "size": 2266,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/gitlab/ci.js",
+        "size": 3753,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/gitlab/customer.js",
+        "size": 1219,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/registry.js",
+        "size": 14592,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/sdd/openspec.js",
+        "size": 334,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/sdd/spec-kit.js",
+        "size": 383,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/sdd/superpowers.js",
+        "size": 414,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/tools/codegraph.js",
+        "size": 227,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/tools/customer-mcp.js",
+        "size": 4523,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/tools/initialization.js",
+        "size": 3044,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/tools/installed-state.js",
+        "size": 3663,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/tools/native-state.js",
+        "size": 4031,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/tools/native-worker.mjs",
+        "size": 9586,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/tools/openwiki.js",
+        "size": 599,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/tools/quality.js",
+        "size": 5476,
+        "mode": 420
+      },
+      {
+        "path": "dist/integrations/tools/software.js",
+        "size": 2391,
+        "mode": 420
+      },
+      {
+        "path": "dist/lifecycle.js",
+        "size": 22417,
+        "mode": 420
+      },
+      {
+        "path": "dist/managed-input.js",
+        "size": 2677,
+        "mode": 420
+      },
+      {
+        "path": "dist/onboarding.js",
+        "size": 6028,
+        "mode": 420
+      },
+      {
+        "path": "dist/progress.js",
+        "size": 3694,
+        "mode": 420
+      },
+      {
+        "path": "dist/prompt.js",
+        "size": 3187,
+        "mode": 420
+      },
+      {
+        "path": "dist/types.js",
+        "size": 1025,
+        "mode": 420
+      },
+      {
+        "path": "docs/compatibility/README.md",
+        "size": 5491,
+        "mode": 420
+      },
+      {
+        "path": "docs/compatibility/upstream-lock.json",
+        "size": 30118,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 905,
+        "mode": 420
+      },
+      {
+        "path": "templates/scripts/check-snapshot.mjs",
+        "size": 8762,
+        "mode": 420
+      },
+      {
+        "path": "templates/scripts/openwiki-ci-update.mjs",
+        "size": 2311,
+        "mode": 420
+      },
+      {
+        "path": "templates/skills/change-deliver/SKILL.md",
+        "size": 2108,
+        "mode": 420
+      },
+      {
+        "path": "templates/skills/change-prepare/SKILL.md",
+        "size": 1600,
+        "mode": 420
+      },
+      {
+        "path": "templates/skills/change-release/SKILL.md",
+        "size": 831,
+        "mode": 420
+      }
+    ],
+    "entryCount": 68,
+    "bundled": []
+  }
+]

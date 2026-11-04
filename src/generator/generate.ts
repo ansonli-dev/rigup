@@ -20,7 +20,7 @@ import {renderFixed,validateNavigation,TEMPLATE_VERSION,type GuidanceBinding} fr
 import {signature,privateDirectory,readCache,saveCache} from './cache.js';
 export interface GenerationDependencies {effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
 interface Candidate {job:ArtifactJob;content:string;digest:string;accepted:boolean}
-interface State {version:1;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;spent:{calls:number;tokens:number|'unknown'}}
+interface State {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;spent:{calls:number;tokens:number|'unknown'}}
 export function inventorySignature(assets:ManagedAsset[]):string {return signature(assets.map(a=>({logicalId:a.logicalId,target:a.target,ownership:a.ownership,digest:a.digest})).sort((a,b)=>a.logicalId.localeCompare(b.logicalId)));}
 export async function generate(profile:ProjectProfile,options:SetupOptions,backend:AnalysisBackend,previousAssets:ManagedAsset[]=[],dependencies:GenerationDependencies={}):Promise<StepResult<SetupPlan>> {
  const integration=await prepareIntegrations(profile,options);
@@ -39,6 +39,13 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  if(!state||state.version!==1||![state.inputInventory,state.resultInventory].includes(inv)||!state.candidates||!state.spent)state={version:1,inputInventory:inv,runId:dependencies.runId??randomUUID(),candidates:{},spent:dependencies.spent??{calls:0,tokens:0}};
  state.attempts??={};state.repairReasons??={};
  const persist=()=>save(path,JSON.stringify(state));
+ if(state.artifactContextVersion!==backend.artifactContextVersion){
+  // A wider authority contract requires fresh content and independent acceptance.
+  // Keep the unchanged plan, run identity, consumption and bounded retry history.
+  if(state.plan&&state.resultInventory===inv){state.inputInventory=inv;state.artifactRefreshInventory=inv;}
+  state.candidates={};for(const job of state.plan?.jobs??[])job.status='pending';
+  state.artifactContextVersion=backend.artifactContextVersion;await persist();
+ }
  const reader=dependencies.reader??await repositoryReader(profile.root,options,{expectedFingerprint:profile.fingerprint});
  const completed=()=>state.plan?.jobs.filter(j=>{const c=state.candidates[j.logicalId];return c?.accepted&&c.digest===digest(c.content);}).length??0;
  const run=async(expectedOutput:'plan'|'content'|'acceptance',input:unknown,artifact?:string):Promise<StepResult<ResearchResult>>=>{
@@ -123,7 +130,11 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  const assets=await renderFixed(profile,options,integration,semantic,state.plan.guidance);
  validateNavigation(assets,profile.files);
  const seen=new Set<string>();for(const a of assets){const key=a.target+signature(a.ownership);if(seen.has(key))throw new Error('duplicate candidate target');seen.add(key);}
- const effectiveDispositions=state.resultInventory===inv ? previousAssets.map(a=>({logicalId:a.logicalId,action:'retain' as const,reason:'Inventory matches accepted candidates'})) : [...state.plan.dispositions.filter(d=>!fixedInventory.some(a=>a.logicalId===d.logicalId)),...fixedInventory.map(a=>({logicalId:a.logicalId,action:'retain' as const,reason:'Explicit deterministic selection maintained'}))];
+ const effectiveDispositions=state.resultInventory===inv||state.artifactRefreshInventory===inv ? previousAssets.map(a=>{
+  const current=assets.find(asset=>asset.logicalId===a.logicalId);
+  const refreshed=state.artifactRefreshInventory===inv&&current?.source.kind==='semantic'&&current.target===a.target&&signature(current.ownership)===signature(a.ownership)&&digest(current.content)!==a.digest;
+  return {logicalId:a.logicalId,action:refreshed?'update' as const:'retain' as const,reason:refreshed?'Existing planned artifact revalidated under the current evidence contract':'Inventory matches accepted candidates'};
+ }) : [...state.plan.dispositions.filter(d=>!fixedInventory.some(a=>a.logicalId===d.logicalId)),...fixedInventory.map(a=>({logicalId:a.logicalId,action:'retain' as const,reason:'Explicit deterministic selection maintained'}))];
  const dispositions=effectiveDispositions.map(original=>{
   const current=assets.find(a=>a.logicalId===original.logicalId);const oldItem=previousAssets.find(a=>a.logicalId===original.logicalId);
   const d=!current&&fixedKinds.has(oldItem?.source?.kind??'')?{...original,action:'retire' as const,reason:'Deterministic capability no longer selected; explicit retirement consent required'}:current&&(!options.sdd||fixedKinds.has(current.source.kind))?{...original,action:(digest(current.encoding==='base64'?Buffer.from(current.content,'base64'):current.content)===oldItem?.digest?'retain':'update') as 'retain'|'update',reason:'Disposition derived from selected deterministic candidate and original baseline'}:original;

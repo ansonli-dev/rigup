@@ -1,0 +1,25 @@
+✖ artifact context upgrades regenerate content and acceptance without resetting plan run or charges (96.1445ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 273.822333
+
+✖ failing tests:
+
+test at test/generator.test.ts:1:3186
+✖ artifact context upgrades regenerate content and acceptance without resetting plan run or charges (96.1445ms)
+  Error: retained asset changed without update disposition
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/src/generator/generate.ts:140:92)
+      at Array.map (<anonymous>)
+      at generate (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/src/generator/generate.ts:133:43)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/generator.test.ts:40:18)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/generator.test.ts:25:161)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/generator.test.ts:25:70)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

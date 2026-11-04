@@ -3,7 +3,7 @@ import type {Evidence} from '../types.js';
 import type {ResearchRequest,RepositoryReader} from './backend.js';
 import {digest} from './evidence.js';
 
-export const STAGE_EVIDENCE_POLICY='stage-evidence-v1';
+export const STAGE_EVIDENCE_POLICY='stage-evidence-v2';
 const locks=new Set(['package-lock.json','npm-shrinkwrap.json','yarn.lock','pnpm-lock.yaml','bun.lock','bun.lockb']);
 export const dependencyLock=(path:string)=>locks.has(posix.basename(path));
 export interface EvidenceSlice {path:string;startLine:number;endLine?:number;digest?:string}
@@ -11,7 +11,7 @@ export interface StageContext {stage:string;input:unknown;slices:EvidenceSlice[]
 const record=(value:unknown):Record<string,any>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,any>:{};
 const array=(value:unknown):any[]=>Array.isArray(value)?value:[];
 const strings=(value:unknown):string[]=>array(value).filter((v:unknown)=>typeof v==='string');
-const overlaps=(a:string,b:string)=>a===b||a.startsWith(b+'/')||b.startsWith(a+'/');
+const overlaps=(a:string,b:string)=>a==='.'||b==='.'||a===b||a.startsWith(b+'/')||b.startsWith(a+'/');
 const within=(path:string,root:string)=>root==='.'||path===root||path.startsWith(root+'/');
 const native=(path:string)=>/^\.(?:agents|codex|claude|opencode|omp)\/(?:skills\/.+\/SKILL\.md|commands\/.+\.md)$/.test(path);
 const instruction=(path:string)=>/^(?:AGENTS|CLAUDE|GEMINI)\.md$/.test(posix.basename(path));
@@ -78,13 +78,20 @@ export function stageContext(request:ResearchRequest,paths:string[]):StageContex
    if(raw.startsWith('/')||!allowed.has(target)){unavailable.add(raw+': candidate link outside supplied source inventory');continue;}
    anchors.add(target);add({path:target,startLine:1});
   }
-  const applies=(path:string)=>[...anchors].some(anchor=>within(anchor,posix.dirname(path)))||within(job.target,posix.dirname(path));
+  const taskLocations=[...anchors,...[...connected.values()].map(j=>j.target).filter((target:unknown)=>typeof target==='string')];
+  const applies=(path:string)=>taskLocations.some(anchor=>within(anchor,posix.dirname(path)));
   const guard=(path:string)=>native(path)||instruction(path)&&applies(path);
   const relevant=(value:unknown)=>references(value).some(e=>[...anchors].some(anchor=>overlaps(e.path,anchor)));
-  const scopeApplies=(value:unknown)=>strings(value).some(scope=>[...anchors].some(anchor=>overlaps(scope,anchor)));
+  const scopes=(value:unknown)=>strings(value).filter(s=>s.trim()).map(s=>posix.normalize(s).replace(/\/+$/,'')||'/');
+  const scopeApplies=(value:unknown)=>scopes(value).some(scope=>taskLocations.some(anchor=>overlaps(scope,anchor)));
+  const authorityApplies=(value:unknown,topic:unknown)=>{
+   const declared=scopes(value),unknown=!declared.length||declared.some(scope=>scope!=='.'&&![...paths,...taskLocations].some(path=>within(path,scope)));
+   if(unknown)unavailable.add('Authority scope unresolved for '+String(topic??'unnamed source')+'; retained for review without assuming global applicability');
+   return unknown||scopeApplies(value);
+  };
   const hasTopic=(value:any)=>typeof value.topic==='string'&&!!value.topic.trim();
-  const neededObservation=(o:any)=>relevant(o)||references(o).some(e=>guard(e.path))||o.classification==='explicit-rule'&&scopeApplies(o.scope)||!hasTopic(o)&&scopeApplies(o.scope);
-  const neededGuidance=(g:any)=>relevant(g.sourceRef)||['conflicting','unavailable'].includes(g.coverageStatus)&&scopeApplies(g.scope);
+  const neededObservation=(o:any)=>relevant(o)||references(o).some(e=>guard(e.path))||(o.classification==='explicit-rule'||!hasTopic(o))&&authorityApplies(o.scope,o.topic);
+  const neededGuidance=(g:any)=>relevant(g.sourceRef)||authorityApplies(g.scope,g.topic);
   const topics=new Set<string>();
   for(const o of array(research.observations))if(hasTopic(o)&&neededObservation(o))topics.add(o.topic);
   for(const g of array(research.guidance))if(hasTopic(g)&&neededGuidance(g))topics.add(g.topic);

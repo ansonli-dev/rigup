@@ -65,7 +65,7 @@ test('live Bulletproof React completes semantic setup within its unchanged budge
   const exchange=home+'/.cache/rigup/codex/exchange',measurements=[];
   for(const file of await readdir(exchange,{recursive:true}))if(file.endsWith('.request.json')){
    const requestPath=join(exchange,file),raw=await readFile(requestPath,'utf8'),body=JSON.parse(raw);
-   assert.equal(body.context.evidencePolicy,'stage-evidence-v1');assert.deepEqual(body.context.budget,{maxCalls:12,maxTokens:1200000});assert.deepEqual(body.context.options.scope,options.scope);
+   assert.equal(body.context.evidencePolicy,'stage-evidence-v2');assert.deepEqual(body.context.budget,{maxCalls:12,maxTokens:1200000});assert.deepEqual(body.context.options.scope,options.scope);
    assert.match(body.context.inputDigest,/^[a-f0-9]{64}$/);assert.match(body.context.evidenceSelection.selectionDigest,/^[a-f0-9]{64}$/);
    assert.ok(body.paths.includes('apps/react-vite/yarn.lock'));assert.ok(body.omittedEvidence.some((o:any)=>o.path==='apps/react-vite/yarn.lock'));assert.ok(!body.evidence.some((e:any)=>e.evidence.path==='apps/react-vite/yarn.lock'));
    assert.ok(Buffer.byteLength(raw)<600000,'full lock content must not reappear in nested stage context');

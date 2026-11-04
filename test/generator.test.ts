@@ -32,6 +32,22 @@ test('cached_semantics_do_not_repeat_backend_calls_and_inventory_aligns',()=>fix
  await generate(profile,opts,backend,inventory,{cacheRoot:cache});assert.equal(requests.length,3);
  await writeFile(root+'/src.txt','changed');await generate(await scanRepository(root,opts),opts,backend,[],{cacheRoot:cache});assert.equal(requests.length,6);
 }));
+test('artifact context upgrades regenerate content and acceptance without resetting plan run or charges',()=>fixture(async(root,cache)=>{
+ const settings={...opts,backend:'codex' as const},f=fake(),profile=await scanRepository(root,settings),firstBackend={...f.backend,artifactContextVersion:'first'};
+ const first=await generate(profile,settings,firstBackend,[],{cacheRoot:cache,runId:'same-paid-run',spent:{calls:1,tokens:100}});assert.equal(first.status,'complete');if(first.status!=='complete')throw Error('pending');
+ const inventory=first.value.assets.map(a=>({...a,digest:digest(a.content)}));await generate(profile,settings,firstBackend,inventory,{cacheRoot:cache});assert.equal(f.requests.length,3);const seen:any[]=[];
+ const refreshedBackend:AnalysisBackend={artifactContextVersion:'expanded-authority',run:async(r,reader)=>{seen.push({...r.spent});const result=await f.backend.run(r,reader);if(r.expectedOutput==='content'&&result.status==='complete')(result.value.data as any).content+='\nRechecked current authority.\n';return result;}};
+ const refreshed=await generate(profile,settings,refreshedBackend,inventory,{cacheRoot:cache});assert.equal(refreshed.status,'complete');if(refreshed.status!=='complete')throw Error('pending');assert.equal(refreshed.value.dispositions.find(d=>d.logicalId==='errors')?.action,'update');
+ assert.deepEqual(f.requests.map(r=>r.expectedOutput),['plan','content','acceptance','content','acceptance']);
+ assert.equal(f.requests[3].runId,'same-paid-run');assert.deepEqual(seen[0],{calls:4,tokens:130});
+ const state=JSON.parse(await readFile(cache+'/'+(await readdir(cache)).find(p=>p.endsWith('.json')),'utf8'));assert.deepEqual(state.spent,{calls:6,tokens:150});
+ await generate(profile,settings,refreshedBackend,inventory,{cacheRoot:cache});assert.equal(f.requests.length,5,'preview resume must reuse the verified candidates');
+}));
+test('artifact context upgrades cannot reset an exhausted cached generation budget',()=>fixture(async(root,cache)=>{
+ const f=fake(),profile=await scanRepository(root,opts),first=await generate(profile,opts,{...f.backend,artifactContextVersion:'first'},[],{cacheRoot:cache,runId:'bounded',spent:{calls:1,tokens:100},budget:{maxCalls:4,maxTokens:10000}});if(first.status!=='complete')throw Error('pending');
+ const inventory=first.value.assets.map(a=>({...a,digest:digest(a.content)}));
+ await assert.rejects(()=>generate(profile,opts,{...f.backend,artifactContextVersion:'expanded'},inventory,{cacheRoot:cache,budget:{maxCalls:4,maxTokens:10000}}),/budget/);assert.equal(f.requests.length,3);
+}));
 test('required_failed_job_blocks_plan',()=>fixture(async(root,cache)=>{
  const {backend}=fake([job],true);
  const profile=await scanRepository(root,opts);await assert.rejects(()=>generate(profile,opts,backend,[],{cacheRoot:cache}),/accept|semantic|required/);

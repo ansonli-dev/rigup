@@ -41,7 +41,7 @@ async function exported(f:any,request:ResearchRequest,cache=f.cache){
 const evidencePaths=(body:any)=>[...new Set<string>(body.evidence.map((e:any)=>e.evidence.path))];
 
 test('stage analysis retains its bounded non-lock scan and full inventory',()=>fixture(async f=>{
- const {body}=await exported(f,f.request);assert.equal(body.context.evidencePolicy,'stage-evidence-v1');
+ const {body}=await exported(f,f.request);assert.equal(body.context.evidencePolicy,'stage-evidence-v2');
  assert.ok(body.paths.includes('yarn.lock'));assert.ok(evidencePaths(body).includes('src/z/unrelated.ts'));assert.ok(evidencePaths(body).includes('docs/yarn.lock.md'));
  assert.doesNotMatch(JSON.stringify(body.evidence),/LOCK_BODY_MUST_STAY_OMITTED/);
 }));
@@ -109,4 +109,29 @@ test('missing topic labels do not group unrelated records or discard scoped coun
  const observations=f.research.observations.map(({topic,...rest}:any)=>rest),research={...f.research,observations};
  const {body}=await exported(f,f.phase('content',{input:{job:f.job,research:{...research,artifacts:[f.job]}}}));
  assert.ok(!evidencePaths(body).includes('src/z/unrelated.ts'));assert.ok(evidencePaths(body).includes('src/b/counter.ts'));assert.ok(body.context.evidenceSelection.unavailable.some((s:string)=>s.includes('topic')));
+}));
+test('root and output-target scopes preserve explicit rules and unavailable guidance in both artifact stages',()=>fixture(async f=>{
+ await writeFile(f.root+'/docs/policy.md','Policy\nRequired independent review.\n');f.reader=await repositoryReader(f.root,f.request.options);const ref=(await f.reader.read('docs/policy.md',1)).evidence;
+ for(const stage of ['content','acceptance'])for(const scope of ['.','docs/rigup']){
+  const observation={topic:'Applicable policy',statement:'Required review',classification:'explicit-rule',scope:[scope],supportingEvidence:[ref],counterEvidence:[],guidanceDisposition:'follow-existing'};
+  const research={guidance:[{topic:'Unavailable authority',scope:[scope],coverageStatus:'unavailable',consumers:['reviewer'],gaps:['source missing']}],observations:[observation],unknowns:[],artifacts:[f.job]};
+  const {body}=await exported(f,f.phase(stage,{input:{job:f.job,research,candidate:'Review'}}),f.cache+'/'+stage+'-'+signature(scope));
+  assert.ok(evidencePaths(body).includes('docs/policy.md'));assert.equal(body.context.input.research.observations.length,1);assert.equal(body.context.input.research.guidance.length,1);
+ }
+}));
+test('scope-applicable reusable and partial guidance need no duplicate observation or job reference',()=>fixture(async f=>{
+ await writeFile(f.root+'/docs/policy.md','Before\nExisting authority\nScoped requirement\nAfter\n');f.reader=await repositoryReader(f.root,f.request.options);const ref=(await f.reader.read('docs/policy.md',2,3)).evidence;
+ for(const stage of ['content','acceptance'])for(const status of ['reusable','partial']){
+  const guidance={topic:'Existing API authority',sourceRef:ref,scope:['src/a'],coverageStatus:status,consumers:['API reviewer'],gaps:status==='partial'?['bounded gap']:[]};
+  const {body}=await exported(f,f.phase(stage,{input:{job:f.job,research:{guidance:[guidance],observations:[],unknowns:[],artifacts:[f.job]},candidate:'Review'}}),f.cache+'/'+stage+'-'+status);
+  assert.equal(body.context.input.research.guidance.length,1);assert.ok(body.evidence.some((e:any)=>e.evidence.path===ref.path&&e.evidence.digest===ref.digest));
+ }
+}));
+test('authority scopes normalize directory paths and disclose unresolved scope instead of dropping its source',()=>fixture(async f=>{
+ await writeFile(f.root+'/docs/policy.md','Authority needs scope review.\n');f.reader=await repositoryReader(f.root,f.request.options);const ref=(await f.reader.read('docs/policy.md',1)).evidence;
+ for(const scope of ['src/a/','./','API contributors']){
+  const guidance={topic:'Scoped authority',sourceRef:ref,scope:[scope],coverageStatus:'reusable',consumers:['API reviewer'],gaps:[]};
+  const {body}=await exported(f,f.phase('content',{input:{job:f.job,research:{guidance:[guidance],observations:[],unknowns:[],artifacts:[f.job]}}}),f.cache+'/'+signature(scope));assert.ok(evidencePaths(body).includes('docs/policy.md'));
+  if(scope==='API contributors')assert.ok(body.context.evidenceSelection.unavailable.some((s:string)=>s.includes('scope')));
+ }
 }));
