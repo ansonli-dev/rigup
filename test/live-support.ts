@@ -1,4 +1,5 @@
 import {mkdtemp,realpath,writeFile,readFile,mkdir,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -12,7 +13,7 @@ const exec=promisify(execFile);
 export const live=process.env.RIGUP_LIVE==='1';
 export const evidenceRoot=resolve(process.env.RIGUP_LIVE_EVIDENCE_DIR??'docs/compatibility/evidence/2026-11-04-live');
 export async function record(name:string,value:unknown){await mkdir(evidenceRoot,{recursive:true});await writeFile(join(evidenceRoot,name+'.json'),JSON.stringify(value,null,2)+'\n');}
-export async function disposable(prefix:string){return realpath(await mkdtemp('/private/tmp/'+prefix));}
+export async function disposable(prefix:string){return realpath(await mkdtemp(join(tmpdir(),prefix)));}
 export async function nativeCanary(agent:Agent){
  const root=await disposable('rigup-native-'+agent+'-');const control=await disposable('rigup-native-control-');const startedAt=new Date().toISOString();
  const source=join(control,'canary-skill');await mkdir(source+'/references',{recursive:true});await writeFile(source+'/SKILL.md','---\nname: rigup-live-canary\ndescription: Read-only fixture skill used to validate native discovery.\n---\nRead [fixture guidance](references/guide.md). Report its exact fixture marker and, when requested, use the configured read-only rigup_echo tool with the same marker.\n');await writeFile(source+'/references/guide.md','Fixture scope only. Preserve human approval gates.\nMarker: RIGUP_REFERENCE_LOADED_20261104\n');

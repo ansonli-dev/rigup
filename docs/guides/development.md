@@ -2,14 +2,14 @@
 
 ## Prerequisites
 
-Use Node.js 24+, npm, and Git. The default test suite requires child-process execution, local pipes, temporary directories, and Git repositories; a sandbox that denies these operations is not a supported test environment. Linux and macOS are the CI targets. Windows has not been validated; use a Linux environment for now.
+Use Node.js 24+, npm, Git, a POSIX shell, and `ps` (the `procps` package in minimal Debian containers). The default test suite requires child-process execution, local pipes, temporary directories, and Git repositories; a sandbox that denies these operations is not a supported test environment. Linux and macOS are the CI targets. Windows has not been validated; use a Linux environment for now.
 
 ```sh
 npm ci
 npm run check
 ```
 
-`check` runs type checking, the Node test suite, compilation, local Markdown link validation, and a clean package-consumer lifecycle. The package checks use dependencies already cached by `npm ci` and install the tarball offline without lifecycle scripts. No model credentials, Docker, or paid requests are required. Tests create disposable fixtures outside the source tree.
+`check` runs type checking, the Node test suite, compilation, local Markdown link validation, and a clean package-consumer lifecycle. The package checks prefer cached dependencies and install the tarball without dependency lifecycle scripts. A cold cache may need public npm registry metadata even after `npm ci`; registry access is required in that case. No model credentials, Docker, or paid requests are required. Tests create disposable fixtures outside the source tree.
 
 Useful focused commands:
 
@@ -62,6 +62,22 @@ RIGUP_LIVE=1 RIGUP_LIVE_GATE=1 RIGUP_OPENSPEC_BIN=/absolute/path/to/openspec \
 ```
 
 The default-Codex semantic lifecycle probe is `test/live-codex-backend.test.ts`, gated by `RIGUP_LIVE_CODEX_BACKEND=1` and `RIGUP_OPENSPEC_BIN`. The real GitHub frontend workflow is `test/live-github-context.test.ts`; inspect its explicit source pins, workspace and budget before opting in. Existing results are linked from [validation status](../compatibility/status.md); an unchanged model adapter does not need another paid run solely for documentation changes.
+
+## Local GitLab validation
+
+The GitLab live test requires an explicitly provisioned disposable local GitLab, an API token in a private file, and a GitLab Runner executable. It accepts loopback servers only, creates its own private project and shell runner, then deletes that project and stops its runner. It does not install a login service or register with an external project. Run it only against a disposable instance: the API token must be permitted to create projects and project runners.
+
+```sh
+RIGUP_LIVE_GITLAB=1 RIGUP_GITLAB_HOST=http://127.0.0.1:42880 \
+  RIGUP_GITLAB_TOKEN_FILE=/private/path/to/local-test-token \
+  RIGUP_GITLAB_RUNNER=/absolute/path/to/gitlab-runner \
+  RIGUP_LIVE_EVIDENCE_DIR=/tmp/rigup-gitlab-evidence \
+  node --import tsx --test test/live-gitlab.test.ts
+```
+
+The probe checks real include resolution and pipeline creation, successful snapshot checks, failure exit/JUnit artifact preservation, an actual push with the generated-wiki guard, and an actual source push missing its model credential. The last case intentionally fails the CI job with exit 3 and retains a pending report; it does not pretend a wiki was generated. Destroy the disposable server after testing and remove its temporary token.
+
+Generated GitLab jobs use a regular stage from an explicit root `stages` list, or the default `test` stage for standalone configuration. Pipelines containing only `.pre`/`.post` jobs do not run. When external includes supply unknown stages, Rigup retains `.pre`; the existing included pipeline must contain a regular job, and the actual target/ref still needs server lint and runner verification. A root stage list containing only reserved stages requires a customer decision instead of silently changing their pipeline.
 
 ## Release checklist
 

@@ -105,13 +105,14 @@ test('provider_cannot_invoke_exec_even_after_reading_source_instructions',async(
 test('host_response_changes_in_phase_versions_run_or_templates_are_rejected',async()=>{
  const {hostBackend}=await import('../src/analyzer/host.js');const fs=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const cache=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-context-')));
+ const changedRoot=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-context-root-')));
  try {
   const pending=await hostBackend({cacheRoot:cache}).run(request,reader);if(pending.status !== 'pending-host') throw new Error('pending expected');
   const exported=JSON.parse(await fs.readFile(pending.requestPath,'utf8'));const responsePath=join(cache,'response.json');
   await fs.writeFile(responsePath,JSON.stringify({requestId:pending.requestId,requestDigest:exported.requestDigest,data:{observations:[],unknowns:[]},model:'fixture'}));
-  const changes:Partial<ResearchRequest>[]=[{kind:'artifact-plan'},{versions:{policy:'2'}},{runId:'other-run'},{templateSourcesDigest:'changed'},{previousInventoryDigest:'changed'},{artifact:'other-artifact'},{root:(await import('node:path')).dirname(process.cwd())},{budget:{maxCalls:3,maxTokens:10000}}];
+  const changes:Partial<ResearchRequest>[]=[{kind:'artifact-plan'},{versions:{policy:'2'}},{runId:'other-run'},{templateSourcesDigest:'changed'},{previousInventoryDigest:'changed'},{artifact:'other-artifact'},{root:changedRoot},{budget:{maxCalls:3,maxTokens:10000}}];
   for(const change of changes) await assert.rejects(hostBackend({cacheRoot:cache,responsePath}).run({...request,...change},reader),/context|digest|matching/);
- }finally{await fs.rm(cache,{recursive:true,force:true});}
+ }finally{await fs.rm(cache,{recursive:true,force:true});await fs.rm(changedRoot,{recursive:true,force:true});}
 });
 test('host_symlinked_cache_cannot_create_project_directories',async()=>{
  const {hostBackend}=await import('../src/analyzer/host.js');const fs=await import('node:fs/promises');const {project}=await import('./helpers.js');const {tmpdir}=await import('node:os');const {join}=await import('node:path');

@@ -7,6 +7,26 @@ test('gitlab_include_preserves_existing_jobs_comments_and_includes',()=>project(
 test('wiki_update_has_no_self_trigger_loop',()=>project(async root=>{
  const result=await prepareGitlab(root,{checks:[],openwiki:{envRefs:['ANTHROPIC_API_KEY'],sourcePaths:['src/**/*']}});const ci=result.assets.find(a=>a.target==='.rigup/gitlab-ci.yml')!;assert.ok(ci);const config=parse(ci.content);const job=config['rigup:openwiki'];assert.ok(job.rules.some((r:any)=>r.when==='never'));assert.deepEqual(job.rules.find((r:any)=>r.changes).changes,['src/**/*']);assert.doesNotMatch(ci.content,/git push|git commit/);
 }));
+test('standalone_gitlab_jobs_have_a_regular_stage_on_initial_and_repeated_setup',()=>project(async root=>{
+ const selection={checks:['test' as const],openwiki:{envRefs:['MODEL_TOKEN'],sourcePaths:['src/**/*']}};
+ for(const repeated of [false,true]){
+  if(repeated)await writeFile(root+'/.gitlab-ci.yml','# rigup:ci:start\ninclude:\n  - local: .rigup/gitlab-ci.yml\n# rigup:ci:end\n');
+  const result=await prepareGitlab(root,selection);const jobs=parse(result.assets.find(a=>a.target==='.rigup/gitlab-ci.yml')!.content);
+  assert.equal(jobs['rigup:checks'].stage,'test');assert.equal(jobs['rigup:openwiki'].stage,'test');assert.deepEqual(result.requirements,[]);
+ }
+}));
+test('gitlab_jobs_use_an_existing_regular_stage_without_replacing_customer_stages',()=>project(async root=>{
+ const original='stages: [compile, verify, publish]\ncustomer-job:\n  stage: compile\n  script: echo customer\n';await writeFile(root+'/.gitlab-ci.yml',original);
+ const result=await prepareGitlab(root,{checks:['test']});const jobs=parse(result.assets.find(a=>a.target==='.rigup/gitlab-ci.yml')!.content);assert.equal(jobs['rigup:checks'].stage,'compile');
+ assert.equal(await readFile(root+'/.gitlab-ci.yml','utf8'),original);
+}));
+test('gitlab_reserved_only_stages_require_a_customer_decision',()=>project(async root=>{
+ await writeFile(root+'/.gitlab-ci.yml','stages: [.pre, .post]\n');const result=await prepareGitlab(root,{checks:['test']});assert.ok(result.requirements.some(r=>/regular stage/.test(r.reason)));
+}));
+test('gitlab_external_include_stages_are_not_guessed',()=>project(async root=>{
+ await writeFile(root+'/.gitlab-ci.yml','include:\n  - local: customer.yml\ncustomer-job:\n  stage: customer-stage\n  script: echo customer\n');
+ const result=await prepareGitlab(root,{checks:['test']});const jobs=parse(result.assets.find(a=>a.target==='.rigup/gitlab-ci.yml')!.content);assert.equal(jobs['rigup:checks'].stage,'.pre');
+}));
 import {runSnapshot} from '../templates/scripts/check-snapshot.mjs';import {runOpenWikiCI} from '../templates/scripts/openwiki-ci-update.mjs';import {execFile} from 'node:child_process';import {promisify} from 'node:util';
 const exec=promisify(execFile);
 test('ci_preserves_exit_status_and_reports',()=>project(async root=>{

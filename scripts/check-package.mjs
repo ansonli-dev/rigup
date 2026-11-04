@@ -18,7 +18,7 @@ try {
   assert.ok(!paths.some(path => /(^|\/)(?:\.DS_Store|\.superpowers|node_modules|test)(?:\/|$)/.test(path) || path.startsWith('docs/compatibility/evidence/')), 'distribution contains private scratch or fixtures');
   const consumer = join(workspace, 'consumer');
   await mkdir(consumer);
-  await exec('npm', ['install', '--prefix', consumer, join(workspace, archive.filename), '--offline', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--userconfig', join(workspace, 'npmrc'), '--globalconfig', join(workspace, 'global-npmrc')], {timeout: 120_000, maxBuffer: 1_000_000});
+  await exec('npm', ['install', '--prefix', consumer, join(workspace, archive.filename), '--prefer-offline', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--userconfig', join(workspace, 'npmrc'), '--globalconfig', join(workspace, 'global-npmrc')], {timeout: 120_000, maxBuffer: 1_000_000});
   await exec(process.execPath, [join(source, 'scripts/check-docs.mjs'), join(consumer, 'node_modules/rigup')], {timeout: 30_000});
   const cli = join(consumer, 'node_modules', '.bin', 'rigup');
   const home = join(workspace, 'home');
@@ -27,7 +27,9 @@ try {
   for (const directory of [home, project, skill, join(project, '.rigup')]) await mkdir(directory, {recursive: true});
   await writeFile(join(skill, 'SKILL.md'), '---\nname: distribution-canary\ndescription: Use for the distribution smoke test.\n---\nRead the current task before making changes.\n');
   await writeFile(join(project, '.rigup', 'config.yaml'), JSON.stringify({agents: ['codex'], backend: 'codex', customSkills: [{source: skill}]}));
-  const env = {...process.env, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'), XDG_STATE_HOME: join(home, 'state'), NO_COLOR: '1'};
+  // Make the handoff contract explicit on CI as well as inside a real agent.
+  // This marker does not assert actual native discovery or start a model turn.
+  const env = {...process.env, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'), XDG_STATE_HOME: join(home, 'state'), CODEX_THREAD_ID: 'distribution-smoke-controlled-session', NO_COLOR: '1'};
   const run = async args => exec(cli, args, {cwd: project, env, timeout: 60_000, maxBuffer: 1_000_000});
   assert.match((await run(['--help'])).stdout, /rigup init/);
   const version = JSON.parse(await readFile(join(source, 'package.json'), 'utf8')).version;
