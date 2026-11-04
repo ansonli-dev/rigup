@@ -8,7 +8,7 @@ Rigup prepares project-specific workflows for coding agents. It reads repository
 
 ## Install
 
-Requires Node.js 24+, npm, and Git. Semantic research also requires an authenticated Codex CLI. This project has not published an npm registry release; install this repository rather than an unrelated package with the same name.
+Requires Node.js 24+, npm, Git, a POSIX shell, and `ps` (`procps` on minimal Linux images). Semantic research also requires an authenticated Codex CLI. This project has not published an npm registry release; install this repository rather than an unrelated package with the same name.
 
 ```sh
 git clone https://github.com/ansonli-dev/rigup.git

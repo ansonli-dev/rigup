@@ -8,7 +8,7 @@ Rigup 根据项目已有证据，为 coding agent 接入研发流程、skills、
 
 ## 安装
 
-需要 Node.js 24+、npm 和 Git。语义研究还需要可用的 Codex CLI 登录。不要在 npm registry 中安装同名包来替代本仓库。
+需要 Node.js 24+、npm、Git、POSIX shell 和 `ps`（最小 Linux 镜像安装 `procps`）。语义研究还需要可用的 Codex CLI 登录。不要在 npm registry 中安装同名包来替代本仓库。
 
 ```sh
 git clone https://github.com/ansonli-dev/rigup.git

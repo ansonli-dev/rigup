@@ -1,0 +1,25 @@
+{
+  "caseId": "codex/none/customer-mcp",
+  "status": "passed",
+  "startedAt": "2026-11-04T21:16:28.278Z",
+  "finishedAt": "2026-11-04T21:16:29.382Z",
+  "version": "codex-cli 0.166.0",
+  "fixture": "/private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-native-codex-al4itT",
+  "fixtureDigest": "df5715cc8c0a9eff40224325d199bf0a2f90a18270fb9c1894b5e5579fadd14b",
+  "configuredByRigup": "complete",
+  "skill": {
+    "name": "rigup-live-canary",
+    "path": "/private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-native-codex-al4itT/.agents/skills/rigup-live-canary/SKILL.md",
+    "scope": "repo"
+  },
+  "server": {
+    "name": "rigup-live-canary",
+    "toolNames": [
+      "rigup_echo"
+    ],
+    "authStatus": "unsupported"
+  },
+  "echoed": true,
+  "scope": "Native app-server discovery, actual MCP initialization/list/call; no model or SDD gate inference",
+  "initialized": true
+}

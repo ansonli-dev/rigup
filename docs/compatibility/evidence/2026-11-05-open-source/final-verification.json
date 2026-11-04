@@ -1,0 +1,53 @@
+{
+  "implementation": "3191a5ab20dcf7953039d1e8cd0b180d1694fe6e",
+  "reviewedRange": "0214ffdb147e5747361fe796b8e1f09422793dc8..d77464a714f77cb86c4bb5e4a2ec4c54a48b9366",
+  "findingsFixed": 6,
+  "deferredMinors": [],
+  "tdd": {
+    "newRegressions": 12,
+    "observedRed": 12,
+    "expandedRelatedSuitePassed": 72
+  },
+  "fullLocalCheck": {
+    "total": 351,
+    "passed": 336,
+    "skippedOptInLive": 15,
+    "failed": 0,
+    "typecheck": "passed",
+    "build": "passed",
+    "docs": "passed",
+    "package": "79 files; consumer lifecycle passed; expected native reload pending exit 3"
+  },
+  "cleanLinux": {
+    "source": "3191a5ab20dcf7953039d1e8cd0b180d1694fe6e",
+    "node": "24.22.2",
+    "npm": "11.19.1",
+    "arch": "arm64",
+    "image": "node@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c",
+    "fullCheck": "passed; 336 pass / 15 live skip / 0 fail",
+    "dependencyAudit": "zero vulnerabilities",
+    "packageIntegrity": "sha512-ERDZf2hbgJnU2FrtCcDSYty7DS2J1MClUzOXiKjqCT64hgKhD8JjyTsCaZgwvPztQRi9folyN2DrgabN/5cnKw=="
+  },
+  "realNativeRetest": {
+    "source": "3191a5ab20dcf7953039d1e8cd0b180d1694fe6e",
+    "initializationRecoveryPassed": 1,
+    "codexOpencodeAndIndependentPackagePassed": 3,
+    "paidModelTurns": 0
+  },
+  "gitlabEvidence": "gitlab-local-runner.json remains bound to b85e749; generated CI/snapshot/updater code unchanged by final fixes",
+  "secrets": {
+    "tool": "gitleaks 8.30.1",
+    "historyCommits": 43,
+    "bytes": 3425033,
+    "findings": 0,
+    "stagedFindings": 0
+  },
+  "securityChanges": {
+    "readPolicy": "5",
+    "modePreviewPolicy": 1,
+    "legacyPreviews": "fail closed, retain durable receipts and usage; reconcile before regeneration"
+  },
+  "priorPaidE2E": "Original source-bound 6 calls / 499754 tokens remains unchanged; not relabeled as a new post-security-fix semantic run",
+  "cleanup": "temporary GitLab container, runner and token removed; native test fixture cleans successful initialization; no tested CodeGraph daemon left running",
+  "externalConditions": "../../status.md"
+}

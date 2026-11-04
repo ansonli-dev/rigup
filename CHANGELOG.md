@@ -4,6 +4,10 @@ Changes to the source distribution are recorded here. There is no npm registry r
 
 ## Unreleased — 0.1.0 development preview
 
+- Fix shell quoting in review handoff commands and sensitive configuration comments/credential containers in research evidence; invalidate old exports under read policy 5.
+- Fix repeated binary skill updates, mode-only resource installation, permission-aware preview/recovery/doctor checks, and absolute profile paths.
+- Fix empty standalone GitLab pipelines; verify generated jobs with a real local GitLab server and Runner, alongside clean macOS/Linux distribution checks.
+
 - Add project analysis, evidence-backed artifact generation, and staged Codex research with cumulative budget and provenance records.
 - Add configuration adapters for Claude Code, Codex, OpenCode, and Oh My Pi, and native Superpowers, OpenSpec, and Spec Kit entry-point binding. Live compatibility remains scenario-specific.
 - Add protected three-way updates, concrete previews, independent apply, ownership tracking, and interrupted operation recovery.
