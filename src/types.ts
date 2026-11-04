@@ -37,9 +37,10 @@ export interface Evidence {path:string;startLine:number;endLine:number;digest:st
 
 export interface SetupOperation {
  id:string;integrationId:string;kind:'install'|'initialize'|'check';parameters:CommandSpec;prerequisiteIds:string[];declaredWrites:string[];version:string;timeoutMs:number;
- protection:{kind:'new-empty-scope';target:string};
- query:{kind:'npm-package';packageJson:string;packageLock:string;name:string;version:string;integrity?:string};
+ protection:{kind:'new-empty-scope';target:string}|{kind:'native-staging';target:string;staging:string;control:string};
+ query:{kind:'npm-package'|'native-initialization';packageJson:string;packageLock:string;name:string;version:string;integrity?:string};
 }
+export interface NativeInitializationReceipt {version:string;target:string;identity:string}
 
 export interface ManagedAsset {logicalId:string;target:string;ownership:import('./managed-input.js').Ownership;digest:string;baseline?:string;encoding?:'utf8'|'base64';mode?:number;source?:{kind:string;ref:string;digest?:string}}
 export interface AssetDisposition {logicalId:string;action:'retain'|'update'|'retire'|'pending';reason:string}

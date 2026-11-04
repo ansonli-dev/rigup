@@ -83,10 +83,10 @@ test('skill_source_conflicts_require_choice_and_satisfied_source_is_reused',()=>
 });
 import {prepareIntegrations} from '../src/integrations/registry.js';
 import {scanRepository} from '../src/analyzer/repository.js';
-test('prepare_keeps_unsafe_tool_initialization_manual_and_rejects_unknown_adapter',()=>project(async root=>{
+test('prepare_plans_protected_tool_initialization_and_rejects_unknown_adapter',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const prepared=await prepareIntegrations(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}]});
- assert.equal(prepared.operations.filter(op=>op.kind === 'initialize').length,0);assert.match(prepared.warnings.join(' '),/manual|pending/);
+ assert.equal(prepared.operations.filter(op=>op.kind === 'initialize').length,1);assert.equal(prepared.requirements.length,0);
  await assert.rejects(prepareIntegrations(profile,{agents:[],backend:'host',tools:[{id:'model-generated-adapter' as any,install:true,initialize:true,agents:[]}]}),/unsupported|unknown/);
 }));
 test('multi_agent_openwiki_uses_separate_host_arguments_without_collision',()=>project(async root=>{

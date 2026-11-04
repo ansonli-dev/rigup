@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "tool": "codegraph",
+      "path": "src/index.ts",
+      "digest": "sha256:44fa21c94be55f7870882f2a566aa57b35365400bbc404dfb6a8c56425c5e135"
+    },
+    {
+      "tool": "codegraph",
+      "path": "src/installer/index.ts",
+      "digest": "sha256:71e68a9c8ba931dd7130a6a50b38b49b97173909214ac83cd2871fc90ef3925e"
+    },
+    {
+      "tool": "codegraph",
+      "path": "src/directory.ts",
+      "digest": "sha256:228922199aa85574c718bc837310fd02c2078174e9fefe8bb009db1fa9ecc4f3"
+    },
+    {
+      "tool": "openwiki",
+      "path": "src/generation/repository-run.ts",
+      "digest": "sha256:26b203e6558a3d95bf5ffe2320452772283ed41b81dea4741b9f09891a5a4a5d"
+    },
+    {
+      "tool": "openwiki",
+      "path": "src/generation/run-state.ts",
+      "digest": "sha256:32adc024c826cf673a8ad12b29c22b7a70822d02766ba55408bc03b68646ad66"
+    },
+    {
+      "tool": "openwiki",
+      "path": "src/ingestion/code-mode.ts",
+      "digest": "sha256:256daaafa9ffd234a2a729c0ae8c1e16c274ec2ce3a12f1120f5126cc2688bfe"
+    },
+    {
+      "tool": "openwiki",
+      "path": "src/agent/wiki-replacement.ts",
+      "digest": "sha256:8111443929a65b42a0ee5255d3d68b16f2a95275fb238583fa983b1bb4a8edcc"
+    }
+  ],
+  "decisions": [
+    "CodeGraph CLI init --yes can install Git hooks; the adapter uses the official SDK in a fresh staging directory, with telemetry/daemon/download fallback disabled, then atomically promotes only a complete index.",
+    "OpenWiki begin(init) writes AGENTS.md, optional CLAUDE.md and a scheduled workflow and can replace an existing wiki. It runs in an isolated disposable repository; only the native openwiki state is promoted into a fresh empty project target. Root setup/configuration is never overwritten.",
+    "OpenWiki initialization is a valid durable planning run, not a completed generated wiki. Codex resumes the same native run; source drift triggers upstream replanning. No Claims, run state, or database contents are invented or edited by Rigup.",
+    "Only exact pinned project installations may initialize; external binaries may still be registered without initialization."
+  ]
+}

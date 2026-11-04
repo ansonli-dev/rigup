@@ -1,6 +1,7 @@
 import {prepareQuality} from './tools/quality.js';
 import {prepareCustomer} from './gitlab/customer.js';
 import {prepareSoftwareInstall} from './tools/software.js';
+import {prepareNativeInitialization} from './tools/initialization.js';
 import type {SetupOperation} from '../types.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
@@ -95,13 +96,17 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
    const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable:selection.install ? resolve(profile.root,'.rigup/tools/'+tool.id+'/node_modules/.bin/'+tool.software) : tool.software,args:tool.mcpArgs(agent),cwd:'.',envRefs:[]}},tool.id+'-'+agent);push(prepared.assets);
   }
   warnings.push(tool.id+': binary '+recipe.version+' availability and native connection pending');
+  let installed=false;
   if(selection.install) {
    const prepared=await prepareSoftwareInstall(profile.root,selection.id,recipe.version,recipe.packageIntegrity,profile.installedTools?.[tool.id]);
    if('pending' in prepared) {warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}
-   else if('reused' in prepared) warnings.push(tool.id+': reuse receipted project installation '+prepared.version);
+   else if('reused' in prepared) {installed=true;warnings.push(tool.id+': reuse receipted project installation '+prepared.version);}
    else operations.push(prepared);
   }
-  if(selection.initialize) {warnings.push(tool.id+': initialization manual pending verified native write protection');requirements.push({integrationId:tool.id,reason:tool.initialization});}
+  if(selection.initialize) {
+   const prepared=await prepareNativeInitialization(profile.root,selection.id,recipe.version,recipe.packageIntegrity,{installed,prerequisiteIds:operations.filter(o=>o.id==='install:'+selection.id).map(o=>o.id)});
+   if('pending' in prepared){warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}else operations.push(prepared);
+  }
  }
  for(const skill of options.customSkills ?? []) for(const agent of options.agents) {
   const copies=await collectCustomSkill(skill.source.startsWith('/') ? skill.source : profile.root+'/'+skill.source,agents[agent].skillDirectory);
