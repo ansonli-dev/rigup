@@ -1,0 +1,29 @@
+✔ fresh mainline selects local Codex without a provider API key (3.30175ms)
+✔ Codex receives only filtered evidence in a private cwd and cached acceptance costs no new call (184.922208ms)
+✔ failed Codex attempts are charged before dispatch and never silently repeated (51.28775ms)
+✔ corrupt Codex usage ledger cannot reset an already charged budget (87.972ms)
+✔ missing durable Codex budget cannot erase known spent usage (80.321041ms)
+✔ observed Codex token overrun is charged and rejected before acceptance (60.030333ms)
+✔ ordinary cache deletion does not authorize repeating an unresolved Codex request (53.657125ms)
+✔ completed durable Codex result survives cache loss without another charge (142.559167ms)
+✔ verified durable Codex accounting supersedes stale unknown consumer totals (119.163667ms)
+✔ Codex output with fabricated evidence never becomes accepted research (75.471708ms)
+✔ Codex tool events and missing usage fail instead of claiming a safe accepted result (73.631458ms)
+✔ Codex feature-discovery startup warning is not mistaken for a tool call (71.830375ms)
+✔ remaining Codex budget and cancellation are checked before invoking the model (29.842333ms)
+✔ missing local Codex reports unavailable without asking for an unrelated API key (33.081458ms)
+✔ Codex process is stopped if its durable process identity cannot be recorded (1205.394917ms)
+✔ dependency context omits lock bodies even when an older complete snapshot exists (83.949541ms)
+✔ dependency context is used for analysis planning content and acceptance (84.362417ms)
+✔ an evidence policy cannot import a response from a different export policy (81.010584ms)
+✔ tampered omission metadata cannot be accepted as the approved context (45.385542ms)
+✔ accepted dependency context can be reused without another request (65.209417ms)
+✔ omitting dependency bodies does not hide lock changes from the source fingerprint (67.746459ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2383.648375

@@ -1,0 +1,35 @@
+
+> bulletproof-react-vite@1.0.0 build
+> tsc && vite build --base=/
+
+vite v5.2.11 building for production...
+transforming...
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+✓ 2583 modules transformed.
+Initially, there are
+22 chunks, of which
+11 are below minChunkSize.
+After merging chunks, there are
+14 chunks, of which
+2 are below minChunkSize.
+rendering chunks...
+computing gzip size...
+dist/index.html                                0.71 kB │ gzip:   0.38 kB
+dist/assets/index-DYQhiEn1.css                43.73 kB │ gzip:   7.98 kB
+dist/assets/pen-BJvRfP9w.js                    0.32 kB │ gzip:   0.27 kB
+dist/assets/dashboard-C3fjx7tM.js              2.33 kB │ gzip:   0.97 kB
+dist/assets/get-discussion-HjxhCYE3.js         2.34 kB │ gzip:   0.99 kB
+dist/assets/landing-DKgbmrMf.js                2.37 kB │ gzip:   1.23 kB
+dist/assets/register-CeWT026b.js               2.70 kB │ gzip:   1.24 kB
+dist/assets/profile-MQZTxNso.js                2.84 kB │ gzip:   1.17 kB
+dist/assets/discussions-CZVSMigU.js            3.62 kB │ gzip:   1.52 kB
+dist/assets/users-CjApU-_9.js                  5.99 kB │ gzip:   2.22 kB
+dist/assets/confirmation-dialog-CLCpKL8j.js   10.58 kB │ gzip:   4.52 kB
+dist/assets/login-yQp1KkLV.js                 30.70 kB │ gzip:  11.66 kB
+dist/assets/browser-Clcp-EYh.js               47.70 kB │ gzip:  14.75 kB
+dist/assets/discussion-CcH-Ba-Z.js            63.99 kB │ gzip:  21.73 kB
+dist/assets/db-C3qDlqp5.js                   466.23 kB │ gzip: 134.40 kB
+dist/assets/index-BK8wPziS.js                493.23 kB │ gzip: 158.24 kB
+✓ built in 2.29s

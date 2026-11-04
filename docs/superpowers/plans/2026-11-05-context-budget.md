@@ -42,7 +42,7 @@
 
 **Interfaces:** Consumes the installed real npm package and Task 1 context policy. Produces a fresh pinned Bulletproof React run with durable reports, actual usage and per-stage payload measurements, plus unchanged update/local edit/native-host/application checks.
 
-- [ ] Create a clean clone of the same upstream commit and identical options/budget; reuse local dependency/browser downloads where possible. Keep the prior failed run intact.
-- [ ] Run the real packaged CLI with Codex default, OpenSpec and both tools. Verify research/planning and all planned content/acceptance stages, independent preview/apply, actual source query, no OpenWiki native initialization, unchanged update and local edit protection. Assert actual usage <=12 / 1200000 and absence of complete lock bodies in every request.
-- [ ] Recheck original source/native gates and application build, 21 Vitest and 3 browser cases. Archive actual stage/usage/payload evidence and retained historical failure.
+- [x] Create a clean clone of the same upstream commit and identical options/budget; reuse local dependency/browser downloads where possible. Keep the prior failed run intact.
+- [x] Run the real packaged CLI with Codex default, OpenSpec and both tools. Verify research/planning and all planned content/acceptance stages, independent preview/apply, actual source query, no OpenWiki native initialization, unchanged update and local edit protection. Assert actual usage <=12 / 1200000 and absence of complete lock bodies in every request.
+- [x] Recheck original source/native gates and application build, 21 Vitest and 3 browser cases. Archive actual stage/usage/payload evidence and retained historical failure.
 - [ ] Run the full local suite/typecheck/build/pack and one fresh final review. Fix Important/Critical findings once with RED→GREEN tests, archive rulings, remove only this plan's scratch workspace and retain the branch/worktree without merge/push.

@@ -66,6 +66,8 @@ MCP 登记不会启动服务。环境变量在已安装 runner 运行时解析�
 
 `codex` 是默认本机后端，目前验证 Codex CLI 0.166.0。它在项目外的空私有目录运行，只接收经过读取策略过滤的证据；忽略用户配置，禁用 shell、浏览器、应用和子 agent，不选择另一个模型，也不复制登录凭据。研究、规划、正文和验收沿同一条主线连续执行。结果先通过 Evidence 校验，再进入安装候选。
 
+Codex 上下文保留完整路径库存和源码指纹，省略 npm、Yarn、pnpm、Bun 依赖锁文件的正文，并在请求中列明省略项。清单、业务源码和项目规范仍作为证据；锁文件变化仍使缓存失效。精确锁定版本与传递依赖不据此视为已验证。手工 `host` 导出的默认行为保持原样。
+
 `native` 是 Rigup 的独立模型后端，目前使用 Anthropic SDK，与目标 coding agent 无关。通过 `--model` 或 `model.model` 选择已开通的模型；也可使用 `ANTHROPIC_MODEL`。显式 `--model`/`--api-key-env` 默认选择 native；与 `--backend codex` 同时使用会在研究前拒绝，避免静默忽略提供方选择。API key 来自 `model.apiKeyEnv` 指定的变量，默认 `ANTHROPIC_API_KEY`。TTY 临时输入的隐藏密钥只在本轮内存中使用，不保存到配置。
 
 `host` 导出经过读取策略过滤的研究请求，交给宿主 agent 返回 JSON。沿同一条 init/update 主线逐阶段续跑，不产生可安装的半成品：
@@ -166,4 +168,4 @@ RIGUP_LIVE_CODEX_BACKEND=1 RIGUP_OPENSPEC_BIN=/path/to/openspec node --import ts
 
 第一组验证官方固定版本安装、CodeGraph 受保护初始化/恢复、OpenWiki 独立交接及 Codex MCP 连接，不调用模型。第二组使用本机默认 Codex 模型验证研究到安装与无变化复用；不运行模型切换。
 
-另已对锁定提交的 Domain-Driven Hexagon 和 Bulletproof React 运行真实 GitHub 项目 E2E。DDD 主线通过，前端工具接线及业务浏览器测试通过；前端完整语义流程因研究预算超限未完成，保留失败结果。对象、环境调整、实际用量和复验入口见 [真实项目记录](docs/compatibility/evidence/2026-11-05-github-projects/README.md)。
+另已对锁定提交的 Domain-Driven Hexagon 和 Bulletproof React 运行真实 GitHub 项目 E2E。DDD 主线通过。前端首次完整语义流程因预算超限失败，记录保留；优化锁文件上下文后，按同一 12 请求 / 1200000 token 预算复验通过，实际 4 请求 / 558605 token，应用构建、21 项单测、3 项浏览器用例与真实 Codex MCP 源码查询也通过。见 [首次项目记录](docs/compatibility/evidence/2026-11-05-github-projects/README.md) 和 [最新完整语义复验](docs/compatibility/evidence/2026-11-05-context-budget/README.md)。

@@ -1,0 +1,59 @@
+{
+  "status": "passed",
+  "sourceRevision": "67512c68e0439d9d613c9ebb4433f75aa3e7e86a",
+  "upstreamCommit": "9506629ed003a561c6627735480cce4994244bb4",
+  "unchangedBudget": {
+    "maxCalls": 12,
+    "maxTokens": 1200000
+  },
+  "actualModelCalls": 4,
+  "actualObservedTokens": 558605,
+  "priorActualObservedTokens": 1564127,
+  "tokenReductionPercent": 64.29,
+  "evidenceCharsPerRequest": 352080,
+  "priorEvidenceCharsPerRequest": 853449,
+  "evidenceReductionPercent": 58.75,
+  "inventoryFiles": 178,
+  "evidenceFiles": 177,
+  "omittedLockBodyChars": 501391,
+  "requestBytes": [
+    {
+      "stage": "content",
+      "bytes": 457571
+    },
+    {
+      "stage": "acceptance",
+      "bytes": 465274
+    },
+    {
+      "stage": "analysis",
+      "bytes": 426000
+    },
+    {
+      "stage": "plan",
+      "bytes": 468518
+    }
+  ],
+  "sameScope": true,
+  "semanticStages": [
+    "analyze",
+    "plan",
+    "content",
+    "acceptance"
+  ],
+  "openSpecEnabled": true,
+  "semanticArtifact": "docs/rigup/react-vite-api-review.md",
+  "independentApply": true,
+  "unchangedApplyWritten": 0,
+  "localNoteProtected": true,
+  "openWikiInitialized": false,
+  "nativeCodegraphQuery": "getDiscussions",
+  "reports": {
+    "semantic": "bulletproof-semantic-e2e.json",
+    "application": "application-checks.json",
+    "native": "frontend-native-mcp.json",
+    "source": "source-audit.json",
+    "versions": "tool-versions.json",
+    "historicalFailure": "../2026-11-05-github-projects/frontend-semantic-failure.json"
+  }
+}

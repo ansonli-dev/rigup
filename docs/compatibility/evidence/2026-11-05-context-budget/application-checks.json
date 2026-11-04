@@ -1,0 +1,56 @@
+{
+  "status": "passed",
+  "root": "/private/tmp/rigup-context-e2e-c3Ov9H/frontend",
+  "commit": "9506629ed003a561c6627735480cce4994244bb4",
+  "build": {
+    "command": "npm run build",
+    "exitCode": 0,
+    "report": "frontend-build.log"
+  },
+  "unit": {
+    "command": "CI=1 VITE_APP_API_URL=http://localhost:8080 npm test -- --run --maxWorkers=2 --minWorkers=1 --reporter=json --outputFile=REPORT",
+    "passed": 21,
+    "failed": 0,
+    "report": "frontend-vitest.json"
+  },
+  "browser": {
+    "command": "CI=1 PLAYWRIGHT_BROWSERS_PATH=PRIVATE_BROWSER_DIR VITE_APP_API_URL=http://127.0.0.1:41742 VITE_APP_ENABLE_API_MOCKING=false VITE_APP_APP_URL=http://127.0.0.1:41741 VITE_APP_APP_MOCK_API_PORT=41742 node_modules/.bin/playwright test --config EXTERNAL_CONFIG",
+    "apiCommand": "VITE_APP_API_URL=http://127.0.0.1:41742 VITE_APP_ENABLE_API_MOCKING=false VITE_APP_APP_URL=http://127.0.0.1:41741 VITE_APP_APP_MOCK_API_PORT=41742 node_modules/.bin/vite-node mock-server.ts",
+    "passed": 3,
+    "failed": 0,
+    "retries": 0,
+    "workers": 1,
+    "durationMs": 28074.507999999998,
+    "report": "frontend-browser-e2e.json",
+    "config": "frontend-playwright.config.ts",
+    "scope": [
+      "authenticate",
+      "profile",
+      "smoke: discussion/comment CRUD"
+    ],
+    "originalTestsUnchanged": true
+  },
+  "cleanup": {
+    "apiStopped": true,
+    "webServerStopped": true,
+    "portsClosed": [
+      41741,
+      41742
+    ],
+    "codegraphDaemonStop": "Official stopDaemonAt(root, {preserveUnverified:true}) verified identity and returned outcome=term."
+  },
+  "doctor": {
+    "exitCode": 3,
+    "beforeDaemonStop": "Protected query refused the active native socket/writer; no repair attempted.",
+    "afterDaemonStop": "CodeGraph index verified. Remaining pending diagnostics are the deliberate user edit and OpenWiki manual initialization; host reload is not inferred by the read-only doctor.",
+    "reports": [
+      "doctor.json",
+      "doctor-after-cleanup.json"
+    ]
+  },
+  "modelCallsDuringApplicationAndNativeChecks": 0,
+  "limitations": [
+    "Only apps/react-vite; neither Next.js variant was built or browser-tested.",
+    "Uses the project Express/MSW fixture API, not a production backend."
+  ]
+}

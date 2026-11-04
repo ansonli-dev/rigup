@@ -1,0 +1,45 @@
+{
+  "checkedAt": "2026-11-04T18:16:32.025Z",
+  "status": "passed",
+  "upstreamCommit": "9506629ed003a561c6627735480cce4994244bb4",
+  "originalTrackedFiles": 535,
+  "byteIdenticalOriginalFiles": 534,
+  "onlyOriginalChange": {
+    "path": "AGENTS.md",
+    "originalBodyRetainedByteForByte": true,
+    "addition": "Owned navigation block only"
+  },
+  "nativeOpenSpecEntriesUnchanged": 6,
+  "semanticArtifact": {
+    "path": "docs/rigup/react-vite-api-review.md",
+    "sha256": "249bc82cd10a65d8e420ad138e52e12444c1a9d3e1f3db5b3557c7cf91692c80",
+    "scope": "React Vite API hook review suggestions",
+    "sources": [
+      {
+        "path": "apps/react-vite/src/features/discussions/api/update-discussion.ts",
+        "sha256": "a926b792424a6a248b9fe7adeb820b9ca8fb664a8cf082e1386f9d352a7294f0"
+      },
+      {
+        "path": "apps/react-vite/src/features/users/api/update-profile.ts",
+        "sha256": "a84fabc2fcbc3a59ae51eed7fe1e3969f18b970a8eba63c0b24007f556f949fa"
+      },
+      {
+        "path": "apps/react-vite/src/features/comments/api/get-comments.ts",
+        "sha256": "c5b2e72211e833de56f07b6ec176bc2b91cbb36da4838aed574b227c9dbe6de2"
+      }
+    ],
+    "boundaries": [
+      "Three concrete hooks checked, including the unconsumed queryConfig counterexample.",
+      "Existing docs reused; import and script/generator conflicts remain unresolved.",
+      "No universal cache refresh rule or claim about unavailable authentication/client bodies.",
+      "Native OpenSpec controls referenced at original paths; no gate bypass or completed work claim.",
+      "Locked/transitive dependency versions are not asserted."
+    ]
+  },
+  "priorFailedRun": {
+    "path": "docs/compatibility/evidence/2026-11-05-github-projects/frontend-semantic-failure.json",
+    "sha256": "cd060894784d26451d5e3a0ba64ba8395606540b3920581f8c0431a41dd9c495",
+    "unchanged": true
+  },
+  "reviewer": "Implementation agent; not formal human semantic approval"
+}

@@ -1,8 +1,8 @@
 # Rigup 实现与真实验收记录
 
-更新：2026-11-04。依据 [上游核验标准](README.md)、[实施计划](../superpowers/plans/2026-11-02-rigup-implementation.md) 和 [文档生成标准](../superpowers/specs/2026-11-03-documentation-system-design.md)。所有状态绑定下列精确对象；协议解析、组件冒烟、真实模型和完整兼容分别留证。
+更新：2026-11-05。依据 [上游核验标准](README.md)、[实施计划](../superpowers/plans/2026-11-02-rigup-implementation.md) 和 [文档生成标准](../superpowers/specs/2026-11-03-documentation-system-design.md)。所有状态绑定下列精确对象；协议解析、组件冒烟、真实模型和完整兼容分别留证。
 
-最新范围调整：按用户要求，OpenWiki 初始化已从脚手架移出，改为安装/接线后给出独立初始化指引；CodeGraph 保留受保护索引与恢复。下文较早的双工具自动初始化记录是历史证据。最新本地结果为 292 项通过；真实 GitHub 项目 E2E 的通过项和前端预算失败见文末，不能合并称为全部通过。
+最新范围调整：OpenWiki 仅安装/接线并交接独立初始化；CodeGraph 保留受保护索引与恢复。最新本地结果为 298 passed、14 opt-in live skipped、0 failed。前端完整语义 E2E 在上下文优化后以原预算通过，实际 4 请求 / 558605 token；首轮预算失败及较早自动初始化记录仍是历史证据，见文末的独立复验。
 
 ## 四个独立结论
 
@@ -137,7 +137,7 @@ OpenWiki 的长流程不再属于脚手架初始化。CLI 和 onboarding 选择�
 
 本轮范围回归先观察到 6 项预期失败，再全部通过；补充旧已接受回执的只读对账测试。最终本地 `npm test`：**304 项，291 passed、13 opt-in live skipped、0 failed**。类型检查、构建和 pack dry-run 结果与边界决策见 [范围调整记录](evidence/2026-11-04-openwiki-handoff/scope-change.json)。历史自动初始化证据保留，不能用作当前默认流程声明。
 
-## 真实 GitHub 项目 E2E
+## 首轮真实 GitHub 项目 E2E（历史记录）
 
 本轮使用实际 npm pack、独立消费目录安装的 CLI、真实 Codex 默认后端和官方 OpenSpec/工具；没有注入替代 backend、改写模型响应或测试其他模型。所有客户侧写入限于临时克隆。项目提交、顶层依赖实际版本、命令和证据入口见 [复验说明](evidence/2026-11-05-github-projects/README.md)、[项目锁定信息](evidence/2026-11-05-github-projects/projects-lock.json) 和 [汇总](evidence/2026-11-05-github-projects/summary.json)。
 
@@ -153,4 +153,14 @@ DDD 上游没有锁文件：npm 的 Slonik peer 依赖冲突、解析到空的 m
 
 真实 DDD 研究暴露并修复了 `suggestion + needs-decision` 被误判为规则升级的校验问题（`bf8b7a1`）。修复保留未决裁决，仍拒绝 `suggestion + follow-existing`；先失败再通过的回归及完整 **305 项：292 passed、13 opt-in live skipped、0 failed** 已留证。原来被拒绝的真实模型响应逐字保留并复用，其消费计入上述两次总数，没有重新请求。类型检查、构建、67 文件的打包检查均通过。
 
-尚未解决的真实规模问题是前端研究上下文：每阶段重复发送 178 文件、853449 字符，单个 yarn.lock 占 501391 字符。需要按阶段选择证据并减少完整锁文件重复；本轮只留证，未将该优化宣称为已实现。Codex 用量仍在响应后检查，单次可能先超额再被拒绝。来源抽核由实现 agent 完成，不冒充正式人工语义批准，也不推广到其他宿主、平台、模型或远端部署。
+首轮记录的规模问题是每阶段重复发送 178 文件、853449 字符，单个 yarn.lock 占 501391 字符。该轮只留证，优化与新一轮结果见下节；原失败用量保持不变。Codex 用量仍在响应后检查，单次可能先超额再被拒绝。来源抽核由实现 agent 完成，不冒充正式人工语义批准，也不推广到其他宿主、平台、模型或远端部署。
+
+## 锁文件上下文优化后的完整语义复验
+
+`67512c6` 在 Codex analyze/plan/content/acceptance 统一启用版本化省略策略，保留完整库存和指纹，仅省略明确的依赖锁文件正文并列出未经验证的版本信息；手工 host 默认不变。策略绑定请求、接受结果和快照选择；锁文件变化、未知/失败消费和持久预算仍受保护。21 项定向回归先观察预期失败再通过。
+
+同一 Bulletproof React 提交、scope、Codex 默认模型与 OpenSpec，保持 **12 请求 / 1200000 token**。完整四阶段实际 **4 请求 / 558605 token**，较首轮少 **64.29%**；每阶段证据从 853449 降至 352080 字符，四份完整请求 426000–468518 字节且均无完整 yarn.lock。模型的实际输出未改写；原失败和该轮全部消费均保留。[完整复验与复现入口](evidence/2026-11-05-context-budget/README.md)、[实际报告与 ledger](evidence/2026-11-05-context-budget/bulletproof-semantic-e2e.json)。
+
+独立 review/apply、无变化更新（0 写入/0 新调用）、用户补充内容保护、CodeGraph 受保护初始化和原生 getDiscussions 查询均通过；OpenWiki 没有初始化。生成一份 React Vite API 审查补充；534 个原文件字节不变，AGENTS.md 原正文逐字保留并仅追加托管导航，6 个原生 OpenSpec skill 未改。[来源抽核](evidence/2026-11-05-context-budget/source-audit.json)。
+
+原业务构建、21/21 Vitest、3/3 Chromium 以及真实 Codex MCP 发现/查询通过；测试服务已停止。doctor 在停止测试 daemon 后核验 CodeGraph 完整索引；仍为用户补充说明及 OpenWiki 独立初始化返回 pending，不声称全部诊断通过。[应用检查](evidence/2026-11-05-context-budget/application-checks.json)、[原生宿主](evidence/2026-11-05-context-budget/frontend-native-mcp.json)。本地回归 **312 项：298 passed、14 opt-in live skipped、0 failed**，类型检查、构建、67 文件打包检查通过；未推广为其他宿主/模型或正式人工语义批准。
