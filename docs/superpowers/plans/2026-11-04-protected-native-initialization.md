@@ -69,4 +69,4 @@
 - [x] Wire explicit backend selection, default Codex, noninteractive execution and safe recovery. Keep manual request/response exchange explicit through `backend: host`.
 - [x] Run focused tests, `npm test`, typecheck/build/pack and one small real Codex research→generation→apply→unchanged update case using the current default model. Expected PASS with actual observed usage and no extra API credential.
 - [x] Commit `feat: complete the local Codex research mainline`.
-- [ ] Run one fresh-context whole-change review as required by executing-plans. Re-grade findings, fix Important/Critical findings in one RED→GREEN pass, run the suite, archive rulings and remove only this plan's scratch workspace. Keep the branch for review without merge/push.
+- [x] Run one fresh-context whole-change review as required by executing-plans. Re-grade findings, fix Important/Critical findings in one RED→GREEN pass, run the suite, archive rulings and remove only this plan's scratch workspace. Keep the branch for review without merge/push.
