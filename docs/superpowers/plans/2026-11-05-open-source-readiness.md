@@ -58,8 +58,8 @@
 
 **Interfaces:** Consumes Task 2's clean candidate. Produces a verified commit on the authorized GitHub remote and a concise final handoff.
 
-- [ ] Build the whole-branch review package from 0214ffdb147e5747361fe796b8e1f09422793dc8; request one fresh complete correctness/security/distribution review using the required reviewer template and this Review Focus.
-- [ ] Re-grade findings by user effect; resolve locally actionable findings in the single fix pass with RED→GREEN and a green suite. Explicitly rule on every declined judgment. The user's request to close local issues takes precedence over deferring cheap local polish merely because it is minor.
+- [x] Build the whole-branch review package from 0214ffdb147e5747361fe796b8e1f09422793dc8; request one fresh complete correctness/security/distribution review using the required reviewer template and this Review Focus.
+- [x] Re-grade findings by user effect; resolve locally actionable findings in the single fix pass with RED→GREEN and a green suite. Explicitly rule on every declined judgment. The user's request to close local issues takes precedence over deferring cheap local polish merely because it is minor.
 - [ ] Archive review, decisions and final checks, commit; verify clean source except ignored personal OS files.
 - [ ] Verify the remote refs. Push without force, initializing main if the remote remains empty; otherwise preserve existing remote history. Do not modify another checked-out local main.
 - [ ] Observe GitHub CI and fix failures if the service can run them. Record any account/service restriction precisely.

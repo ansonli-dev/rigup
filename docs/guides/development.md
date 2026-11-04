@@ -53,7 +53,7 @@ RIGUP_LIVE_NATIVE=1 RIGUP_LIVE_CODEX=1 RIGUP_LIVE_EVIDENCE_DIR=/tmp/rigup-native
   node --import tsx --test test/live-native-initialization.test.ts
 ```
 
-This test uses native Codex MCP discovery, not wiki page generation. An optional real Codex/OpenSpec delivery-gate probe sends a model request:
+This test uses native Codex MCP discovery, not wiki page generation. It stops its own CodeGraph daemon through the pinned SDK with identity verification before deleting its fixture; uncertain shutdown retains the records and fails the test. The same flow has been exercised on macOS ARM64 and clean Linux ARM64 with Codex 0.166.0. Use an init/reaper in containers so detached native children are reaped. An optional real Codex/OpenSpec delivery-gate probe sends a model request:
 
 ```sh
 RIGUP_LIVE=1 RIGUP_LIVE_GATE=1 RIGUP_OPENSPEC_BIN=/absolute/path/to/openspec \

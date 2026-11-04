@@ -1,0 +1,42 @@
+{
+  "project": "alan2207/bulletproof-react",
+  "commit": "9506629ed003a561c6627735480cce4994244bb4",
+  "root": "/private/tmp/rigup-context-e2e-readiness-c55OoN/frontend",
+  "rigupSource": "73442eaef23e2d71ddf5fcabe501509ce828390f",
+  "build": {
+    "command": "npm run build",
+    "exitCode": 0
+  },
+  "unit": {
+    "passed": 21,
+    "failed": 0,
+    "command": "CI=1 VITE_APP_API_URL=http://localhost:8080 npm test -- --run --maxWorkers=2 --minWorkers=1"
+  },
+  "browser": {
+    "passed": 3,
+    "failed": 0,
+    "retries": 0,
+    "workers": 1,
+    "runner": "Playwright 1.59.1 / Chromium147",
+    "scope": [
+      "register/login storage setup",
+      "profile update",
+      "discussion/comment CRUD"
+    ],
+    "api": "upstream mock-server.ts over local HTTP, not a production backend",
+    "externalConfig": true,
+    "ports": [
+      41861,
+      41862
+    ],
+    "portsClosedAfterTest": true
+  },
+  "dependencies": "Copied previously frozen node_modules only after matching source yarn.lock; no tracked dependency/source files changed",
+  "sourceProtection": {
+    "unchangedOriginalFiles": 534,
+    "originalAGENTSRetainedWithOwnedNavigation": true,
+    "nativeEntriesUnchanged": 6
+  },
+  "cleanup": "Only generated mocked-db/browser-user runtime data moved outside source after tests; auth snapshot retained privately and excluded by policy6; native daemon stopped by verified official API",
+  "formalHumanSemanticApproval": false
+}

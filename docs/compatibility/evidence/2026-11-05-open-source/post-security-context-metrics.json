@@ -1,0 +1,40 @@
+{
+  "source": "73442eaef23e2d71ddf5fcabe501509ce828390f",
+  "requests": [
+    {
+      "stage": "acceptance",
+      "kind": "artifact-content",
+      "evidenceFiles": 19,
+      "evidenceChars": 134985,
+      "requestBytes": 240746
+    },
+    {
+      "stage": "content",
+      "kind": "artifact-content",
+      "evidenceFiles": 19,
+      "evidenceChars": 134985,
+      "requestBytes": 229832
+    },
+    {
+      "stage": "plan",
+      "kind": "artifact-plan",
+      "evidenceFiles": 21,
+      "evidenceChars": 142317,
+      "requestBytes": 225735
+    },
+    {
+      "stage": "analysis",
+      "kind": "analyze",
+      "evidenceFiles": 177,
+      "evidenceChars": 352080,
+      "requestBytes": 426818
+    }
+  ],
+  "combinedLaterBodyReduction": 0.609665416950693,
+  "lockBodiesSent": false,
+  "nativeGatesVisible": 6,
+  "budget": {
+    "calls": 10,
+    "tokens": 855212
+  }
+}

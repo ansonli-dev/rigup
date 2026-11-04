@@ -1,0 +1,24 @@
+{
+  "policy": "6",
+  "previousSemanticPolicy": "5",
+  "semanticsSource": "73442eaef23e2d71ddf5fcabe501509ce828390f",
+  "checkedSnippets": 236,
+  "differences": [],
+  "authSnapshotExcluded": true,
+  "originalLedgerUnchanged": true,
+  "explanation": "This is current-reader verification of previously delivered source witnesses, not a new provider run or a replayed response. Opaque policy/fingerprint identities invalidate old requests; no model result was rewritten.",
+  "inventory": {
+    "original": 178,
+    "current": 178,
+    "added": [],
+    "removed": []
+  },
+  "postAppSourceProtection": {
+    "unchangedOriginalFiles": 534,
+    "originalAGENTSRetainedWithOwnedNavigation": true,
+    "nativeEntriesUnchanged": 6
+  },
+  "finalCookieCommandGuardVerified": true,
+  "finalRuntimeSource": "8ed5d6c",
+  "currentReaderSource": "c05a74b15eddfdfc7dc5843f0e519c21a72ac2f7"
+}

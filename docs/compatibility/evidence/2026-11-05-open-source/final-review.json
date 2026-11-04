@@ -80,19 +80,37 @@
     "Formal OS isolation against arbitrary same-user concurrent replacement/dependency modification"
   ],
   "fixPassChecks": {
-    "fullTests": 351,
-    "passed": 336,
+    "fullTests": 354,
+    "passed": 339,
     "optInSkipped": 15,
     "failed": 0,
     "focusedInstallerRecovery": 72,
     "typecheck": "passed",
     "build": "passed",
-    "docs": "38 Markdown files / 324 local targets",
+    "docs": "38 Markdown files / 331 local targets before final evidence index additions",
     "package": "79 files; isolated lifecycle passed",
     "dependencyAudit": "zero vulnerabilities",
     "additionalReview": "none; one fresh review plus executor TDD fix pass",
     "deferredMinors": []
   },
-  "readPolicyRevision": "5",
-  "modePolicy": "ordinary permissions on full-file assets use baseline/local/new; local-only chmod preserved and diagnosed, divergent mode changes conflict, mode tuples bind preflight/write/recovery/final verification; old unbound previews require regeneration"
+  "readPolicyRevision": "6",
+  "modePolicy": "ordinary permissions on full-file assets use baseline/local/new; local-only chmod preserved and diagnosed, divergent mode changes conflict, mode tuples bind preflight/write/recovery/final verification; old unbound previews require regeneration",
+  "additionalVerificationFindings": [
+    {
+      "finding": "Native live fixture daemon outlived client/fixture deletion",
+      "fixed": "official project-scoped stop before removing identity records",
+      "verification": "real RED then macOS/Linux GREEN, no model calls"
+    },
+    {
+      "finding": "Browser authentication state/cookie storage/credential backups could enter exports",
+      "fixed": "policy6 exclusions, structured redaction, private-key material denial",
+      "verification": "actual export RED→GREEN; full suite354/339/15/0; all236 real E2E source snippets and178 inventory paths remain unchanged"
+    },
+    {
+      "finding": "Cookie command/header/query values and compact curl flags could be persisted; a generic -u guard then rejected Python interpreter flags",
+      "fixed": "common credential forms require declared references; short flags are interpreted in command context",
+      "verification": "both failures observed RED, focused49 GREEN and full354/339/15/0 on macOS and clean Linux",
+      "source": "c05a74b15eddfdfc7dc5843f0e519c21a72ac2f7"
+    }
+  ]
 }

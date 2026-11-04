@@ -1,0 +1,28 @@
+✖ live scaffold recovers CodeGraph initialization and hands OpenWiki to a separate Codex session (56832.261209ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 57357.007416
+
+✖ failing tests:
+
+test at test/live-native-initialization.test.ts:1:1158
+✖ live scaffold recovers CodeGraph initialization and hands OpenWiki to a separate Codex session (56832.261209ms)
+  AssertionError [ERR_ASSERTION]: Native test must stop its own CodeGraph daemon before removing the fixture
+
+  true !== false
+
+      at TestContext.<anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/live-native-initialization.test.ts:84:92)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

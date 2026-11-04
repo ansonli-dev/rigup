@@ -9,30 +9,36 @@
     "expandedRelatedSuitePassed": 72
   },
   "fullLocalCheck": {
-    "total": 351,
-    "passed": 336,
+    "total": 354,
+    "passed": 339,
     "skippedOptInLive": 15,
     "failed": 0,
     "typecheck": "passed",
     "build": "passed",
     "docs": "passed",
-    "package": "79 files; consumer lifecycle passed; expected native reload pending exit 3"
+    "package": "79 files; consumer lifecycle passed; expected native reload pending exit 3",
+    "source": "c05a74b15eddfdfc7dc5843f0e519c21a72ac2f7",
+    "log": "final-macos-check.log",
+    "packageIntegrity": "sha512-MvJE1cG7Avrs3umlhQRVhrefytr0+NGRuhSpyGc+kJj4Xx9lrlwFI1/tATsn0wTqGLNH64kjC46yb80OS8lmiQ=="
   },
   "cleanLinux": {
-    "source": "3191a5ab20dcf7953039d1e8cd0b180d1694fe6e",
+    "source": "c05a74b15eddfdfc7dc5843f0e519c21a72ac2f7",
     "node": "24.22.2",
     "npm": "11.19.1",
     "arch": "arm64",
     "image": "node@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c",
-    "fullCheck": "passed; 336 pass / 15 live skip / 0 fail",
+    "fullCheck": "passed; 339 pass / 15 live skip / 0 fail",
     "dependencyAudit": "zero vulnerabilities",
-    "packageIntegrity": "sha512-ERDZf2hbgJnU2FrtCcDSYty7DS2J1MClUzOXiKjqCT64hgKhD8JjyTsCaZgwvPztQRi9folyN2DrgabN/5cnKw=="
+    "packageIntegrity": "sha512-+JS06XpupgP6/WmlbmmXzPHoa08AWpwAicOPpg6NhHz1Y4uoYJ7ni+WGJX5HhXUxMfektQiBuE25szGilqeGhw==",
+    "log": "final-linux-check.log"
   },
   "realNativeRetest": {
     "source": "3191a5ab20dcf7953039d1e8cd0b180d1694fe6e",
     "initializationRecoveryPassed": 1,
     "codexOpencodeAndIndependentPackagePassed": 3,
-    "paidModelTurns": 0
+    "paidModelTurns": 0,
+    "cleanupSource": "73442eaef23e2d71ddf5fcabe501509ce828390f",
+    "cleanupProof": "native-cleanup-verification.json"
   },
   "gitlabEvidence": "gitlab-local-runner.json remains bound to b85e749; generated CI/snapshot/updater code unchanged by final fixes",
   "secrets": {
@@ -40,14 +46,39 @@
     "historyCommits": 43,
     "bytes": 3425033,
     "findings": 0,
-    "stagedFindings": 0
+    "stagedFindings": 0,
+    "finalScan": "final-secret-scan.json (runtime history plus complete staged evidence candidate)"
   },
   "securityChanges": {
-    "readPolicy": "5",
+    "readPolicy": "6",
     "modePreviewPolicy": 1,
     "legacyPreviews": "fail closed, retain durable receipts and usage; reconcile before regeneration"
   },
-  "priorPaidE2E": "Original source-bound 6 calls / 499754 tokens remains unchanged; not relabeled as a new post-security-fix semantic run",
   "cleanup": "temporary GitLab container, runner and token removed; native test fixture cleans successful initialization; no tested CodeGraph daemon left running",
-  "externalConditions": "../../status.md"
+  "externalConditions": "../../status.md",
+  "latestRuntimeImplementation": "c05a74b15eddfdfc7dc5843f0e519c21a72ac2f7",
+  "realSemanticE2E": {
+    "providerRunSource": "73442eaef23e2d71ddf5fcabe501509ce828390f",
+    "policy": "5",
+    "newObserved": {
+      "calls": 4,
+      "tokens": 355458
+    },
+    "aggregateObserved": {
+      "calls": 10,
+      "tokens": 855212
+    },
+    "currentPolicy6Audit": "236 snippets identical; 178 paths identical; authentication state excluded; original ledger byte-identical",
+    "noResponseRewriting": true,
+    "currentReaderSource": "c05a74b15eddfdfc7dc5843f0e519c21a72ac2f7",
+    "application": "post-security-application.json",
+    "context": "post-security-context-metrics.json"
+  },
+  "nativeCleanup": "native-cleanup-verification.json",
+  "additionalRegressions": {
+    "count": 3,
+    "observedRed": 3,
+    "focusedPassed": 49,
+    "report": "credential-boundary-regressions.json"
+  }
 }

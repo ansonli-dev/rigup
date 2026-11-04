@@ -1,6 +1,6 @@
 # Execution decisions
 
-Plan: docs/superpowers/plans/2026-11-05-open-source-readiness.md. These are the complete decisions made on the user's behalf, in order; each includes the cost if wrong.
+Plan: docs/superpowers/plans/2026-11-05-open-source-readiness.md. These are all decisions made on the user's behalf, in order; each includes the cost if wrong.
 
 Ruling: Use MIT for the new source distribution and retain private:true for npm — the user requests an open source project and GitHub push, not a registry release — if the license choice is wrong it must be changed before a later release; no package will be published by this task.
 
@@ -22,4 +22,6 @@ Final: Ruling: Same-OS-user tampering is outside the CLI isolation guarantee —
 
 Final: Ruling: Explicit file modes follow baseline/local/new ownership — upstream-only mode changes apply; user-only chmod is preserved and diagnosed, divergent concurrent mode changes conflict, and every preview/recovery binds actual modes — if wrong, an executable remains pending user reconciliation rather than silently overriding permissions.
 
-All six findings in the one fresh review were fixed; no deferred minor remains. No second review was commissioned. The user explicitly authorized commit/push and continuous work.
+Final: Ruling: Interpret short flags in their command context — Python interpreter options are not credentials, curl short user/cookie arguments are credentials, common long/header/URL forms remain protected — if wrong, uncommon client wrappers require an explicit adapter or declared environment references; arbitrary custom flag semantics cannot be inferred universally.
+
+All six findings in the one fresh review and the subsequent verification findings were fixed. No deferred minor remains. No second review was commissioned. The user explicitly authorized continuous work, commit and push.

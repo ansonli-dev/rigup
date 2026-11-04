@@ -1,0 +1,36 @@
+{
+  "limit": {
+    "maxCalls": 12,
+    "maxTokens": 1200000
+  },
+  "priorObserved": {
+    "calls": 6,
+    "tokens": 499754
+  },
+  "priorLedgerSha256": "8a57bebda77626fbd6182412282b16194b70ab79c9ca29e81ab2d5011939ed04",
+  "priorLedgerByteIdenticalAfterRerun": true,
+  "remainingAssignedToNewLineage": {
+    "maxCalls": 6,
+    "maxTokens": 700246
+  },
+  "newObserved": {
+    "calls": 4,
+    "tokens": 355458
+  },
+  "aggregateObserved": {
+    "calls": 10,
+    "tokens": 855212
+  },
+  "remainingAfterValidation": {
+    "calls": 2,
+    "tokens": 344788
+  },
+  "source": "73442eaef23e2d71ddf5fcabe501509ce828390f",
+  "packageIntegrity": "sha512-XYiMI10PmEuLSTCgxL9quAsSo76PgHpH77M7ZN95L38WLyJpcMCpqUHGfrVVMTzZXPFnxEOnJhMXvjhQGYsYiw==",
+  "harnessOriginalSha256": "ec7bfa05245ec4a3d34bec3e16f47f7d0986671df5a036b5398eac152e41293a",
+  "harnessBoundedSha256": "404a08558d151e8a74157fb9b400bcebc469e32f8dc9aa60adb12b786b7975d9",
+  "method": "Fresh policy-v5 request lineage bounded to the original remaining allowance; original ledger is read-only and must remain byte-identical. No prior attempt or usage is discarded.",
+  "policyAtProviderRun": "5",
+  "currentPolicy": "6",
+  "boundary": "No provider run or response was relabeled. Policy6 independently revalidates all236 delivered source snippets and the same178 source paths; its opaque policy identities invalidate old exports."
+}

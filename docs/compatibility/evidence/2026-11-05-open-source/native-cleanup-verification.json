@@ -1,0 +1,33 @@
+{
+  "harnessSource": "73442eaef23e2d71ddf5fcabe501509ce828390f",
+  "runtimeSource": "3191a5a",
+  "red": "Real Codex native-client probe left its own CodeGraph daemon alive after app-server exit; new pre-delete liveness assertion failed. Failed fixture identity records were kept, then official stopDaemonAt returned term for that root.",
+  "fix": "Before deleting native fixtures, use the pinned platform SDK stopDaemonAt(root, {preserveUnverified:true}); fail and retain records if shutdown cannot be verified. Never use stopAllDaemons. Portable tmpdir paths replace /private/tmp for the native harness.",
+  "macos": {
+    "status": "passed",
+    "node": "v24.15.0",
+    "arch": "arm64",
+    "daemonOutcome": "term",
+    "aliveAfterClientClose": false
+  },
+  "linux": {
+    "status": "passed",
+    "node": "v24.22.2",
+    "arch": "arm64",
+    "codex": "0.166.0",
+    "daemonOutcome": "term",
+    "aliveAfterClientClose": false,
+    "containerInit": true,
+    "authFilesMountedOrCopied": false,
+    "modelCalls": 0,
+    "archiveMatchesAllTrackedFiles": 332,
+    "sourceArchiveSha256": "764005817fba2c5c053c26eb48cc80f8f66487b4528c6a31a0d72240d385f6fa"
+  },
+  "normalLocalSuite": {
+    "total": 351,
+    "passed": 336,
+    "skippedOptInLive": 15,
+    "failed": 0
+  },
+  "providerCalls": 0
+}

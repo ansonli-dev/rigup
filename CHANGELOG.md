@@ -4,7 +4,9 @@ Changes to the source distribution are recorded here. There is no npm registry r
 
 ## Unreleased — 0.1.0 development preview
 
-- Fix shell quoting in review handoff commands and sensitive configuration comments/credential containers in research evidence; invalidate old exports under read policy 5.
+- Fix shell quoting in review handoff commands and sensitive configuration comments, browser sessions, credential backups and private-key material in research evidence; invalidate old exports under read policy 6.
+- Reject recognized cookie/header/query credentials and curl short authentication flags while preserving Python interpreter options.
+- Stop test-owned native daemons through verified project identity before fixture removal.
 - Fix repeated binary skill updates, mode-only resource installation, permission-aware preview/recovery/doctor checks, and absolute profile paths.
 - Fix empty standalone GitLab pipelines; verify generated jobs with a real local GitLab server and Runner, alongside clean macOS/Linux distribution checks.
 
