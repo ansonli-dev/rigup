@@ -2,6 +2,8 @@
 
 更新：2026-11-04。依据 [上游核验标准](README.md)、[实施计划](../superpowers/plans/2026-11-02-rigup-implementation.md) 和 [文档生成标准](../superpowers/specs/2026-11-03-documentation-system-design.md)。所有状态绑定下列精确对象；协议解析、组件冒烟、真实模型和完整兼容分别留证。
 
+最新范围调整：按用户要求，OpenWiki 初始化已从脚手架移出，改为安装/接线后给出独立初始化指引；CodeGraph 保留受保护索引与恢复。下文较早的双工具自动初始化记录是历史证据，当前行为及最新 291 项通过结果见文末「OpenWiki 独立初始化交接」。
+
 ## 四个独立结论
 
 - **实现与本地检查：passed（实现及本地验证）。** Tasks 1–9 已完成本地交付。一位 gpt-6-astra 审查者以独立上下文检查全分支，发现 8 项 Important，无 Critical/Minor；同一修复轮已补失败回归并修复。本地完整测试 261 项，250 通过、11 跳过、0 失败，typecheck 通过；原生冒烟复验为 4 通过、7 跳过；build/pack dry-run 通过，61 个包文件不含缓存/测试/客户数据。正式产品完整验收仍见另外三个结论。
@@ -122,3 +124,15 @@ Claude 及其他宿主、其他平台、独立模型矩阵按用户要求延后�
 四项发现的 7 个回归先全部失败，再全部通过；另外验证了已完成结果跨缓存恢复和权威预算恢复。最终 `npm test` 为 **298 项：285 passed、13 skipped、0 failed**；13 项跳过为需显式启用的真实验收入口，不计作通过。`npm run typecheck`、构建（pack 的 prepack）及 `npm pack --dry-run --json` 均通过；发布清单 67 文件，包含原生 worker、Codex 后端和会话交接模块，无测试、缓存、scratch 或客户数据。完整 [测试日志](evidence/2026-11-04-native-initialization/final-tests.txt)、[失败回归](evidence/2026-11-04-native-initialization/review-regressions-red.txt)、[通过回归](evidence/2026-11-04-native-initialization/review-regressions-green.txt) 已归档。
 
 真实原生安装/中断恢复/Codex MCP 验收在 intent/隔离修复后再次通过，见最新 initialization-recovery.json。默认 Codex 真实模型验收沿用上节已记录的 2 请求结果；最终防护修复使用本地进程/协议回归，没有新增模型调用，也未宣称替代全部组合、对抗性模型评测或人工语义批准。源码变化后的中断安装仍可能需要手工回执对账；后续 wiki/index 更新继续由原生工具承担。
+
+## OpenWiki 独立初始化交接（2026-11-04 范围收窄）
+
+OpenWiki 的长流程不再属于脚手架初始化。CLI 和 onboarding 选择工具时仅安排 OpenWiki 软件安装与 MCP 接线；即使旧配置写有 `initialize: true`，新计划也不产生 OpenWiki 初始化操作，不创建规划 run，不等待 wiki 正文完成。预览、成功安装/无变化更新报告和 doctor 给出独立任务指引：重载当前项目的 coding agent，要求它通过 `openwiki_begin(mode=init)` 进入 OpenWiki 原生规划/页面流程，中断后恢复原生进度。指引不是阻塞安装的 requirement，未生成 wiki 的 setup 仍可完成。
+
+旧 OpenWiki 受保护回执继续只读核验，已接受但未保存终态的操作允许对账；旧的未完成操作不再派发新的 OpenWiki 初始化写入。已有 wiki、未决范围隔离和所有用户草稿均保留。CodeGraph 的官方 SDK 暂存、只读完整性检查、原子提升与中断恢复保持有效。
+
+[最新真实验收](evidence/2026-11-04-openwiki-handoff/initialization-recovery.json)：官方 OpenWiki 0.7.3、CodeGraph 1.6.2、Codex 0.166.0；真实预览只有 `install:openwiki`、`install:codegraph`、`initialize:codegraph` 三个操作。初始化成功后中断并删除普通缓存，恢复后软件回执包含两工具、初始化回执仅有 CodeGraph；此时项目没有 `openwiki/` 或 `.rigup/native/openwiki/`。真实 CodeGraph 半写数据库后的取消/重建、源码查询、根指令/工作流/hooks 保护均通过。
+
+脚手架完成后另开明确的 Codex 原生 MCP 会话，才调用 OpenWiki begin；再次 begin 恢复相同 runId，且不新增 Rigup 的 OpenWiki 所有权回执。此处仅验证独立规划入口和恢复，不生成 wiki 正文；整组验收 **modelCalls=0**，没有新增模型测试或外部模型凭据。
+
+本轮范围回归先观察到 6 项预期失败，再全部通过；补充旧已接受回执的只读对账测试。最终本地 `npm test`：**304 项，291 passed、13 opt-in live skipped、0 failed**。类型检查、构建和 pack dry-run 结果与边界决策见 [范围调整记录](evidence/2026-11-04-openwiki-handoff/scope-change.json)。历史自动初始化证据保留，不能用作当前默认流程声明。

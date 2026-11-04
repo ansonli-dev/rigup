@@ -50,12 +50,12 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(tx?.previewId!==previewId)tx=undefined;
   if(tx)tx.initialized??={};
   const verifyInstalledTools=async(all=false)=>{
-   const selected=(data.plan.options.tools??[]).filter(t=>(t.install||t.initialize)&&(all||!data.plan.operations.some(o=>o.kind==='install'&&o.integrationId===t.id)));
+   const selected=(data.plan.options.tools??[]).filter(t=>(t.install||t.initialize&&(t.id==='codegraph'||!!data.oldManifest?.installedTools?.[t.id]))&&(all||!data.plan.operations.some(o=>o.kind==='install'&&o.integrationId===t.id)));
    if(!selected.length)return;const recipes=await loadUpstreamLock();
    for(const tool of selected){const receipt=tx?.receipts[tool.id]??data.oldManifest?.installedTools?.[tool.id];const recipe=recipes.find(r=>r.integrationId===tool.id);if(!receipt||!recipe||receipt.version!==recipe.version)throw new Error('selected installed tool lacks a compatible receipt; reconciliation required');const state=await queryInstalledTool(root,{prefix:'.rigup/tools/'+tool.id,id:tool.id,name:tool.id==='openwiki'?'openwiki':'@colbymchenry/codegraph',version:recipe.version,integrity:recipe.packageIntegrity,lockDigest:receipt.packageLockDigest});if(state.status!=='done')throw new Error('selected installed tool changed since preview; manual reconciliation required');}
   };
   const verifyInitializedTools=async(all=false)=>{
-   const selected=(data.plan.options.tools??[]).filter(t=>t.initialize&&(all||!data.plan.operations.some(o=>o.kind==='initialize'&&o.integrationId===t.id)));
+   const selected=(data.plan.options.tools??[]).filter(t=>(t.id==='codegraph'&&t.initialize||t.id==='openwiki'&&!!(tx?.initialized?.[t.id]??data.oldManifest?.initializedTools?.[t.id]))&&(all||!data.plan.operations.some(o=>o.kind==='initialize'&&o.integrationId===t.id)));
    if(!selected.length)return;const recipes=await loadUpstreamLock();
    for(const tool of selected){const receipt=tx?.initialized?.[tool.id]??data.oldManifest?.initializedTools?.[tool.id];const recipe=recipes.find(r=>r.integrationId===tool.id)!;const queried=await queryOperation(initializationRecipe(root,tool.id,recipe.version,recipe.packageIntegrity));if(!receipt||queried.status!=='done'||signature(queried.nativeReceipt)!==signature(receipt))throw Error('Selected native initialization changed; protected reconciliation required');}
   };

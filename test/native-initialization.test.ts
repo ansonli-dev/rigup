@@ -19,11 +19,11 @@ const options:SetupOptions={agents:['codex'],backend:'host',tools:[
  {id:'openwiki',install:true,initialize:true,agents:['codex']},
  {id:'codegraph',install:true,initialize:true,agents:['codex']},
 ]};
-test('native initialization plans closed staged operations after pinned installation',()=>project(async root=>{
+test('scaffolding installs OpenWiki and stages only CodeGraph initialization',()=>project(async root=>{
  await writeFile(root+'/AGENTS.md','User instructions stay here.\n');
  const prepared=await prepareIntegrations(await scanRepository(root,options),options);
  assert.deepEqual(prepared.operations.map(o=>[o.id,o.prerequisiteIds]),[
-  ['install:openwiki',[]],['initialize:openwiki',['install:openwiki']],
+  ['install:openwiki',[]],
   ['install:codegraph',[]],['initialize:codegraph',['install:codegraph']],
  ]);
  assert.deepEqual(prepared.requirements,[]);
@@ -39,7 +39,7 @@ test('unowned wiki and index remain untouched and are never implicitly adopted',
  await mkdir(root+'/.codegraph');await writeFile(root+'/.codegraph/config.json','Customer index configuration');
  const prepared=await prepareIntegrations(await scanRepository(root,options),options);
  assert.equal(prepared.operations.filter(o=>o.kind==='initialize').length,0);
- assert.equal(prepared.requirements.length,2);
+ assert.equal(prepared.requirements.length,1);
  assert.equal(await readFile(root+'/openwiki/quickstart.md','utf8'),'Customer wiki');
  assert.equal(await readFile(root+'/.codegraph/config.json','utf8'),'Customer index configuration');
 }));
@@ -48,19 +48,19 @@ test('native initialization rejects unsafe target and staging ancestors',()=>pro
  await mkdir(root+'/.rigup',{recursive:true});await symlink(outside,root+'/.rigup/native');
  const prepared=await prepareIntegrations(await scanRepository(root,options),options);
  assert.equal(prepared.operations.filter(o=>o.kind==='initialize').length,0);
- assert.equal(prepared.requirements.length,2);
+ assert.equal(prepared.requirements.length,1);
 })));
 test('registering an unverified external binary does not authorize initialization',()=>project(async root=>{
- const opts:SetupOptions={...options,tools:[{id:'openwiki',install:false,initialize:true,agents:['codex']}]};
+ const opts:SetupOptions={...options,tools:[{id:'codegraph',install:false,initialize:true,agents:['codex']}]};
  const prepared=await prepareIntegrations(await scanRepository(root,opts),opts);
  assert.equal(prepared.operations.length,0);
  assert.match(prepared.requirements[0]?.reason??'',/pinned project installation/);
 }));
 async function nativePlan(root:string):Promise<SetupPlan>{const profile=await scanRepository(root,options);const prepared=await prepareIntegrations(profile,options);return {root,fingerprint:profile.fingerprint,options,assets:prepared.assets,operations:prepared.operations,requirements:prepared.requirements,warnings:prepared.warnings,versions:{},dispositions:[]};}
-test('preview authorizes both staged initialization operations without source writes',()=>project(async root=>project(async cache=>{
+test('preview authorizes staged CodeGraph initialization without OpenWiki generation',()=>project(async root=>project(async cache=>{
  const plan=await nativePlan(root);const p=await preview(plan,[],{cacheRoot:cache});
  assert.equal(p.executable,true,p.blockers.join('\n'));
- assert.equal(p.operations.filter(o=>o.kind==='initialize').length,2);
+ assert.equal(p.operations.filter(o=>o.kind==='initialize').length,1);
 })));
 test('preview refuses missing or reordered initialization dependencies',()=>project(async root=>project(async cache=>{
  const plan=await nativePlan(root);plan.operations=plan.operations.filter(o=>o.kind!=='install');

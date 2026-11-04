@@ -13,6 +13,7 @@ import {acquireLock} from './lock.js';
 import {agents} from '../integrations/agents/index.js';
 import {initializationRecipe} from '../integrations/tools/initialization.js';
 import {signature} from '../generator/cache.js';
+import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 export interface DoctorOptions {runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
 export interface Diagnostic {category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
 export async function doctor(root:string,options:DoctorOptions={}):Promise<InstallReport&{diagnostics:Diagnostic[]}>{
@@ -43,7 +44,8 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   const nativeReceipt=manifest.initializedTools?.[tool.id];
   const native=nativeReceipt?await queryOperation(initializationRecipe(root,tool.id,recipe.version,recipe.packageIntegrity)):undefined;
   const initialized=native?.status==='done'&&signature(native.nativeReceipt)===signature(nativeReceipt);
-  add('tools',tool.id+':initialization',initialized?'initialized':'pending',initialized?native!.message:'Native initialization unavailable or ownership/state changed; no initialization or repair executed');
+  const initializationReason=initialized?native!.message:tool.id==='openwiki'?(nativeReceipt?'Existing native ownership/state needs reconciliation. ':'')+openwikiInitializationGuide:'Native initialization unavailable or ownership/state changed; no initialization or repair executed';
+  add('tools',tool.id+':initialization',initialized?'initialized':'pending',initializationReason);
  }
  if(options.runChecks?.length){const lock=await acquireLock(root,{stateRoot:options.stateRoot});try{await assertNoUnknownWriters(root,lock.stateRoot);report.checks=await runProjectChecks(await scanRepository(root,selected),options.runChecks,options.signal);}finally{await lock.release();}}
  for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??'Actual selected command result; separate from installation status');

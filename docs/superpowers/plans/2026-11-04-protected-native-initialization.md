@@ -70,3 +70,7 @@
 - [x] Run focused tests, `npm test`, typecheck/build/pack and one small real Codex research→generation→apply→unchanged update case using the current default model. Expected PASS with actual observed usage and no extra API credential.
 - [x] Commit `feat: complete the local Codex research mainline`.
 - [x] Run one fresh-context whole-change review as required by executing-plans. Re-grade findings, fix Important/Critical findings in one RED→GREEN pass, run the suite, archive rulings and remove only this plan's scratch workspace. Keep the branch for review without merge/push.
+
+## Subsequent scope correction
+
+2026-11-04: The user narrowed scaffold initialization after this plan completed. OpenWiki now receives software installation, MCP registration and a nonblocking guide for user-run native initialization; new OpenWiki initialization writes are no longer dispatched, including requests from old configurations. Existing accepted effects remain queryable for recovery. CodeGraph protected initialization/recovery remains enabled. The four completed tasks and their evidence above describe the earlier implementation; the current boundary and real acceptance are recorded in `docs/compatibility/verification.md` under OpenWiki independent initialization handoff.

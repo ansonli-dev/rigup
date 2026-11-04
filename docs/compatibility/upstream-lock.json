@@ -431,13 +431,21 @@
           "entryPath": "package/dist/cli/commands.js",
           "digest": "sha256:bac1931e99932e8734b41824d1703fcfc425509df1c0dfd1148f22c6cdda0351",
           "supports": "Published artifact registry and --host parser verified independently of repository HEAD"
+        },
+        {
+          "url": "https://registry.npmjs.org/openwiki/-/openwiki-0.7.3.tgz",
+          "revision": "npm:openwiki@0.7.3",
+          "verifiedAt": "2026-11-04",
+          "entryPath": "package/README.md",
+          "digest": "sha256:380524d136808e608bfb806d5fd2d50ee780da0df3d0c1570b33a33b3492bd4a",
+          "supports": "Published quick-start: restart host, request repository wiki initialization; host-driven native MCP lifecycle persists page progress."
         }
       ],
       "runtime": {
         "node": ">=22.22.0",
         "platforms": "software install recipe currently POSIX; other platforms pending",
-        "installationScope": "project preferred; no automatic software installation enabled",
-        "initializationRuntime": "Rigup Node >=24, pinned published SDK; darwin-arm64 verified; other platforms unverified"
+        "installationScope": "optional pinned installation in a new empty project prefix; no automatic global changes",
+        "initializationRuntime": "Separate user-run native host lifecycle; legacy accepted state can be queried read-only with Rigup Node >=24"
       },
       "entries": {},
       "operations": [
@@ -473,18 +481,6 @@
           "protection": "new empty scope only; reject existing nonempty scope; recheck before dispatch",
           "timeoutMs": 300000,
           "reconciliation": "read package metadata and lock integrity; incomplete or unknown operations require reconciliation before retry"
-        },
-        {
-          "id": "initialize:openwiki",
-          "kind": "initialize",
-          "entry": "Pinned published HostSessionManager.begin(init), host=codex",
-          "declaredWrites": [
-            "openwiki",
-            ".rigup/native/openwiki"
-          ],
-          "protection": "New empty live target and staging only. Existing unowned state is preserved. Native state is generated in staging, fsynced, ownership marker durably stored, then directory atomically promoted. Root agent instructions, scheduled workflow and Git hooks are never written by Rigup initialization.",
-          "timeoutMs": 300000,
-          "reconciliation": "Confirm previous process group exited; query native checkpoint/index completeness and promotion identity; resume or rebuild only unpublished owned staging. Durable preview and distinct software/initialization receipts survive ordinary cache deletion."
         }
       ],
       "projectionRules": [],
@@ -510,7 +506,7 @@
           "path": "docs/compatibility/evidence/2026-11-03-openwiki-help-non-tty-error.txt"
         },
         {
-          "capability": "Rigup protected initialization, accepted-state/cache-loss recovery, partial CodeGraph writer cancellation and recovery, Codex native MCP discovery/call and OpenWiki run resume",
+          "capability": "Historical protected OpenWiki planning initialization/recovery before the user moved it out of scaffold scope; not the current default behavior",
           "status": "passed",
           "path": "docs/compatibility/evidence/2026-11-04-native-initialization/initialization-recovery.json"
         },
@@ -518,13 +514,40 @@
           "capability": "Exact repository and published-artifact SDK write boundary inspection",
           "status": "passed",
           "path": "docs/compatibility/evidence/2026-11-04-native-initialization/source-boundaries.json"
+        },
+        {
+          "capability": "Scaffold completes without OpenWiki native initialization; separate Codex MCP begin/resume after setup, modelCalls=0",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-04-openwiki-handoff/initialization-recovery.json"
         }
       ],
       "pending": [
         "Software installation availability must be verified separately from package metadata",
         "Claude/OpenCode/OMP native tool MCP acceptance and other-platform initialization remain deferred/unverified; Codex darwin-arm64 acceptance is passed"
       ],
-      "packageIntegrity": "sha512-E5kOUcST7kD7ebX9rJZ4wHfyBAsc58VkvMskEdEKBYw3m1IJ9vFt4Pouk0NkJ3gvEDteHkXEqNGI+oMb+OAwFg=="
+      "packageIntegrity": "sha512-E5kOUcST7kD7ebX9rJZ4wHfyBAsc58VkvMskEdEKBYw3m1IJ9vFt4Pouk0NkJ3gvEDteHkXEqNGI+oMb+OAwFg==",
+      "legacyInitialization": {
+        "operations": [
+          {
+            "id": "initialize:openwiki",
+            "kind": "initialize",
+            "entry": "Pinned published HostSessionManager.begin(init), host=codex",
+            "declaredWrites": [
+              "openwiki",
+              ".rigup/native/openwiki"
+            ],
+            "protection": "New empty live target and staging only. Existing unowned state is preserved. Native state is generated in staging, fsynced, ownership marker durably stored, then directory atomically promoted. Root agent instructions, scheduled workflow and Git hooks are never written by Rigup initialization.",
+            "timeoutMs": 300000,
+            "reconciliation": "Confirm previous process group exited; query native checkpoint/index completeness and promotion identity; resume or rebuild only unpublished owned staging. Durable preview and distinct software/initialization receipts survive ordinary cache deletion."
+          }
+        ],
+        "policy": "Historical accepted effects are queried read-only for recovery; new or repeated OpenWiki initialization writes are not dispatched by scaffolding."
+      },
+      "initialization": {
+        "mode": "user-run after scaffold setup",
+        "scaffoldScope": "Pinned software installation and host MCP registration only; no native planning run or wiki generation.",
+        "handoff": "Reload the selected coding agent in the repository, then request OpenWiki MCP initialization starting with openwiki_begin(mode=init); resume native progress if interrupted."
+      }
     },
     {
       "integrationId": "codegraph",
@@ -636,6 +659,11 @@
           "capability": "Exact repository and published-artifact SDK write boundary inspection",
           "status": "passed",
           "path": "docs/compatibility/evidence/2026-11-04-native-initialization/source-boundaries.json"
+        },
+        {
+          "capability": "Protected CodeGraph initialization/cache-loss recovery/partial writer recovery while OpenWiki initialization stays outside scaffolding",
+          "status": "passed",
+          "path": "docs/compatibility/evidence/2026-11-04-openwiki-handoff/initialization-recovery.json"
         }
       ],
       "pending": [

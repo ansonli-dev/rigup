@@ -7,7 +7,7 @@ import {dirname,isAbsolute,resolve} from 'node:path';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
 import {collectCustomSkill} from './custom-skills.js';
 import {renderCustomerTemplate} from './custom-templates.js';
-import {openwiki} from './tools/openwiki.js';
+import {openwiki,openwikiInitializationGuide} from './tools/openwiki.js';
 import {codegraph} from './tools/codegraph.js';
 import type {Ownership} from '../managed-input.js';
 import {superpowers} from './sdd/superpowers.js';
@@ -103,7 +103,8 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
    else if('reused' in prepared) {installed=true;warnings.push(tool.id+': reuse receipted project installation '+prepared.version);}
    else if(selection.install) operations.push(prepared);
   }
-  if(selection.initialize) {
+  if(selection.id==='openwiki')warnings.push(openwikiInitializationGuide);
+  else if(selection.initialize) {
    const prepared=await prepareNativeInitialization(profile.root,selection.id,recipe.version,recipe.packageIntegrity,{installed,prerequisiteIds:operations.filter(o=>o.id==='install:'+selection.id).map(o=>o.id),receipt:profile.initializedTools?.[tool.id]});
    if('pending' in prepared){warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}else if('reused' in prepared)warnings.push(tool.id+': verified native initialization reused');else operations.push(prepared);
   }

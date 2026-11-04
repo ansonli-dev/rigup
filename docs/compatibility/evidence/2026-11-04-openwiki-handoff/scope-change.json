@@ -1,0 +1,108 @@
+{
+  "caseId": "scaffold-scope/openwiki-independent-initialization",
+  "status": "passed",
+  "recordedAt": "2026-11-04T15:20:07.270133+00:00",
+  "baseRevision": "b41ca9f",
+  "request": "Keep long-running OpenWiki initialization outside scaffold setup and guide the user to run it separately.",
+  "scope": {
+    "openwiki": [
+      "pinned optional project software installation",
+      "selected host MCP registration",
+      "nonblocking separate initialization/resume guide"
+    ],
+    "codegraph": "existing protected initialization and recovery retained",
+    "legacyOpenWiki": "query accepted effects without a new native dispatch; preserve receipts, user wiki and pending-state quarantine"
+  },
+  "regressions": {
+    "command": "node --import tsx --test test/openwiki-handoff.test.ts test/cli.test.ts",
+    "before": {
+      "tests": 19,
+      "pass": 13,
+      "fail": 6,
+      "skipped": 0,
+      "cancelled": 0
+    },
+    "after": {
+      "tests": 19,
+      "pass": 19,
+      "fail": 0,
+      "skipped": 0,
+      "cancelled": 0
+    },
+    "additionalCompatibilityCase": "Already accepted legacy OpenWiki initialization reconciles read-only; included in final full suite."
+  },
+  "verification": {
+    "fullSuite": {
+      "command": "npm test",
+      "exitCode": 0,
+      "counts": {
+        "tests": 304,
+        "pass": 291,
+        "fail": 0,
+        "skipped": 13,
+        "cancelled": 0
+      },
+      "skips": "Opt-in real acceptance entry points; not counted as passed"
+    },
+    "typecheck": {
+      "command": "npm run typecheck",
+      "exitCode": 0
+    },
+    "build": {
+      "command": "npm run build via prepack",
+      "exitCode": 0
+    },
+    "package": {
+      "command": "npm pack --dry-run --json --cache /private/tmp/rigup-native-pack-cache",
+      "exitCode": 0,
+      "files": 67,
+      "noTestsCachesScratchOrCustomerData": true
+    },
+    "live": {
+      "command": "RIGUP_LIVE_NATIVE=1 RIGUP_LIVE_CODEX=1 node --import tsx --test test/live-native-initialization.test.ts",
+      "exitCode": 0,
+      "evidence": "initialization-recovery.json",
+      "modelCalls": 0,
+      "scope": "Real pinned install, CodeGraph cache-loss/partial-writer recovery, absence of OpenWiki native writes at scaffold completion, separate Codex MCP begin/resume."
+    }
+  },
+  "sourceSha256": {
+    "src/cli.ts": "62fca0198a058337b7cf693c98bbac840ee833cbf0ec6759f3befb49e3f7ed32",
+    "src/onboarding.ts": "53a544a7c7d3141a3e664868c02cb4e9f758b4cac4c8679890b28251c58f9d92",
+    "src/installer/apply.ts": "51346a2b26421a3f993915536ed49b306ed84e9cc460e2a34b4694b7df1b53d4",
+    "src/installer/doctor.ts": "8eb25b79bf21110ebde14a2e1b8b11082c6993354b7d7cfeb56fe22cebcaec6f",
+    "src/installer/operations.ts": "a3478af3d170f0ae947c19d45f7644e308430f34dd5430d2a7ca8d1779d3477e",
+    "src/integrations/registry.ts": "04de0942358842c3134fe9e9b3a9088a244965e86283bdea7faf52612a546316",
+    "src/integrations/tools/openwiki.ts": "77fef86b84e90f040ccaa780d9c5018809efd508aaf948eefd5ead7f6b25c766",
+    "test/openwiki-handoff.test.ts": "88a0e58c1dfc40b1ae4fa884c6bcaea05dcc7dd042017d876bbce5069dd6eeb3",
+    "test/cli.test.ts": "ee71e019c06881ebd25e82581442b00320e4b81ccb4261c3a299a50915a14127",
+    "test/native-initialization.test.ts": "9b6b5d32d6ba9ba00dea48f4f4a5925dca6e90abf063f99c51e55b7eb4daabfb",
+    "test/native-review.test.ts": "cbc80fe8d259f37df5c38dfe004513b7a1e39e0b6dc5ef8629c929e8df0d1e6e",
+    "test/live-native-initialization.test.ts": "51346ca0d93976fe15513816cb24a0097991b700059dd196fe2120562e84f16e",
+    "test/native-tools-support.ts": "1545bd34f42c8e131953df212fd56df4950e2856dcb8be022cd089436778ddc9"
+  },
+  "localLogSha256": {
+    "red.log": "4989d85da06294edfb693c3c3df3e26305a7ea36929495b0a8f9abad8f2be750",
+    "green.log": "ba679c2c4288954c213d9a52deb8b67207fdbab571763636655b1646f7648d2e",
+    "final-tests.log": "cefe9312d8430e05272e74b81b20814c6e9d5fab3e0205d5926c32de5c64c961",
+    "live.log": "1449313e0f9469f0485e7627fd4fc6af331f39d807707cfec0b1184ec14788b1"
+  },
+  "decisions": [
+    {
+      "decision": "Narrow OpenWiki generation only; retain CodeGraph protected indexing.",
+      "reason": "The user named the long OpenWiki lifecycle as outside scaffolding.",
+      "limit": "CodeGraph indexing remains opt-in through tool selection and initialize configuration."
+    },
+    {
+      "decision": "Do not redispatch unfinished legacy OpenWiki initialization.",
+      "reason": "The new scope must also apply to old previews/configuration; accepted existing results can still reconcile.",
+      "limit": "An unfinished old installation may require native/manual reconciliation before the scaffold can finish."
+    }
+  ],
+  "limitations": [
+    "Only the independent native OpenWiki planning entry and resume were exercised; wiki pages were not generated.",
+    "Other hosts, alternate models and remote environments remain deferred; no new model calls were made.",
+    "Native initialization status remains pending in doctor until it can be verified; this does not block successful scaffold installation."
+  ],
+  "history": "Previous automatic OpenWiki initialization evidence and review records remain unchanged and are explicitly historical; the new user scope supersedes that default."
+}

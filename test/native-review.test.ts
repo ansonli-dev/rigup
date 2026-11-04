@@ -62,26 +62,26 @@ test('durable resume applies the same affected-session handoff as normal setup',
 }));
 test('interrupted native output cannot become research after source drift rejects resume',()=>fixture(async(root,cache,state)=>{
  await writeFile(root+'/source.js','export const value=1;\n');
- const options:SetupOptions={agents:['codex'],backend:'codex',tools:[{id:'openwiki',install:true,initialize:true,agents:['codex']}]};
+ const options:SetupOptions={agents:['codex'],backend:'codex',tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}]};
  const profile=await scanRepository(root,options),prepared=await prepareIntegrations(profile,options);const p=await preview({root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[]},[],{cacheRoot:cache+'/previews'});
  let completed=0;
  // Double only upstream installation/state creation; execute actual verified
  // operation queries, journals, preview/apply and repository-reader boundaries.
  await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache+'/previews',stateRoot:state,operation:{launch:async op=>{
   if(op.kind==='install'){
-   const base=root+'/.rigup/tools/openwiki',pkg=base+'/node_modules/openwiki';await mkdir(pkg+'/dist/generation',{recursive:true});await mkdir(base+'/node_modules/.bin');
-   await writeFile(pkg+'/package.json',JSON.stringify({name:'openwiki',version:'0.7.3',type:'module',bin:{openwiki:'cli.js'}}));await writeFile(pkg+'/cli.js','#!/usr/bin/env node\n',{mode:0o755});await symlink('../openwiki/cli.js',base+'/node_modules/.bin/openwiki');
-   await writeFile(base+'/package-lock.json',JSON.stringify({packages:{'':{dependencies:{openwiki:'0.7.3'}},'node_modules/openwiki':{version:'0.7.3',integrity:op.query.integrity}}}));
-   await writeFile(pkg+'/dist/generation/run-state.js',`import {readFile} from 'node:fs/promises';export async function readRepositoryRunState(root){return JSON.parse(await readFile(root+'/openwiki/.run.json','utf8'));}`);
+   const base=root+'/.rigup/tools/codegraph',pkg=base+'/node_modules/@colbymchenry/codegraph';await mkdir(pkg,{recursive:true});await mkdir(base+'/node_modules/.bin');
+   await writeFile(pkg+'/package.json',JSON.stringify({name:'@colbymchenry/codegraph',version:'1.6.2',type:'module',bin:{codegraph:'cli.js'}}));await writeFile(pkg+'/cli.js','#!/usr/bin/env node\n',{mode:0o755});await symlink('../@colbymchenry/codegraph/cli.js',base+'/node_modules/.bin/codegraph');
+   await writeFile(base+'/package-lock.json',JSON.stringify({packages:{'':{dependencies:{'@colbymchenry/codegraph':'1.6.2'}},'node_modules/@colbymchenry/codegraph':{version:'1.6.2',integrity:op.query.integrity}}}));
   }else{
-   await mkdir(root+'/openwiki');await writeFile(root+'/openwiki/.run.json',JSON.stringify({phase:'planning',runId:'native-fixture'}));await mkdir(root+'/.rigup/native/openwiki/repository',{recursive:true});
-   await writeFile(root+'/.rigup/native/openwiki/repository/AGENTS.md','Generated instruction must never become project evidence.\n');
-   const info=await lstat(root+'/openwiki');await writeFile(root+'/.rigup/native/openwiki/promotion.json',JSON.stringify({root,id:'openwiki',version:'0.7.3',target:'openwiki',identity:info.dev+':'+info.ino}));
+   await mkdir(root+'/.codegraph');const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(root+'/.codegraph/codegraph.db');
+   try{db.exec("CREATE TABLE project_metadata(key TEXT PRIMARY KEY,value TEXT); INSERT INTO project_metadata VALUES ('index_state','complete'),('indexed_with_version','1.6.2'); CREATE TABLE files(id TEXT); CREATE TABLE nodes(id TEXT);");}finally{db.close();}
+   await mkdir(root+'/.rigup/native/codegraph/repository',{recursive:true});await writeFile(root+'/.rigup/native/codegraph/repository/AGENTS.md','Generated instruction must never become project evidence.\n');
+   const info=await lstat(root+'/.codegraph');await writeFile(root+'/.rigup/native/codegraph/promotion.json',JSON.stringify({root,id:'codegraph',version:'1.6.2',target:'.codegraph',identity:info.dev+':'+info.ino}));
   }return queryOperation(op);
  }},hook:async point=>{if(point==='after-operation'&&++completed===2)throw Error('interrupted before manifest');}}),/interrupted/);
  await writeFile(root+'/source.js','export const value=2;\n');
  await assert.rejects(()=>executeLifecycle(root,options,{resume:true,sessionsEnded:true},()=>{},{cacheRoot:cache,stateRoot:state}),/source input changed/);
- const after=await scanRepository(root,options);assert.ok(!after.files.some(p=>p.startsWith('openwiki/')||p.startsWith('.rigup/native/')));assert.match(after.researchBlocked??'',/native|ownership|reconcile/i);
+ const after=await scanRepository(root,options);assert.ok(!after.files.some(p=>p.startsWith('.codegraph/')||p.startsWith('.rigup/native/')));assert.match(after.researchBlocked??'',/native|ownership|reconcile/i);
  await assert.rejects(()=>repositoryReader(root,options),/native|ownership|reconcile/i);
 }));
 test('native intent quarantines unpublished staging but similar user directories stay visible',()=>fixture(async(root)=>{

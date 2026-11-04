@@ -9,6 +9,7 @@ import {loadUpstreamLock} from '../integrations/registry.js';
 import {prepareSoftwareInstall} from '../integrations/tools/software.js';
 import {initializationRecipe,emptyNativeScope,type NativeTool} from '../integrations/tools/initialization.js';
 import {queryNativeInitialization,resumableNativeOperation,nativeEnvironment} from '../integrations/tools/native-state.js';
+import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 export interface OperationResult {status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:{version:string;packageLockDigest:string};nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:ProcessIdentity;result?:OperationResult}
 export interface OperationDependencies {stateRoot?:string;authorizationRef?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
@@ -46,6 +47,9 @@ export async function executeOperation(operation:SetupOperation,dependencies:Ope
    if(!await resumableNativeOperation(operation))return {status:'unknown',message:'Prior dispatch may have happened; manual reconciliation required before retry'};
   }
  }
+ // Previously accepted OpenWiki effects can still be queried above. Starting
+ // or repeating its generation belongs to the user's separate native session.
+ if(operation.kind==='initialize'&&operation.integrationId==='openwiki')return {status:'pending',message:openwikiInitializationGuide};
  if(operation.kind==='install'){
   const expected=await prepareSoftwareInstall(root,operation.integrationId as NativeTool,recipe.version,recipe.packageIntegrity);
   if('pending' in expected||'reused' in expected||signature(expected)!==key)return {status:'pending',message:'Operation protection or parameters differ from verified recipe'};

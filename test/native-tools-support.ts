@@ -19,7 +19,8 @@ export async function codexNativeTools(root:string,control:string){
   const names=servers.data.map((s:any)=>({name:s.name,tools:Object.keys(s.tools??{})}));
   const search=await request('mcpServer/tool/call',{threadId,server:'codegraph',tool:'codegraph_explore',arguments:{query:'createOrder',projectPath:root}});
   const begin=await request('mcpServer/tool/call',{threadId,server:'openwiki',tool:'openwiki_begin',arguments:{root,mode:'init'}});
-  return {version,servers:names,search,begin,modelCalls:0};
+  const resume=await request('mcpServer/tool/call',{threadId,server:'openwiki',tool:'openwiki_begin',arguments:{root,mode:'init'}});
+  return {version,servers:names,search,begin,resume,modelCalls:0};
  }catch(error){throw Error((error as Error).message+'; Codex stderr: '+stderr);}
  finally{
   for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('Codex fixture closed'));}pending.clear();

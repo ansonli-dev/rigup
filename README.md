@@ -99,9 +99,21 @@ node dist/cli.js update /path/to/project --apply PREVIEW_ID --sessions-ended --j
 
 崩溃后使用 `rigup update /path/to/project --resume` 对账。已批准的中断预览有独立持久副本，普通候选缓存删除后也能恢复；恢复 apply 不要求重新提供研究模型凭据。活动进程或未确认结果仍会阻止后续写入。普通缓存丢失不能清除持久未决状态；无可信基线时保留冲突。状态目录为 `~/.local/state/rigup/`，普通候选/请求在 `~/.cache/rigup/`。不要通过删除持久状态来绕过未确认的写进程。
 
-当前自动软件安装仅针对锁定的 OpenWiki/CodeGraph，位于新的空 `.rigup/tools/<id>/` 范围，禁用 npm lifecycle scripts，并验证包、依赖树、launcher 和安装回执。`--tools openwiki,codegraph` 同时规划受保护原生初始化：官方接口先写入空暂存区，验证后原子提升工具状态。已有非空用户状态不被接管；软件回执与初始化回执分别保存。OpenWiki 初始化到可由 Codex 恢复的规划 run，不能据此声称全部 wiki 正文已生成。根 agent 指令、计划工作流和 Git hooks 不由该初始化覆盖。无法证明安全的既有状态保持待对账；Superpowers+OMP 的绑定也尚未验证。没有已验证部署适配器时不安装 `change-release`。
+当前自动软件安装仅针对锁定的 OpenWiki/CodeGraph，位于新的空 `.rigup/tools/<id>/` 范围，禁用 npm lifecycle scripts，并验证包、依赖树、launcher 和安装回执。`--tools openwiki,codegraph` 为 OpenWiki 安装软件并登记 MCP，为 CodeGraph 另行规划受保护索引：官方接口先写入空暂存区，验证后原子提升索引。已有非空用户状态不被接管；软件回执与 CodeGraph 初始化回执分别保存。根 agent 指令、计划工作流和 Git hooks 不由自动索引覆盖。无法证明安全的既有状态保持待对账；Superpowers+OMP 的绑定也尚未验证。没有已验证部署适配器时不安装 `change-release`。
 
-原生生成开始前就保存初始化意图；manifest 尚未提交时，已知生成区同样被隔离，避免中断产物回流成研究依据。中断期间源码变化会拒绝旧预览，需先对账再重新准备；不会自动认领同名用户目录来绕过该边界。
+OpenWiki 的完整研究和 wiki 生成可能耗时较长，由用户在脚手架完成后单独发起。Rigup 不创建 OpenWiki 规划 run、不等待 wiki 生成，也不把它作为脚手架安装的完成条件。旧配置中的 OpenWiki `initialize: true` 同样只给出独立操作指引；已成功的旧初始化允许只读对账，未完成的旧操作不会自动重新派发。
+
+安装完成后，在本项目重启 Codex（或所选 coding agent），确认 OpenWiki MCP 已加载，再发起独立任务：
+
+```text
+使用 OpenWiki MCP，根据当前源码和测试初始化本仓库的 wiki。
+从 openwiki_begin（mode=init）开始，按原生流程完成规划、逐页生成和收尾。
+如果已有未完成的运行，恢复已有进度。
+```
+
+该任务的运行时间和模型消费由单独会话承担，进度由 OpenWiki 原生机制保存；初始化是否完成以 OpenWiki 的实际状态为准。脚手架预览、安装报告和 doctor 都会提供这一步指引，未生成 wiki 不会阻塞安装。doctor 仍会如实将尚未核实的原生初始化标为 pending。
+
+自动原生索引开始前就保存初始化意图；manifest 尚未提交时，已知生成区同样被隔离，避免中断产物回流成研究依据。中断期间源码变化会拒绝旧预览，需先对账再重新准备；不会自动认领同名用户目录来绕过该边界。旧 OpenWiki 回执和未决记录的隔离保护继续保留。
 
 ## 工程检查与报告
 
