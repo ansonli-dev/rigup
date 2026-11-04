@@ -1,19 +1,20 @@
 import {parse as parseToml} from 'smol-toml';
 import {parseTree,createScanner,SyntaxKind,type Node,type ParseError} from 'jsonc-parser';
 import {parseDocument,Parser,isMap,isSeq,isScalar,isAlias} from 'yaml';
-import {basename,extname} from 'node:path';
-export const READ_POLICY_VERSION='5';
-export const secretName=/(^\.env($|\.)|^(?:\.netrc|_netrc|\.git-credentials|\.npmrc|\.pypirc|\.pgpass|\.dockercfg)$|\.(pem|key|p12|pfx|keystore)$|credentials|id_rsa|id_ed25519)/i;
-const sensitive=/token|password|passwd|secret|credential|authorization|api[-_]?key|private[-_]?key|^(?:auth|authentication|creds)$/i;
+import {extname} from 'node:path';
+export const READ_POLICY_VERSION='6';
+export const secretName=/(^\.env($|\.)|^(?:\.auth|\.netrc|_netrc|\.git-credentials|\.npmrc|\.pypirc|\.pgpass|\.dockercfg)(?:[.~].*)?$|\.(pem|key|p12|pfx|keystore)(?:\.(?:bak|old|backup|orig|save|tmp)|~)?$|credentials|id_rsa|id_ed25519)/i;
+const sensitive=/token|password|passwd|secret|credential|authorization|api[-_]?key|private[-_]?key|^(?:auth|authentication|creds|cookies?|localStorage|sessionStorage)$/i;
 const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|credentials?)$/i;
 const credentialAssignment=/(?:token|password|passwd|secret|credentials?|creds|authorization|api[-_]?key|private[-_]?key)[\w-]*["']?\s*[:=]|(?:^|[\s"'])auth(?:entication)?["']?\s*[:=]/i;
 function redactComment(token:string):string {
- if(!sensitive.test(token)&&!credentialAssignment.test(token)&&! /\b(?:auth(?:entication)?|api\s+key|private\s+key|access\s+key)\b/i.test(token))return token;
+ if(!sensitive.test(token)&&!credentialAssignment.test(token)&&! /\b(?:auth(?:entication)?|cookies?|localStorage|sessionStorage|api\s+key|private\s+key|access\s+key)\b/i.test(token))return token;
  const prefix=token.startsWith('/*')?'/*':token.startsWith('//')?'//':'#';
  return prefix+' [REDACTED]'+(token.match(/\r\n|\r|\n/g)??[]).join('')+(prefix==='/*'?' */':'');
 }
 export function filterContent(path:string,raw:string):string {
- if(secretName.test(basename(path))) throw new Error('sensitive file denied');
+ if(path.split(/[\\/]/).some(part=>secretName.test(part))) throw new Error('sensitive file denied');
+ if(/-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/.test(raw))throw Error('private key material denied');
  if(raw.includes('\0')) throw new Error('binary file denied');
  const extension=extname(path).toLowerCase();
  let text=raw;
