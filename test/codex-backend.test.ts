@@ -8,6 +8,7 @@ import type {ResearchRequest} from '../src/analyzer/backend.js';
 async function fixture(fn:(root:string,cache:string,request:ResearchRequest,reader:Awaited<ReturnType<typeof repositoryReader>>)=>Promise<void>){await project(async root=>project(async cache=>{
  await writeFile(root+'/source.js','export function createOrder(id) { return {id}; }\n');
  await writeFile(root+'/config.yaml','auth:\n  password: should-never-leave\n');
+ await writeFile(root+'/yarn.lock','LOCK_BODY_IN_CODEX_PROMPT must not be repeated\n');
  const options={agents:['codex' as const],backend:'codex' as const};
  const profile=await scanRepository(root,options);
  const request:ResearchRequest={kind:'analyze',runId:'fixture-codex',root,fingerprint:profile.fingerprint,options,versions:{prompt:'4',read:'4'},budget:{maxCalls:3,maxTokens:10000},previousInventoryDigest:'none',templateSourcesDigest:'none'};
@@ -24,6 +25,7 @@ test('Codex receives only filtered evidence in a private cwd and cached acceptan
  const backend=await createBackend({cacheRoot:cache,onUsage:async(u:any)=>{usage.push(u);},invoke:async(input:any)=>{
   calls++;assert.ok(!input.cwd.startsWith(root+'/'));assert.notEqual(input.cwd,root);assert.deepEqual(await readdir(input.cwd),[]);
   assert.doesNotMatch(input.prompt,/should-never-leave/);assert.match(input.prompt,/createOrder/);
+  assert.doesNotMatch(input.prompt,/LOCK_BODY_IN_CODEX_PROMPT/);assert.match(input.prompt,/omittedEvidence/);
   for(const feature of ['shell_tool','unified_exec','apps','multi_agent','browser_use'])assert.ok(input.args.some((v:string,i:number)=>v==='--disable'&&input.args[i+1]===feature));
   assert.ok(input.args.includes('--ignore-user-config'));assert.ok(!input.args.includes('--model'));
   return result();
@@ -36,6 +38,7 @@ test('failed Codex attempts are charged before dispatch and never silently repea
  let calls=0;const usage:any[]=[];const backend=await createBackend({cacheRoot:cache,onUsage:async(u:any)=>{usage.push(u);},invoke:async()=>{calls++;throw Error('private transport failure');}});
  await assert.rejects(()=>backend.run(request,reader),/Codex|attempt/);assert.deepEqual(usage[0],{calls:1,tokens:'unknown'});
  await assert.rejects(()=>backend.run(request,reader),/unresolved|attempt|reconcile/);assert.equal(calls,1);
+ await assert.rejects(()=>backend.run({...request,kind:'artifact-plan',expectedOutput:'plan'},reader),/budget|unknown/);assert.equal(calls,1);
 }));
 test('corrupt Codex usage ledger cannot reset an already charged budget',()=>fixture(async(root,cache,request,reader)=>{
  const backend=await createBackend({cacheRoot:cache,invoke:async()=>result()});await backend.run(request,reader);
