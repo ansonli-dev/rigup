@@ -1,8 +1,18 @@
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {mkdir,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 const exec=promisify(execFile);
+export async function stopFixtureCodeGraph(root:string){
+ const registry=join(root,'.rigup/tools/codegraph/node_modules',`@colbymchenry/codegraph-${process.platform}-${process.arch}`,'lib/dist/mcp/daemon-registry.js');
+ const native=await import(pathToFileURL(registry).href);
+ const result=await native.stopDaemonAt(root,{preserveUnverified:true});
+ if(['unverified','still-running'].includes(result.outcome))throw Error('Native fixture daemon shutdown not verified; preserve project and identity records');
+ return result;
+}
 export async function codexNativeTools(root:string,control:string){
+ const cleanup:{daemon?:unknown}={};
  const home=control+'/codex-home';await mkdir(home,{mode:0o700});await writeFile(home+'/config.toml','approval_policy = "never"\nsandbox_mode = "workspace-write"\n[projects.'+JSON.stringify(root)+']\ntrust_level = "trusted"\n');
  const version=(await exec('codex',['--version'])).stdout.trim();
  const child=spawn('codex',['app-server'],{cwd:root,env:{PATH:process.env.PATH,HOME:home,CODEX_HOME:home,XDG_CONFIG_HOME:home,NO_COLOR:'1',LANG:'en_US.UTF-8',DO_NOT_TRACK:'1',OPENWIKI_TELEMETRY_DISABLED:'1',CODEGRAPH_NO_DAEMON:'1',CODEGRAPH_NO_DOWNLOAD:'1'},detached:true,stdio:['pipe','pipe','pipe']});
@@ -20,11 +30,12 @@ export async function codexNativeTools(root:string,control:string){
   const search=await request('mcpServer/tool/call',{threadId,server:'codegraph',tool:'codegraph_explore',arguments:{query:'createOrder',projectPath:root}});
   const begin=await request('mcpServer/tool/call',{threadId,server:'openwiki',tool:'openwiki_begin',arguments:{root,mode:'init'}});
   const resume=await request('mcpServer/tool/call',{threadId,server:'openwiki',tool:'openwiki_begin',arguments:{root,mode:'init'}});
-  return {version,servers:names,search,begin,resume,modelCalls:0};
+  return {version,servers:names,search,begin,resume,modelCalls:0,cleanup};
  }catch(error){throw Error((error as Error).message+'; Codex stderr: '+stderr);}
  finally{
   for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('Codex fixture closed'));}pending.clear();
   if(child.pid){try{process.kill(-child.pid,'SIGTERM');}catch{}}
   const force=setTimeout(()=>{if(child.pid)try{process.kill(-child.pid,'SIGKILL');}catch{}},3000);await exited;clearTimeout(force);
+  cleanup.daemon=await stopFixtureCodeGraph(root);
  }
 }

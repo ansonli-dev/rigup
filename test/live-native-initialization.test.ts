@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtemp,realpath,mkdir,writeFile,readFile,readdir,rm,cp,access,constants} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
 import {preview} from '../src/installer/preview.js';
@@ -19,8 +21,8 @@ import type {SetupPlan,SetupOptions} from '../src/types.js';
 const exec=promisify(execFile);
 const enabled=process.env.RIGUP_LIVE_NATIVE==='1';
 test('live scaffold recovers CodeGraph initialization and hands OpenWiki to a separate Codex session',{skip:!enabled,timeout:240000},async()=>{
- const root=await realpath(await mkdtemp('/private/tmp/rigup-protected-native-'));
- const control=await realpath(await mkdtemp('/private/tmp/rigup-protected-control-'));
+ const root=await realpath(await mkdtemp(join(tmpdir(),'rigup-protected-native-')));
+ const control=await realpath(await mkdtemp(join(tmpdir(),'rigup-protected-control-')));
  const cache=control+'/cache',state=control+'/state';await mkdir(cache,{mode:0o700});await mkdir(state,{mode:0o700});
  const options:SetupOptions={agents:['codex'],backend:'host',tools:[{id:'openwiki',install:true,initialize:false,agents:['codex']},{id:'codegraph',install:true,initialize:true,agents:['codex']}]};
  const evidence:any={caseId:'scaffold-scope/codegraph-recovery-openwiki-handoff',status:'failed',root,startedAt:new Date().toISOString(),node:process.version,platform:process.platform};
@@ -79,6 +81,9 @@ test('live scaffold recovers CodeGraph initialization and hands OpenWiki to a se
    // This explicit post-setup native session represents the user's separate
    // initialization. It starts/resumes planning only, without a model call.
    evidence.codex=await codexNativeTools(root,control);assert.ok(evidence.codex.servers.some((s:any)=>s.name==='openwiki'&&s.tools.includes('openwiki_begin')));assert.ok(evidence.codex.servers.some((s:any)=>s.name==='codegraph'&&s.tools.includes('codegraph_explore')));assert.match(JSON.stringify(evidence.codex.search),/createOrder/);
+   const daemon=await readFile(root+'/.codegraph/daemon.pid','utf8').then(text=>JSON.parse(text),error=>{if(error.code==='ENOENT')return undefined;throw error;});
+   let daemonAlive=false;if(daemon?.pid)try{process.kill(daemon.pid,0);daemonAlive=true;}catch(error){if((error as NodeJS.ErrnoException).code!=='ESRCH')throw error;}
+   evidence.nativeProbeShutdown={pid:daemon?.pid,aliveAfterClientClose:daemonAlive};assert.equal(daemonAlive,false,'Native test must stop its own CodeGraph daemon before removing the fixture');
    const begin=evidence.codex.begin.structuredContent,resume=evidence.codex.resume.structuredContent;
    assert.equal(begin.resumed,false);assert.equal(resume.resumed,true);assert.equal(resume.runId,begin.runId);
    const resumed=JSON.parse(await readFile(root+'/openwiki/.run.json','utf8'));assert.equal(resumed.runId,begin.runId);
