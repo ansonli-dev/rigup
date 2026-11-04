@@ -9,6 +9,7 @@ import {codexAvailable,codexArguments,invokeCodex,type CodexInvocation,type Code
 export interface CodexBackendOptions {cacheRoot:string;stateRoot?:string;signal?:AbortSignal;onUsage?:(usage:{calls:number;tokens:number|'unknown'})=>Promise<void>;invoke?:(input:CodexInvocation)=>Promise<CodexOutcome>}
 interface Attempt {status:'reserved'|'observed';tokens:number|'unknown';identity?:ProcessIdentity}
 interface Ledger {attempts:Record<string,Attempt>}
+const codexAdapterVersion='2';
 function totals(ledger:Ledger):{calls:number;tokens:number|'unknown'} {const items=Object.values(ledger.attempts);return {calls:items.length,tokens:items.some(a=>a.tokens==='unknown')?'unknown':items.reduce((n,a)=>n+Number(a.tokens),0)};}
 function observed(outcome:CodexOutcome):number {
  const events=outcome.stdout.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
@@ -25,10 +26,12 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
   validateResearchRequest(request);
   if(options.signal?.aborted)throw new ResearchFailure('Codex cancelled before dispatch',[],{calls:0,tokens:0});
   if(request.budget.maxCalls<1||request.budget.maxTokens<1)throw new ResearchFailure('Codex budget exhausted',[],{calls:0,tokens:0});
-  const cache=await privateDirectory(options.cacheRoot,request.root),exchange=await privateDirectory(join(cache,'exchange'),request.root);
+  // Host exchange context changes across adapters; cumulative paid usage below
+  // remains keyed by the same root/run and is never reset by this namespace.
+  const cache=await privateDirectory(options.cacheRoot,request.root),exchange=await privateDirectory(join(cache,'exchange','codex-'+codexAdapterVersion),request.root);
   // Consumption is accounted separately from immutable research identity, so
   // an observed result can be reconciled after a controller interruption.
-  const context={...request,spent:undefined,versions:{...request.versions,codex:'0.166.0',codexAdapter:'2'}};
+  const context={...request,spent:undefined,versions:{...request.versions,codex:'0.166.0',codexAdapter:codexAdapterVersion}};
   const durable=await privateDirectory(options.stateRoot??cache,request.root);
   const ledgerPath=join(durable,signature({root:request.root,run:request.runId})+'.usage.json');
   let ledger=await readCache<Ledger>(ledgerPath);

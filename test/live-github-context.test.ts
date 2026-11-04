@@ -63,7 +63,7 @@ test('live Bulletproof React completes semantic setup within its unchanged budge
   const originalChanges=[];for(const [path,hash] of Object.entries(marker.originalHashes)){const body=await readFile(join(root,path));if(sha(body)===hash)continue;assert.equal(path,'AGENTS.md');const original=(await exec('git',['-C',root,'show','HEAD:AGENTS.md'])).stdout;assert.ok(body.toString().includes(original));originalChanges.push({path,originalContentRetained:true});}
   for(const [path,hash] of Object.entries(marker.nativeHashes))assert.equal(sha(await readFile(join(root,path))),hash);
   const exchange=home+'/.cache/rigup/codex/exchange',measurements=[];
-  for(const file of await readdir(exchange))if(file.endsWith('.request.json')){
+  for(const file of await readdir(exchange,{recursive:true}))if(file.endsWith('.request.json')){
    const requestPath=join(exchange,file),raw=await readFile(requestPath,'utf8'),body=JSON.parse(raw);
    assert.equal(body.context.evidencePolicy,'dependency-manifests-v1');assert.deepEqual(body.context.budget,{maxCalls:12,maxTokens:1200000});assert.deepEqual(body.context.options.scope,options.scope);
    assert.ok(body.paths.includes('apps/react-vite/yarn.lock'));assert.ok(body.omittedEvidence.some((o:any)=>o.path==='apps/react-vite/yarn.lock'));assert.ok(!body.evidence.some((e:any)=>e.evidence.path==='apps/react-vite/yarn.lock'));

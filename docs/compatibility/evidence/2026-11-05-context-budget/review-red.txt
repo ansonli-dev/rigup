@@ -1,0 +1,57 @@
+✖ Codex adapter upgrade continues a known charged run without resetting consumption (50.533042ms)
+✖ Codex adapter upgrade retains unknown and exhausted legacy charges before dispatch (38.421375ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 398.2525
+
+✖ failing tests:
+
+test at test/codex-backend.test.ts:1:2707
+✖ Codex adapter upgrade continues a known charged run without resetting consumption (50.533042ms)
+  Error: run context changed; restart preparation
+      at Object.run (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/src/analyzer/host.ts:81:85)
+      at async Object.run (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/src/analyzer/codex.ts:39:18)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:34:13)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:17:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:10:146)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)
+
+test at test/codex-backend.test.ts:1:3737
+✖ Codex adapter upgrade retains unknown and exhausted legacy charges before dispatch (38.421375ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /budget|unknown|accounting/i. Input:
+
+  'Error: run context changed; restart preparation'
+
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:43:3)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:17:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:10:146)
+      at async TestContext.<anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:40:246)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: run context changed; restart preparation
+        at Object.run (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/src/analyzer/host.ts:81:85)
+        at async Object.run (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/src/analyzer/codex.ts:39:18)
+        at async waitForActual (node:assert:646:5)
+        at async strict.rejects (node:assert:769:25)
+        at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:43:3)
+        at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:17:2)
+        at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+        at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+        at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:10:146)
+        at async TestContext.<anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/codex-backend.test.ts:40:246),
+    expected: /budget|unknown|accounting/i,
+    operator: 'rejects',
+    diff: 'simple'
+  }

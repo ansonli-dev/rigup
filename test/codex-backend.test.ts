@@ -5,6 +5,8 @@ import {project} from './helpers.js';
 import {scanRepository,repositoryReader} from '../src/analyzer/repository.js';
 import {loadOptions} from '../src/config.js';
 import type {ResearchRequest} from '../src/analyzer/backend.js';
+import {hostBackend} from '../src/analyzer/host.js';
+import {signature} from '../src/generator/cache.js';
 async function fixture(fn:(root:string,cache:string,request:ResearchRequest,reader:Awaited<ReturnType<typeof repositoryReader>>)=>Promise<void>){await project(async root=>project(async cache=>{
  await writeFile(root+'/source.js','export function createOrder(id) { return {id}; }\n');
  await writeFile(root+'/config.yaml','auth:\n  password: should-never-leave\n');
@@ -17,6 +19,31 @@ async function fixture(fn:(root:string,cache:string,request:ResearchRequest,read
 async function createBackend(options:any){return (await import('../src/analyzer/codex.js')).codexBackend(options);}
 const data={observations:[],unknowns:[]};
 const result=(body:unknown=data,extra:unknown[]=[])=>({code:0,lastMessage:JSON.stringify(body),stdout:[...extra,{type:'turn.completed',usage:{input_tokens:11,output_tokens:7,cached_input_tokens:3}}].map(v=>JSON.stringify(v)).join('\n')});
+async function legacyExchange(cache:string,request:ResearchRequest,reader:Awaited<ReturnType<typeof repositoryReader>>,attempts:{status:'reserved'|'observed';tokens:number|'unknown'}[]){
+ const exchange=cache+'/ordinary/exchange',context={...request,spent:undefined,versions:{...request.versions,codex:'0.166.0',codexAdapter:'1'}};
+ const prior=await hostBackend({cacheRoot:exchange}).run(context,reader);assert.equal(prior.status,'pending-host');if(prior.status!=='pending-host')throw Error('expected legacy export');
+ await mkdir(cache+'/durable',{mode:0o700});const ledgerPath=cache+'/durable/'+signature({root:request.root,run:request.runId})+'.usage.json';
+ const charged=Object.fromEntries(attempts.map((attempt,index)=>[index?signature({legacy:prior.requestId,index}):prior.requestId,attempt]));
+ await writeFile(ledgerPath,JSON.stringify({attempts:charged}),{mode:0o600});
+ const budgetPath=exchange+'/'+(await readdir(exchange)).find(p=>p.endsWith('.budget.json'));
+ return {ledgerPath,charged,budgetPath,budget:await readFile(budgetPath,'utf8')};
+}
+test('Codex adapter upgrade continues a known charged run without resetting consumption',()=>fixture(async(_root,cache,request,reader)=>{
+ const legacy=await legacyExchange(cache,request,reader,[{status:'observed',tokens:18}]);let calls=0;const usage:any[]=[];
+ const backend=await createBackend({cacheRoot:cache+'/ordinary',stateRoot:cache+'/durable',onUsage:async(u:any)=>{usage.push(u);},invoke:async(input:any)=>{calls++;assert.doesNotMatch(input.prompt,/LOCK_BODY_IN_CODEX_PROMPT/);return result();}});
+ const next=await backend.run({...request,kind:'artifact-plan',expectedOutput:'plan',spent:{calls:1,tokens:18}},reader);
+ assert.equal(next.status,'complete');assert.equal(calls,1);assert.deepEqual(usage.at(-1),{calls:2,tokens:36});
+ const ledger=JSON.parse(await readFile(legacy.ledgerPath,'utf8'));for(const [id,attempt] of Object.entries(legacy.charged))assert.deepEqual(ledger.attempts[id],attempt);
+ assert.equal(await readFile(legacy.budgetPath,'utf8'),legacy.budget,'old exchange bookkeeping remains intact');
+}));
+test('Codex adapter upgrade retains unknown and exhausted legacy charges before dispatch',async()=>{
+ for(const attempts of [[{status:'reserved' as const,tokens:'unknown' as const}],[{status:'observed' as const,tokens:18},{status:'observed' as const,tokens:18},{status:'observed' as const,tokens:18}],[{status:'observed' as const,tokens:10000}]])await fixture(async(_root,cache,request,reader)=>{
+  const legacy=await legacyExchange(cache,request,reader,attempts),before=await readFile(legacy.ledgerPath,'utf8');let calls=0;
+  const backend=await createBackend({cacheRoot:cache+'/ordinary',stateRoot:cache+'/durable',invoke:async()=>{calls++;return result();}});
+  await assert.rejects(()=>backend.run({...request,kind:'artifact-plan',expectedOutput:'plan'},reader),/budget|unknown|accounting/i);assert.equal(calls,0);
+  assert.equal(await readFile(legacy.ledgerPath,'utf8'),before);assert.equal(await readFile(legacy.budgetPath,'utf8'),legacy.budget);
+ });
+});
 test('fresh mainline selects local Codex without a provider API key',()=>project(async root=>{
  const selected=await loadOptions(root,{});assert.equal(selected.backend,'codex');assert.deepEqual(selected.agents,['codex']);assert.equal(selected.model,undefined);
 }));
@@ -53,7 +80,7 @@ test('missing durable Codex budget cannot erase known spent usage',()=>fixture(a
 test('observed Codex token overrun is charged and rejected before acceptance',()=>fixture(async(root,cache,request,reader)=>{
  const usage:any[]=[];const backend=await createBackend({cacheRoot:cache,onUsage:async(u:any)=>{usage.push(u);},invoke:async()=>result()});
  await assert.rejects(()=>backend.run({...request,budget:{maxCalls:3,maxTokens:17}},reader),/budget/);assert.deepEqual(usage.at(-1),{calls:1,tokens:18});
- assert.ok(!(await readdir(cache+'/exchange')).some(p=>p.endsWith('.accepted.json')));
+ assert.ok(!(await readdir(cache+'/exchange',{recursive:true})).some(p=>p.endsWith('.accepted.json')));
 }));
 test('ordinary cache deletion does not authorize repeating an unresolved Codex request',()=>fixture(async(root,cache,request,reader)=>{
  let calls=0;const settings={cacheRoot:cache+'/ordinary',stateRoot:cache+'/durable',invoke:async()=>{calls++;throw Error('transport lost');}};
@@ -75,7 +102,7 @@ test('verified durable Codex accounting supersedes stale unknown consumer totals
 test('Codex output with fabricated evidence never becomes accepted research',()=>fixture(async(root,cache,request,reader)=>{
  const invalid={observations:[{statement:'Invented',classification:'explicit-rule',scope:['source.js'],supportingEvidence:[{path:'source.js',startLine:1,endLine:1,digest:'sha256:invented'}],counterEvidence:[],guidanceDisposition:'follow-existing'}],unknowns:[]};
  const backend=await createBackend({cacheRoot:cache,invoke:async()=>result(invalid)});await assert.rejects(()=>backend.run(request,reader),/evidence|Codex/);
- assert.ok(!(await readdir(cache+'/exchange')).some(p=>p.endsWith('.accepted.json')));
+ assert.ok(!(await readdir(cache+'/exchange',{recursive:true})).some(p=>p.endsWith('.accepted.json')));
 }));
 test('Codex tool events and missing usage fail instead of claiming a safe accepted result',()=>fixture(async(root,cache,request,reader)=>{
  const tool=await createBackend({cacheRoot:cache+'/tool',invoke:async()=>result(data,[{type:'item.completed',item:{type:'command_execution',command:'unexpected'}}])});

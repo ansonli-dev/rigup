@@ -1,0 +1,31 @@
+✔ Codex adapter upgrade continues a known charged run without resetting consumption (125.176ms)
+✔ Codex adapter upgrade retains unknown and exhausted legacy charges before dispatch (136.842667ms)
+✔ fresh mainline selects local Codex without a provider API key (0.893542ms)
+✔ Codex receives only filtered evidence in a private cwd and cached acceptance costs no new call (138.689584ms)
+✔ failed Codex attempts are charged before dispatch and never silently repeated (47.293042ms)
+✔ corrupt Codex usage ledger cannot reset an already charged budget (89.053666ms)
+✔ missing durable Codex budget cannot erase known spent usage (95.486291ms)
+✔ observed Codex token overrun is charged and rejected before acceptance (82.463333ms)
+✔ ordinary cache deletion does not authorize repeating an unresolved Codex request (47.511917ms)
+✔ completed durable Codex result survives cache loss without another charge (111.165541ms)
+✔ verified durable Codex accounting supersedes stale unknown consumer totals (117.828875ms)
+✔ Codex output with fabricated evidence never becomes accepted research (68.444542ms)
+✔ Codex tool events and missing usage fail instead of claiming a safe accepted result (76.188625ms)
+✔ Codex feature-discovery startup warning is not mistaken for a tool call (71.515542ms)
+✔ remaining Codex budget and cancellation are checked before invoking the model (31.634875ms)
+✔ missing local Codex reports unavailable without asking for an unrelated API key (32.554667ms)
+✔ Codex process is stopped if its durable process identity cannot be recorded (1288.131375ms)
+✔ dependency context omits lock bodies even when an older complete snapshot exists (72.404959ms)
+✔ dependency context is used for analysis planning content and acceptance (78.306375ms)
+✔ an evidence policy cannot import a response from a different export policy (60.822417ms)
+✔ tampered omission metadata cannot be accepted as the approved context (47.806917ms)
+✔ accepted dependency context can be reused without another request (40.3065ms)
+✔ omitting dependency bodies does not hide lock changes from the source fingerprint (103.082541ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2713.888625
