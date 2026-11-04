@@ -1,0 +1,1068 @@
+{
+  "status": "passed",
+  "count": 177,
+  "evidence": [
+    {
+      "path": ".agents/skills/openspec-apply-change/SKILL.md",
+      "startLine": 1,
+      "endLine": 207,
+      "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+    },
+    {
+      "path": ".agents/skills/openspec-archive-change/SKILL.md",
+      "startLine": 1,
+      "endLine": 222,
+      "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+    },
+    {
+      "path": ".agents/skills/openspec-explore/SKILL.md",
+      "startLine": 1,
+      "endLine": 357,
+      "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+    },
+    {
+      "path": ".agents/skills/openspec-propose/SKILL.md",
+      "startLine": 1,
+      "endLine": 176,
+      "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+    },
+    {
+      "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+      "startLine": 1,
+      "endLine": 291,
+      "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+    },
+    {
+      "path": ".agents/skills/openspec-update-change/SKILL.md",
+      "startLine": 1,
+      "endLine": 110,
+      "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+    },
+    {
+      "path": "AGENTS.md",
+      "startLine": 1,
+      "endLine": 290,
+      "digest": "c41df5e56f03f72955792360cb9d40d634c01f2848b38792c919a6a81f001013"
+    },
+    {
+      "path": "apps/react-vite/generators/component/index.cjs",
+      "startLine": 1,
+      "endLine": 57,
+      "digest": "3c1f58fc5b28758729f58c7ba5f4e5f884aadb4582ea2b661c962db99c28b8cd"
+    },
+    {
+      "path": "apps/react-vite/package.json",
+      "startLine": 1,
+      "endLine": 124,
+      "digest": "770724c0d08c5f7a84e0f38a2eeeb269bc959672458c4f60d4ef396abde8bae5"
+    },
+    {
+      "path": "apps/react-vite/src/features/comments/api/create-comment.ts",
+      "startLine": 1,
+      "endLine": 49,
+      "digest": "5c3e33f6b02902ec596f1155200f6cc97a62ec80a878fb05b7e55aed492d1435"
+    },
+    {
+      "path": "apps/react-vite/src/features/comments/api/get-comments.ts",
+      "startLine": 1,
+      "endLine": 48,
+      "digest": "c5b2e72211e833de56f07b6ec176bc2b91cbb36da4838aed574b227c9dbe6de2"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/api/update-discussion.ts",
+      "startLine": 1,
+      "endLine": 49,
+      "digest": "a926b792424a6a248b9fe7adeb820b9ca8fb664a8cf082e1386f9d352a7294f0"
+    },
+    {
+      "path": "apps/react-vite/src/features/users/api/update-profile.ts",
+      "startLine": 1,
+      "endLine": 41,
+      "digest": "a84fabc2fcbc3a59ae51eed7fe1e3969f18b970a8eba63c0b24007f556f949fa"
+    },
+    {
+      "path": "docs/api-layer.md",
+      "startLine": 1,
+      "endLine": 24,
+      "digest": "417207ad44993d1d40963a1ae453da6638ba766e96a5a3301b660a7c1c1be071"
+    },
+    {
+      "path": "package.json",
+      "startLine": 1,
+      "endLine": 12,
+      "digest": "52a58a1a0e0a597a93c9cfe9284d7296ad5c00723f29e03244a16c053db81dc4"
+    },
+    {
+      "path": "apps/react-vite/README.md",
+      "startLine": 1,
+      "endLine": 31,
+      "digest": "b89da69e863028c9c21756199d9a1757c30bc5518b44b0e60bd053eb178a2757"
+    },
+    {
+      "path": "apps/react-vite/src/testing/mocks/handlers/comments.ts",
+      "startLine": 1,
+      "endLine": 132,
+      "digest": "4c8567ebe26c5b1b0341611745a2416ccaf843bca5e4429904684a6bdd688435"
+    },
+    {
+      "path": "docs/application-overview.md",
+      "startLine": 1,
+      "endLine": 37,
+      "digest": "9df39f30657d0622b9f876ec528d915cdff9a5b9d98d96e17018232f0503ad46"
+    },
+    {
+      "path": "docs/components-and-styling.md",
+      "startLine": 1,
+      "endLine": 106,
+      "digest": "9e709cd7d8e33ee20f67cdace2723ed2672c8c69303fc4109bd6cfe167f9a94d"
+    },
+    {
+      "path": "docs/error-handling.md",
+      "startLine": 1,
+      "endLine": 18,
+      "digest": "ea971fe3e40954889ed1bbd3fa15c093ab3436fd121cd3646bb5b300667ce059"
+    },
+    {
+      "path": "docs/performance.md",
+      "startLine": 1,
+      "endLine": 96,
+      "digest": "72b77b6a7cfe2041a297549d628cdd55bc10512eb928f28b39f7421d52b3a51a"
+    },
+    {
+      "path": "docs/project-standards.md",
+      "startLine": 1,
+      "endLine": 78,
+      "digest": "23ecaf538bdc2fac1b947d2293fb415535ad9eabdb4e22c7671f5d9faa728b5c"
+    },
+    {
+      "path": "docs/project-structure.md",
+      "startLine": 1,
+      "endLine": 146,
+      "digest": "4457a40bab2bace057cf48f17f50922378e423a41e21c2d1bb5391d4c1be8452"
+    },
+    {
+      "path": "docs/security.md",
+      "startLine": 1,
+      "endLine": 56,
+      "digest": "9ca44fe0ef5b91fcddf32712afb632e9dde0f8e215fdb2b66d47b79916ad873e"
+    },
+    {
+      "path": "docs/state-management.md",
+      "startLine": 1,
+      "endLine": 75,
+      "digest": "8959673b2383560c33b29e8318d62633e1ed9f50a18b7695838edf2c3a0afc64"
+    },
+    {
+      "path": "docs/testing.md",
+      "startLine": 1,
+      "endLine": 54,
+      "digest": "f963db6de54f2b776cd793b949002fe04d94873ddbee7eed7bcfc5d88960987e"
+    },
+    {
+      "path": "openspec/config.yaml",
+      "startLine": 1,
+      "endLine": 33,
+      "digest": "f0082e9c22e8ce1d611c0f3b4d4915ce445e7ff2553cda6b713b6c25f390984c"
+    },
+    {
+      "path": "README.md",
+      "startLine": 1,
+      "endLine": 76,
+      "digest": "a471baa55ada446cc8727b0017caf7b03b3b5acbded3e41e5ef9a64e923fa281"
+    },
+    {
+      "path": ".agents/skills/.openspec-target",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "243b0dc9b847e66c440dca985e10fe0ce9e29c379b018ddd5747ba8948f84cc8"
+    },
+    {
+      "path": "apps/react-vite/__mocks__/vitest-env.d.ts",
+      "startLine": 1,
+      "endLine": 3,
+      "digest": "ba72ebecf2f77591b0b3e5145585ca0d1edf8ed81d1dd0392eb24e661fd3f4c6"
+    },
+    {
+      "path": "apps/react-vite/__mocks__/zustand.ts",
+      "startLine": 1,
+      "endLine": 53,
+      "digest": "226d10488590c2ef04d8b6ab4ced3e4089a1e8867435a11188e5d2283cdb374f"
+    },
+    {
+      "path": "apps/react-vite/.eslintrc.cjs",
+      "startLine": 1,
+      "endLine": 154,
+      "digest": "fc79b3753e8f5821f00f529b17166ef318f6f03f474f5ae6de7dfa0360156236"
+    },
+    {
+      "path": "apps/react-vite/.gitignore",
+      "startLine": 1,
+      "endLine": 41,
+      "digest": "189ce352505538cc46340c73f053b469ff6ceca1751daee640fb576f7dfd0ba5"
+    },
+    {
+      "path": "apps/react-vite/.prettierignore",
+      "startLine": 1,
+      "endLine": 1,
+      "digest": "fb043091b4d180d96a53feb9f97050962477aa63f0fe7ff0e2060cdfbeb366bb"
+    },
+    {
+      "path": "apps/react-vite/.prettierrc",
+      "startLine": 1,
+      "endLine": 8,
+      "digest": "16b37a36e2dd13b1f4f976b62dc46cb9ce714d79feca7498572f9741cd288b5a"
+    },
+    {
+      "path": "apps/react-vite/.storybook/main.ts",
+      "startLine": 1,
+      "endLine": 24,
+      "digest": "411a00a7647e67d1fcb70585af6fccbeb3a8d64679dffcdc2eb5752176cff39a"
+    },
+    {
+      "path": "apps/react-vite/.storybook/preview.tsx",
+      "startLine": 1,
+      "endLine": 16,
+      "digest": "7231536e2a1038c89013a9da16eda252738c970b59756530f5cf93aad8875295"
+    },
+    {
+      "path": "apps/react-vite/.vscode/extensions.json",
+      "startLine": 1,
+      "endLine": 10,
+      "digest": "992dfc429df71b924c24883a021478d147d6949b4a161005b1041bb46747388a"
+    },
+    {
+      "path": "apps/react-vite/.vscode/settings.json",
+      "startLine": 1,
+      "endLine": 7,
+      "digest": "301ae8e171e21a37303ebea72efea469040bc4b74c28646f5327960f24feec10"
+    },
+    {
+      "path": "apps/react-vite/e2e/.eslintrc.cjs",
+      "startLine": 1,
+      "endLine": 6,
+      "digest": "953e5c20c4eeb010f2f77d5194d42bf6913e93ee1eb37e60dc95a19059ace9f8"
+    },
+    {
+      "path": "apps/react-vite/e2e/tests/auth.setup.ts",
+      "startLine": 1,
+      "endLine": 43,
+      "digest": "d86fbd524461f980bf660335eb3ca44ae9ff5f042cb2486448d3d111bfd20ed3"
+    },
+    {
+      "path": "apps/react-vite/e2e/tests/profile.spec.ts",
+      "startLine": 1,
+      "endLine": 18,
+      "digest": "1d1975192de4d7692b04a9ffc5107786b8a773d89908b963b49f1c9bed9c53fb"
+    },
+    {
+      "path": "apps/react-vite/e2e/tests/smoke.spec.ts",
+      "startLine": 1,
+      "endLine": 96,
+      "digest": "fe639ea82ec193ff3679d40413f6d133f8ef8c9d1cef83400611a73708dcaece"
+    },
+    {
+      "path": "apps/react-vite/generators/component/component.stories.tsx.hbs",
+      "startLine": 1,
+      "endLine": 16,
+      "digest": "9a80ba10c5b80605da3fd007984ca0a9195a13483210998027602332ea6dfd55"
+    },
+    {
+      "path": "apps/react-vite/generators/component/component.tsx.hbs",
+      "startLine": 1,
+      "endLine": 11,
+      "digest": "d12c3ac435a4423dcd2e1a3869376cfcf66ffa6c7ee8e7f03448c698055a904a"
+    },
+    {
+      "path": "apps/react-vite/generators/component/index.ts.hbs",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "42131bfce130809a568859bd31fff040628b7ed24aa540c33e3dc1ae5ec6a682"
+    },
+    {
+      "path": "apps/react-vite/index.html",
+      "startLine": 1,
+      "endLine": 19,
+      "digest": "be3935cbb4b63d9dba76c90b1f2813572fe481c171fbfbea9085915d648d18b2"
+    },
+    {
+      "path": "apps/react-vite/playwright.config.ts",
+      "startLine": 1,
+      "endLine": 57,
+      "digest": "4f11c859d6094572582538795a57855116bb4e5b8c145b003cc4d21fc6369204"
+    },
+    {
+      "path": "apps/react-vite/plopfile.cjs",
+      "startLine": 1,
+      "endLine": 10,
+      "digest": "1a5c60518a1462106be08678bd2908af0ec87d28f391f68d8860c4215c426313"
+    },
+    {
+      "path": "apps/react-vite/postcss.config.cjs",
+      "startLine": 1,
+      "endLine": 7,
+      "digest": "fa650b380adfabb151a0b352f7135e107e6352345f899060f1c5c231228f94bf"
+    },
+    {
+      "path": "apps/react-vite/public/_redirects",
+      "startLine": 1,
+      "endLine": 1,
+      "digest": "bd00766d6edbe8742fc1546343749db9adf898e447b0a109350182e41b9c4534"
+    },
+    {
+      "path": "apps/react-vite/public/robots.txt",
+      "startLine": 1,
+      "endLine": 4,
+      "digest": "90d24bc3bf698ac1e173739502298ccca72adf1f564fab05f484b8c48d1cadd2"
+    },
+    {
+      "path": "apps/react-vite/src/app/index.tsx",
+      "startLine": 1,
+      "endLine": 11,
+      "digest": "2a2279b0a85f895804452feb7934b0f42ce6c37461a7e7119c486c0f3c8ae7fb"
+    },
+    {
+      "path": "apps/react-vite/src/app/provider.tsx",
+      "startLine": 1,
+      "endLine": 53,
+      "digest": "898dcaaebb30e0c324b1d9e1c2bdbab7951652e1dc7e3125ffd33ec65086ac7d"
+    },
+    {
+      "path": "apps/react-vite/src/app/router.tsx",
+      "startLine": 1,
+      "endLine": 89,
+      "digest": "bf63cee669390954c05d9c933a63310bf6d9a4ec27c7d7b3493d7d21f8745dfb"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/app/dashboard.tsx",
+      "startLine": 1,
+      "endLine": 36,
+      "digest": "1a4f672684fee4cadd9ffc00f8dab795cdbac9d2b075bf74a5da5ba03d5f4c9b"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/app/discussions/__tests__/discussion.test.tsx",
+      "startLine": 1,
+      "endLine": 146,
+      "digest": "316fcc4e4d5390480e3e0c30cfface6cbbbc29d1f4c0bfb7fb798ad02cabbf87"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/app/discussions/__tests__/discussions.test.tsx",
+      "startLine": 1,
+      "endLine": 97,
+      "digest": "c6717b3b02b5a1bdc0fe2fa7dda051576de63bfb194eee9b7b147b2e09ec7215"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/app/discussions/discussion.tsx",
+      "startLine": 1,
+      "endLine": 76,
+      "digest": "679a07cafc632a1c5d9313f06bc58de89986fb08806fbf3862debb3185e17126"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/app/discussions/discussions.tsx",
+      "startLine": 1,
+      "endLine": 47,
+      "digest": "af88780b1f3b3709c513817bc653fd1d4e8be866867d388fd851de3400dcd7ad"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/app/profile.tsx",
+      "startLine": 1,
+      "endLine": 52,
+      "digest": "73024c0fa4f524b74150fb2699ffc8ed38a5c098422ede2677d5bd788fccc6dc"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/app/root.tsx",
+      "startLine": 1,
+      "endLine": 18,
+      "digest": "48f7899aa27c3c08464a6d8b20902f99ccf98c8ca312cbfaa3a4ba102a7c7c3b"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/app/users.tsx",
+      "startLine": 1,
+      "endLine": 31,
+      "digest": "4465bb71412497a8e7993cacf4447cba6500bf7c91270a960a1f146b0adc75c5"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/auth/login.tsx",
+      "startLine": 1,
+      "endLine": 29,
+      "digest": "6130d88757e0001c29ec5554c1c41241ffd2a0e9d4e5c554bef55b3a6a381b55"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/auth/register.tsx",
+      "startLine": 1,
+      "endLine": 41,
+      "digest": "fef90618c82281e63b8d1ed47cca62702413a7beb2e9591e6cc8dc2b8b8a102d"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/landing.tsx",
+      "startLine": 1,
+      "endLine": 89,
+      "digest": "8c5d10e3d0fd77a2dcf87b3c564d39e85dbd1f2f47c5966a18b90b40633adc63"
+    },
+    {
+      "path": "apps/react-vite/src/app/routes/not-found.tsx",
+      "startLine": 1,
+      "endLine": 17,
+      "digest": "424ea2fefdfca898a460f054fa89086c787023f9d7840399549784bafd629195"
+    },
+    {
+      "path": "apps/react-vite/src/assets/logo.svg",
+      "startLine": 1,
+      "endLine": 1,
+      "digest": "6000b0e9b0b05b3f112de04f0d039768a1db63588ff9b6ef7099dbd71632f383"
+    },
+    {
+      "path": "apps/react-vite/src/components/errors/main.tsx",
+      "startLine": 1,
+      "endLine": 19,
+      "digest": "d21f13892a699e63390535f51c7cd40096e39ad8b545ed139bccc99d3f2361c3"
+    },
+    {
+      "path": "apps/react-vite/src/components/layouts/auth-layout.tsx",
+      "startLine": 1,
+      "endLine": 59,
+      "digest": "9b13111c3c5b02d901e5910de7390640dea3de13d53d3ec7d23d0ccf79a0bb3d"
+    },
+    {
+      "path": "apps/react-vite/src/components/layouts/content-layout.tsx",
+      "startLine": 1,
+      "endLine": 25,
+      "digest": "7d02cc5cc7de44165d196812af3dd5c77dddee768330191f12c839ac3372cbfc"
+    },
+    {
+      "path": "apps/react-vite/src/components/layouts/dashboard-layout.tsx",
+      "startLine": 1,
+      "endLine": 206,
+      "digest": "0f58eb5dc4e3834134eead251678c03de9dbbb8bb5a1a7ad39cf939dd95262f8"
+    },
+    {
+      "path": "apps/react-vite/src/components/layouts/index.ts",
+      "startLine": 1,
+      "endLine": 3,
+      "digest": "9b5fd62afdd50171499ffa37129294f63a9133dbda3d820fbc87249467de476f"
+    },
+    {
+      "path": "apps/react-vite/src/components/seo/__tests__/head.test.tsx",
+      "startLine": 1,
+      "endLine": 17,
+      "digest": "0158a8fdfbb64790fb3a8aa4fd539ef7823a17117b43de544886d636500dd5b1"
+    },
+    {
+      "path": "apps/react-vite/src/components/seo/head.tsx",
+      "startLine": 1,
+      "endLine": 21,
+      "digest": "37679fff8e13bf14e31c0f863e6eca78c0edfd8d56bdcbfd97b8e84175e06778"
+    },
+    {
+      "path": "apps/react-vite/src/components/seo/index.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "9d44f9b2620b289068bd972becdead970e6faab44a3f7b2c82a6c9bda139d426"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/button/button.stories.tsx",
+      "startLine": 1,
+      "endLine": 18,
+      "digest": "8773ea4ab7ed1cc7539843bb5addefc4afc86bb6a4687465283bb381b4bf2a0e"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/button/button.tsx",
+      "startLine": 1,
+      "endLine": 77,
+      "digest": "ce24901c7a7110e3b448eb32b9974c55ec8e8400727fb80ab68144974505fbf5"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/button/index.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "fc5ea235d834b81a17d49bed93c442274766fcc21bed6de8aee53e4ab002bd85"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dialog/__tests__/dialog.test.tsx",
+      "startLine": 1,
+      "endLine": 69,
+      "digest": "945259d1c0a6ede99b7269573d3663665bd537a60b177a2b6b786107571f89ee"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dialog/confirmation-dialog/__tests__/confirmation-dialog.test.tsx",
+      "startLine": 1,
+      "endLine": 38,
+      "digest": "f1faa5fa2de389d5848a112516af7395bdfba555f95c53fdd47d27a315ff0fa3"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dialog/confirmation-dialog/confirmation-dialog.stories.tsx",
+      "startLine": 1,
+      "endLine": 34,
+      "digest": "0032427d2658f66e7de45834e0540739e128be4175555c2d7f3bab1a65def5e6"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dialog/confirmation-dialog/confirmation-dialog.tsx",
+      "startLine": 1,
+      "endLine": 89,
+      "digest": "9f7f59228a8a9158c5dd599d8c83b33f1bc9a95d7a6d6fc6727d0a0a0a29035a"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dialog/confirmation-dialog/index.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "1281f7ae7405716c7bdfc028af367a2532eb20c16e46d75c3d79d26065a1e66b"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dialog/dialog.stories.tsx",
+      "startLine": 1,
+      "endLine": 64,
+      "digest": "a9846c26c88f211e5ce294e4968386f5dae48d71d8fb069d5dd791cb593e2b4e"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dialog/dialog.tsx",
+      "startLine": 1,
+      "endLine": 121,
+      "digest": "af1d3fe61d306cfe5f393a814a8abe990fc1609e457370c8645e352cdae8de1f"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dialog/index.ts",
+      "startLine": 1,
+      "endLine": 3,
+      "digest": "f3e72728a6f1303591885c9cf7716d0545118ee714789ac813373a72d316d721"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/drawer/__tests__/drawer.test.tsx",
+      "startLine": 1,
+      "endLine": 67,
+      "digest": "14accb1772c51542c29e20aee211018d92882ff80a46f5759b5c26096e3feafa"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/drawer/drawer.stories.tsx",
+      "startLine": 1,
+      "endLine": 65,
+      "digest": "6361563d47709061337c85f5d285afee7d2c6077059eef8aaf3c5f3fe8842cd6"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/drawer/drawer.tsx",
+      "startLine": 1,
+      "endLine": 140,
+      "digest": "1b9de70bf5adcc4327b441f69a86b0e2ac5ecb91f4988a87c0e1473473391a73"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/drawer/index.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "8415abfcdd4a445406926bfccea6649cea77e3f600fee397bdc9609436505711"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dropdown/dropdown.stories.tsx",
+      "startLine": 1,
+      "endLine": 109,
+      "digest": "f38837fe9a38dee8edad9499543b0b3c4f565be37e0c319c2dae85c0ef3890a8"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dropdown/dropdown.tsx",
+      "startLine": 1,
+      "endLine": 204,
+      "digest": "7d3eb786ba2ab18fec82ac1d8f04eb26252fc9b863f3ff788d78cfede4bab24f"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/dropdown/index.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "4e8d09bff6c366e48695a9d15461d2261737e554ab1b561cdcb850ffcf180366"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/__tests__/form.test.tsx",
+      "startLine": 1,
+      "endLine": 75,
+      "digest": "4cc5efe28c0d44e57cb32f0b4c894faad76c1a8c90c36f0a09a255a48847dc74"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/error.tsx",
+      "startLine": 1,
+      "endLine": 18,
+      "digest": "7da0fa3b5c3696b1c40775fa0609090c42a006b5f812ac6773454e4971ed3a93"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/field-wrapper.tsx",
+      "startLine": 1,
+      "endLine": 31,
+      "digest": "c04dafd3f7af2c40e60e1562fc8b4eaeded2f9b9664a809bd04333b258bd1c98"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/form-drawer.tsx",
+      "startLine": 1,
+      "endLine": 70,
+      "digest": "2d7c02d89c04a611649cfec20c4bedfc292a0fa6ed416f27733d82d55d539fd0"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/form.stories.tsx",
+      "startLine": 1,
+      "endLine": 88,
+      "digest": "2f01efb11e09b14ace579cbee218484792a522602440076bab7d7e9e056430b2"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/form.tsx",
+      "startLine": 1,
+      "endLine": 218,
+      "digest": "e97da75d8870253a26e3b445cfd4ccf734ed1f90dd7e9a7bb46b60e673847d5c"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/index.ts",
+      "startLine": 1,
+      "endLine": 8,
+      "digest": "f2204fe8dbed6d2d4c21c5bce0c08938c1a3e9bdee515b9129e73dae6378b8ac"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/input.tsx",
+      "startLine": 1,
+      "endLine": 35,
+      "digest": "7c750b8a5a4a85510c163188ca9b642a2d615e645d31d6684f2385413b4bc0aa"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/label.tsx",
+      "startLine": 1,
+      "endLine": 25,
+      "digest": "8cc3e38ac95b1dff8a95cadaa5043741d230ec27a53d2e4fb4a440dd9cab9660"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/select.tsx",
+      "startLine": 1,
+      "endLine": 42,
+      "digest": "255bfb4569462e73cd5c69cf95f802fe7ca839a820a2e2564e4d6b63fc69336d"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/switch.tsx",
+      "startLine": 1,
+      "endLine": 28,
+      "digest": "df1807bd82373f1d10c9f21cbd1cfccb4b0dfca0252e08b89dbc7421eaf810d6"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/form/textarea.tsx",
+      "startLine": 1,
+      "endLine": 34,
+      "digest": "7a4442137e657ce02bba479d39b6a87fde24dac32f717212795c4e81f4f77958"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/link/index.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "a3f31df36cad262964aadb12d036ce31754c4566b913a87b3f453e1bfc347114"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/link/link.stories.tsx",
+      "startLine": 1,
+      "endLine": 19,
+      "digest": "4da3612887afac0886809c5c6075b313f2965feadb90691261b64d877001db9e"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/link/link.tsx",
+      "startLine": 1,
+      "endLine": 15,
+      "digest": "639452b5c1b55574c5cfd8d6c67f66be88178ca931e5d9c12e05958c212805ff"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/md-preview/index.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "777c9ab0d011e56609758796aec040d341c93d8035b9627a6ee1b074af29e92c"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/md-preview/md-preview.stories.tsx",
+      "startLine": 1,
+      "endLine": 18,
+      "digest": "bf8d72389f7895771778794389bacccfb9d558121934ce8d40218e843e9bdc2c"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/md-preview/md-preview.tsx",
+      "startLine": 1,
+      "endLine": 20,
+      "digest": "91738fa26c10d39307736277cfdd7196b8072437bc2f48cd46422773966f85a0"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/notifications/__tests__/notifications.test.ts",
+      "startLine": 1,
+      "endLine": 29,
+      "digest": "3e949779de925cb0a1c2bc92b69f1b8bef30de1999ccd4c790318a107df9c9e9"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/notifications/index.ts",
+      "startLine": 1,
+      "endLine": 3,
+      "digest": "d704da492b7bc3e337414d4eb2109800c82af504a432156398ed9406d5b8774c"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/notifications/notification.stories.tsx",
+      "startLine": 1,
+      "endLine": 64,
+      "digest": "88c06bcd03b0318b19a61ec2dc4b657e87716a0644723fad8dba5766e737273d"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/notifications/notification.tsx",
+      "startLine": 1,
+      "endLine": 53,
+      "digest": "28e9a3012afa3d41067d6e279a0154b6daf9b92a41e18c361dabfb35bb1de430"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/notifications/notifications-store.ts",
+      "startLine": 1,
+      "endLine": 33,
+      "digest": "cf4c146ca897800db76ea32818b77b5ce4707085ce4138fe6fbbdd9907864b25"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/notifications/notifications.tsx",
+      "startLine": 1,
+      "endLine": 22,
+      "digest": "df4d0dfa27def37b645bf92c6c78d4b75f498bf08665cfcefd1d13f9981df502"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/spinner/index.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "2f60c2aa879630f1cd5926f675e616d51fb3f8d35adedece39fb654fbb4ee22f"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/spinner/spinner.stories.tsx",
+      "startLine": 1,
+      "endLine": 18,
+      "digest": "206572100f3d72f0282215d4c26678e961652591ac14b2da93c71ed2a7318917"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/spinner/spinner.tsx",
+      "startLine": 1,
+      "endLine": 51,
+      "digest": "ab3493ff94a495f532a807617996187a0fe117a8aaf7a22741ec5b1da1f45ca4"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/table/index.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "de735c3ec29600fbadb668401ab49a7de45560093d4338d0ffe19e29f0ff2ee4"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/table/pagination.tsx",
+      "startLine": 1,
+      "endLine": 189,
+      "digest": "f36c296945d50bdbc71c917f7042653e6a2b40ae74e0356a66ffc09aeb465075"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/table/table.stories.tsx",
+      "startLine": 1,
+      "endLine": 64,
+      "digest": "e844cf6505bc9e3982d25aabd32b75c81b3b7423c61f3883771aa53aaa46b585"
+    },
+    {
+      "path": "apps/react-vite/src/components/ui/table/table.tsx",
+      "startLine": 1,
+      "endLine": 178,
+      "digest": "e20989301fe58cd12f5757af8709912ab640e46b05fefd6030866c3fb63ce606"
+    },
+    {
+      "path": "apps/react-vite/src/config/env.ts",
+      "startLine": 1,
+      "endLine": 42,
+      "digest": "1bb1feadb18ffbe45c8c9be8b83cb1912778c4556e6307e01f4c6f62161fe13e"
+    },
+    {
+      "path": "apps/react-vite/src/features/auth/components/__tests__/login-form.test.tsx",
+      "startLine": 1,
+      "endLine": 25,
+      "digest": "0cc94e6cc126a8d5798312ab06bf744bc48f1ae5203ef230f58dd9b619b356e5"
+    },
+    {
+      "path": "apps/react-vite/src/features/auth/components/__tests__/register-form.test.tsx",
+      "startLine": 1,
+      "endLine": 31,
+      "digest": "101979aa5b034d4297b6c71f2d7acb543fb90507220de688ac6e08337aeb6b96"
+    },
+    {
+      "path": "apps/react-vite/src/features/auth/components/login-form.tsx",
+      "startLine": 1,
+      "endLine": 66,
+      "digest": "fcba878f5720d0d3dae2a7e9d5f1e2dc5b8d8703291c738346e36203b7b35a5e"
+    },
+    {
+      "path": "apps/react-vite/src/features/auth/components/register-form.tsx",
+      "startLine": 1,
+      "endLine": 120,
+      "digest": "2e2904429abb8ce0f0d6ad89cdc9ac824ec2ea9364cedb8da73a630d07e73f1f"
+    },
+    {
+      "path": "apps/react-vite/src/features/comments/api/delete-comment.ts",
+      "startLine": 1,
+      "endLine": 36,
+      "digest": "d9be7b10138401ec24cf1af3b63be584d2924bd3138920691b4fff2cb914be2d"
+    },
+    {
+      "path": "apps/react-vite/src/features/comments/components/comments-list.tsx",
+      "startLine": 1,
+      "endLine": 94,
+      "digest": "8bd0c1f5c3d2e8260dcd2ab934bd88b23962468d4dba0b9b4f5f4981facb9993"
+    },
+    {
+      "path": "apps/react-vite/src/features/comments/components/comments.tsx",
+      "startLine": 1,
+      "endLine": 19,
+      "digest": "a503744a8ddeebec1180d9e613fa5ce040384773ecb60fa744c61581b6798028"
+    },
+    {
+      "path": "apps/react-vite/src/features/comments/components/create-comment.tsx",
+      "startLine": 1,
+      "endLine": 77,
+      "digest": "e34e373b7bb4b1fe003eab7045be4e5298353fb2e626fa48e506cc653e71384e"
+    },
+    {
+      "path": "apps/react-vite/src/features/comments/components/delete-comment.tsx",
+      "startLine": 1,
+      "endLine": 56,
+      "digest": "9c106ec7c68b33b46d55a0941eb9c29190eb0421efc324f13667e06b329545bc"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/api/create-discussion.ts",
+      "startLine": 1,
+      "endLine": 47,
+      "digest": "fb2108cc2975dfd1fc9ab0ff81d12c7465fd79e31be65a1f7bde1d4b1cf901a2"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/api/delete-discussion.ts",
+      "startLine": 1,
+      "endLine": 38,
+      "digest": "d3e2ce56af9b6d1f015600d04eb2e6afdeca31e19a19a3e8dbca1577179028f5"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/api/get-discussion.ts",
+      "startLine": 1,
+      "endLine": 36,
+      "digest": "581321951f0e3f3fae051ab61508f5073b5a683c8fbdbc81dfef86721708e7ec"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/api/get-discussions.ts",
+      "startLine": 1,
+      "endLine": 43,
+      "digest": "1a42de81ec341ace39969ed75d8cba7830764b59df7aa5a3529b3b32bb391521"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/components/create-discussion.tsx",
+      "startLine": 1,
+      "endLine": 74,
+      "digest": "375a31626199c3642b9e9a8ab2f361ca4e2d97a0302b62284f5db92f12374c7f"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/components/delete-discussion.tsx",
+      "startLine": 1,
+      "endLine": 54,
+      "digest": "429e7ac9e45fb4581e39adde5fcb2bd735358e9113e1ef3a0ec67ef97a348ebe"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/components/discussion-view.tsx",
+      "startLine": 1,
+      "endLine": 52,
+      "digest": "9bbff6346b05b0689c0af429db51c0f6611696bbe46824e6a4a0bfed2bf738c2"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/components/discussions-list.tsx",
+      "startLine": 1,
+      "endLine": 93,
+      "digest": "e4a73a590e5a166096fb9e8309227235fd57a753ce3c4c68fce3303b52048039"
+    },
+    {
+      "path": "apps/react-vite/src/features/discussions/components/update-discussion.tsx",
+      "startLine": 1,
+      "endLine": 90,
+      "digest": "feea44a0e6041b167c231eb903ecce9a1eb461f26b413bfa74ef882397746ffd"
+    },
+    {
+      "path": "apps/react-vite/src/features/teams/api/get-teams.ts",
+      "startLine": 1,
+      "endLine": 28,
+      "digest": "780430a15c5c806ad67ce1915320c29468102deebddb74dadf69cc2f42128216"
+    },
+    {
+      "path": "apps/react-vite/src/features/users/api/delete-user.ts",
+      "startLine": 1,
+      "endLine": 38,
+      "digest": "51d3f4e711a0eacadf9079df7c8efb3244e5abeeb87eb6329fdf01046faf0bda"
+    },
+    {
+      "path": "apps/react-vite/src/features/users/api/get-users.ts",
+      "startLine": 1,
+      "endLine": 28,
+      "digest": "4cfae7875e878122c4572678edff89d359bc4a8bf8ec6e28f257d16e2096d7ce"
+    },
+    {
+      "path": "apps/react-vite/src/features/users/components/delete-user.tsx",
+      "startLine": 1,
+      "endLine": 47,
+      "digest": "4e81b81ebbd247a6ebdc6c061292315da86f6729160e7fe684c7b75a58629463"
+    },
+    {
+      "path": "apps/react-vite/src/features/users/components/update-profile.tsx",
+      "startLine": 1,
+      "endLine": 92,
+      "digest": "cc848bb76408cfbb7ddfa1bff5f25f672a65126fd58861a848b802d57b4c78e7"
+    },
+    {
+      "path": "apps/react-vite/src/features/users/components/users-list.tsx",
+      "startLine": 1,
+      "endLine": 62,
+      "digest": "b733f0fee94b35004e1845264b7dbbb32e4e16584a422538600f6c9f75c24846"
+    },
+    {
+      "path": "apps/react-vite/src/hooks/__tests__/use-disclosure.test.ts",
+      "startLine": 1,
+      "endLine": 58,
+      "digest": "8fae2d880385b974853dfa47c680914015ca05e0910f8c5ccf051a98fa3888c5"
+    },
+    {
+      "path": "apps/react-vite/src/hooks/use-disclosure.ts",
+      "startLine": 1,
+      "endLine": 12,
+      "digest": "011158bcac450f9e0eec361400828e7c8db0d5075f9edc3acef125f079cf989c"
+    },
+    {
+      "path": "apps/react-vite/src/index.css",
+      "startLine": 1,
+      "endLine": 89,
+      "digest": "ad8235be87cebe42b07ecf6c544826a9464310a26855077a71b7394e66c8964a"
+    },
+    {
+      "path": "apps/react-vite/src/lib/__tests__/authorization.test.tsx",
+      "startLine": 1,
+      "endLine": 84,
+      "digest": "e7ad54712d740aba0ee628677634d6b9d0bdc7ec1ac49e8cddef968e81a39490"
+    },
+    {
+      "path": "apps/react-vite/src/lib/react-query.ts",
+      "startLine": 1,
+      "endLine": 27,
+      "digest": "9e556d467606796ce907cad18a4a63f1748924db48bf540b2670ae352a201c5d"
+    },
+    {
+      "path": "apps/react-vite/src/main.tsx",
+      "startLine": 1,
+      "endLine": 18,
+      "digest": "9e7500082e6577e974d1b794657eb116a7162c0ce0e856db017fa952e28af433"
+    },
+    {
+      "path": "apps/react-vite/src/testing/mocks/browser.ts",
+      "startLine": 1,
+      "endLine": 6,
+      "digest": "5f4183942dd23565908ab3cf26209673cff1aff71f4d8c789e5c8abc4d3e5206"
+    },
+    {
+      "path": "apps/react-vite/src/testing/mocks/handlers/discussions.ts",
+      "startLine": 1,
+      "endLine": 223,
+      "digest": "246c157b7c79cae71d824f6b368d967ff554273c03ac65ff428f96bbe2a11f34"
+    },
+    {
+      "path": "apps/react-vite/src/testing/mocks/handlers/index.ts",
+      "startLine": 1,
+      "endLine": 24,
+      "digest": "1085e768ae0e0336ab791a440099975f62fdd8e398edb679cbdd93c4101d92b7"
+    },
+    {
+      "path": "apps/react-vite/src/testing/mocks/handlers/teams.ts",
+      "startLine": 1,
+      "endLine": 23,
+      "digest": "29fe1e9bee000ce47d55aff1616f7ed10bde53ada74153299603cdbc0ffc94a3"
+    },
+    {
+      "path": "apps/react-vite/src/testing/mocks/handlers/users.ts",
+      "startLine": 1,
+      "endLine": 105,
+      "digest": "1e2a8bec7793697e662cfbae35fdcc51440f18852f56d91c141032f1f4387df4"
+    },
+    {
+      "path": "apps/react-vite/src/testing/mocks/index.ts",
+      "startLine": 1,
+      "endLine": 11,
+      "digest": "8fbc0ea6102901839203a0878d591a79d50b160387025e81e992849c7216d3d9"
+    },
+    {
+      "path": "apps/react-vite/src/testing/mocks/server.ts",
+      "startLine": 1,
+      "endLine": 6,
+      "digest": "1c2b19a25e03a0008d8d0a9cc4fe5722d7d800f55d0c0bc60a85969cc9c9309f"
+    },
+    {
+      "path": "apps/react-vite/src/testing/setup-tests.ts",
+      "startLine": 1,
+      "endLine": 28,
+      "digest": "28db0af83fc8b54de7df18edf062d9ca9b4d43c12cada149ee1753876f808ccf"
+    },
+    {
+      "path": "apps/react-vite/src/types/api.ts",
+      "startLine": 1,
+      "endLine": 51,
+      "digest": "db3798d52e02da1fa0a091ec6baceb4f32aa38a464163dd678977d3def07700a"
+    },
+    {
+      "path": "apps/react-vite/src/utils/cn.ts",
+      "startLine": 1,
+      "endLine": 7,
+      "digest": "74e8fe9d0d680c442ed6adb13e7d119d6c210c19ae6c114313b2a72552be0883"
+    },
+    {
+      "path": "apps/react-vite/src/utils/format.ts",
+      "startLine": 1,
+      "endLine": 5,
+      "digest": "d895181055302c5f03221dde050dba2675cc2850e4e4e6f13ba63e07b1e2bea6"
+    },
+    {
+      "path": "apps/react-vite/src/vite-env.d.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+    },
+    {
+      "path": "apps/react-vite/tailwind.config.cjs",
+      "startLine": 1,
+      "endLine": 77,
+      "digest": "cb963ac8061eea3639bdaf56f2887506898f05909249d91667042662681f1d2e"
+    },
+    {
+      "path": "apps/react-vite/tsconfig.json",
+      "startLine": 1,
+      "endLine": 27,
+      "digest": "ac71167744af07a035a2cbece3915756b16b2f54feba2c0ee6f6c43374ab4d52"
+    },
+    {
+      "path": "apps/react-vite/vite-env.d.ts",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+    },
+    {
+      "path": "apps/react-vite/vite.config.ts",
+      "startLine": 1,
+      "endLine": 36,
+      "digest": "c60623df77f0649394b665544d02e4dc867c3d613d4eea0c22b6ddb52bc4fa76"
+    },
+    {
+      "path": "docs/additional-resources.md",
+      "startLine": 1,
+      "endLine": 25,
+      "digest": "1751634213e2cb5984f8603e462d0d1a259387224350d7df4505706e4d283947"
+    },
+    {
+      "path": "docs/assets/logo.svg",
+      "startLine": 1,
+      "endLine": 38,
+      "digest": "d59c6972971709180e08c7666059f6dc801f82c722cfbd0bab784c6d59b7b7cc"
+    },
+    {
+      "path": "docs/deployment.md",
+      "startLine": 1,
+      "endLine": 9,
+      "digest": "44a46d8bef0cf78379ba1bb4a4bde2555845057b372ff1ecf6306061f1214427"
+    },
+    {
+      "path": "openspec/changes/archive/.gitkeep",
+      "startLine": 1,
+      "endLine": 1,
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "openspec/specs/.gitkeep",
+      "startLine": 1,
+      "endLine": 1,
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

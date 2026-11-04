@@ -168,4 +168,4 @@ RIGUP_LIVE_CODEX_BACKEND=1 RIGUP_OPENSPEC_BIN=/path/to/openspec node --import ts
 
 第一组验证官方固定版本安装、CodeGraph 受保护初始化/恢复、OpenWiki 独立交接及 Codex MCP 连接，不调用模型。第二组使用本机默认 Codex 模型验证研究到安装与无变化复用；不运行模型切换。
 
-另已对锁定提交的 Domain-Driven Hexagon 和 Bulletproof React 运行真实 GitHub 项目 E2E。DDD 主线通过。前端首次完整语义流程因预算超限失败，记录保留；优化锁文件上下文后，按同一 12 请求 / 1200000 token 预算复验通过，实际 4 请求 / 558605 token，应用构建、21 项单测、3 项浏览器用例与真实 Codex MCP 源码查询也通过。见 [首次项目记录](docs/compatibility/evidence/2026-11-05-github-projects/README.md) 和 [最新完整语义复验](docs/compatibility/evidence/2026-11-05-context-budget/README.md)。
+另已对锁定提交的 Domain-Driven Hexagon 和 Bulletproof React 运行真实 GitHub 项目 E2E。DDD 主线通过。前端最初的预算失败、后来的锁文件优化结果均保留；最新按阶段优化后，仍以 12 请求 / 1200000 token 预算完成完整四阶段，实际 **4 请求 / 341053 token**，比上一轮再少 **38.95%**。plan/content/acceptance 分别使用 28/15/15 个来源，后三阶段正文合计减少 61.96%；应用构建、21 项单测、3 项浏览器用例及真实 Codex MCP 源码查询也通过。见 [首次项目记录](docs/compatibility/evidence/2026-11-05-github-projects/README.md)、[锁文件优化](docs/compatibility/evidence/2026-11-05-context-budget/README.md) 和 [最新阶段优化复验](docs/compatibility/evidence/2026-11-05-stage-context/README.md)。

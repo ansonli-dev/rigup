@@ -1,0 +1,42 @@
+{
+  "caseId": "github-project/frontend/codex-native-mcp",
+  "status": "passed",
+  "root": "/private/tmp/rigup-context-e2e-z2Q0V6/frontend",
+  "startedAt": "2026-11-04T19:16:49.388Z",
+  "modelCalls": 0,
+  "methods": [
+    "initialize",
+    "thread/start",
+    "mcpServerStatus/list",
+    "mcpServer/tool/call"
+  ],
+  "servers": [
+    {
+      "name": "codegraph",
+      "tools": [
+        "codegraph_explore"
+      ]
+    },
+    {
+      "name": "openwiki",
+      "tools": [
+        "openwiki_search",
+        "openwiki_submit_plan",
+        "openwiki_list_workspaces",
+        "openwiki_inspect_page_claims",
+        "openwiki_next_page",
+        "openwiki_submit_page",
+        "openwiki_list_wikis",
+        "openwiki_read",
+        "openwiki_finish",
+        "openwiki_begin"
+      ]
+    }
+  ],
+  "query": "getDiscussions",
+  "responseSha256": "f07806d5336b1d69b627159a8d0d334b78b9d68f329cea3cae672555c457b6fc",
+  "responseBytes": 9767,
+  "resultScope": "Actual current business source returned through native Codex MCP tool; raw source response retained privately only.",
+  "openWikiInitializationCalled": false,
+  "finishedAt": "2026-11-04T19:16:54.112Z"
+}

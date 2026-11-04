@@ -1,0 +1,24 @@
+{
+  "capturedAt": "2026-11-04T19:09:45.130Z",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "codex": "codex-cli 0.166.0",
+  "openspec": "1.16.0",
+  "versions": {
+    "react": "18.3.1",
+    "vite": "5.2.11",
+    "vitest": "2.1.4",
+    "typescript": "5.4.5",
+    "@playwright/test": "1.59.1",
+    "msw": "2.2.14",
+    "express": "4.19.2"
+  },
+  "sourceRevision": "e9aa1e47584e86ae6ae2562f4cd845d00709283f",
+  "packageSha256": "292eb3b93c440b1e8c59f0c25f8887d4d1168c9e23b60d82d9c6d3d5ca0a8a00",
+  "stagePolicySha256": "5e26e02873f9b9da933b93f12c68f6f58fbdccfbddade00de21fe110440488ea",
+  "upstreamLockSha256": "21937464da5e54de5bce88e8314ed0747b82e0236b78079bf8aaa31c849b6cb8",
+  "reusedLockSha256": "21937464da5e54de5bce88e8314ed0747b82e0236b78079bf8aaa31c849b6cb8",
+  "dependencySetup": "Reused original frozen-Yarn-installed node_modules via filesystem copy; unchanged manifest/lock, no root prepare.",
+  "browserDirectory": "/private/tmp/rigup-github-e2e-Ob73Xm/browsers"
+}

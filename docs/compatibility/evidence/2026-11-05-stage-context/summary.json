@@ -1,0 +1,90 @@
+{
+  "status": "passed",
+  "sourceRevision": "e9aa1e47584e86ae6ae2562f4cd845d00709283f",
+  "upstreamCommit": "9506629ed003a561c6627735480cce4994244bb4",
+  "policy": "stage-evidence-v1",
+  "unchangedBudget": {
+    "maxCalls": 12,
+    "maxTokens": 1200000
+  },
+  "actualModelCalls": 4,
+  "actualObservedTokens": 341053,
+  "previousActualObservedTokens": 558605,
+  "tokenReductionPercent": 38.95,
+  "laterStageEvidenceChars": 401793,
+  "previousLaterStageEvidenceChars": 1056240,
+  "laterStageEvidenceReductionPercent": 61.96,
+  "requests": [
+    {
+      "stage": "acceptance",
+      "inventoryFiles": 178,
+      "evidenceFiles": 15,
+      "evidenceChars": 117902,
+      "bytes": 206823,
+      "inputBytes": 24100,
+      "previousEvidenceFiles": 177,
+      "previousEvidenceChars": 352080,
+      "previousBytes": 465274,
+      "evidenceReductionPercent": 66.51,
+      "payloadReductionPercent": 55.55
+    },
+    {
+      "stage": "plan",
+      "inventoryFiles": 178,
+      "evidenceFiles": 28,
+      "evidenceChars": 165989,
+      "bytes": 254438,
+      "inputBytes": 18174,
+      "previousEvidenceFiles": 177,
+      "previousEvidenceChars": 352080,
+      "previousBytes": 468518,
+      "evidenceReductionPercent": 52.85,
+      "payloadReductionPercent": 45.69
+    },
+    {
+      "stage": "analysis",
+      "inventoryFiles": 178,
+      "evidenceFiles": 177,
+      "evidenceChars": 352080,
+      "bytes": 426812,
+      "inputBytes": 2,
+      "previousEvidenceFiles": 177,
+      "previousEvidenceChars": 352080,
+      "previousBytes": 426000,
+      "evidenceReductionPercent": 0,
+      "payloadReductionPercent": -0.19
+    },
+    {
+      "stage": "content",
+      "inventoryFiles": 178,
+      "evidenceFiles": 15,
+      "evidenceChars": 117902,
+      "bytes": 201459,
+      "inputBytes": 19228,
+      "previousEvidenceFiles": 177,
+      "previousEvidenceChars": 352080,
+      "previousBytes": 457571,
+      "evidenceReductionPercent": 66.51,
+      "payloadReductionPercent": 55.97
+    }
+  ],
+  "allFourSemanticStages": true,
+  "openSpecEnabled": true,
+  "independentApply": true,
+  "unchangedApplyWritten": 0,
+  "unchangedModelCalls": 0,
+  "localNoteProtected": true,
+  "openWikiInitialized": false,
+  "nativeCodegraphQuery": "getDiscussions",
+  "semanticAssets": [
+    "docs/rigup/react-vite-api-cache-review.md"
+  ],
+  "historicalRunsPreserved": true,
+  "reports": {
+    "semantic": "bulletproof-semantic-e2e.json",
+    "source": "source-audit.json",
+    "snippets": "snippet-verification.json",
+    "application": "application-checks.json",
+    "previous": "../2026-11-05-context-budget/bulletproof-semantic-e2e.json"
+  }
+}

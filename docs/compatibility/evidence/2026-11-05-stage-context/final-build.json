@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "packageFiles": 68,
+  "liveSourceRevision": "e9aa1e47584e86ae6ae2562f4cd845d00709283f",
+  "compiledSourceMatchesLiveConsumer": {
+    "host": "224d5ea5a96aea3258e962d4950db97dab74ed8b402e2fe331aeda4e6d6da476",
+    "codex": "63bb437b3ff49e5bd7a6ba97b364a1bbecf2cf22e474e0b412f9ea594bf3f3b1",
+    "stage-context": "5e26e02873f9b9da933b93f12c68f6f58fbdccfbddade00de21fe110440488ea"
+  },
+  "originalLivePackagePreserved": true,
+  "finalPackageSha256": "35eab7ffa0b15059d7985a0dc9aed1c1d031afee34974af7f071943baf7c7b0a"
+}

@@ -1,0 +1,38 @@
+{
+  "checkedAt": "2026-11-04T19:20:03.399Z",
+  "ports": [
+    {
+      "port": 41751,
+      "closed": true,
+      "code": "ECONNREFUSED"
+    },
+    {
+      "port": 41752,
+      "closed": true,
+      "code": "ECONNREFUSED"
+    }
+  ],
+  "testDaemonStopped": true,
+  "daemon": {
+    "root": "/private/tmp/rigup-context-e2e-z2Q0V6/frontend",
+    "pid": 27565,
+    "outcome": "term"
+  },
+  "doctor": {
+    "exitCode": 3,
+    "pending": [
+      {
+        "category": "config",
+        "id": "codex:change-deliver:context",
+        "state": "pending",
+        "reason": "Local modification preserved; capability needs review"
+      },
+      {
+        "category": "tools",
+        "id": "openwiki:initialization",
+        "state": "pending",
+        "reason": "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it."
+      }
+    ]
+  }
+}

@@ -65,12 +65,19 @@ test('live Bulletproof React completes semantic setup within its unchanged budge
   const exchange=home+'/.cache/rigup/codex/exchange',measurements=[];
   for(const file of await readdir(exchange,{recursive:true}))if(file.endsWith('.request.json')){
    const requestPath=join(exchange,file),raw=await readFile(requestPath,'utf8'),body=JSON.parse(raw);
-   assert.equal(body.context.evidencePolicy,'dependency-manifests-v1');assert.deepEqual(body.context.budget,{maxCalls:12,maxTokens:1200000});assert.deepEqual(body.context.options.scope,options.scope);
+   assert.equal(body.context.evidencePolicy,'stage-evidence-v1');assert.deepEqual(body.context.budget,{maxCalls:12,maxTokens:1200000});assert.deepEqual(body.context.options.scope,options.scope);
+   assert.match(body.context.inputDigest,/^[a-f0-9]{64}$/);assert.match(body.context.evidenceSelection.selectionDigest,/^[a-f0-9]{64}$/);
    assert.ok(body.paths.includes('apps/react-vite/yarn.lock'));assert.ok(body.omittedEvidence.some((o:any)=>o.path==='apps/react-vite/yarn.lock'));assert.ok(!body.evidence.some((e:any)=>e.evidence.path==='apps/react-vite/yarn.lock'));
    assert.ok(Buffer.byteLength(raw)<600000,'full lock content must not reappear in nested stage context');
-   measurements.push({requestId:body.requestId,kind:body.context.kind,expectedOutput:body.context.expectedOutput??'analysis',bytes:Buffer.byteLength(raw),inventoryFiles:body.paths.length,evidenceFiles:body.evidence.length,evidenceChars:body.evidence.reduce((n:number,e:any)=>n+e.content.length,0),omittedEvidence:body.omittedEvidence});
+   const job=body.context.input?.job;
+   if(job)for(const ref of job.sourceRefs)assert.ok(body.evidence.some((e:any)=>['path','startLine','endLine','digest'].every(key=>e.evidence[key]===ref[key])),'current-job source references remain directly visible');
+   for(const path of Object.keys(marker.nativeHashes))assert.ok(body.evidence.some((e:any)=>e.evidence.path===path),'native gate remains visible: '+path);
+   if(body.context.expectedOutput==='plan')assert.equal(body.context.input.profile.files,undefined);
+   measurements.push({requestId:body.requestId,kind:body.context.kind,expectedOutput:body.context.expectedOutput??'analysis',bytes:Buffer.byteLength(raw),inputBytes:Buffer.byteLength(JSON.stringify(body.context.input??{})),inventoryFiles:body.paths.length,evidenceFiles:new Set(body.evidence.map((e:any)=>e.evidence.path)).size,evidenceSnippets:body.evidence.length,evidenceChars:body.evidence.reduce((n:number,e:any)=>n+e.content.length,0),selection:body.context.evidenceSelection,job:job?{logicalId:job.logicalId,sourceRefs:job.sourceRefs,seedPaths:job.seedPaths,relatedArtifacts:job.relatedArtifacts}:undefined,omittedEvidence:body.omittedEvidence});
   }
   assert.ok(measurements.some(m=>m.kind==='analyze'));assert.ok(measurements.some(m=>m.expectedOutput==='plan'));
+  const analysis=measurements.find(m=>m.kind==='analyze')!;
+  for(const item of measurements.filter(m=>m.kind!=='analyze')){assert.ok(item.evidenceChars<=analysis.evidenceChars*0.65,'later-stage evidence must materially shrink');assert.ok(item.evidenceFiles<analysis.evidenceFiles);}
   const jobs=manifest.assets.filter((a:any)=>a.source.kind==='semantic');if(jobs.length){assert.ok(measurements.some(m=>m.expectedOutput==='content'));assert.ok(measurements.some(m=>m.expectedOutput==='acceptance'));}
   record.requests=measurements;record.usage=before;record.actualModelCalls=counts.calls;record.actualObservedTokens=counts.tokens;record.semanticAssets=jobs.map((a:any)=>a.target);record.sourceProtection={trackedFiles:535,changes:originalChanges,nativeEntriesUnchanged:Object.keys(marker.nativeHashes).length};record.unchangedUpdate={written:0,newModelCalls:0};record.localNoteProtected=true;record.openWikiNativeStateCreated=false;record.status='passed';delete record.reason;
  }catch(error){record.status='failed';record.reason=(error as Error).message;record.usage=await ledgers();throw error;}

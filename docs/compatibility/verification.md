@@ -2,7 +2,7 @@
 
 更新：2026-11-05。依据 [上游核验标准](README.md)、[实施计划](../superpowers/plans/2026-11-02-rigup-implementation.md) 和 [文档生成标准](../superpowers/specs/2026-11-03-documentation-system-design.md)。所有状态绑定下列精确对象；协议解析、组件冒烟、真实模型和完整兼容分别留证。
 
-最新范围调整：OpenWiki 仅安装/接线并交接独立初始化；CodeGraph 保留受保护索引与恢复。最新本地结果为 300 passed、14 opt-in live skipped、0 failed。前端完整语义 E2E 在上下文优化后以原预算通过，实际 4 请求 / 558605 token；首轮预算失败及较早自动初始化记录仍是历史证据，见文末的独立复验。
+最新范围调整：OpenWiki 仅安装/接线并交接独立初始化；CodeGraph 保留受保护索引与恢复。最新本地结果为 315 passed、14 opt-in live skipped、0 failed。前端完整语义 E2E 按阶段缩减证据后以原预算通过，实际 4 请求 / 341053 token；各轮历史结果和较早初始化记录保留，见文末独立复验。
 
 ## 四个独立结论
 
@@ -166,3 +166,13 @@ DDD 上游没有锁文件：npm 的 Slonik peer 依赖冲突、解析到空的 m
 原业务构建、21/21 Vitest、3/3 Chromium 以及真实 Codex MCP 发现/查询通过；测试服务已停止。doctor 在停止测试 daemon 后核验 CodeGraph 完整索引；仍为用户补充说明及 OpenWiki 独立初始化返回 pending，不声称全部诊断通过。[应用检查](evidence/2026-11-05-context-budget/application-checks.json)、[原生宿主](evidence/2026-11-05-context-budget/frontend-native-mcp.json)。
 
 一次独立审查发现旧版未完成运行与 v2 host 预算上下文冲突的 Important；已在同一修复轮以两项 RED→GREEN 回归修复。host 交换记录按适配器版本分开，Codex 的 root/run 持久累计预算保持原键，未知或耗尽旧消费仍阻止发送。最终本地回归 **314 项：300 passed、14 opt-in live skipped、0 failed**，类型检查、构建和 67 文件打包通过。[审查、修复及完整裁决](evidence/2026-11-05-context-budget/final-review-results.json)。修复未追加真实模型调用，前述 E2E 保留其 `67512c6` 来源绑定；未推广为其他宿主/模型或正式人工语义批准。
+
+## 按阶段缩减证据后的完整语义复验
+
+`e9aa1e4` 的 Codex adapter 3 使用 `stage-evidence-v1`：analyze 保留有界扫描；plan 读取研究引用，content 聚焦当前 job/关联闭包，acceptance 补入候选实际链接的来源。精确片段、适用指令与原生门禁、相关支持/反例、未决冲突和未知项保留，其他正文明确未提供。原输入/选择摘要绑定请求身份；同一 root/run 的累计 Codex ledger 不变。手工 host 默认不变，OpenWiki 仍独立初始化。
+
+同一 Bulletproof React 提交、scope、默认 Codex 与 OpenSpec，预算保持 **12 请求 / 1200000 token**，完整四阶段实测 **4 请求 / 341053 token**，较上一轮再少 **38.95%**。analyze 仍为 177 个来源/352080 字符；plan 为 **28/165989**，content 和 acceptance 均为 **15/117902**；后三阶段正文合计少 **61.96%**。真实输入/响应未改写，全部历史消费保留。[实测与复现](evidence/2026-11-05-stage-context/README.md)、[完整报告](evidence/2026-11-05-stage-context/bulletproof-semantic-e2e.json)、[逐阶段数据](evidence/2026-11-05-stage-context/summary.json)。
+
+独立 apply、0 写入/0 新调用的无变化更新、用户说明保护、真实索引和 Codex MCP getDiscussions 查询通过；没有 OpenWiki begin。534 个原文件字节不变，AGENTS 原正文保留并仅追加托管导航，6 个原生 OpenSpec skill 未改；177 个唯一导出片段全部经实际过滤源码重新校验。[来源抽核](evidence/2026-11-05-stage-context/source-audit.json)。应用构建、21/21 Vitest、3/3 Chromium 通过，测试服务已停止；doctor 保留用户说明和独立 Wiki 的 pending，同时核验完整 CodeGraph 索引。[应用与原生检查](evidence/2026-11-05-stage-context/application-checks.json)。
+
+本地 **329 项：315 passed、14 opt-in live skipped、0 failed**；定向 38/38、类型检查、构建和 68 文件打包通过。缺失阶段、缺失 topic、投影与实际 Codex prompt 回退均有 RED→GREEN 记录。成功范围仍限本次 Codex/React Vite 案例，不代替其他组合或正式人工语义批准。
