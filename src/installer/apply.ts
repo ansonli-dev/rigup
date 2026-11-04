@@ -1,5 +1,6 @@
 import type {RunProgressEvent} from '../progress.js';
-import {prepareIntegrations} from '../integrations/registry.js';
+import {prepareIntegrations,loadUpstreamLock} from '../integrations/registry.js';
+import {queryInstalledTool} from '../integrations/tools/installed-state.js';
 import {PROMPT_VERSION} from '../analyzer/prompts.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
 import {TEMPLATE_VERSION} from '../generator/render.js';
@@ -18,6 +19,7 @@ import {scanRepository} from '../analyzer/repository.js';
 import {atomicProjectWrite} from './manifest.js';
 import {targetPath,ownedContent} from './ownership.js';
 import {loadManifest,type Manifest} from './baseline.js';
+import {runProjectChecks} from '../integrations/tools/quality.js';
 export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;environment?:{node:string;platform:string};exitCode?:number}
 export interface InstallReport {status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
 export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
@@ -37,6 +39,12 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   const statePath=join(lock.stateRoot,signature(root)+'.apply.json');let tx=await readCache<Transaction>(statePath);
   if(tx&&tx.previewId!==previewId&&tx.status!=='complete'){if(!dependencies.recover)throw new Error('different interrupted installation requires reconciliation with a fresh preview and --resume');await saveDurable(statePath+'.reconciled-'+tx.previewId+'.json',JSON.stringify(tx));}
   if(tx?.previewId!==previewId)tx=undefined;
+  const verifyInstalledTools=async(all=false)=>{
+   const selected=(data.plan.options.tools??[]).filter(t=>t.install&&(all||!data.plan.operations.some(o=>o.integrationId===t.id)));
+   if(!selected.length)return;const recipes=await loadUpstreamLock();
+   for(const tool of selected){const receipt=tx?.receipts[tool.id]??data.oldManifest?.installedTools?.[tool.id];const recipe=recipes.find(r=>r.integrationId===tool.id);if(!receipt||!recipe||receipt.version!==recipe.version)throw new Error('selected installed tool lacks a compatible receipt; reconciliation required');const state=await queryInstalledTool(root,{prefix:'.rigup/tools/'+tool.id,id:tool.id,name:tool.id==='openwiki'?'openwiki':'@colbymchenry/codegraph',version:recipe.version,integrity:recipe.packageIntegrity,lockDigest:receipt.packageLockDigest});if(state.status!=='done')throw new Error('selected installed tool changed since preview; manual reconciliation required');}
+  };
+  await verifyInstalledTools();
   const currentManifest=await readTarget(root,'.rigup/manifest.json');
   if(tx?.status==='prepared'&&currentManifest) {
    const current=await loadManifest(root);
@@ -44,11 +52,12 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     const expected:Manifest={schemaVersion:1,installId:tx.installId,assets:data.assets.map(a=>({...a,baseline:'.rigup/baseline/'+tx!.installId+'/'+signature(a.logicalId)})),options:data.plan.options,versions:data.plan.versions,installedTools:tx.receipts};
     if(signature(current)!==signature(expected))throw new Error('committed manifest differs from expected installation');
     for(const a of current.assets){const bytes=await readTarget(root,a.baseline!);if(!bytes||digest(bytes)!==a.digest)throw new Error('committed baseline unavailable');}
-    tx.status='complete';tx.report={...report,status:'complete',exitCode:tx.checks?.some(c=>c.status==='failed')?1:tx.checks?.some(c=>c.status==='pending')?3:0,checks:tx.checks??[]};
+    await verifyInstalledTools(true);tx.status='complete';tx.report={...report,status:'complete',exitCode:tx.checks?.some(c=>c.status==='failed')?1:tx.checks?.some(c=>c.status==='pending')?3:0,checks:tx.checks??[]};
     await saveDurable(statePath,JSON.stringify(tx));
    }
   }
   if(tx?.status==='complete') {
+   await verifyInstalledTools(true);
    const m=await loadManifest(root);if(m?.installId!==tx.installId)throw new Error('completed manifest changed');
    for(const f of data.files){const actual=await readTarget(root,f.target);if((actual?digest(actual):absentDigest)!==tx.files[f.target].after)throw new Error('installed target changed; prepare a new update preview');}
    completed=total;step('verified completed installation','reused');return {...tx.report!,written:[]};
@@ -86,8 +95,8 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(dependencies.signal?.aborted)return {...report,exitCode:130};
   const verifyFiles=async()=>{for(const f of data.files){const actual=await readTarget(root,f.target);if((actual?digest(actual):absentDigest)!==tx!.files[f.target].after)throw new Error('written configuration differs from preview; baseline not committed');}};
   await verifyFiles();
-  if(!tx.checks){tx.checks=await dependencies.runChecks?.()??[];await saveDurable(statePath,JSON.stringify(tx));}
-  report.checks=tx.checks;await dependencies.hook?.('after-checks');await verifyFiles();if(dependencies.signal?.aborted)return {...report,exitCode:130};
+  if(!tx.checks){tx.checks=dependencies.runChecks?await dependencies.runChecks():data.plan.runChecks?.length?await runProjectChecks(await scanRepository(root,data.plan.options),data.plan.runChecks,dependencies.signal):[];await saveDurable(statePath,JSON.stringify(tx));}
+  report.checks=tx.checks;await dependencies.hook?.('after-checks');await verifyFiles();await verifyInstalledTools(true);if(dependencies.signal?.aborted)return {...report,exitCode:130};
   const assets=[];
   for(const asset of data.assets){const b=data.baselines.find(b=>b.logicalId===asset.logicalId);if(!b)throw new Error('required baseline unavailable');const baseline='.rigup/baseline/'+tx.installId+'/'+signature(asset.logicalId);await atomicProjectWrite(root,baseline,b.encoding==='base64'?Buffer.from(b.content,'base64'):Buffer.from(b.content),0o600);assets.push({...asset,baseline});}
   const manifest:Manifest={schemaVersion:1,installId:tx.installId,assets,options:data.plan.options,versions:data.plan.versions,installedTools:tx.receipts};

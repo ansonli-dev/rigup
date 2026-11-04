@@ -1,15 +1,15 @@
 {
   "caseId": "codex/none/customer-mcp",
   "status": "passed",
-  "startedAt": "2026-11-04T11:17:01.560Z",
-  "finishedAt": "2026-11-04T11:17:02.512Z",
+  "startedAt": "2026-11-04T12:09:24.975Z",
+  "finishedAt": "2026-11-04T12:09:26.040Z",
   "version": "codex-cli 0.166.0",
-  "fixture": "/private/tmp/rigup-native-codex-XAhGnG",
+  "fixture": "/private/tmp/rigup-native-codex-XXocNh",
   "fixtureDigest": "df5715cc8c0a9eff40224325d199bf0a2f90a18270fb9c1894b5e5579fadd14b",
   "configuredByRigup": "complete",
   "skill": {
     "name": "rigup-live-canary",
-    "path": "/private/tmp/rigup-native-codex-XAhGnG/.agents/skills/rigup-live-canary/SKILL.md",
+    "path": "/private/tmp/rigup-native-codex-XXocNh/.agents/skills/rigup-live-canary/SKILL.md",
     "scope": "repo"
   },
   "server": {

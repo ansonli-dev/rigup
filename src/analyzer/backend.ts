@@ -1,7 +1,7 @@
 import {validateOptions} from '../config.js';
 import type {Evidence,StepResult} from '../types.js';
 export interface RepositoryReader {list():Promise<string[]>;read(path:string,start:number,end?:number):Promise<{content:string;evidence:Evidence}>;search(query:string):Promise<{content:string;evidence:Evidence}[]>}
-export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;expectedOutput?:'plan'|'content'|'acceptance';input?:unknown;previousInventoryDigest:string;templateSourcesDigest:string}
+export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;effectiveModel?:import('../types.js').SetupOptions['model'];versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;expectedOutput?:'plan'|'content'|'acceptance';input?:unknown;previousInventoryDigest:string;templateSourcesDigest:string}
 export interface ResearchResult {data:unknown;model:string;unknowns:string[];usage:{calls:number|'unknown';tokens:number|'unknown'}}
 export interface AnalysisBackend {run(request:ResearchRequest,reader:RepositoryReader):Promise<StepResult<ResearchResult>>}
 export async function validateResearch(data:unknown,reader:RepositoryReader):Promise<void>{
@@ -57,5 +57,6 @@ export function validateResearchRequest(request:ResearchRequest):void {
  for(const field of ['runId','root','fingerprint','previousInventoryDigest','templateSourcesDigest'] as const) if(typeof request[field] !== 'string' || !request[field]) throw new Error('research.'+field+': required');
  if(!request.options || typeof request.options !== 'object' || Array.isArray(request.options)) throw new Error('research.options: expected object');
  validateOptions(request.options as Record<string,unknown>);
+ if(request.effectiveModel)validateOptions({model:request.effectiveModel});
  for(const field of ['maxCalls','maxTokens'] as const) if(!Number.isSafeInteger(request.budget?.[field]) || request.budget[field]<0) throw new Error('research.budget.'+field+': invalid');
 }

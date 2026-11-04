@@ -21,9 +21,17 @@ async function commandResult(command,snapshot,root){
  });
  return {command,...result,startedAt,finishedAt:new Date().toISOString(),durationMs:Date.now()-start};
 }
+async function materializeTree(root,entries,snapshot){
+ const objects=entries.map(entry=>{const match=entry.match(/^(100644|100755) blob ([a-f0-9]{40,64})\t([\s\S]+)$/);if(!match||!relativePath(match[3])||match[3].split('/').some(p=>!p||p==='.')||match[3].includes('\ufffd'))throw Error('Unsupported Git blob path');return{mode:match[1],oid:match[2],path:match[3]};});
+ if(!objects.length)return;
+ const child=spawn('git',['--no-replace-objects','-C',root,'cat-file','--batch'],{stdio:['pipe','pipe','ignore']});
+ const chunks=[];let bytes=0;
+ const output=await new Promise((done,reject)=>{const timeout=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Git snapshot read timed out'));},60000);child.stdout.on('data',chunk=>{bytes+=chunk.length;if(bytes>128*1024*1024){child.kill('SIGKILL');clearTimeout(timeout);reject(Error('Git snapshot exceeds byte budget'));}else chunks.push(chunk);});child.once('error',e=>{clearTimeout(timeout);reject(e);});child.stdin.on('error',e=>{clearTimeout(timeout);reject(e);});child.once('close',code=>{clearTimeout(timeout);code===0?done(Buffer.concat(chunks)):reject(Error('Cannot read selected Git blobs'));});child.stdin.end(objects.map(o=>o.oid).join('\n')+'\n');});
+ let offset=0;for(const object of objects){const lineEnd=output.indexOf(10,offset);const header=output.subarray(offset,lineEnd).toString('ascii').match(/^([a-f0-9]{40,64}) blob ([0-9]+)$/);if(lineEnd<0||!header||header[1]!==object.oid)throw Error('Git snapshot object identity mismatch');const size=Number(header[2]);offset=lineEnd+1;if(!Number.isSafeInteger(size)||size<0||offset+size>=output.length||output[offset+size]!==10)throw Error('Incomplete Git snapshot blob');const target=join(snapshot,object.path);await mkdir(dirname(target),{recursive:true});await writeFile(target,output.subarray(offset,offset+size),{flag:'wx',mode:object.mode==='100755'?0o755:0o644});offset+=size+1;}if(offset!==output.length)throw Error('Unexpected Git snapshot bytes');
+}
 export async function runSnapshot({root,mode,commands,input='',maxCommits=100,reportPaths=[]}){
  root=await realpath(root);if(!['pre-commit','pre-push','ci'].includes(mode)||!Array.isArray(commands)||!Number.isSafeInteger(maxCommits)||maxCommits<1)throw Error('Invalid snapshot selection');
- const git=async args=>(await exec('git',['-C',root,...args],{maxBuffer:128*1024*1024})).stdout.trim();
+ const git=async args=>(await exec('git',['--no-replace-objects','-C',root,...args],{maxBuffer:128*1024*1024})).stdout.trim();
  const commits=[];
  if(mode==='pre-commit')commits.push({tree:await git(['write-tree'])});
  else if(mode==='ci'){const commit=await git(['rev-parse','--verify','HEAD']);if(process.env.CI_COMMIT_SHA&&process.env.CI_COMMIT_SHA!==commit)throw Error('CI input commit does not match checkout');commits.push({commit,tree:await git(['rev-parse',commit+'^{tree}'])});}
@@ -38,12 +46,11 @@ export async function runSnapshot({root,mode,commands,input='',maxCommits=100,re
  }
  const snapshots=[];let exitCode=0;
  for(const selected of commits){
-  const entries=(await exec('git',['-C',root,'ls-tree','-rz',selected.tree],{maxBuffer:128*1024*1024})).stdout.split('\0').filter(Boolean);
+  const entries=(await exec('git',['--no-replace-objects','-C',root,'ls-tree','-rz',selected.tree],{maxBuffer:128*1024*1024})).stdout.split('\0').filter(Boolean);
   for(const entry of entries){const mode=entry.split(' ')[0],path=entry.slice(entry.indexOf('\t')+1);if(!['100644','100755'].includes(mode)||!relativePath(path))throw Error('Snapshot contains symlink/submodule/unsupported path; configure a safe snapshot adapter');}
   const snapshot=await realpath(await mkdtemp(join(tmpdir(),'project-check-')));
   try{
-   const archive=(await exec('git',['-C',root,'archive','--format=tar',selected.tree],{encoding:'buffer',maxBuffer:128*1024*1024})).stdout;
-   await new Promise((done,reject)=>{const tar=spawn('tar',['-xf','-','-C',snapshot],{stdio:['pipe','ignore','ignore']});tar.once('error',reject);tar.once('close',code=>code===0?done():reject(Error('Cannot extract isolated Git snapshot')));tar.stdin.on('error',reject);tar.stdin.end(archive);});
+   await materializeTree(root,entries,snapshot);
    const results=[];for(const command of commands){const result=await commandResult(command,snapshot,root);results.push(result);if(!exitCode&&result.exitCode)exitCode=result.exitCode;}
    const record={...selected,mode,environment:{node:process.version,platform:process.platform},checkedAt:new Date().toISOString(),commands:results,artifacts:[]};
    if(mode==='ci')for(const path of reportPaths){

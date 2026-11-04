@@ -5,7 +5,7 @@ import {filterContent} from '../analyzer/read-policy.js';
 import {scanRepository} from '../analyzer/repository.js';
 import {projectInput} from '../managed-input.js';
 import {readFile,lstat,readdir,realpath} from 'node:fs/promises';
-import {join,posix} from 'node:path';
+import {join,posix,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import type {SetupPlan,ManagedAsset} from '../types.js';
@@ -21,7 +21,7 @@ import {mergeManaged,type MergeResult} from './merge.js';
 import {targetPath,ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;before?:string;after?:string}
-export interface Preview {previewId:string;root:string;executable:boolean;items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
+export interface Preview {previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;next?:string;encoding:'utf8'|'base64';mode?:number}
 export interface PreviewData {schemaVersion:1;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[];operationPreconditions:{id:string;state:'missing'|'empty'}[]}
 export const absentDigest=digest('rigup:absent');
@@ -141,7 +141,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   }catch{blockers.push('.gitlab-ci.yml: required CI include/job binding invalid or unavailable; preserve local content and re-prepare');}
  }
  const previewId=digest(randomUUID()+signature({plan,items,resolutions}));
- const publicPreview:Preview={previewId,root,executable:blockers.length===0,items,blockers,operations:plan.operations,warnings:plan.warnings};
+ const publicPreview:Preview={previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,next:f.text,encoding:f.encoding,mode:f.mode}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
  const data:PreviewData={schemaVersion:1,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan),files,assets:nextAssets,baselines:baselineRecords,operationPreconditions};
@@ -158,5 +158,5 @@ export async function installationInput(root:string,plan:SetupPlan):Promise<stri
   const present=unique.filter(s=>ownedContent(raw,s)!==undefined);
   const text=projectInput(raw,present);if(text!==null)values.push(path+'\0'+digest(text));
  }
- const config=await readTarget(root,'.rigup/config.yaml');return signature({values,config:plan.assets.some(a=>a.target==='.rigup/config.yaml')?'configured-in-this-preview':config?digest(config):absentDigest});
+ const config=await readTarget(root,'.rigup/config.yaml');const nativeSources=Object.fromEntries(Object.entries(profile.skillSources??{}).map(([agent,sources])=>[agent,sources.filter(s=>isAbsolute(s.identity))]).filter(([,sources])=>(sources as unknown[]).length));return signature({values,nativeSources,config:plan.assets.some(a=>a.target==='.rigup/config.yaml')?'configured-in-this-preview':config?digest(config):absentDigest});
 }

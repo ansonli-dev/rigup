@@ -1,7 +1,7 @@
 {
   "status": "passed",
   "archive": "rigup-0.1.0.tgz",
-  "archiveIntegrity": "sha512-smu2MJvjkOPwzaiMSTPFneUeifxOblew0wyNGsEsEWFmoQPhAJAxPq/bLrNUUTxT7/zWQF+AZAXg1eFDr/PBXg==",
+  "archiveIntegrity": "sha512-svrjlX+1nKuzwY3DguhRvaJHubberP7Ba47+rXbCXMmhQfGi+4+eK0wHONwFb0ja1xLDKUrBYVp6qLH9j/TvkA==",
   "archiveFiles": [
     "README.md",
     "dist/analyzer/analyze.js",
@@ -9,6 +9,7 @@
     "dist/analyzer/backend.js",
     "dist/analyzer/evidence.js",
     "dist/analyzer/host.js",
+    "dist/analyzer/native-sources.js",
     "dist/analyzer/prompts.js",
     "dist/analyzer/read-policy.js",
     "dist/analyzer/repository.js",
@@ -45,6 +46,7 @@
     "dist/integrations/sdd/superpowers.js",
     "dist/integrations/tools/codegraph.js",
     "dist/integrations/tools/customer-mcp.js",
+    "dist/integrations/tools/installed-state.js",
     "dist/integrations/tools/openwiki.js",
     "dist/integrations/tools/quality.js",
     "dist/integrations/tools/software.js",
@@ -66,19 +68,19 @@
   "rigupRemoved": true,
   "hookResult": 0,
   "runnerEcho": true,
-  "fixture": "/private/tmp/rigup-package-DPpPZX/project",
+  "fixture": "/private/tmp/rigup-package-NzSjrC/project",
   "native": {
     "caseId": "codex/none/customer-mcp",
     "status": "passed",
-    "startedAt": "2026-11-04T11:17:39.328Z",
-    "finishedAt": "2026-11-04T11:17:40.011Z",
+    "startedAt": "2026-11-04T12:10:02.923Z",
+    "finishedAt": "2026-11-04T12:10:03.617Z",
     "version": "codex-cli 0.166.0",
-    "fixture": "/private/tmp/rigup-package-DPpPZX/project",
+    "fixture": "/private/tmp/rigup-package-NzSjrC/project",
     "fixtureDigest": "4c9ab3b69ed5506f87e16223bb8941877704ddcf3d296d45f039fcb69a211856",
     "configuredByRigup": "complete",
     "skill": {
       "name": "rigup-live-canary",
-      "path": "/private/tmp/rigup-package-DPpPZX/project/.agents/skills/rigup-live-canary/SKILL.md",
+      "path": "/private/tmp/rigup-package-NzSjrC/project/.agents/skills/rigup-live-canary/SKILL.md",
       "scope": "repo"
     },
     "server": {

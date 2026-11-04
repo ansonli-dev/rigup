@@ -132,8 +132,8 @@ test('software_install_canonicalizes_project_alias_before_npm',()=>project(async
 test('unchanged_receipted_software_is_reused_without_reinstall',()=>project(async root=>{
  const {prepareSoftwareInstall}=await import('../src/integrations/tools/software.js');const {createHash}=await import('node:crypto');
  const prefix=join(root,'.rigup/tools/openwiki');await mkdir(join(prefix,'node_modules/openwiki'),{recursive:true});
- await writeFile(join(prefix,'node_modules/openwiki/package.json'),JSON.stringify({name:'openwiki',version:'0.7.3'}));
- const lock=JSON.stringify({lockfileVersion:3,packages:{'node_modules/openwiki':{version:'0.7.3',integrity:'fixture-integrity'}}});await writeFile(join(prefix,'package-lock.json'),lock);
+ await writeFile(join(prefix,'node_modules/openwiki/package.json'),JSON.stringify({name:'openwiki',version:'0.7.3',bin:{openwiki:'cli.js'}}));const {chmod,symlink}=await import('node:fs/promises');await writeFile(join(prefix,'node_modules/openwiki/cli.js'),'#!/usr/bin/env node\n');await chmod(join(prefix,'node_modules/openwiki/cli.js'),0o755);await mkdir(join(prefix,'node_modules/.bin'));await symlink('../openwiki/cli.js',join(prefix,'node_modules/.bin/openwiki'));
+ const lock=JSON.stringify({lockfileVersion:3,packages:{'':{dependencies:{openwiki:'0.7.3'}},'node_modules/openwiki':{version:'0.7.3',integrity:'fixture-integrity'}}});await writeFile(join(prefix,'package-lock.json'),lock);
  const receipt={version:'0.7.3',packageLockDigest:createHash('sha256').update(lock).digest('hex')};
  const without=await prepareSoftwareInstall(root,'openwiki','0.7.3','fixture-integrity');assert.ok('pending' in without);
  const reused=await prepareSoftwareInstall(root,'openwiki','0.7.3','fixture-integrity',receipt);assert.equal('reused' in reused && reused.reused,true);

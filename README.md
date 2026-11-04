@@ -6,7 +6,7 @@ Rigup 为项目接入 coding agent、原生研发流程、MCP 和已有工程检
 
 ## 本地运行
 
-需要 Node.js 24+、npm；快照检查还需要 Git 和 tar。当前实际验证环境为 macOS，其他平台需要单独验证。
+需要 Node.js 24+、npm；快照检查还需要 Git。当前实际验证环境为 macOS，其他平台需要单独验证。
 
 ```sh
 npm ci
@@ -15,7 +15,7 @@ npm run build
 node dist/cli.js --help
 ```
 
-先在目标目录准备所选原生 SDD 的官方入口。Rigup 会验证入口是否存在；不会伪造缺失的上游技能。框架与工具的精确来源见 [upstream-lock.json](docs/compatibility/upstream-lock.json)。
+先在目标目录或宿主可发现的用户/插件位置准备所选 SDD 的官方入口。Rigup 核对原生调用名、来源身份和已声明依赖；可核实的启用插件会参与发现，多来源冲突、依赖缺失或版本不明确时保持待处理。原生客户端实际加载仍需独立验证。框架与工具的精确来源见 [upstream-lock.json](docs/compatibility/upstream-lock.json)。
 
 仅接入明确配置的工具或普通本地 skill 时，不需要模型凭据，也不必选择 SDD：
 
@@ -26,7 +26,7 @@ node dist/cli.js update /path/to/project --json
 node dist/cli.js doctor /path/to/project --json
 ```
 
-有效设置完整时，非交互 init/update 默认连续完成。TTY 在研究前集中补问缺失项和本轮完成方式。`--json` 不读取 stdin；stdout 只含一个最终对象，进度写入 stderr。`--dry-run` 只保存私有候选和预览，不安装。`--review` 在生成后提供具体 previewId 和独立 apply 命令。
+有效设置完整时，非交互 init/update 默认连续完成。TTY 在研究前集中补问缺失项和本轮完成方式。`--json` 不读取 stdin；stdout 只含一个最终对象，进度写入 stderr。`--dry-run` 只保存私有候选和预览，不安装。`--review` 提供具体变更、绑定的检查选择、previewId 和独立 apply 命令。检查选择保存在预览中，独立 apply 不能通过省略参数跳过已选检查。
 
 ## 项目设置
 
@@ -82,7 +82,7 @@ native 将 token 预检和模型请求计入请求预算。host 的人工往返�
 
 ## 预览、更新和恢复
 
-每项比较 B（上次生成）、L（本地）和 N（新候选）。L=B 时更新，N=B 时保留用户修改；非交叠改动可合并，重叠冲突则保留 L。缺少可信基线不会自动接管既有内容；用户删除的托管项也不会自动重建。混合配置只编辑拥有的键、表或标记块，基线不复制无关字段。
+每项比较 B（上次生成）、L（本地）和 N（新候选）。L=B 时更新，N=B 时保留用户修改；非交叠改动可合并，重叠冲突则保留 L。已知托管资产的基线损坏时，先隔离这些目标并停止语义研究/复用，等待对账；不会把旧生成规则当新规范。缺少可信基线不会自动接管既有内容；用户删除的托管项也不会自动重建。混合配置只编辑拥有的键、表或标记块，基线不复制无关字段。
 
 预览检查最终虚拟项目的配置、入口和链接。用户保留的局部修改若破坏必需绑定，安装同样会停止。逐项 adopt/restore/replace/remove 裁决通过 `preview(plan, resolutions)` 绑定目标、选择器与当前完整摘要后重新预览；CLI 当前会报告冲突，用户可先手工处理，再运行更新。明确退役使用 `--retire logicalId,...`，遗漏旧项不授权删除，也不会自动卸载共享软件。
 
@@ -113,7 +113,7 @@ quality:
     reportPaths: [reports/junit.xml]
 ```
 
-pre-commit 检查 index，pre-push 检查 hook 输入中的实际推送 commit 范围；使用隔离快照，不 stash/reset，也不借用工作区未提交修复或 node_modules。团队须提供能在快照内运行或准备依赖的既有命令；依赖不可用时明确失败，不回退到工作区。符号链接、submodule 和超出范围预算的快照需单独适配。已有 hook 不覆盖；共享 hooks 路径越出当前 worktree 时保持人工待办。
+pre-commit 检查 index，pre-push 检查 hook 输入中的实际推送 commit 范围；从选中 Git tree 的原始 blobs 和文件模式创建隔离快照，不应用 `export-ignore`/`export-subst`，不 stash/reset，也不借用工作区未提交修复或 node_modules。团队须提供能在快照内运行或准备依赖的既有命令；依赖不可用时明确失败，不回退到工作区。符号链接、submodule 和超出范围预算的快照需单独适配。已有 hook 不覆盖；共享 hooks 路径越出当前 worktree 时保持人工待办。
 
 GitLab 以拥有的 include 块接入，保留客户 jobs/includes/comments。报告与失败退出码一并保留。OpenWiki CI 更新只处理明确的 source 路径，不 commit/push，跳过 generated-update 标记；固定版本软件、既有初始化及模型凭据仍是 CI 前置条件。
 

@@ -1,5 +1,5 @@
-import {digest,safePath} from '../../analyzer/evidence.js';
-import {lstat,readdir,realpath,readFile} from 'node:fs/promises';
+import {queryInstalledTool} from './installed-state.js';
+import {lstat,readdir,realpath} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import type {SetupOperation} from '../../types.js';
 export async function prepareSoftwareInstall(root:string,id:'openwiki'|'codegraph',version:string,integrity?:string,receipt?:{version:string;packageLockDigest:string}):Promise<SetupOperation|{pending:string}|{reused:true;version:string}>{
@@ -15,10 +15,8 @@ export async function prepareSoftwareInstall(root:string,id:'openwiki'|'codegrap
  try {if((await readdir(resolve(root,prefix))).length) {
    if(receipt && receipt.version === version && integrity) {
     try {
-     const lockBytes=await readFile(await safePath(root,prefix+'/package-lock.json'));
-     const lock=JSON.parse(lockBytes.toString('utf8'));
-     const pkg=JSON.parse(await readFile(await safePath(root,prefix+'/node_modules/'+name+'/package.json'),'utf8'));
-     if(digest(lockBytes) === receipt.packageLockDigest && pkg.name === name && pkg.version === version && lock.packages?.['node_modules/'+name]?.integrity === integrity) return {reused:true,version};
+     const installed=await queryInstalledTool(root,{prefix,id,name,version,integrity,lockDigest:receipt.packageLockDigest});
+     if(installed.status==='done')return {reused:true,version};
     }catch {/* Failed reconciliation leaves the existing scope untouched. */}
    }
    return {pending:'existing non-empty tool scope requires reconciliation; no automatic overwrite'};

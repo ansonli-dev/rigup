@@ -21,8 +21,10 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
    add(agent+':'+name,target,await readFile(new URL('../../templates/skills/'+name+'/SKILL.md',import.meta.url),'utf8'));
    const refTarget=host.skillDirectory+'/'+name+'/references/project.md';
    const binding=integration.bindings.find(b=>b.id===options.sdd&&b.agent===agent);
-   const customerRefs=integration.skillBindings?.filter(b=>b.agent===agent&&b.consumer===name).map(b=>b.target)??[];
+   const customerBindings=integration.skillBindings?.filter(b=>b.agent===agent&&b.consumer===name)??[];
+   const customerRefs=customerBindings.flatMap(b=>b.target?[b.target]:[]);
    const lines=['# Project context',...(binding ? ['Native prepare: '+binding.prepare.join(', '),'Native deliver: '+binding.deliver.join(', '),'Native document routes: '+binding.artifacts.join(', '),...binding.gates] : options.sdd?['Native workflow prerequisites pending; do not claim completion.']:['Use the explicitly selected customer workflow; preserve its approval and authorization requirements.']),...refs.map(p=>'- '+link(refTarget,p)),...customerRefs.map(p=>'- Customer workflow: '+link(refTarget,p))];
+   for(const b of customerBindings)if(b.nativeName)lines.push('Invoke existing native customer skill: '+b.nativeName+'; preserve its scope and gates.');
    for(const g of guidance) lines.push(`Guidance ${g.topic}: ${g.coverageStatus}; scope ${g.scope.join(', ')}; gaps ${g.gaps.join(', ')}`);
    for(const [kind,commands] of Object.entries(profile.commands)) for(const command of commands) lines.push(`Existing ${kind} sensor in ${command.cwd}: ${JSON.stringify(command)}. Run only when authorized and relevant.`);
    if(options.projectConventions?.tracker)lines.push('Tracker convention (no migration): '+JSON.stringify(options.projectConventions.tracker));

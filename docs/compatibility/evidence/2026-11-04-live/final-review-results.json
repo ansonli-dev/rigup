@@ -1,0 +1,133 @@
+{
+  "reviewedRange": {
+    "base": "0214ffdb147e5747361fe796b8e1f09422793dc8",
+    "head": "d4cc49970d63b3c9ff19d90b4669ba96794e4b4e"
+  },
+  "reviewer": "gpt-6-astra (fresh context, read-only, no subagents)",
+  "counts": {
+    "critical": 0,
+    "important": 8,
+    "minor": 0
+  },
+  "fixPasses": 1,
+  "reReviews": 0,
+  "findings": [
+    {
+      "id": 1,
+      "grade": "Important P1",
+      "finding": "YAML environment lists and PRIVATE-TOKEN header literals leak credentials"
+    },
+    {
+      "id": 2,
+      "grade": "Important P1",
+      "finding": "git archive export-ignore/export-subst change selected snapshot contents"
+    },
+    {
+      "id": 3,
+      "grade": "Important P2",
+      "finding": "review/apply handoff loses selected checks"
+    },
+    {
+      "id": 4,
+      "grade": "Important P2",
+      "finding": "Superpowers native names and global/plugin discovery mismatch"
+    },
+    {
+      "id": 5,
+      "grade": "Important P2",
+      "finding": "SDD sources ignore dependency/conflict status"
+    },
+    {
+      "id": 6,
+      "grade": "Important P2",
+      "finding": "environment-selected model absent from cache/consent identities"
+    },
+    {
+      "id": 7,
+      "grade": "Important P2",
+      "finding": "invalid baseline clears ownership projection and reintroduces generated evidence"
+    },
+    {
+      "id": 8,
+      "grade": "Important P2",
+      "finding": "software receipt reuse bypasses executable and dependency checks"
+    }
+  ],
+  "declinedToJudge": [
+    "Actual Anthropic model quality and provider success unavailable; mocked transport not production success",
+    "Full host × SDD compatibility including OMP pending; local discovery assessed separately",
+    "Actual GitLab runner/CI lint pending; local snapshot assessed",
+    "Final semantic/human acceptance pending, not replaced by structural/code review",
+    "Remote mutation adapters and unconfined native initialization stay manual under existing rulings",
+    "User draft requirement/spec deletions excluded as user changes"
+  ],
+  "rulings": [
+    [
+      "Actual Anthropic provider/model acceptance",
+      "Keep pending because no actual independent-model credentials are available; mocked transport remains a local contract only",
+      "Native generation/model quality may still fail once real credentials are supplied"
+    ],
+    [
+      "Full host × SDD acceptance including OMP",
+      "Keep each unverified combination pending; source binding and the one real Codex/OpenSpec gate case do not establish the full matrix",
+      "Other native hosts/gates may need further integration changes"
+    ],
+    [
+      "Actual GitLab runner/CI lint",
+      "Keep pending without an authorized GitLab host/project/token/runner; exact local snapshot checks are separate evidence",
+      "Server-specific CI or runner problems may remain"
+    ],
+    [
+      "Formal semantic/human acceptance",
+      "Keep pending; agent source cross-checks and code review are not user/human approval of all generated guidance",
+      "Generation quality and unexamined facts still need acceptance"
+    ],
+    [
+      "Remote mutation adapters and unconfined native initialization",
+      "Keep manual/pending under the existing explicit rulings; no invented adapter or unproven automatic write scope",
+      "Requested remote/native initialization remains a manual step"
+    ],
+    [
+      "User draft requirement/spec deletions",
+      "Exclude the pre-existing user changes from implementation findings and preserve them intact",
+      "Those draft changes have not received this code review"
+    ],
+    [
+      "Ambiguous global native source identities/versions",
+      "Require verifiable enabled manager metadata and compatible identities; ambiguous active versions stay pending instead of selecting a newer cache directory",
+      "A legitimate multiversion/custom installation may need explicit verification or another native discovery adapter"
+    ]
+  ],
+  "deferredMinors": [],
+  "verification": {
+    "initialDedicatedRegressions": {
+      "failed": 9,
+      "passed": 0
+    },
+    "finalSuite": {
+      "tests": 261,
+      "passed": 250,
+      "skipped": 11,
+      "failed": 0
+    },
+    "liveEntry": {
+      "passed": 4,
+      "skipped": 7,
+      "failed": 0
+    },
+    "notes": "Every reported finding was reproduced RED then fixed GREEN within the one fix pass. Additional source identity, credential-form and interrupted-preview boundary regressions are included. Full external/semantic acceptance remains pending.",
+    "finalReviewRegressionCount": 16,
+    "typecheck": "passed",
+    "build": "passed",
+    "pack": "passed; 61 files; no cache/tests/customer artifacts"
+  },
+  "priorRulings": [
+    "Task 2: Ruling: unsupported TOML ownership header forms and sensitive non-string TOML values fail closed instead of guessing spans — preserves safe export/cache boundaries until precise source mapping is available — cost if wrong: additional valid configurations may be reported unavailable.",
+    "Task 2: Ruling: remote inputs are conservatively re-read even with a known version — no remote cache reuse is needed to satisfy correctness — cost if wrong: redundant reads, no stale semantic reuse.",
+    "Task 3: Ruling: token preflight calls count toward the configured request budget — avoids hidden extra API requests — cost if wrong: existing low call budgets may need increasing to complete even one research turn.",
+    "Task 3: Ruling: byte-identical support snippets do not count as independent convention evidence — conservative safeguard against mechanical copies — cost if wrong: real independent examples with identical snippets may stay local-pattern until larger evidence is provided.",
+    "Task 4: Ruling: automatic native initialization stays manual where writes cannot be confined — CodeGraph --yes may install Git hooks conditionally, and OpenWiki initialization lacks proven ownership/recovery evidence here — cost if wrong: requested native initialization needs a manual step until a protected adapter is verified.",
+    "Task 4: Ruling: Superpowers+OMP binding remains pending rather than inheriting Pi support — upstream evidence does not establish the OMP binding — cost if wrong: this selected combination cannot be completed automatically yet.",
+    "Task 7: Ruling: remote write adapters are not invented for recovery tests — the current verified operation set contains only scoped local npm installs; unsupported remote actions remain pending and never dispatch — cost if wrong: remote installation/creation requires a separately verified query and protection adapter."
+  ]
+}

@@ -1,4 +1,4 @@
-import {parse} from 'yaml';
+import {discoverNativeSources,nativeSkillMetadata,type NativeDiscoveryOptions} from './native-sources.js';
 import {agents} from '../integrations/agents/index.js';
 import type {Agent} from '../types.js';
 import {readdir,readFile,realpath,stat} from 'node:fs/promises';
@@ -11,8 +11,8 @@ import {readEvidence} from './evidence.js';
 import {digest,safePath} from './evidence.js';
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
 const exec=promisify(execFile);
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;unknowns:string[];truncated:boolean;readPolicyVersion:string}
-export async function scanRepository(root:string,options:SetupOptions):Promise<ProjectProfile>{
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={}):Promise<ProjectProfile>{
  root=await realpath(root);
  if(options.scope?.some(s=>s.startsWith('/')||s.split('/').includes('..')||s.includes('\\'))) throw new Error('scope: invalid relative path');
  const profile:ProjectProfile={root,fingerprint:'',files:[],git:{available:false},commands:{build:[],lint:[],test:[],environment:[],eval:[]},unknowns:[],truncated:false,readPolicyVersion:READ_POLICY_VERSION};
@@ -48,17 +48,16 @@ export async function scanRepository(root:string,options:SetupOptions):Promise<P
     const host=agents[agent];
     if(path.startsWith(host.skillDirectory+'/') && path.endsWith('/SKILL.md')) {
      try {
-      const front=visible.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-      const metadata=front ? parse(front[1]) : undefined;
-      if(metadata && typeof metadata.name === 'string' && typeof metadata.description === 'string') {
+       const metadata=nativeSkillMetadata(visible);
+      if(metadata) {
        profile.nativeEntries ??= {};profile.nativeEntries[agent] ??= [];profile.nativeEntries[agent]!.push(metadata.name);
-       profile.skillSources ??= {};profile.skillSources[agent] ??= [];profile.skillSources[agent]!.push({name:metadata.name,origin:'local',identity:path,digest:digest(raw),satisfies:!metadata.dependencies});
+       profile.skillSources ??= {};profile.skillSources[agent] ??= [];profile.skillSources[agent]!.push({name:metadata.name,origin:'local',identity:path,digest:digest(raw),satisfies:metadata.satisfies});
       }
      }catch {profile.unknowns.push(path+': native skill metadata invalid');}
     }
     const commandDir=agent === 'codex' ? undefined : agent === 'claude' ? '.claude/commands/' : agent === 'omp' ? '.omp/commands/' : '.opencode/commands/';
     if(commandDir && path.startsWith(commandDir) && path.endsWith('.md')) {
-     profile.nativeEntries ??= {};profile.nativeEntries[agent] ??= [];profile.nativeEntries[agent]!.push(path.slice(commandDir.length,-3));
+     profile.nativeEntries ??= {};profile.nativeEntries[agent] ??= [];const name=path.slice(commandDir.length,-3);profile.nativeEntries[agent]!.push(name);profile.skillSources??={};profile.skillSources[agent]??=[];profile.skillSources[agent]!.push({name,origin:'local',identity:path,digest:digest(raw),satisfies:!/^dependencies:/m.test(visible)});
     }
    }
    inputs.push(path+'\0'+digest(filterContent(path,projected)));
@@ -67,13 +66,14 @@ export async function scanRepository(root:string,options:SetupOptions):Promise<P
    }
   }
  }
- await walk(root);profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return profile;
+ await walk(root);const external=await discoverNativeSources(root,options,discovery);for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return profile;
 }
 
 export interface ReaderDependencies {budget?:{calls:number;bytes:number};persist?:()=>Promise<void>;expectedFingerprint?:string}
 export async function repositoryReader(root:string,options:SetupOptions,dependencies:ReaderDependencies={}){
  const profile=await scanRepository(root,options);
  if(dependencies.expectedFingerprint&&profile.fingerprint!==dependencies.expectedFingerprint)throw new Error('reader source fingerprint changed during preparation');
+ if(profile.researchBlocked)throw new Error(profile.researchBlocked);
  const allowed=new Set(profile.files);
  const managed=await loadManaged(root,profile);
  const visibleText=async(path:string)=>{
@@ -109,22 +109,23 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
  };
 }
 
-async function loadManaged(root:string,profile:Pick<ProjectProfile,'unknowns'|'truncated'>):Promise<Map<string,Ownership[]>>{
- const managed=new Map<string,Ownership[]>();
- let sawManifest=false;
- try {
-  const manifest=JSON.parse(await readFile(await safePath(root,'.rigup/manifest.json'),'utf8'));
-  sawManifest=true;
-  if(manifest.schemaVersion !== 1 || !Array.isArray(manifest.assets)) throw new Error('manifest structure');
-  for(const asset of manifest.assets) {
-   if(typeof asset.target !== 'string' || typeof asset.baseline !== 'string' || !['file','block','json-key','toml-table'].includes(asset.ownership?.kind)) throw new Error('asset metadata');
-   const baseline=await readFile(await safePath(root,asset.baseline));
-   if(digest(baseline) !== asset.digest) throw new Error('baseline digest');
-   managed.set(asset.target,[...(managed.get(asset.target)||[]),asset.ownership]);
+async function loadManaged(root:string,profile:Pick<ProjectProfile,'unknowns'|'truncated'|'researchBlocked'>):Promise<Map<string,Ownership[]>>{
+ const managed=new Map<string,Ownership[]>();let sawManifest=false;let untrusted=false;
+ try{
+  const manifest=JSON.parse(await readFile(await safePath(root,'.rigup/manifest.json'),'utf8'));sawManifest=true;
+  if(manifest.schemaVersion!==1||!Array.isArray(manifest.assets))throw new Error('manifest structure');
+  for(const asset of manifest.assets){
+   const target=asset?.target;
+   if(typeof target!=='string'||target.startsWith('/')||target.includes('\\')||target.split('/').some((p:string)=>!p||p==='.'||p==='..')){untrusted=true;continue;}
+   const ownership=asset.ownership as Ownership;
+   if(!ownership||!['file','block','json-key','toml-table'].includes(ownership.kind)){managed.set(target,[{kind:'file'}]);untrusted=true;continue;}
+   managed.set(target,[...(managed.get(target)??[]),ownership]);
+   try{if(typeof asset.baseline!=='string'||!asset.baseline.startsWith('.rigup/baseline/'))throw new Error('baseline path');const baseline=await readFile(await safePath(root,asset.baseline));if(digest(baseline)!==asset.digest)throw new Error('baseline digest');}catch{untrusted=true;}
   }
- } catch(error) {
-  if(sawManifest || (error as NodeJS.ErrnoException).code !== 'ENOENT') {profile.unknowns.push('ownership metadata untrusted; semantic cache disabled');profile.truncated=true;}
-  managed.clear();
+ }catch(error){
+  if(sawManifest||(error as NodeJS.ErrnoException).code!=='ENOENT')untrusted=true;
+  else {try{await safePath(root,'.rigup/baseline');untrusted=true;}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')untrusted=true;}}
  }
+ if(untrusted){for(const target of managed.keys())managed.set(target,[{kind:'file'}]);profile.unknowns.push('ownership metadata untrusted; semantic cache disabled');profile.truncated=true;profile.researchBlocked='ownership/baseline untrusted; reconcile metadata before semantic research or reuse';}
  return managed;
 }

@@ -18,7 +18,7 @@ import {validateArtifactList,type ArtifactJob} from './artifacts.js';
 import {validateDocumentJob,validateDocumentContent,validateTemplateContent,DOCUMENT_POLICY_VERSION} from './document-policy.js';
 import {renderFixed,validateNavigation,TEMPLATE_VERSION,type GuidanceBinding} from './render.js';
 import {signature,privateDirectory,readCache,saveCache} from './cache.js';
-export interface GenerationDependencies {reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
+export interface GenerationDependencies {effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
 interface Candidate {job:ArtifactJob;content:string;digest:string;accepted:boolean}
 interface State {version:1;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;spent:{calls:number;tokens:number|'unknown'}}
 export function inventorySignature(assets:ManagedAsset[]):string {return signature(assets.map(a=>({logicalId:a.logicalId,target:a.target,ownership:a.ownership,digest:a.digest})).sort((a,b)=>a.logicalId.localeCompare(b.logicalId)));}
@@ -29,7 +29,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  const allowedRoots=[options.projectConventions?.documentRoutes?.context??'docs/rigup'];
  const templateSourcesDigest=signature(integration.assets);
  const fixedTemplates=await Promise.all(['change-prepare','change-deliver'].map(n=>readFile(new URL('../../templates/skills/'+n+'/SKILL.md',import.meta.url),'utf8')));
- const baseKey=signature({fixedTemplates,root:profile.root,fingerprint:profile.fingerprint,options,versions,templateSourcesDigest,research:profile.research,nativeEntries:profile.nativeEntries});
+ const baseKey=signature({fixedTemplates,root:profile.root,fingerprint:profile.fingerprint,options,effectiveModel:dependencies.effectiveModel,versions,templateSourcesDigest,research:profile.research,nativeEntries:profile.nativeEntries});
  const cache=await privateDirectory(dependencies.cacheRoot??join(homedir(),'.cache','rigup','generation'),profile.root);
  const path=join(cache,baseKey+'.json');const save=dependencies.save??saveCache;
  const inv=inventorySignature(previousAssets);
@@ -45,7 +45,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:artifact??'artifact-plan',completed:completed(),total:state.plan?.jobs.length,waiting:options.backend==='host'?'host research response':'provider '+expectedOutput,next:expectedOutput==='acceptance'?'save accepted candidate':'validate candidate',status:'running'});
   const budget=dependencies.budget??options.researchBudget??{maxCalls:60,maxTokens:100000};
   if(state.spent.calls>=budget.maxCalls)throw new Error('generation request budget exhausted');
-  const result=await backend.run({kind:expectedOutput==='plan'?'artifact-plan':'artifact-content',expectedOutput,input,artifact,runId:state.runId,root:profile.root,fingerprint:profile.fingerprint,options,versions,budget,...(options.backend==='native'?{spent:state.spent}:{}),previousInventoryDigest:state.inputInventory,templateSourcesDigest},reader);
+  const result=await backend.run({kind:expectedOutput==='plan'?'artifact-plan':'artifact-content',expectedOutput,input,artifact,runId:state.runId,root:profile.root,fingerprint:profile.fingerprint,options,effectiveModel:dependencies.effectiveModel,versions,budget,...(options.backend==='native'?{spent:state.spent}:{}),previousInventoryDigest:state.inputInventory,templateSourcesDigest},reader);
   if(result.status==='complete') {
    await validateResearch(result.value.data,reader);
    state.spent.calls+=typeof result.value.usage.calls==='number'?result.value.usage.calls:1;

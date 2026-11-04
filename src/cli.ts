@@ -9,8 +9,6 @@ import {loadOptions,validateOptions} from './config.js';
 import type {SetupOptions} from './types.js';
 import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
-import {runProjectChecks} from './integrations/tools/quality.js';
-import {scanRepository} from './analyzer/repository.js';
 import {apply} from './installer/apply.js';
 import {doctor} from './installer/doctor.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
@@ -43,7 +41,7 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  if([flags.dryRun,flags.yes,flags.review].filter(Boolean).length>1){io.write('execution mode: choose one\n');return 2;}
  if(applyId){
   if((process.env.CODEX_THREAD_ID||process.env.CLAUDECODE||process.env.OPENCODE)&&!flags.sessionsEnded){io.write('End affected sessions and use --sessions-ended from an independent terminal\n');return 3;}
-  try{const cacheRoot=join(io.services?.cacheRoot??join(homedir(),'.cache','rigup'),'previews');const prepared=await loadPreview(applyId,cacheRoot);if(prepared.plan.root!==root)throw new Error('preview project root differs from requested path');const report=await apply(applyId,{cacheRoot,stateRoot:io.services?.stateRoot,recover:flags.resume,signal:io.services?.signal,runChecks:io.services?.runChecks??(flags.runChecks?.length?async()=>runProjectChecks(await scanRepository(root,prepared.plan.options),flags.runChecks!,io.services?.signal):undefined)});io.services?.report?.({phase:'apply',installStatus:report.status,...report});io.write('Install '+report.status+'\n');return report.exitCode;}catch(e){io.write(errorMessage(e)+'\n');return 1;}
+  try{const cacheRoot=join(io.services?.cacheRoot??join(homedir(),'.cache','rigup'),'previews');const prepared=await loadPreview(applyId,cacheRoot);if(prepared.plan.root!==root)throw new Error('preview project root differs from requested path');if(flags.runChecks&&JSON.stringify([...flags.runChecks].sort())!==JSON.stringify([...(prepared.plan.runChecks??[])].sort()))throw new Error('apply checks differ from approved preview; prepare a new preview with --run-checks');const report=await apply(applyId,{cacheRoot,stateRoot:io.services?.stateRoot,recover:flags.resume,signal:io.services?.signal,runChecks:io.services?.runChecks});io.services?.report?.({phase:'apply',installStatus:report.status,...report});io.write('Install '+report.status+'\n');return report.exitCode;}catch(e){io.write(errorMessage(e)+'\n');return 1;}
  }
  let options:SetupOptions;
  try {

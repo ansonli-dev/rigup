@@ -1,11 +1,11 @@
 {
   "caseId": "claude/none/customer-mcp",
   "status": "pending",
-  "checkedAt": "2026-11-04T11:17:40.013Z",
-  "finishedAt": "2026-11-04T11:17:45.608Z",
+  "checkedAt": "2026-11-04T12:10:03.618Z",
+  "finishedAt": "2026-11-04T12:10:09.388Z",
   "version": "2.1.273 (Claude Code)",
   "loggedIn": true,
-  "fixture": "/private/tmp/rigup-native-claude-z6S0Gr",
+  "fixture": "/private/tmp/rigup-native-claude-h7cDcv",
   "commands": [
     {
       "executable": "claude",
@@ -26,7 +26,7 @@
         "Read,Skill,mcp__rigup-live-canary__rigup_echo",
         "--strict-mcp-config",
         "--mcp-config",
-        "/private/tmp/rigup-native-claude-z6S0Gr/.mcp.json",
+        "/private/tmp/rigup-native-claude-h7cDcv/.mcp.json",
         "--no-session-persistence",
         "--no-chrome",
         "--max-budget-usd",
@@ -34,7 +34,7 @@
         "--output-format",
         "json"
       ],
-      "cwd": "/private/tmp/rigup-native-claude-z6S0Gr"
+      "cwd": "/private/tmp/rigup-native-claude-h7cDcv"
     }
   ],
   "budget": {

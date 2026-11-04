@@ -4,7 +4,7 @@
 
 ## 四个独立结论
 
-- **实现与本地检查：本地通过，整体评审待完成。** Tasks 1–8 已提交；Task 9 已实现 onboarding、连续执行/review/JSON、进度、host 往返、打包和验收入口。最近一次本地测试 243 项，233 通过、10 跳过、0 失败；真实 npm bin 符号链接入口随后补回归修复。typecheck/build/pack dry-run 通过。最终全套检查、打包清单和一次 fresh-context 分支评审完成后更新此结论。
+- **实现与本地检查：passed（实现及本地验证）。** Tasks 1–9 已完成本地交付。一位 gpt-6-astra 审查者以独立上下文检查全分支，发现 8 项 Important，无 Critical/Minor；同一修复轮已补失败回归并修复。本地完整测试 261 项，250 通过、11 跳过、0 失败，typecheck 通过；原生冒烟复验为 4 通过、7 跳过；build/pack dry-run 通过，61 个包文件不含缓存/测试/客户数据。正式产品完整验收仍见另外三个结论。
 - **真实动态生成：pending。** host/service 已完成真实模型 analyze → plan → content → acceptance → 独立 apply、无变化复用、新反例 update 和本地修改保护；14 个唯一 Evidence 与实际过滤后源码逐项相符。仍须分开评估语义质量及覆盖范围。host/monorepo 也已完成真实双产物生成、更新和来源抽核；两个 native 场景缺 Anthropic API key/模型授权。一个成功案例不代表全部真实生成已通过。
 - **真实宿主与工具兼容：pending。** Codex、OpenCode 的无 SDD 原生 skill 发现和客户 MCP 已通过限定场景。Claude、OMP、12 个 SDD 组合、两工具各宿主连接、原生初始化恢复和真实 GitLab 行为分别记录缺口。
 - **首版完整验收：pending。** 完整组合、真实工具/框架 gates、独立模型生成、语义抽核和重要评审问题都满足后才能完成。缺环境、失败或未测均不得改成 mock 通过。
@@ -69,3 +69,17 @@ pending 表示缺条件或未验证；尚无足够已核实限制将这些场景
 本地测试覆盖：集中 onboarding/返回/取消/隐藏 key；语义任务才要求模型；host analyze/plan/content/acceptance 跨进程上下文及累计预算；用户改删和缺损基线的三方保护；旧库存去向、明确退役、重命名和导航最终接线；预览后变动拒绝；写前 fsync/启动屏障；SIGINT/SIGKILL、未知写进程与普通缓存丢失恢复；manifest 最后切换；快照 checks 不借未提交修复；安装状态与客户测试/eval 分离；无 CLI 运行。它们是可重复的实现证据。
 
 2026-11-03 的 [101 项本地契约日志](evidence/2026-11-03-local-contracts.txt)、[版本探测](evidence/2026-11-03-installed-version-probes.json)、[OpenWiki 非 TTY help 失败](evidence/2026-11-03-openwiki-help-non-tty-error.txt)、[OMP 独立 read 失败](evidence/2026-11-03-omp-skill-discovery.txt) 与 [目录解析组件](evidence/2026-11-03-omp-skill-parser.txt) 保留。历史失败不被新结果删除；组件/静态结果不能推广成真实完整兼容。
+
+## 最终代码审查与回归（2026-11-04）
+
+审查范围为 0214ffd..d4cc499，审查者 gpt-6-astra，独立上下文、只读；仅一次审查。8 项 Important 全部进入同一修复轮，没有 deferred minor。结果与执行裁决见 [最终审查数据](evidence/2026-11-04-live/final-review-results.json)。
+
+- 凭据：read policy 提升为 **4**。普通 YAML/JSON/TOML 的 environment/认证列表、credentials/auth 字段及已知命令认证参数受过滤；PRIVATE-TOKEN、短 user 参数和 OAuth bearer 明文参数在有效设置/导出前被拒绝。真实 host 导出的字节也在回归中断言无 fixture 凭据。
+- 快照：从指定 Git tree 直接批量读取 blobs 并恢复文件模式，禁用 replace objects，不经过 archive 属性转换。export-ignore 和 export-subst 的真实 Git 回归不再能掩盖暂存坏文件。
+- review/apply：检查种类与具体变更保存在不可变预览和最终 handoff JSON；独立 apply 恢复执行已选 test，实际失败仍保存成功接线并退出 1。
+- 原生来源：Superpowers 支持真实的未加前缀名称及宿主插件原生名称。读取可核实的用户/启用插件元数据；依赖不足、来源冲突、未知或不匹配版本保持 pending。客户 skill 资源需证明等效，用户范围 native skill 通过原生调用引用，不建立越界文件链接。全局来源变化也会阻止中断预览续写。多版本缓存无法证明哪个生效时不按目录新旧猜测。
+- 模型身份：运行时解析的非秘密 provider/model/key-reference 单独进入请求、run 同意范围及研究/生成缓存；切换模型使旧上下文失效，不把环境选择永久当成下一轮显式项目设置。
+- 基线：已知托管目标在 baseline 缺失/不符时仍被隔离；语义读取/缓存复用在对账前停止，不将旧生成正文重新送模型。
+- 软件复用：与操作对账共用实际安装查询，检查锁摘要、固定包/版本/完整性、依赖 manifest、launcher 和可执行文件；预览到 apply 之间、恢复及检查后的实际状态同样核验；损坏的既有范围只报告待对账，不重装覆盖。
+
+旧真实生成和 gate 证据明确绑定其 read policy 3/template 1/prompt 3 或 4。上述确定性边界修复使用本地回归复验，并未伪造为 read policy 4 下的新模型语义通过。两后端全部正式语义/人工验收仍为 pending。

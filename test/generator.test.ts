@@ -12,7 +12,7 @@ test('valid_artifact_list_starts_pending_and_preserves_evidence_contract',()=>{
 import {generate} from '../src/generator/generate.js';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {digest} from '../src/analyzer/evidence.js';
-import {project} from './helpers.js';
+import {project,setNativeEntries} from './helpers.js';
 import {writeFile,readFile,readdir,rm,mkdir} from 'node:fs/promises';
 import type {AnalysisBackend,ResearchRequest} from '../src/analyzer/backend.js';
 const options={agents:['codex'] as const,backend:'host' as const,sdd:'openspec' as const};
@@ -108,7 +108,7 @@ test('guidance_preserves_pattern_scope_examples_and_exceptions',()=>fixture(asyn
  const p=await scanRepository(root,opts);p.research={data:research,model:'prior',unknowns:['worker unexamined'],usage:{calls:1,tokens:1}};const result=await generate(p,opts,backend,[],{cacheRoot:cache});if(result.status!=='complete')throw Error('pending');assert.deepEqual(result.value.operations,[]);
 }));
 test('no_sdd_only_installs_explicitly_selected_custom_flow',()=>fixture(async(root,cache)=>{
- const f=fake();const result=await generate(await scanRepository(root,opts),{agents:['codex'],backend:'host'},f.backend,[],{cacheRoot:cache});if(result.status!=='complete')throw Error('pending');assert.deepEqual(result.value.assets,[]);assert.equal(f.requests.length,0);
+ const f=fake();const result=await generate(await scanRepository(root,{agents:['codex'],backend:'host'}),{agents:['codex'],backend:'host'},f.backend,[],{cacheRoot:cache});if(result.status!=='complete')throw Error('pending');assert.deepEqual(result.value.assets,[]);assert.equal(f.requests.length,0);
 }));
 import {saveCache} from '../src/generator/cache.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
@@ -117,7 +117,7 @@ test('multi_agent_sdd_context_uses_each_hosts_native_command_names',()=>fixture(
  const selected={agents:['claude','codex'] as ('claude'|'codex')[],backend:'host' as const,sdd:'spec-kit' as const};
  const profile=await scanRepository(root,selected);
  const names=['constitution','specify','plan','tasks','implement','converge'];
- profile.nativeEntries={claude:names.map(n=>'speckit.'+n),codex:names.map(n=>'speckit-'+n)};
+ setNativeEntries(profile,{claude:names.map(n=>'speckit.'+n),codex:names.map(n=>'speckit-'+n)});
  const integration=await prepareIntegrations(profile,selected);assert.deepEqual(integration.requirements,[]);
  const assets=await renderFixed(profile,selected,integration,[],[]);
  const context=(prefix:string)=>assets.find(a=>a.target===prefix+'/change-prepare/references/project.md')!.content;
@@ -150,6 +150,7 @@ test('customer_release_position_requires_a_verified_release_adapter',()=>fixture
 test('replanning_can_inspect_filtered_previous_baseline_without_treating_it_as_source_authority',()=>fixture(async(root,cache)=>{
  const previous='# Prior generated guidance\nAll order operations throw DomainError.\napiKey: customer-secret\n';await mkdir(root+'/.rigup/baseline',{recursive:true});await writeFile(root+'/.rigup/baseline/old.md',previous);
  const old={logicalId:job.logicalId,target:job.target,ownership:{kind:'file' as const},digest:digest(previous),baseline:'.rigup/baseline/old.md',source:{kind:'semantic',ref:'previous'}};
+ await writeFile(root+'/.rigup/manifest.json',JSON.stringify({schemaVersion:1,installId:'old',assets:[old]}));
  const f=fake();const backend:AnalysisBackend={run:async(r,reader)=>{if(r.expectedOutput==='plan'){const prior=(r.input as any).previousInventory[0];assert.match(prior.baselineContent,/All order operations throw DomainError/);assert.doesNotMatch(prior.baselineContent,/customer-secret/);assert.equal(prior.authority,'previous-generated-output-only');const result=await f.backend.run(r,reader);if(result.status==='complete')(result.value.data as any).dispositions=[{logicalId:job.logicalId,action:'update',reason:'New evidence invalidates universal rule'}];return result;}return f.backend.run(r,reader);}};
  assert.equal((await generate(await scanRepository(root,opts),opts,backend,[old],{cacheRoot:cache})).status,'complete');
 }));

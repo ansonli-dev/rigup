@@ -1,8 +1,8 @@
 {
   "caseId": "codegraph/index-query",
   "status": "passed",
-  "startedAt": "2026-11-04T11:17:46.022Z",
-  "fixture": "/private/tmp/rigup-codegraph-project-58Nj0h",
+  "startedAt": "2026-11-04T12:10:09.645Z",
+  "fixture": "/private/tmp/rigup-codegraph-project-YzQkm6",
   "platform": "darwin",
   "node": "v24.15.0",
   "commands": [
@@ -11,8 +11,8 @@
       "args": [
         "--version"
       ],
-      "cwd": "/private/tmp/rigup-codegraph-project-58Nj0h",
-      "began": "2026-11-04T11:17:46.022Z",
+      "cwd": "/private/tmp/rigup-codegraph-project-YzQkm6",
+      "began": "2026-11-04T12:10:09.646Z",
       "exit": 0,
       "stdout": "1.6.2\n",
       "stderr": ""
@@ -22,12 +22,12 @@
       "args": [
         "init",
         "--yes",
-        "/private/tmp/rigup-codegraph-project-58Nj0h"
+        "/private/tmp/rigup-codegraph-project-YzQkm6"
       ],
-      "cwd": "/private/tmp/rigup-codegraph-project-58Nj0h",
-      "began": "2026-11-04T11:17:46.488Z",
+      "cwd": "/private/tmp/rigup-codegraph-project-YzQkm6",
+      "began": "2026-11-04T12:10:10.122Z",
       "exit": 0,
-      "stdout": "┌  Initializing CodeGraph\n│\n◆  Initialized in /private/tmp/rigup-codegraph-project-58Nj0h\n│\nScanning files...\nParsing code...\nResolving refs...\nLinking dynamic dispatch...\n│\n◆  Indexed 4 files\n│\n●  11 nodes, 14 edges in 192ms\n│\n└  Done\n\n",
+      "stdout": "┌  Initializing CodeGraph\n│\n◆  Initialized in /private/tmp/rigup-codegraph-project-YzQkm6\n│\nScanning files...\nParsing code...\nResolving refs...\nLinking dynamic dispatch...\n│\n◆  Indexed 4 files\n│\n●  11 nodes, 14 edges in 196ms\n│\n└  Done\n\n",
       "stderr": ""
     },
     {
@@ -36,25 +36,25 @@
         "query",
         "createOrder",
         "--path",
-        "/private/tmp/rigup-codegraph-project-58Nj0h",
+        "/private/tmp/rigup-codegraph-project-YzQkm6",
         "--json"
       ],
-      "cwd": "/private/tmp/rigup-codegraph-project-58Nj0h",
-      "began": "2026-11-04T11:17:47.328Z",
+      "cwd": "/private/tmp/rigup-codegraph-project-YzQkm6",
+      "began": "2026-11-04T12:10:10.953Z",
       "exit": 0,
-      "stdout": "[\n  {\n    \"node\": {\n      \"id\": \"function:1eac4bc27acb9a6fa9413c2a27217246\",\n      \"kind\": \"function\",\n      \"name\": \"createOrder\",\n      \"qualifiedName\": \"createOrder\",\n      \"filePath\": \"src/orders/create.js\",\n      \"language\": \"javascript\",\n      \"startLine\": 2,\n      \"endLine\": 6,\n      \"startColumn\": 7,\n      \"endColumn\": 1,\n      \"signature\": \"(input)\",\n      \"visibility\": null,\n      \"isExported\": true,\n      \"isAsync\": false,\n      \"isStatic\": false,\n      \"isAbstract\": false,\n      \"updatedAt\": 1793791067213\n    },\n    \"score\": 109.14023435969216\n  }\n]\n",
+      "stdout": "[\n  {\n    \"node\": {\n      \"id\": \"function:1eac4bc27acb9a6fa9413c2a27217246\",\n      \"kind\": \"function\",\n      \"name\": \"createOrder\",\n      \"qualifiedName\": \"createOrder\",\n      \"filePath\": \"src/orders/create.js\",\n      \"language\": \"javascript\",\n      \"startLine\": 2,\n      \"endLine\": 6,\n      \"startColumn\": 7,\n      \"endColumn\": 1,\n      \"signature\": \"(input)\",\n      \"visibility\": null,\n      \"isExported\": true,\n      \"isAsync\": false,\n      \"isStatic\": false,\n      \"isAbstract\": false,\n      \"updatedAt\": 1793794210853\n    },\n    \"score\": 109.14023435969216\n  }\n]\n",
       "stderr": ""
     },
     {
       "executable": "/private/tmp/rigup-codegraph-live-dQQY5B/node_modules/.bin/codegraph",
       "args": [
         "sync",
-        "/private/tmp/rigup-codegraph-project-58Nj0h"
+        "/private/tmp/rigup-codegraph-project-YzQkm6"
       ],
-      "cwd": "/private/tmp/rigup-codegraph-project-58Nj0h",
-      "began": "2026-11-04T11:17:47.492Z",
+      "cwd": "/private/tmp/rigup-codegraph-project-YzQkm6",
+      "began": "2026-11-04T12:10:11.109Z",
       "exit": 0,
-      "stdout": "┌  Syncing CodeGraph\n│\nScanning files...\nParsing code...\nResolving refs...\n│\n◆  Synced 1 changed files\n│\n●  Added: 1 — 2 nodes in 134ms\n│\n└  Done\n\n",
+      "stdout": "┌  Syncing CodeGraph\n│\nScanning files...\nParsing code...\nResolving refs...\n│\n◆  Synced 1 changed files\n│\n●  Added: 1 — 2 nodes in 142ms\n│\n└  Done\n\n",
       "stderr": ""
     },
     {
@@ -63,25 +63,25 @@
         "query",
         "lookupOrder",
         "--path",
-        "/private/tmp/rigup-codegraph-project-58Nj0h",
+        "/private/tmp/rigup-codegraph-project-YzQkm6",
         "--json"
       ],
-      "cwd": "/private/tmp/rigup-codegraph-project-58Nj0h",
-      "began": "2026-11-04T11:17:47.909Z",
+      "cwd": "/private/tmp/rigup-codegraph-project-YzQkm6",
+      "began": "2026-11-04T12:10:11.538Z",
       "exit": 0,
-      "stdout": "[\n  {\n    \"node\": {\n      \"id\": \"function:2c0dca7a8c20346ea8b8193d14f2963b\",\n      \"kind\": \"function\",\n      \"name\": \"lookupOrder\",\n      \"qualifiedName\": \"lookupOrder\",\n      \"filePath\": \"src/orders/lookup.js\",\n      \"language\": \"javascript\",\n      \"startLine\": 1,\n      \"endLine\": 1,\n      \"startColumn\": 7,\n      \"endColumn\": 62,\n      \"signature\": \"(reference)\",\n      \"visibility\": null,\n      \"isExported\": true,\n      \"isAsync\": false,\n      \"isStatic\": false,\n      \"isAbstract\": false,\n      \"updatedAt\": 1793791067819\n    },\n    \"score\": 109.51086976464128\n  }\n]\n",
+      "stdout": "[\n  {\n    \"node\": {\n      \"id\": \"function:2c0dca7a8c20346ea8b8193d14f2963b\",\n      \"kind\": \"function\",\n      \"name\": \"lookupOrder\",\n      \"qualifiedName\": \"lookupOrder\",\n      \"filePath\": \"src/orders/lookup.js\",\n      \"language\": \"javascript\",\n      \"startLine\": 1,\n      \"endLine\": 1,\n      \"startColumn\": 7,\n      \"endColumn\": 62,\n      \"signature\": \"(reference)\",\n      \"visibility\": null,\n      \"isExported\": true,\n      \"isAsync\": false,\n      \"isStatic\": false,\n      \"isAbstract\": false,\n      \"updatedAt\": 1793794211443\n    },\n    \"score\": 109.51086976464128\n  }\n]\n",
       "stderr": ""
     },
     {
       "executable": "/private/tmp/rigup-codegraph-live-dQQY5B/node_modules/.bin/codegraph",
       "args": [
         "status",
-        "/private/tmp/rigup-codegraph-project-58Nj0h"
+        "/private/tmp/rigup-codegraph-project-YzQkm6"
       ],
-      "cwd": "/private/tmp/rigup-codegraph-project-58Nj0h",
-      "began": "2026-11-04T11:17:48.079Z",
+      "cwd": "/private/tmp/rigup-codegraph-project-YzQkm6",
+      "began": "2026-11-04T12:10:11.709Z",
       "exit": 0,
-      "stdout": "\nCodeGraph Status\n\nProject: /private/tmp/rigup-codegraph-project-58Nj0h\n\nIndex Statistics:\n  Files:     5\n  Nodes:     13\n  Edges:     15\n  DB Size:   0.17 MB\n  Backend:   node:sqlite — built-in (full WAL)\n  Journal:   wal\n\nNodes by Kind:\n  file            5\n  function        4\n  import          2\n  class           1\n  method          1\n\nFiles by Language:\n  javascript      5\n\n✓ Index is up to date\n\n",
+      "stdout": "\nCodeGraph Status\n\nProject: /private/tmp/rigup-codegraph-project-YzQkm6\n\nIndex Statistics:\n  Files:     5\n  Nodes:     13\n  Edges:     15\n  DB Size:   0.17 MB\n  Backend:   node:sqlite — built-in (full WAL)\n  Journal:   wal\n\nNodes by Kind:\n  file            5\n  function        4\n  import          2\n  class           1\n  method          1\n\nFiles by Language:\n  javascript      5\n\n✓ Index is up to date\n\n",
       "stderr": ""
     }
   ],
@@ -107,7 +107,7 @@
         "isAsync": false,
         "isStatic": false,
         "isAbstract": false,
-        "updatedAt": 1793791067213
+        "updatedAt": 1793794210853
       },
       "score": 109.14023435969216
     }
@@ -131,12 +131,12 @@
         "isAsync": false,
         "isStatic": false,
         "isAbstract": false,
-        "updatedAt": 1793791067819
+        "updatedAt": 1793794211443
       },
       "score": 109.51086976464128
     }
   ],
-  "statusOutput": "\nCodeGraph Status\n\nProject: /private/tmp/rigup-codegraph-project-58Nj0h\n\nIndex Statistics:\n  Files:     5\n  Nodes:     13\n  Edges:     15\n  DB Size:   0.17 MB\n  Backend:   node:sqlite — built-in (full WAL)\n  Journal:   wal\n\nNodes by Kind:\n  file            5\n  function        4\n  import          2\n  class           1\n  method          1\n\nFiles by Language:\n  javascript      5\n\n✓ Index is up to date\n\n",
+  "statusOutput": "\nCodeGraph Status\n\nProject: /private/tmp/rigup-codegraph-project-YzQkm6\n\nIndex Statistics:\n  Files:     5\n  Nodes:     13\n  Edges:     15\n  DB Size:   0.17 MB\n  Backend:   node:sqlite — built-in (full WAL)\n  Journal:   wal\n\nNodes by Kind:\n  file            5\n  function        4\n  import          2\n  class           1\n  method          1\n\nFiles by Language:\n  javascript      5\n\n✓ Index is up to date\n\n",
   "hooks": [],
-  "finishedAt": "2026-11-04T11:17:48.388Z"
+  "finishedAt": "2026-11-04T12:10:12.042Z"
 }
