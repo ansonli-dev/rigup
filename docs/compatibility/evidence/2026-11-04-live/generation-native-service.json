@@ -1,0 +1,6 @@
+{
+  "caseId": "generation/native/service",
+  "status": "pending",
+  "reason": "ANTHROPIC_API_KEY and ANTHROPIC_MODEL are required for real independent-model acceptance",
+  "checkedAt": "2026-11-04T10:50:25.478Z"
+}

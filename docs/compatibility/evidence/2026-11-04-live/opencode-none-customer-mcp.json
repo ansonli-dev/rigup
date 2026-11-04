@@ -1,0 +1,36 @@
+{
+  "caseId": "opencode/none/customer-mcp",
+  "status": "passed",
+  "startedAt": "2026-11-04T11:17:02.514Z",
+  "finishedAt": "2026-11-04T11:17:04.730Z",
+  "version": "1.18.5",
+  "fixture": "/private/tmp/rigup-native-opencode-06KLWD",
+  "fixtureDigest": "df5715cc8c0a9eff40224325d199bf0a2f90a18270fb9c1894b5e5579fadd14b",
+  "configuredByRigup": "complete",
+  "skillDiscovered": true,
+  "mcpConnected": true,
+  "mcpMethods": [
+    "initialize",
+    "tools/list"
+  ],
+  "commands": [
+    {
+      "executable": "opencode",
+      "args": [
+        "debug",
+        "skill"
+      ],
+      "cwd": "/private/tmp/rigup-native-opencode-06KLWD"
+    },
+    {
+      "executable": "opencode",
+      "args": [
+        "mcp",
+        "list"
+      ],
+      "cwd": "/private/tmp/rigup-native-opencode-06KLWD"
+    }
+  ],
+  "clientOutput": "┌  MCP Servers\n│\n●  ✓ rigup-live-canary connected\n│      node /private/tmp/rigup-native-opencode-06KLWD/.rigup/mcp/rigup-live-canary.mjs\n│\n└  1 server(s)\n\n",
+  "scope": "Actual OpenCode native discovery and MCP initialize/list. No model or SDD gate inference"
+}

@@ -10,9 +10,11 @@
     "rigup": "dist/cli.js"
   },
   "scripts": {
-    "test": "tsx --test",
+    "test": "node --import tsx --test test/*.test.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:live": "RIGUP_LIVE=1 node --import tsx --test --test-concurrency=1 test/live-*.test.ts",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.3.0",
@@ -25,5 +27,12 @@
     "@types/node": "26.6.6",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
-  }
+  },
+  "description": "Prepare project-specific coding-agent workflows and install them with protected updates",
+  "files": [
+    "dist",
+    "templates",
+    "docs/compatibility/upstream-lock.json",
+    "README.md"
+  ]
 }

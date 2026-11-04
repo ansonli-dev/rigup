@@ -1,0 +1,798 @@
+{
+  "caseId": "generation/host/service/source-audit",
+  "reviewedAt": "2026-11-04T11:02:31.950Z",
+  "reviewer": "Codex implementation agent; direct source and generated-output inspection, not user/human approval",
+  "status": "passed",
+  "scope": "Representative facts, exact filtered evidence, source reuse, scopes, counterexample update and local-edit protection; not full framework behavioral acceptance",
+  "verifiedEvidence": [
+    {
+      "path": "docs/testing.md",
+      "startLine": 1,
+      "endLine": 4,
+      "digest": "cdede06ceae088f49b8ed557c2d7bc19bba5cd3e9810f64a1d8fa3135031921b"
+    },
+    {
+      "path": ".agents/skills/openspec-explore/SKILL.md",
+      "startLine": 1,
+      "endLine": 357,
+      "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+    },
+    {
+      "path": ".agents/skills/openspec-propose/SKILL.md",
+      "startLine": 1,
+      "endLine": 176,
+      "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+    },
+    {
+      "path": ".agents/skills/openspec-update-change/SKILL.md",
+      "startLine": 1,
+      "endLine": 110,
+      "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+    },
+    {
+      "path": ".agents/skills/openspec-apply-change/SKILL.md",
+      "startLine": 1,
+      "endLine": 207,
+      "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+    },
+    {
+      "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+      "startLine": 1,
+      "endLine": 291,
+      "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+    },
+    {
+      "path": ".agents/skills/openspec-archive-change/SKILL.md",
+      "startLine": 1,
+      "endLine": 222,
+      "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+    },
+    {
+      "path": "openspec/config.yaml",
+      "startLine": 1,
+      "endLine": 33,
+      "digest": "f0082e9c22e8ce1d611c0f3b4d4915ce445e7ff2553cda6b713b6c25f390984c"
+    },
+    {
+      "path": "src/orders/create.js",
+      "startLine": 1,
+      "endLine": 7,
+      "digest": "d4b604ce9291847adafeb080b8bd340c652c1d37c3fb375c12388076be677db4"
+    },
+    {
+      "path": "src/orders/cancel.js",
+      "startLine": 1,
+      "endLine": 6,
+      "digest": "19915830c1f6afcf222b0541b7f1edb44e2baa6894d02540a47a630494a71c24"
+    },
+    {
+      "path": "src/error.js",
+      "startLine": 1,
+      "endLine": 4,
+      "digest": "f5b541527469f0929c140ddb59d08021dd05f4fe713d920df524a96a8ffef307"
+    },
+    {
+      "path": "src/jobs/reconcile.js",
+      "startLine": 1,
+      "endLine": 5,
+      "digest": "90bf3c3f5c5b631a759dc57d3fe419e45abd37b40093d355e6d03d2d538ca902"
+    },
+    {
+      "path": "package.json",
+      "startLine": 1,
+      "endLine": 2,
+      "digest": "7dda01c6011d58bdd6761244f4c2f5ca57f17e6b9d864d956ddae55a62e93554"
+    },
+    {
+      "path": "src/orders/amend.js",
+      "startLine": 1,
+      "endLine": 5,
+      "digest": "6d586b341c25913b367f4637c5ea0330f9c2ca1b91314650917095a65da5b816"
+    }
+  ],
+  "checks": [
+    {
+      "behavior": "Source rejection values and successful return shapes match actual create/cancel/reconcile/error code",
+      "status": "passed"
+    },
+    {
+      "behavior": "Two same-role order examples retained as scoped local pattern; different-role reconciliation not promoted to global convention",
+      "status": "passed"
+    },
+    {
+      "behavior": "New amendOrder same-role return-result counterexample recognized; update refuses uniform DomainError rule",
+      "status": "passed"
+    },
+    {
+      "behavior": "Original testing authority unchanged and linked; native OpenSpec source files remain unowned",
+      "status": "passed"
+    },
+    {
+      "behavior": "Both independent CLI apply reports complete; unchanged preview reuses candidates and user note survives",
+      "status": "passed"
+    }
+  ],
+  "observations": [
+    {
+      "classification": "conservative-miss",
+      "detail": "Preannotation treats create/cancel as independent support. Initial model retained local-pattern because provenance was unknown. No false convention or global promotion; confidence/recall remains a quality limitation."
+    },
+    {
+      "classification": "verbosity",
+      "detail": "Initial guide paraphrases several native workflow gates at length. The updated guide uses short original-source links. Broader document quality review remains pending."
+    }
+  ],
+  "before": {
+    "guidance": [
+      {
+        "topic": "Test invocation",
+        "sourceRef": {
+          "path": "docs/testing.md",
+          "startLine": 1,
+          "endLine": 4,
+          "digest": "cdede06ceae088f49b8ed557c2d7bc19bba5cd3e9810f64a1d8fa3135031921b"
+        },
+        "scope": [
+          "Repository changes with relevant tests"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Implementers verifying changed behavior"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "Production error handling and job failure semantics",
+        "sourceRef": {
+          "path": "docs/testing.md",
+          "startLine": 1,
+          "endLine": 4,
+          "digest": "cdede06ceae088f49b8ed557c2d7bc19bba5cd3e9810f64a1d8fa3135031921b"
+        },
+        "scope": [
+          "src/orders/create.js",
+          "src/orders/cancel.js",
+          "src/jobs/reconcile.js"
+        ],
+        "coverageStatus": "partial",
+        "consumers": [
+          "Implementers changing order validation or shipment reconciliation"
+        ],
+        "gaps": [
+          "The document expressly excludes production error handling and job failure semantics.",
+          "Supplied implementations do not establish a repository-wide failure contract."
+        ]
+      },
+      {
+        "topic": "OpenSpec exploration and capture authorization",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-explore/SKILL.md",
+          "startLine": 1,
+          "endLine": 357,
+          "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+        },
+        "scope": [
+          "OpenSpec explore workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents exploring requirements or capturing confirmed planning scope"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "OpenSpec proposal planning boundary",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-propose/SKILL.md",
+          "startLine": 1,
+          "endLine": 176,
+          "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+        },
+        "scope": [
+          "OpenSpec propose workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents preparing changes for subsequent implementation"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "OpenSpec planning revisions",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-update-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 110,
+          "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+        },
+        "scope": [
+          "OpenSpec update-change workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents reconciling existing change artifacts"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "OpenSpec implementation and completion tracking",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-apply-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 207,
+          "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+        },
+        "scope": [
+          "OpenSpec apply workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents implementing an authorized OpenSpec change"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "OpenSpec main-spec synchronization",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+          "startLine": 1,
+          "endLine": 291,
+          "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+        },
+        "scope": [
+          "OpenSpec sync-specs workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents merging selected delta specs into main specs"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "OpenSpec archive gates",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-archive-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 222,
+          "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+        },
+        "scope": [
+          "OpenSpec archive workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents archiving changes"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "Project-specific OpenSpec constraints",
+        "sourceRef": {
+          "path": "openspec/config.yaml",
+          "startLine": 1,
+          "endLine": 33,
+          "digest": "f0082e9c22e8ce1d611c0f3b4d4915ce445e7ff2553cda6b713b6c25f390984c"
+        },
+        "scope": [
+          "OpenSpec artifacts and operations"
+        ],
+        "coverageStatus": "partial",
+        "consumers": [
+          "OpenSpec planning, implementation, and archive agents"
+        ],
+        "gaps": [
+          "Only the schema is actively configured; context, artifact rules, and operation guidance appear solely as commented examples.",
+          "No supplied project-specific error-handling constraint resolves the implementation scope gap."
+        ]
+      }
+    ],
+    "observations": [
+      {
+        "topic": "Order validation failure pattern",
+        "statement": "Within the two supplied order operations, rejected domain conditions throw DomainError with a code and message. This addresses the production-error-handling gap only for these checked functions; it does not establish job failure semantics or a repository-wide rule.",
+        "classification": "local-pattern",
+        "scope": [
+          "src/orders/create.js",
+          "src/orders/cancel.js"
+        ],
+        "supportingEvidence": [
+          {
+            "path": "src/orders/create.js",
+            "startLine": 1,
+            "endLine": 7,
+            "digest": "d4b604ce9291847adafeb080b8bd340c652c1d37c3fb375c12388076be677db4"
+          },
+          {
+            "path": "src/orders/cancel.js",
+            "startLine": 1,
+            "endLine": 6,
+            "digest": "19915830c1f6afcf222b0541b7f1edb44e2baa6894d02540a47a630494a71c24"
+          },
+          {
+            "path": "src/error.js",
+            "startLine": 1,
+            "endLine": 4,
+            "digest": "f5b541527469f0929c140ddb59d08021dd05f4fe713d920df524a96a8ffef307"
+          }
+        ],
+        "counterEvidence": [
+          {
+            "path": "src/jobs/reconcile.js",
+            "startLine": 1,
+            "endLine": 5,
+            "digest": "90bf3c3f5c5b631a759dc57d3fe419e45abd37b40093d355e6d03d2d538ca902"
+          }
+        ],
+        "coverage": {
+          "checked": [
+            "src/orders/create.js",
+            "src/orders/cancel.js",
+            "src/error.js",
+            "src/jobs/reconcile.js"
+          ],
+          "independentSupports": 2,
+          "counterexampleSearched": true,
+          "counterexampleQueries": [
+            "Compared all supplied production snippets for thrown errors versus returned failure values.",
+            "Compared the supplied create and cancel order operations for differing domain-rejection handling."
+          ],
+          "excluded": [
+            "src/error.js is shared support, not an independent operation implementation.",
+            "Generated OpenSpec skills are not independent production-code supports."
+          ],
+          "unknowns": [
+            "Implementation provenance and independence beyond the distinct visible operations are unverified.",
+            "No other order operations, callers, or relevant tests were supplied."
+          ]
+        },
+        "exceptions": [
+          "The supplied reconciliation job returns a failure object instead of throwing; it has a different role from the order operations."
+        ],
+        "unknowns": [
+          "Whether additional order operations follow this pattern.",
+          "Whether thrown errors are translated or handled by callers."
+        ],
+        "guidanceDisposition": "needs-decision"
+      },
+      {
+        "topic": "Shipment reconciliation failure semantics",
+        "statement": "For the supplied reconciliation function, a missing externalId produces an object with ok false and reason NO_EXTERNAL_ID. This locally addresses the declared job-failure-semantics gap; retry, escalation, and caller behavior remain unspecified.",
+        "classification": "local-pattern",
+        "scope": [
+          "src/jobs/reconcile.js"
+        ],
+        "supportingEvidence": [
+          {
+            "path": "src/jobs/reconcile.js",
+            "startLine": 1,
+            "endLine": 5,
+            "digest": "90bf3c3f5c5b631a759dc57d3fe419e45abd37b40093d355e6d03d2d538ca902"
+          }
+        ],
+        "counterEvidence": [
+          {
+            "path": "src/orders/create.js",
+            "startLine": 1,
+            "endLine": 7,
+            "digest": "d4b604ce9291847adafeb080b8bd340c652c1d37c3fb375c12388076be677db4"
+          },
+          {
+            "path": "src/orders/cancel.js",
+            "startLine": 1,
+            "endLine": 6,
+            "digest": "19915830c1f6afcf222b0541b7f1edb44e2baa6894d02540a47a630494a71c24"
+          }
+        ],
+        "coverage": {
+          "checked": [
+            "src/jobs/reconcile.js",
+            "src/orders/create.js",
+            "src/orders/cancel.js"
+          ],
+          "independentSupports": 1,
+          "counterexampleSearched": true,
+          "counterexampleQueries": [
+            "Inspected supplied production functions for returned failure objects and exception-based rejection.",
+            "Checked supplied evidence for a second job implementation; none was supplied."
+          ],
+          "excluded": [
+            "Order operations are different-role comparisons and do not establish a job convention."
+          ],
+          "unknowns": [
+            "Other jobs and reconciliation callers were not supplied."
+          ]
+        },
+        "exceptions": [
+          "The checked order operations throw DomainError for their domain rejections."
+        ],
+        "unknowns": [
+          "Whether returned failures are retryable, terminal, logged, or escalated.",
+          "Whether different failure styles are intentional role boundaries."
+        ],
+        "guidanceDisposition": "needs-decision"
+      }
+    ],
+    "unknowns": [
+      "The supplied filtered evidence is the entire research boundary; no additional source inspection or execution occurred.",
+      "No test files, test results, CI configuration, historical approvals, or completed workflow checks were supplied.",
+      "Paths containing empty .gitkeep snippets do not establish a complete inventory of specs or archived changes.",
+      "OpenSpec CLI availability, resolved root, active changes, runtime instructions, and completion state are unverified.",
+      "No repository-wide error policy can be inferred from two order operations and one differently scoped job.",
+      "The visible difference between order exceptions and job result objects is a scope counterexample, not evidence of conflicting explicit policies.",
+      "The supplied native workflow guidance remains authority for its declared consumers; it does not authorize development actions during this research task."
+    ]
+  },
+  "after": {
+    "guidance": [
+      {
+        "topic": "test-invocation",
+        "sourceRef": {
+          "path": "docs/testing.md",
+          "startLine": 1,
+          "endLine": 4,
+          "digest": "cdede06ceae088f49b8ed557c2d7bc19bba5cd3e9810f64a1d8fa3135031921b"
+        },
+        "scope": [
+          "Repository test invocation when changed behavior has a relevant test"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents implementing behavior changes"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "openspec-planning-boundary",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-propose/SKILL.md",
+          "startLine": 1,
+          "endLine": 176,
+          "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+        },
+        "scope": [
+          "OpenSpec propose workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents proposing OpenSpec changes"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "openspec-exploration-consent",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-explore/SKILL.md",
+          "startLine": 1,
+          "endLine": 357,
+          "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+        },
+        "scope": [
+          "OpenSpec explore workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents exploring or capturing OpenSpec change artifacts"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "openspec-revision-consent",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-update-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 110,
+          "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+        },
+        "scope": [
+          "OpenSpec update-change workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents revising existing planning artifacts"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "openspec-implementation-controls",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-apply-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 207,
+          "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+        },
+        "scope": [
+          "OpenSpec apply workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents implementing tracked OpenSpec tasks"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "openspec-archive-controls",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-archive-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 222,
+          "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+        },
+        "scope": [
+          "OpenSpec archive workflow"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents archiving OpenSpec changes"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "openspec-spec-sync-controls",
+        "sourceRef": {
+          "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+          "startLine": 1,
+          "endLine": 291,
+          "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+        },
+        "scope": [
+          "OpenSpec standalone and archive-inline spec synchronization"
+        ],
+        "coverageStatus": "reusable",
+        "consumers": [
+          "Agents merging delta specs into main specs"
+        ],
+        "gaps": []
+      },
+      {
+        "topic": "production-failure-semantics",
+        "sourceRef": null,
+        "scope": [
+          "src/orders/create.js",
+          "src/orders/cancel.js",
+          "src/orders/amend.js",
+          "src/jobs/reconcile.js"
+        ],
+        "coverageStatus": "missing",
+        "consumers": [
+          "Agents changing order validation or shipment reconciliation failure behavior"
+        ],
+        "gaps": [
+          "No supplied explicit guidance defines when production failures throw DomainError versus return an unsuccessful result, or whether order operations and jobs require different contracts."
+        ]
+      }
+    ],
+    "observations": [
+      {
+        "topic": "test-invocation",
+        "statement": "Existing guidance requires the repository's npm test invocation when a changed behavior has a relevant test. Its authority explicitly excludes production error handling and job failure semantics. The supplied package metadata defines the test script as node --test; this is not evidence that tests exist or passed.",
+        "classification": "explicit-rule",
+        "scope": [
+          "docs/testing.md",
+          "package.json"
+        ],
+        "supportingEvidence": [
+          {
+            "path": "docs/testing.md",
+            "startLine": 1,
+            "endLine": 4,
+            "digest": "cdede06ceae088f49b8ed557c2d7bc19bba5cd3e9810f64a1d8fa3135031921b"
+          },
+          {
+            "path": "package.json",
+            "startLine": 1,
+            "endLine": 2,
+            "digest": "7dda01c6011d58bdd6761244f4c2f5ca57f17e6b9d864d956ddae55a62e93554"
+          }
+        ],
+        "counterEvidence": [],
+        "coverage": {
+          "checked": [
+            "docs/testing.md",
+            "package.json"
+          ],
+          "independentSupports": 0,
+          "counterexampleSearched": false,
+          "counterexampleQueries": [],
+          "excluded": [
+            "Test invocation guidance as authority for production failure semantics"
+          ],
+          "unknowns": [
+            "No test files or execution results were supplied."
+          ]
+        },
+        "exceptions": [
+          "The invocation rule is conditional on a relevant test for the changed behavior."
+        ],
+        "unknowns": [
+          "Which behaviors have relevant tests is unknown."
+        ],
+        "guidanceDisposition": "follow-existing"
+      },
+      {
+        "topic": "production-failure-semantics",
+        "statement": "The checked create and cancel order operations throw DomainError for rejected inputs or state, but the same-role amend operation returns {ok: false, reason} for a rejected state and wraps success in {ok: true, order}. This counterexample prevents promoting throwing DomainError to a uniform order-operation convention. The checked reconciliation job also returns an unsuccessful result, but its different role does not establish an order-operation convention or a general job convention. These differences are observed contracts, not proof of a defect or authority to normalize them.",
+        "classification": "local-pattern",
+        "scope": [
+          "src/error.js",
+          "src/orders/create.js",
+          "src/orders/cancel.js",
+          "src/orders/amend.js",
+          "src/jobs/reconcile.js"
+        ],
+        "supportingEvidence": [
+          {
+            "path": "src/error.js",
+            "startLine": 1,
+            "endLine": 4,
+            "digest": "f5b541527469f0929c140ddb59d08021dd05f4fe713d920df524a96a8ffef307"
+          },
+          {
+            "path": "src/orders/create.js",
+            "startLine": 1,
+            "endLine": 7,
+            "digest": "d4b604ce9291847adafeb080b8bd340c652c1d37c3fb375c12388076be677db4"
+          },
+          {
+            "path": "src/orders/cancel.js",
+            "startLine": 1,
+            "endLine": 6,
+            "digest": "19915830c1f6afcf222b0541b7f1edb44e2baa6894d02540a47a630494a71c24"
+          }
+        ],
+        "counterEvidence": [
+          {
+            "path": "src/orders/amend.js",
+            "startLine": 1,
+            "endLine": 5,
+            "digest": "6d586b341c25913b367f4637c5ea0330f9c2ca1b91314650917095a65da5b816"
+          },
+          {
+            "path": "src/jobs/reconcile.js",
+            "startLine": 1,
+            "endLine": 5,
+            "digest": "90bf3c3f5c5b631a759dc57d3fe419e45abd37b40093d355e6d03d2d538ca902"
+          }
+        ],
+        "coverage": {
+          "checked": [
+            "src/error.js",
+            "src/orders/create.js",
+            "src/orders/cancel.js",
+            "src/orders/amend.js",
+            "src/jobs/reconcile.js",
+            "docs/testing.md"
+          ],
+          "independentSupports": 2,
+          "counterexampleSearched": true,
+          "counterexampleQueries": [
+            "Within supplied order-operation snippets, compare rejection branches and successful return shapes against the hypothesis that order operations uniformly throw DomainError.",
+            "Inspect the supplied job snippet separately for failure-contract differences without treating a different role as independent order-operation support."
+          ],
+          "excluded": [
+            "Generated OpenSpec skills as implementation-pattern supports",
+            "src/error.js as an independent operation implementation",
+            "src/jobs/reconcile.js as same-role support for order-operation conventions",
+            "docs/testing.md as production failure-policy authority"
+          ],
+          "unknowns": [
+            "Independent authorship or copying history cannot be verified from snippets.",
+            "Callers, tests, and additional operations were not supplied.",
+            "Whether the differing contracts are intentional is unknown."
+          ]
+        },
+        "exceptions": [
+          "amendOrder directly counters a uniform throwing contract among checked order operations.",
+          "Only one reconciliation job implementation is supplied."
+        ],
+        "unknowns": [
+          "The intended boundary between thrown errors and returned failures requires an authoritative decision if a shared policy is needed."
+        ],
+        "guidanceDisposition": "needs-decision"
+      },
+      {
+        "topic": "openspec-project-constraints",
+        "statement": "The supplied configuration selects spec-driven. Its context, artifact-rule, and operation-guidance examples are comments, not active project constraints. The supplied native workflows remain reusable authority in their original paths; their planning boundaries, confirmation requirements, blocked-state controls, completion checks, and sync safeguards must not be replaced by inferred project policy.",
+        "classification": "explicit-rule",
+        "scope": [
+          "openspec/config.yaml",
+          ".agents/skills/openspec-propose/SKILL.md",
+          ".agents/skills/openspec-explore/SKILL.md",
+          ".agents/skills/openspec-update-change/SKILL.md",
+          ".agents/skills/openspec-apply-change/SKILL.md",
+          ".agents/skills/openspec-archive-change/SKILL.md",
+          ".agents/skills/openspec-sync-specs/SKILL.md"
+        ],
+        "supportingEvidence": [
+          {
+            "path": "openspec/config.yaml",
+            "startLine": 1,
+            "endLine": 33,
+            "digest": "f0082e9c22e8ce1d611c0f3b4d4915ce445e7ff2553cda6b713b6c25f390984c"
+          },
+          {
+            "path": ".agents/skills/openspec-propose/SKILL.md",
+            "startLine": 1,
+            "endLine": 176,
+            "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+          },
+          {
+            "path": ".agents/skills/openspec-explore/SKILL.md",
+            "startLine": 1,
+            "endLine": 357,
+            "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+          },
+          {
+            "path": ".agents/skills/openspec-update-change/SKILL.md",
+            "startLine": 1,
+            "endLine": 110,
+            "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+          },
+          {
+            "path": ".agents/skills/openspec-apply-change/SKILL.md",
+            "startLine": 1,
+            "endLine": 207,
+            "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+          },
+          {
+            "path": ".agents/skills/openspec-archive-change/SKILL.md",
+            "startLine": 1,
+            "endLine": 222,
+            "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+          },
+          {
+            "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+            "startLine": 1,
+            "endLine": 291,
+            "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+          }
+        ],
+        "counterEvidence": [],
+        "coverage": {
+          "checked": [
+            "openspec/config.yaml",
+            ".agents/skills/openspec-propose/SKILL.md",
+            ".agents/skills/openspec-explore/SKILL.md",
+            ".agents/skills/openspec-update-change/SKILL.md",
+            ".agents/skills/openspec-apply-change/SKILL.md",
+            ".agents/skills/openspec-archive-change/SKILL.md",
+            ".agents/skills/openspec-sync-specs/SKILL.md"
+          ],
+          "independentSupports": 0,
+          "counterexampleSearched": false,
+          "counterexampleQueries": [],
+          "excluded": [
+            "Commented configuration examples as active rules",
+            "Repeated generated workflow text as independent code-convention evidence"
+          ],
+          "unknowns": [
+            "No runtime CLI state or resolved schema instructions were supplied."
+          ]
+        },
+        "exceptions": [
+          "Each workflow's controls apply within that workflow's declared scope."
+        ],
+        "unknowns": [
+          "No historical user confirmations or completed checks can be established."
+        ],
+        "guidanceDisposition": "reference-only"
+      }
+    ],
+    "unknowns": [
+      "Research is limited to the supplied filtered snippets; absence here does not establish repository-wide absence of guidance.",
+      "No callers, tests, additional job implementations, or additional order operations were supplied, limiting failure-contract inference.",
+      "The previous inventory is represented only by a digest; its entries and any earlier guidance decisions are unavailable.",
+      "Empty supplied .gitkeep files do not establish that all main specs or archived changes are absent.",
+      "No command execution, validation results, historical approvals, or successful test runs are evidenced."
+    ]
+  },
+  "observedTokensByCycle": [
+    {
+      "cycle": 1,
+      "tokens": 210677
+    },
+    {
+      "cycle": 2,
+      "tokens": 371574
+    }
+  ]
+}

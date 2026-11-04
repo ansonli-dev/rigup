@@ -111,6 +111,48 @@ test('no_sdd_only_installs_explicitly_selected_custom_flow',()=>fixture(async(ro
  const f=fake();const result=await generate(await scanRepository(root,opts),{agents:['codex'],backend:'host'},f.backend,[],{cacheRoot:cache});if(result.status!=='complete')throw Error('pending');assert.deepEqual(result.value.assets,[]);assert.equal(f.requests.length,0);
 }));
 import {saveCache} from '../src/generator/cache.js';
+import {prepareIntegrations} from '../src/integrations/registry.js';
+import {renderFixed} from '../src/generator/render.js';
+test('multi_agent_sdd_context_uses_each_hosts_native_command_names',()=>fixture(async(root)=>{
+ const selected={agents:['claude','codex'] as ('claude'|'codex')[],backend:'host' as const,sdd:'spec-kit' as const};
+ const profile=await scanRepository(root,selected);
+ const names=['constitution','specify','plan','tasks','implement','converge'];
+ profile.nativeEntries={claude:names.map(n=>'speckit.'+n),codex:names.map(n=>'speckit-'+n)};
+ const integration=await prepareIntegrations(profile,selected);assert.deepEqual(integration.requirements,[]);
+ const assets=await renderFixed(profile,selected,integration,[],[]);
+ const context=(prefix:string)=>assets.find(a=>a.target===prefix+'/change-prepare/references/project.md')!.content;
+ assert.match(context('.claude/skills'),/Native prepare: speckit\.constitution/);
+ assert.match(context('.agents/skills'),/Native prepare: speckit-constitution/);
+ assert.doesNotMatch(context('.agents/skills'),/speckit\.constitution/);
+}));
+test('positioned_customer_skills_are_bound_to_their_selected_flow_without_sdd',()=>fixture(async(root)=>{
+ for(const name of ['prepare','deliver']){await mkdir(root+'/customer-'+name);await writeFile(root+'/customer-'+name+'/SKILL.md','---\nname: customer-'+name+'\ndescription: Project '+name+'\n---\nFollow the project rules.\n');}
+ const selected={agents:['codex' as const],backend:'host' as const,customSkills:[{source:'customer-prepare',position:'prepare' as const},{source:'customer-deliver',position:'deliver' as const}]};
+ const profile=await scanRepository(root,selected);const integration=await prepareIntegrations(profile,selected);
+ const assets=await renderFixed(profile,selected,integration,[],[]);
+ for(const name of ['prepare','deliver']){const context=assets.find(a=>a.target==='.agents/skills/change-'+name+'/references/project.md')!.content;assert.match(context,new RegExp('customer-'+name+'/SKILL\\.md'));assert.doesNotMatch(context,/Native workflow prerequisites pending/);assert.doesNotMatch(context,new RegExp('customer-'+(name==='prepare'?'deliver':'prepare')+'/SKILL\\.md'));}
+}));
+test('reused_native_customer_skill_keeps_its_flow_consumer',()=>fixture(async(root)=>{
+ const text='---\nname: customer-review\ndescription: Review customer rules\n---\nPreserve project approvals.\n';
+ await mkdir(root+'/.agents/skills/customer-review',{recursive:true});await writeFile(root+'/.agents/skills/customer-review/SKILL.md',text);await mkdir(root+'/original');await writeFile(root+'/original/SKILL.md',text);
+ const selected={agents:['codex' as const],backend:'host' as const,customSkills:[{source:'original',position:'deliver' as const}]};
+ const profile=await scanRepository(root,selected);const integration=await prepareIntegrations(profile,selected);const assets=await renderFixed(profile,selected,integration,[],[]);
+ assert.ok(!integration.assets.some(a=>a.target.endsWith('customer-review/SKILL.md')));
+ assert.match(assets.find(a=>a.target.endsWith('change-deliver/references/project.md'))!.content,/customer-review\/SKILL\.md/);
+}));
+test('customer_release_position_requires_a_verified_release_adapter',()=>fixture(async(root)=>{
+ await mkdir(root+'/release');await writeFile(root+'/release/SKILL.md','---\nname: customer-release\ndescription: Release review\n---\nCheck release scope.\n');
+ const selected={agents:['codex' as const],backend:'host' as const,customSkills:[{source:'release',position:'release' as const}]};
+ const profile=await scanRepository(root,selected);const integration=await prepareIntegrations(profile,selected);
+ assert.match(integration.requirements.map(r=>r.reason).join(' '),/release.*(?:adapter|pending)/i);
+ const assets=await renderFixed(profile,selected,integration,[],[]);assert.ok(!assets.some(a=>a.target.includes('/change-')));
+}));
+test('replanning_can_inspect_filtered_previous_baseline_without_treating_it_as_source_authority',()=>fixture(async(root,cache)=>{
+ const previous='# Prior generated guidance\nAll order operations throw DomainError.\napiKey: customer-secret\n';await mkdir(root+'/.rigup/baseline',{recursive:true});await writeFile(root+'/.rigup/baseline/old.md',previous);
+ const old={logicalId:job.logicalId,target:job.target,ownership:{kind:'file' as const},digest:digest(previous),baseline:'.rigup/baseline/old.md',source:{kind:'semantic',ref:'previous'}};
+ const f=fake();const backend:AnalysisBackend={run:async(r,reader)=>{if(r.expectedOutput==='plan'){const prior=(r.input as any).previousInventory[0];assert.match(prior.baselineContent,/All order operations throw DomainError/);assert.doesNotMatch(prior.baselineContent,/customer-secret/);assert.equal(prior.authority,'previous-generated-output-only');const result=await f.backend.run(r,reader);if(result.status==='complete')(result.value.data as any).dispositions=[{logicalId:job.logicalId,action:'update',reason:'New evidence invalidates universal rule'}];return result;}return f.backend.run(r,reader);}};
+ assert.equal((await generate(await scanRepository(root,opts),opts,backend,[old],{cacheRoot:cache})).status,'complete');
+}));
 test('candidate_is_saved_before_job_status_becomes_done',()=>fixture(async(root,cache)=>{
  const {backend}=fake();let candidateSaved=false,sawDone=false;
  const save=async(path:string,text:string)=>{const state=JSON.parse(text);const c=state.candidates.errors;if(c?.accepted&&state.plan.jobs[0].status==='pending')candidateSaved=true;if(state.plan?.jobs[0]?.status==='done'){assert.equal(candidateSaved,true);sawDone=true;}await saveCache(path,text);};
@@ -125,4 +167,11 @@ test('bounded_repair_attempt_survives_host_pause_without_resetting_budget_or_att
   return f.backend.run(r,reader);
  }};
  const p=await scanRepository(root,opts);assert.equal((await generate(p,opts,backend,[],{cacheRoot:cache})).status,'pending-host');resuming=true;assert.equal((await generate(p,opts,backend,[],{cacheRoot:cache})).status,'complete');
+}));
+test('invalid_navigation_is_repaired_before_acceptance_and_never_cached_done',()=>fixture(async(root,cache)=>{
+ const f=fake();let contentCalls=0,acceptanceCalls=0;const backend:AnalysisBackend={run:async(r,reader)=>{if(r.expectedOutput==='content'){contentCalls++;return {status:'complete',value:{data:{observations:[],unknowns:[],content:contentCalls===1?'# Guide\n[Source](src.txt)':'# Guide\n[Source](../../src.txt)'},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};}if(r.expectedOutput==='acceptance')acceptanceCalls++;return f.backend.run(r,reader);}};
+ const result=await generate(await scanRepository(root,opts),opts,backend,[],{cacheRoot:cache});assert.equal(result.status,'complete');assert.equal(contentCalls,2);assert.equal(acceptanceCalls,1);
+}));
+test('fixed_inventory_dispositions_follow_actual_candidates_without_model_prediction',()=>fixture(async(root,cache)=>{
+ const backend:AnalysisBackend={run:async r=>({status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:((r.input as any).previousInventory??[]).map((a:any)=>({logicalId:a.logicalId,action:'retain',reason:'Keep installed asset'}))},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}})};let profile=await scanRepository(root,opts);const first=await generate(profile,opts,backend,[],{cacheRoot:cache});if(first.status!=='complete')throw Error('pending');const old=first.value.assets.map(a=>({...a,digest:digest(a.content)}));await writeFile(root+'/package.json',JSON.stringify({scripts:{test:'node --test'}}));profile=await scanRepository(root,opts);const next=await generate(profile,opts,backend,old,{cacheRoot:cache});if(next.status!=='complete')throw Error('pending');assert.equal(next.value.dispositions.find(d=>d.logicalId==='codex:change-deliver:context')?.action,'update');assert.equal(next.value.dispositions.find(d=>d.logicalId==='codex:change-deliver')?.action,'retain');
 }));

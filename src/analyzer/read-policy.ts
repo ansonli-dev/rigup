@@ -2,7 +2,7 @@ import {parse as parseToml} from 'smol-toml';
 import {parseTree,type Node,type ParseError} from 'jsonc-parser';
 import {parseDocument,isMap,isSeq,isScalar,isAlias} from 'yaml';
 import {basename,extname} from 'node:path';
-export const READ_POLICY_VERSION='2';
+export const READ_POLICY_VERSION='3';
 export const secretName=/(^\.env($|\.)|\.(pem|key|p12|pfx|keystore)$|credentials|id_rsa|id_ed25519)/i;
 const sensitive=/token|password|passwd|secret|authorization|api[-_]?key|private[-_]?key/i;
 export function filterContent(path:string,raw:string):string {

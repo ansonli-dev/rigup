@@ -1,0 +1,1458 @@
+{
+  "caseId": "generation/host/monorepo",
+  "status": "failed",
+  "executionStatus": "failed",
+  "semanticStatus": "pending",
+  "startedAt": "2026-11-04T10:54:37.157Z",
+  "fixture": "/private/tmp/rigup-real-monorepo-iTsRh9",
+  "control": "/private/tmp/rigup-real-generation-VGUAQi",
+  "backend": "host",
+  "requestedModel": "gpt-6.1-sol",
+  "actualModel": "Not exposed by CLI; requested ID recorded",
+  "versions": {
+    "prompt": "4",
+    "template": "1",
+    "readPolicy": "3",
+    "document": "1",
+    "openspec": "1.16.0"
+  },
+  "initialVersions": {
+    "prompt": "4",
+    "template": "1",
+    "readPolicy": "3",
+    "document": "1",
+    "openspec": "1.16.0"
+  },
+  "budget": {
+    "maxCalls": 12,
+    "maxTokens": 300000
+  },
+  "resumedFrom": "/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/docs/compatibility/evidence/2026-11-04-live/generation-host-monorepo-attempt1-context-changed.json",
+  "phases": [
+    {
+      "cycle": 1,
+      "kind": "analyze",
+      "requestId": "1f9c2306a6b98caa1207ffa23c7391da199d5adcd00354fe37168f3fcba09285",
+      "startedAt": "2026-11-04T10:48:41.817Z",
+      "finishedAt": "2026-11-04T10:49:46.364Z",
+      "exit": 0,
+      "usage": {
+        "input_tokens": 46196,
+        "cached_input_tokens": 19840,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2844,
+        "reasoning_output_tokens": 73
+      },
+      "unexpectedCommands": 0,
+      "data": {
+        "guidance": [
+          {
+            "topic": "OpenSpec planning boundary",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-propose/SKILL.md",
+              "startLine": 1,
+              "endLine": 176,
+              "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+            },
+            "scope": [
+              ".agents/skills/openspec-propose/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents proposing OpenSpec changes"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec exploration and revision confirmation",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-explore/SKILL.md",
+              "startLine": 1,
+              "endLine": 357,
+              "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+            },
+            "scope": [
+              ".agents/skills/openspec-explore/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents exploring OpenSpec changes"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec artifact updates",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-update-change/SKILL.md",
+              "startLine": 1,
+              "endLine": 110,
+              "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+            },
+            "scope": [
+              ".agents/skills/openspec-update-change/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents revising existing OpenSpec artifacts"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec implementation",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-apply-change/SKILL.md",
+              "startLine": 1,
+              "endLine": 207,
+              "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+            },
+            "scope": [
+              ".agents/skills/openspec-apply-change/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents implementing an explicitly selected OpenSpec change"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec archive",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-archive-change/SKILL.md",
+              "startLine": 1,
+              "endLine": 222,
+              "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+            },
+            "scope": [
+              ".agents/skills/openspec-archive-change/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents archiving OpenSpec changes"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec spec synchronization",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+              "startLine": 1,
+              "endLine": 291,
+              "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+            },
+            "scope": [
+              ".agents/skills/openspec-sync-specs/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents merging delta specs into main specs"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "Package testing and behavior guidance",
+            "sourceRef": {
+              "path": "docs/testing.md",
+              "startLine": 1,
+              "endLine": 4,
+              "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+            },
+            "scope": [
+              "packages/api",
+              "packages/worker"
+            ],
+            "coverageStatus": "partial",
+            "consumers": [
+              "API implementers and reviewers",
+              "Worker implementers and reviewers"
+            ],
+            "gaps": [
+              "API response errors have no written convention.",
+              "Worker retry semantics have no written convention."
+            ]
+          }
+        ],
+        "observations": [
+          {
+            "topic": "Package test working directory",
+            "statement": "Existing guidance requires using an existing test script from its owning package directory and explicitly treats API and worker as separate consumers. Both supplied package manifests define a test script. This establishes working-directory guidance, not evidence of test execution or success.",
+            "classification": "explicit-rule",
+            "scope": [
+              "docs/testing.md",
+              "packages/api",
+              "packages/worker"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "docs/testing.md",
+                "startLine": 1,
+                "endLine": 4,
+                "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+              },
+              {
+                "path": "packages/api/package.json",
+                "startLine": 1,
+                "endLine": 2,
+                "digest": "ff60aff5c842c0b80061a29bf4f8022e675cdb1b9ee2a081bfccdcab205be947"
+              },
+              {
+                "path": "packages/worker/package.json",
+                "startLine": 1,
+                "endLine": 2,
+                "digest": "c1cee5beccc206faa4b4a9eda9d77e9453eb62397ad871a9ebeea8246ce802a5"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "docs/testing.md",
+                "packages/api/package.json",
+                "packages/worker/package.json"
+              ],
+              "independentSupports": 1,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Compared the supplied package manifests with the documented package-directory scope."
+              ],
+              "excluded": [
+                "Matching manifest scripts are not independent sources of policy."
+              ],
+              "unknowns": [
+                "Test files, CI behavior, and historical test results were not supplied."
+              ]
+            },
+            "exceptions": [],
+            "unknowns": [],
+            "guidanceDisposition": "follow-existing"
+          },
+          {
+            "topic": "Package testing and behavior guidance",
+            "gap": "API response errors have no written convention.",
+            "statement": "The two supplied API operations return failures as an object with status and error containing code and message. Their concrete statuses and codes differ by failure condition. This is a local pattern across the checked files; the filtered evidence does not establish independence of origin or complete API coverage sufficient to promote it to a convention.",
+            "classification": "local-pattern",
+            "scope": [
+              "packages/api/src/create.js",
+              "packages/api/src/close.js"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "packages/api/src/create.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "43a3e158f5bc09d5094e931ddce88708c36c6d4b50eddf961862cd2ba7630178"
+              },
+              {
+                "path": "packages/api/src/close.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "4b5230de79efe3225ddea0601d5cded4f2673a6d320f25c45543ca9e958bc707"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "packages/api/src/create.js",
+                "packages/api/src/close.js"
+              ],
+              "independentSupports": 0,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Inspected every supplied API operation for failure branches with a different error envelope."
+              ],
+              "excluded": [
+                "Worker delivery behavior is a different role and is not evidence for API response conventions.",
+                "Generated OpenSpec skills are not independent implementation support."
+              ],
+              "unknowns": [
+                "Independent authorship or mechanical copying cannot be established.",
+                "Other API operations, thrown failures, and tests were not supplied."
+              ]
+            },
+            "exceptions": [
+              "createAccount uses status 422 and EMAIL_REQUIRED; closeAccount uses status 409 and BALANCE_REMAINS.",
+              "Successful responses use body instead of error."
+            ],
+            "unknowns": [
+              "Whether all API failures must use this envelope requires additional evidence or a policy decision."
+            ],
+            "guidanceDisposition": "reference-only"
+          },
+          {
+            "topic": "Package testing and behavior guidance",
+            "gap": "Worker retry semantics have no written convention.",
+            "statement": "The supplied delivery implementation attempts send at most three times, returns delivered: true on success, and rethrows the final caught error after three failures. It contains no delay or error-category filtering. A single implementation supports only a local pattern.",
+            "classification": "local-pattern",
+            "scope": [
+              "packages/worker/src/retry.js"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "packages/worker/src/retry.js",
+                "startLine": 1,
+                "endLine": 7,
+                "digest": "ec5c1231e99e0f423fe7cb2cd06a24e8fdf83ac2fe9f3cc8473cd37d753c1dfa"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "packages/worker/src/retry.js"
+              ],
+              "independentSupports": 1,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Inspected the supplied worker implementation for alternate attempt limits, delayed retries, error filtering, and terminal failure handling."
+              ],
+              "excluded": [
+                "API response operations are not same-role retry implementations.",
+                "Generated OpenSpec skills do not establish worker behavior."
+              ],
+              "unknowns": [
+                "No second same-role implementation, callers, or worker tests were supplied."
+              ]
+            },
+            "exceptions": [
+              "A successful attempt exits immediately; three attempts occur only when earlier attempts fail."
+            ],
+            "unknowns": [
+              "Whether this behavior is intended as worker-wide policy is unresolved."
+            ],
+            "guidanceDisposition": "reference-only"
+          },
+          {
+            "topic": "OpenSpec project-specific constraints",
+            "statement": "The supplied configuration selects spec-driven. Its context, artifact-rule, and operation-guidance examples are comments, so they do not establish active project-specific constraints. Existing native skills remain the references for their respective workflows and human gates; this research request supplies no historical approvals or workflow check results.",
+            "classification": "explicit-rule",
+            "scope": [
+              "openspec/config.yaml"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "openspec/config.yaml",
+                "startLine": 1,
+                "endLine": 33,
+                "digest": "f0082e9c22e8ce1d611c0f3b4d4915ce445e7ff2553cda6b713b6c25f390984c"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "openspec/config.yaml"
+              ],
+              "independentSupports": 1,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Inspected the supplied configuration for active context, rules, and operations entries rather than commented examples."
+              ],
+              "excluded": [
+                "Commented examples are not configured rules."
+              ],
+              "unknowns": [
+                "Runtime root resolution and CLI-returned instructions were not supplied."
+              ]
+            },
+            "exceptions": [],
+            "unknowns": [],
+            "guidanceDisposition": "reference-only"
+          }
+        ],
+        "unknowns": [
+          "The supplied filtered evidence is the entire research boundary; unlisted guidance and implementations were not inspected.",
+          "No test files, CI configuration, execution results, approval records, or change-specific artifacts were supplied.",
+          "The empty OpenSpec placeholder files do not prove that no other specs or archived changes exist.",
+          "API-wide error policy and worker-wide retry policy remain undocumented in the supplied guidance; local implementation patterns do not resolve those policy decisions.",
+          "No conflicting explicit guidance was identified within the supplied snippets; conflicts with unavailable sources cannot be assessed."
+        ]
+      }
+    },
+    {
+      "cycle": 1,
+      "kind": "artifact-plan",
+      "expectedOutput": "plan",
+      "requestId": "e3fae115324e077900971e8cf619451162eda33f04653fd3a225d324d0046c35",
+      "startedAt": "2026-11-04T10:49:46.758Z",
+      "finishedAt": "2026-11-04T10:50:54.880Z",
+      "exit": 0,
+      "usage": {
+        "input_tokens": 51673,
+        "cached_input_tokens": 12288,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3057,
+        "reasoning_output_tokens": 47
+      },
+      "unexpectedCommands": 0,
+      "data": {
+        "guidance": [
+          {
+            "topic": "OpenSpec planning boundary",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-propose/SKILL.md",
+              "startLine": 1,
+              "endLine": 176,
+              "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+            },
+            "scope": [
+              ".agents/skills/openspec-propose/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents proposing OpenSpec changes"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec exploration and revision confirmation",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-explore/SKILL.md",
+              "startLine": 1,
+              "endLine": 357,
+              "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+            },
+            "scope": [
+              ".agents/skills/openspec-explore/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents exploring OpenSpec changes"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec artifact updates",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-update-change/SKILL.md",
+              "startLine": 1,
+              "endLine": 110,
+              "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+            },
+            "scope": [
+              ".agents/skills/openspec-update-change/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents revising existing OpenSpec artifacts"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec implementation",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-apply-change/SKILL.md",
+              "startLine": 1,
+              "endLine": 207,
+              "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+            },
+            "scope": [
+              ".agents/skills/openspec-apply-change/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents implementing an explicitly selected OpenSpec change"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec archive",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-archive-change/SKILL.md",
+              "startLine": 1,
+              "endLine": 222,
+              "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+            },
+            "scope": [
+              ".agents/skills/openspec-archive-change/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents archiving OpenSpec changes"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec spec synchronization",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+              "startLine": 1,
+              "endLine": 291,
+              "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+            },
+            "scope": [
+              ".agents/skills/openspec-sync-specs/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents merging delta specs into main specs"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "Package testing and behavior guidance",
+            "sourceRef": {
+              "path": "docs/testing.md",
+              "startLine": 1,
+              "endLine": 4,
+              "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+            },
+            "scope": [
+              "packages/api",
+              "packages/worker"
+            ],
+            "coverageStatus": "partial",
+            "consumers": [
+              "API implementers and reviewers",
+              "Worker implementers and reviewers"
+            ],
+            "gaps": [
+              "API response errors have no written convention.",
+              "Worker retry semantics have no written convention."
+            ]
+          }
+        ],
+        "observations": [
+          {
+            "topic": "Package testing and behavior guidance",
+            "gap": "API response errors have no written convention.",
+            "statement": "The checked API operations return explicit failures with status and error containing code and message. This supports a scoped reference for implementers and reviewers, not an API-wide convention or a newly authorized policy.",
+            "classification": "local-pattern",
+            "scope": [
+              "packages/api/src/create.js",
+              "packages/api/src/close.js"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "docs/testing.md",
+                "startLine": 1,
+                "endLine": 4,
+                "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+              },
+              {
+                "path": "packages/api/src/create.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "43a3e158f5bc09d5094e931ddce88708c36c6d4b50eddf961862cd2ba7630178"
+              },
+              {
+                "path": "packages/api/src/close.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "4b5230de79efe3225ddea0601d5cded4f2673a6d320f25c45543ca9e958bc707"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "docs/testing.md",
+                "packages/api/src/create.js",
+                "packages/api/src/close.js"
+              ],
+              "independentSupports": 0,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Compared every supplied API failure branch for a different error envelope and compared success branches for scope exceptions."
+              ],
+              "excluded": [
+                "Worker delivery is a different role.",
+                "Generated OpenSpec skills do not independently support API behavior."
+              ],
+              "unknowns": [
+                "Independence of the two implementations is unestablished.",
+                "Other API operations, thrown failures, callers, and tests were not supplied."
+              ]
+            },
+            "exceptions": [
+              "createAccount returns 422 with EMAIL_REQUIRED; closeAccount returns 409 with BALANCE_REMAINS.",
+              "Successful responses contain body instead of error."
+            ],
+            "unknowns": [
+              "Whether the envelope should become API-wide policy requires additional evidence or an explicit policy decision."
+            ],
+            "guidanceDisposition": "reference-only"
+          },
+          {
+            "topic": "Package testing and behavior guidance",
+            "gap": "Worker retry semantics have no written convention.",
+            "statement": "The checked runDelivery implementation makes at most three send attempts, exits immediately on success with delivered: true, and rethrows the final caught error after three failures. No delay or error-category filtering appears in this implementation. This is a local pattern.",
+            "classification": "local-pattern",
+            "scope": [
+              "packages/worker/src/retry.js"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "docs/testing.md",
+                "startLine": 1,
+                "endLine": 4,
+                "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+              },
+              {
+                "path": "packages/worker/src/retry.js",
+                "startLine": 1,
+                "endLine": 7,
+                "digest": "ec5c1231e99e0f423fe7cb2cd06a24e8fdf83ac2fe9f3cc8473cd37d753c1dfa"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "docs/testing.md",
+                "packages/worker/src/retry.js"
+              ],
+              "independentSupports": 1,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Inspected the supplied worker implementation for alternate attempt limits, early success, delays, error filtering, and terminal failure handling."
+              ],
+              "excluded": [
+                "API response operations are not same-role retry implementations.",
+                "Generated workflow guidance is not implementation support."
+              ],
+              "unknowns": [
+                "No second same-role implementation, callers, or worker tests were supplied."
+              ]
+            },
+            "exceptions": [
+              "Three attempts occur only when the preceding attempts fail."
+            ],
+            "unknowns": [
+              "Worker-wide policy, caller-level delays, and intended retryable error categories remain unresolved."
+            ],
+            "guidanceDisposition": "reference-only"
+          }
+        ],
+        "artifacts": [
+          {
+            "logicalId": "api-error-guidance",
+            "target": "docs/rigup/api-errors.md",
+            "purpose": "Provide scoped guidance for assessing API error changes while distinguishing checked examples from unresolved policy.",
+            "consumer": "API implementers and reviewers",
+            "required": true,
+            "reason": "Existing testing guidance explicitly leaves API error conventions undocumented; the supplied examples support only qualified local guidance.",
+            "sourceRefs": [
+              {
+                "path": "docs/testing.md",
+                "startLine": 1,
+                "endLine": 4,
+                "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+              },
+              {
+                "path": "packages/api/src/create.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "43a3e158f5bc09d5094e931ddce88708c36c6d4b50eddf961862cd2ba7630178"
+              },
+              {
+                "path": "packages/api/src/close.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "4b5230de79efe3225ddea0601d5cded4f2673a6d320f25c45543ca9e958bc707"
+              }
+            ],
+            "seedPaths": [
+              "docs/testing.md",
+              "packages/api/src/create.js",
+              "packages/api/src/close.js"
+            ],
+            "relatedArtifacts": [],
+            "acceptance": [
+              "Address API implementers and reviewers without producing a general AS-IS overview.",
+              "Limit observed behavior to the two checked operations and label it local-pattern, not convention.",
+              "Preserve both concrete failure statuses and codes and the successful body-response exception.",
+              "State that independence, other operations, thrown failures, callers, and tests are unavailable.",
+              "Leave API-wide policy unresolved; distinguish any proposed guidance from existing authority.",
+              "Reference existing testing guidance without duplicating it or claiming test execution.",
+              "Use relative links to supplied sources and preserve native OpenSpec workflow gates."
+            ]
+          },
+          {
+            "logicalId": "worker-retry-guidance",
+            "target": "docs/rigup/worker-retries.md",
+            "purpose": "Provide scoped guidance for assessing delivery retry changes while keeping worker-wide policy unresolved.",
+            "consumer": "Worker implementers and reviewers",
+            "required": true,
+            "reason": "Existing testing guidance explicitly leaves worker retry semantics undocumented; one implementation supports qualified local guidance only.",
+            "sourceRefs": [
+              {
+                "path": "docs/testing.md",
+                "startLine": 1,
+                "endLine": 4,
+                "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+              },
+              {
+                "path": "packages/worker/src/retry.js",
+                "startLine": 1,
+                "endLine": 7,
+                "digest": "ec5c1231e99e0f423fe7cb2cd06a24e8fdf83ac2fe9f3cc8473cd37d753c1dfa"
+              }
+            ],
+            "seedPaths": [
+              "docs/testing.md",
+              "packages/worker/src/retry.js"
+            ],
+            "relatedArtifacts": [],
+            "acceptance": [
+              "Address worker implementers and reviewers without producing a general AS-IS overview.",
+              "Label the single implementation local-pattern and limit observations to runDelivery.",
+              "Preserve the maximum of three attempts, early success, delivered: true result, and final caught-error rethrow.",
+              "Scope the absence of delay and error-category filtering to the checked implementation.",
+              "State that other retry implementations, callers, tests, and worker-wide policy are unavailable or unresolved.",
+              "Distinguish proposed guidance from existing rules and avoid inventing retry policy.",
+              "Reference existing testing guidance without duplicating it or claiming checks passed.",
+              "Use relative links to supplied sources and preserve native OpenSpec workflow gates."
+            ]
+          }
+        ],
+        "dispositions": [],
+        "unknowns": [
+          "Only supplied filtered evidence was assessed; no commands, external reads, modifications, or agent delegation were performed.",
+          "No test files, CI configuration, execution results, approval records, or change-specific artifacts were supplied.",
+          "Runtime OpenSpec root resolution and CLI-returned instructions were not supplied.",
+          "The configuration selects spec-driven; commented context, rules, and operation examples do not establish active constraints.",
+          "Empty OpenSpec placeholders do not establish the absence of other specs or archived changes.",
+          "No conflicting explicit guidance was identified in the supplied snippets; unavailable sources may contain conflicts.",
+          "API-wide error policy and worker-wide retry policy remain unresolved; the planned artifacts must not promote local examples into conventions.",
+          "Existing native workflow authority remains at its original paths; this plan does not authorize later implementation, synchronization, or archiving.",
+          "The previous inventory is empty, so no retention, update, retirement, or pending dispositions are required."
+        ]
+      }
+    },
+    {
+      "cycle": 1,
+      "kind": "artifact-plan",
+      "expectedOutput": "plan",
+      "versions": {
+        "prompt": "4",
+        "template": "1",
+        "document": "1",
+        "read": "3"
+      },
+      "requestId": "b055a9a4c84a7dc1da9ff8ef17667b94d78939fb59ac261a5140e4e650cee166",
+      "startedAt": "2026-11-04T10:54:37.453Z",
+      "finishedAt": "2026-11-04T10:55:55.201Z",
+      "exit": 0,
+      "usage": {
+        "input_tokens": 48836,
+        "cached_input_tokens": 12288,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3522,
+        "reasoning_output_tokens": 35
+      },
+      "unexpectedCommands": 0,
+      "data": {
+        "guidance": [
+          {
+            "topic": "OpenSpec planning boundary",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-propose/SKILL.md",
+              "startLine": 1,
+              "endLine": 176,
+              "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+            },
+            "scope": [
+              ".agents/skills/openspec-propose/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents proposing OpenSpec changes"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec exploration and revision confirmation",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-explore/SKILL.md",
+              "startLine": 1,
+              "endLine": 357,
+              "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+            },
+            "scope": [
+              ".agents/skills/openspec-explore/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents exploring OpenSpec changes"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec artifact updates",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-update-change/SKILL.md",
+              "startLine": 1,
+              "endLine": 110,
+              "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+            },
+            "scope": [
+              ".agents/skills/openspec-update-change/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents revising existing OpenSpec artifacts"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec implementation",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-apply-change/SKILL.md",
+              "startLine": 1,
+              "endLine": 207,
+              "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+            },
+            "scope": [
+              ".agents/skills/openspec-apply-change/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents implementing an explicitly selected OpenSpec change"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec archive",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-archive-change/SKILL.md",
+              "startLine": 1,
+              "endLine": 222,
+              "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+            },
+            "scope": [
+              ".agents/skills/openspec-archive-change/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents archiving OpenSpec changes"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "OpenSpec spec synchronization",
+            "sourceRef": {
+              "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+              "startLine": 1,
+              "endLine": 291,
+              "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+            },
+            "scope": [
+              ".agents/skills/openspec-sync-specs/SKILL.md"
+            ],
+            "coverageStatus": "reusable",
+            "consumers": [
+              "Agents merging delta specs into main specs"
+            ],
+            "gaps": []
+          },
+          {
+            "topic": "Package testing and behavior guidance",
+            "sourceRef": {
+              "path": "docs/testing.md",
+              "startLine": 1,
+              "endLine": 4,
+              "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+            },
+            "scope": [
+              "packages/api",
+              "packages/worker"
+            ],
+            "coverageStatus": "partial",
+            "consumers": [
+              "API implementers and reviewers",
+              "Worker implementers and reviewers"
+            ],
+            "gaps": [
+              "API response errors have no written convention.",
+              "Worker retry semantics have no written convention."
+            ]
+          }
+        ],
+        "observations": [
+          {
+            "topic": "Package test working directory",
+            "statement": "Existing guidance requires running an existing test script in its owning package directory and treats API and worker as separate consumers. Both supplied package manifests define a test script. This establishes working-directory guidance only.",
+            "classification": "explicit-rule",
+            "scope": [
+              "docs/testing.md",
+              "packages/api",
+              "packages/worker"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "docs/testing.md",
+                "startLine": 1,
+                "endLine": 4,
+                "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+              },
+              {
+                "path": "packages/api/package.json",
+                "startLine": 1,
+                "endLine": 2,
+                "digest": "ff60aff5c842c0b80061a29bf4f8022e675cdb1b9ee2a081bfccdcab205be947"
+              },
+              {
+                "path": "packages/worker/package.json",
+                "startLine": 1,
+                "endLine": 2,
+                "digest": "c1cee5beccc206faa4b4a9eda9d77e9453eb62397ad871a9ebeea8246ce802a5"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "docs/testing.md",
+                "packages/api/package.json",
+                "packages/worker/package.json"
+              ],
+              "independentSupports": 1,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Compared the supplied package manifests with the documented package-directory scope."
+              ],
+              "excluded": [
+                "Manifest scripts do not independently establish testing policy."
+              ],
+              "unknowns": [
+                "Test files, CI behavior, and execution results were not supplied."
+              ]
+            },
+            "exceptions": [],
+            "unknowns": [],
+            "guidanceDisposition": "follow-existing"
+          },
+          {
+            "topic": "Package testing and behavior guidance",
+            "gap": "API response errors have no written convention.",
+            "statement": "The two supplied API operations return explicit failure objects containing status and error with code and message. This is a local pattern in the checked operations. Independent origin and API-wide coverage are not established, so it cannot be promoted to a convention.",
+            "classification": "local-pattern",
+            "scope": [
+              "packages/api/src/create.js",
+              "packages/api/src/close.js"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "packages/api/src/create.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "43a3e158f5bc09d5094e931ddce88708c36c6d4b50eddf961862cd2ba7630178"
+              },
+              {
+                "path": "packages/api/src/close.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "4b5230de79efe3225ddea0601d5cded4f2673a6d320f25c45543ca9e958bc707"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "packages/api/src/create.js",
+                "packages/api/src/close.js"
+              ],
+              "independentSupports": 0,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Inspected every supplied API operation for explicit failure branches using a different envelope and compared successful branches."
+              ],
+              "excluded": [
+                "Worker delivery is a different role.",
+                "Generated OpenSpec skills do not support API implementation conventions."
+              ],
+              "unknowns": [
+                "Independent authorship or mechanical copying cannot be established.",
+                "Other API operations, callers, thrown failures, and tests were not supplied."
+              ]
+            },
+            "exceptions": [
+              "createAccount returns status 422 with EMAIL_REQUIRED for missing email.",
+              "closeAccount returns status 409 with BALANCE_REMAINS for nonzero balance.",
+              "Successful responses contain body instead of error."
+            ],
+            "unknowns": [
+              "Whether this envelope should become API-wide policy requires further evidence or an explicit policy decision."
+            ],
+            "guidanceDisposition": "reference-only"
+          },
+          {
+            "topic": "Package testing and behavior guidance",
+            "gap": "Worker retry semantics have no written convention.",
+            "statement": "runDelivery attempts send at most three times, returns delivered: true on success, and rethrows the final caught error after three failures. The supplied implementation contains no delay or error-category filtering. One implementation establishes only a local pattern.",
+            "classification": "local-pattern",
+            "scope": [
+              "packages/worker/src/retry.js"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "packages/worker/src/retry.js",
+                "startLine": 1,
+                "endLine": 7,
+                "digest": "ec5c1231e99e0f423fe7cb2cd06a24e8fdf83ac2fe9f3cc8473cd37d753c1dfa"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "packages/worker/src/retry.js"
+              ],
+              "independentSupports": 1,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Inspected the supplied implementation for alternate attempt limits, delays, error filtering, early success, and terminal failure handling."
+              ],
+              "excluded": [
+                "API operations are not same-role retry implementations.",
+                "Generated OpenSpec skills do not establish worker behavior."
+              ],
+              "unknowns": [
+                "No second same-role implementation, callers, or worker tests were supplied."
+              ]
+            },
+            "exceptions": [
+              "Success exits immediately; three attempts occur only if earlier attempts fail."
+            ],
+            "unknowns": [
+              "Worker-wide retry policy is unresolved."
+            ],
+            "guidanceDisposition": "reference-only"
+          },
+          {
+            "topic": "OpenSpec project-specific constraints",
+            "statement": "The supplied configuration selects spec-driven. Its context, artifact-rule, and operation-guidance examples are comments rather than active constraints. Native workflow authority remains in the original skills; no duplicate workflow artifact is needed.",
+            "classification": "explicit-rule",
+            "scope": [
+              "openspec/config.yaml"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "openspec/config.yaml",
+                "startLine": 1,
+                "endLine": 33,
+                "digest": "f0082e9c22e8ce1d611c0f3b4d4915ce445e7ff2553cda6b713b6c25f390984c"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "openspec/config.yaml"
+              ],
+              "independentSupports": 1,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Distinguished active configuration from commented examples."
+              ],
+              "excluded": [
+                "Commented examples are not configured rules."
+              ],
+              "unknowns": [
+                "Runtime root resolution and CLI-returned instructions were not supplied."
+              ]
+            },
+            "exceptions": [],
+            "unknowns": [],
+            "guidanceDisposition": "reference-only"
+          }
+        ],
+        "unknowns": [
+          "The supplied filtered evidence is the entire research boundary; unlisted guidance and implementations were not inspected.",
+          "No test files, CI configuration, execution results, historical approvals, or change-specific artifacts were supplied.",
+          "Empty OpenSpec placeholder files do not establish that other specs or archived changes are absent.",
+          "API-wide error policy and worker-wide retry policy remain unresolved; planned references cannot establish those policies.",
+          "No conflicting explicit guidance was identified in the supplied snippets; unavailable sources could contain conflicts."
+        ],
+        "artifacts": [
+          {
+            "logicalId": "api-error-reference",
+            "target": "docs/rigup/api-error-reference.md",
+            "purpose": "Address the API documentation gap with a scoped reference for the checked failure branches and unresolved policy questions.",
+            "consumer": "API implementers and reviewers",
+            "required": true,
+            "reason": "Existing testing guidance explicitly leaves API error behavior undocumented. A bounded implementation reference is supportable; an API-wide convention is not.",
+            "sourceRefs": [
+              {
+                "path": "docs/testing.md",
+                "startLine": 1,
+                "endLine": 4,
+                "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+              },
+              {
+                "path": "packages/api/src/create.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "43a3e158f5bc09d5094e931ddce88708c36c6d4b50eddf961862cd2ba7630178"
+              },
+              {
+                "path": "packages/api/src/close.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "4b5230de79efe3225ddea0601d5cded4f2673a6d320f25c45543ca9e958bc707"
+              }
+            ],
+            "seedPaths": [
+              "docs/testing.md",
+              "packages/api/src/create.js",
+              "packages/api/src/close.js"
+            ],
+            "relatedArtifacts": [],
+            "acceptance": [
+              "Limit behavioral claims to the two checked API operations and classify their common envelope as a local pattern.",
+              "Describe both failure conditions, exact statuses, error codes, and messages, and distinguish successful body responses.",
+              "Record the counterexample search and the lack of evidence establishing independent origin.",
+              "State that other operations, thrown failures, callers, and tests are unavailable and API-wide policy remains unresolved.",
+              "Reference existing testing guidance without rewriting it or claiming test execution.",
+              "Use repository links relative to docs/rigup and preserve native workflow authority without inventing approvals or checks."
+            ]
+          },
+          {
+            "logicalId": "worker-retry-reference",
+            "target": "docs/rigup/worker-retry-reference.md",
+            "purpose": "Address the worker documentation gap with a scoped retry reference and explicit policy limitations.",
+            "consumer": "Worker implementers and reviewers",
+            "required": true,
+            "reason": "The worker is a separate consumer with an explicitly undocumented retry behavior. Its single supplied implementation supports a local reference only.",
+            "sourceRefs": [
+              {
+                "path": "docs/testing.md",
+                "startLine": 1,
+                "endLine": 4,
+                "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+              },
+              {
+                "path": "packages/worker/src/retry.js",
+                "startLine": 1,
+                "endLine": 7,
+                "digest": "ec5c1231e99e0f423fe7cb2cd06a24e8fdf83ac2fe9f3cc8473cd37d753c1dfa"
+              }
+            ],
+            "seedPaths": [
+              "docs/testing.md",
+              "packages/worker/src/retry.js"
+            ],
+            "relatedArtifacts": [],
+            "acceptance": [
+              "Limit behavioral claims to runDelivery and label them as a single-implementation local pattern.",
+              "Describe at most three attempts, immediate exit with delivered: true on success, and rethrow of the final caught error after three failures.",
+              "Clarify that three attempts occur only when preceding attempts fail.",
+              "Record that no delay or error-category filtering appears in the supplied implementation.",
+              "Record the counterexample search and missing same-role implementations, callers, and tests; leave worker-wide policy unresolved.",
+              "Reference existing testing guidance without duplicating its authority or claiming execution results.",
+              "Use repository links relative to docs/rigup and preserve native workflow gates without inventing approvals."
+            ]
+          }
+        ],
+        "dispositions": []
+      }
+    },
+    {
+      "cycle": 1,
+      "kind": "artifact-content",
+      "expectedOutput": "content",
+      "artifact": "api-error-reference",
+      "versions": {
+        "prompt": "4",
+        "template": "1",
+        "document": "1",
+        "read": "3"
+      },
+      "requestId": "dd9ab346cdb0c5f43b849858c2bde88a85993a9f29a90dfc65a9f1f05243ce64",
+      "startedAt": "2026-11-04T10:55:55.860Z",
+      "finishedAt": "2026-11-04T10:56:35.087Z",
+      "exit": 0,
+      "usage": {
+        "input_tokens": 49495,
+        "cached_input_tokens": 12288,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1560,
+        "reasoning_output_tokens": 0
+      },
+      "unexpectedCommands": 0,
+      "data": {
+        "guidance": [
+          {
+            "topic": "Package testing and behavior guidance",
+            "sourceRef": {
+              "path": "docs/testing.md",
+              "startLine": 1,
+              "endLine": 4,
+              "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+            },
+            "scope": [
+              "packages/api",
+              "packages/worker"
+            ],
+            "coverageStatus": "partial",
+            "consumers": [
+              "API implementers and reviewers",
+              "Worker implementers and reviewers"
+            ],
+            "gaps": [
+              "API response errors have no written convention.",
+              "Worker retry semantics have no written convention."
+            ]
+          }
+        ],
+        "observations": [
+          {
+            "topic": "Package testing and behavior guidance",
+            "gap": "API response errors have no written convention.",
+            "statement": "createAccount and closeAccount share a returned failure envelope containing status and error with code and message. createAccount returns 422, EMAIL_REQUIRED, and 'Email is required' when input.email is falsy. closeAccount returns 409, BALANCE_REMAINS, and 'Settle balance first' when account.balance !== 0. Successful branches return status and body. This is a local pattern limited to these two operations.",
+            "classification": "local-pattern",
+            "scope": [
+              "packages/api/src/create.js",
+              "packages/api/src/close.js"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "packages/api/src/create.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "43a3e158f5bc09d5094e931ddce88708c36c6d4b50eddf961862cd2ba7630178"
+              },
+              {
+                "path": "packages/api/src/close.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "4b5230de79efe3225ddea0601d5cded4f2673a6d320f25c45543ca9e958bc707"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "packages/api/src/create.js",
+                "packages/api/src/close.js"
+              ],
+              "independentSupports": 0,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Compared every explicit failure branch in the two supplied API operations for a different envelope and compared their successful branches."
+              ],
+              "excluded": [
+                "Worker delivery has a different role.",
+                "Generated OpenSpec skills do not establish API implementation conventions."
+              ],
+              "unknowns": [
+                "Independent origin versus mechanical copying is not established.",
+                "Other API operations, callers, thrown failures, and tests were not supplied."
+              ]
+            },
+            "exceptions": [
+              "Successful createAccount responses return status 201 and body containing id: input.id.",
+              "Successful closeAccount responses return status 200 and body containing the spread account with closed: true.",
+              "The email condition tests falsiness; the balance condition uses strict inequality with numeric zero."
+            ],
+            "unknowns": [
+              "API-wide adoption of the failure envelope requires further evidence or an explicit policy decision."
+            ],
+            "guidanceDisposition": "reference-only"
+          }
+        ],
+        "unknowns": [
+          "The supplied filtered evidence is the entire research boundary; unlisted sources were not inspected.",
+          "No test files, CI configuration, execution results, historical approvals, or change-specific artifacts were supplied.",
+          "No conflicting explicit guidance was identified in the supplied evidence; unavailable sources could contain conflicts.",
+          "Runtime OpenSpec root resolution and CLI-returned workflow state are unavailable."
+        ],
+        "content": "# API error reference\n\nThis reference is for API implementers and reviewers. It describes only the checked branches in [create.js](../../packages/api/src/create.js) and [close.js](../../packages/api/src/close.js). Their shared failure envelope is a **local pattern**, not an established API-wide convention.\n\n[Existing testing guidance](../testing.md) explicitly identifies API response errors as undocumented. That guidance remains authoritative for test working directories; this reference does not replace it.\n\n## Checked failure branches\n\n### createAccount\n\nThe condition `!input.email` returns:\n\n```json\n{\"status\":422,\"error\":{\"code\":\"EMAIL_REQUIRED\",\"message\":\"Email is required\"}}\n```\n\nThe check covers a falsy email value, including a missing email property. It does not establish email-format validation or behavior for an unavailable input object.\n\nWhen that condition is false, the function returns status `201` with `body: {id: input.id}` rather than an error object.\n\nSource: [create.js](../../packages/api/src/create.js).\n\n### closeAccount\n\nThe condition `account.balance !== 0` returns:\n\n```json\n{\"status\":409,\"error\":{\"code\":\"BALANCE_REMAINS\",\"message\":\"Settle balance first\"}}\n```\n\nThe check uses strict inequality against numeric zero. Its scope therefore includes values other than numeric zero, rather than establishing balance-type validation.\n\nWhen the balance is numeric zero, the function returns status `200` with `body: {...account, closed: true}` rather than an error object.\n\nSource: [close.js](../../packages/api/src/close.js).\n\n## Pattern and counterexample coverage\n\nBoth checked explicit failure branches return `{status, error: {code, message}}`. Every supplied API operation was compared for explicit failure branches with a different envelope; none was found within these two files. Their successful branches provide a scope counterexample to treating every response as an error envelope: both use `body`.\n\nIndependent authorship or origin cannot be established from the supplied snippets, so these two matching implementations provide zero established independent supports for a convention. Worker delivery has a different role, and generated OpenSpec workflow skills provide no support for API error behavior.\n\n## Unresolved scope and policy\n\nOther API operations, callers, thrown failures, and tests were not supplied. The returned objects alone do not establish HTTP transport behavior or how callers handle exceptions. Whether this envelope should become API-wide policy remains unresolved and requires further evidence or an explicit policy decision.\n\nNo tests or CI checks were executed for this reference, and no execution results or historical approvals were supplied. No conflicting explicit guidance was identified in the supplied evidence; unavailable sources could contain conflicts.\n\n## Native workflow authority\n\nThis reference records observed implementation behavior. It grants no implementation, revision, synchronization, or archive approval and establishes no workflow completion state. Native workflow authority remains in the original [proposal](../../.agents/skills/openspec-propose/SKILL.md), [exploration](../../.agents/skills/openspec-explore/SKILL.md), [artifact revision](../../.agents/skills/openspec-update-change/SKILL.md), [implementation](../../.agents/skills/openspec-apply-change/SKILL.md), [spec synchronization](../../.agents/skills/openspec-sync-specs/SKILL.md), and [archive](../../.agents/skills/openspec-archive-change/SKILL.md) skills, including their applicable confirmation, state, and verification requirements.\n"
+      }
+    },
+    {
+      "cycle": 1,
+      "kind": "artifact-content",
+      "expectedOutput": "acceptance",
+      "artifact": "api-error-reference",
+      "versions": {
+        "prompt": "4",
+        "template": "1",
+        "document": "1",
+        "read": "3"
+      },
+      "requestId": "25ba3f8e31165d554f73dd8757c82215c5178782af3e043667d894adf05862f9",
+      "startedAt": "2026-11-04T10:56:35.443Z",
+      "finishedAt": "2026-11-04T10:57:20.448Z",
+      "exit": 0,
+      "usage": {
+        "input_tokens": 50231,
+        "cached_input_tokens": 19840,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1839,
+        "reasoning_output_tokens": 0
+      },
+      "unexpectedCommands": 0,
+      "data": {
+        "accepted": true,
+        "reason": "The candidate satisfies all job criteria: it accurately describes both checked failure and success branches, confines the shared envelope to a local pattern, records counterexample coverage and uncertain independence, preserves source gaps and unresolved policy, uses correct relative repository links, and preserves native workflow authority without claiming approvals or executed checks.",
+        "guidance": [
+          {
+            "topic": "Package testing and behavior guidance",
+            "sourceRef": {
+              "path": "docs/testing.md",
+              "startLine": 1,
+              "endLine": 4,
+              "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+            },
+            "scope": [
+              "packages/api",
+              "packages/worker"
+            ],
+            "coverageStatus": "partial",
+            "consumers": [
+              "API implementers and reviewers",
+              "Worker implementers and reviewers"
+            ],
+            "gaps": [
+              "API response errors have no written convention.",
+              "Worker retry semantics have no written convention."
+            ]
+          }
+        ],
+        "observations": [
+          {
+            "topic": "Package testing and behavior guidance",
+            "gap": "API response errors have no written convention.",
+            "statement": "The candidate accurately records !input.email returning status 422 with EMAIL_REQUIRED and Email is required, and account.balance !== 0 returning status 409 with BALANCE_REMAINS and Settle balance first. It correctly distinguishes successful status 201 and 200 body responses, explains falsy email and strict numeric-zero comparison, and limits the shared failure envelope to the two checked operations.",
+            "classification": "local-pattern",
+            "scope": [
+              "packages/api/src/create.js",
+              "packages/api/src/close.js"
+            ],
+            "supportingEvidence": [
+              {
+                "path": "packages/api/src/create.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "43a3e158f5bc09d5094e931ddce88708c36c6d4b50eddf961862cd2ba7630178"
+              },
+              {
+                "path": "packages/api/src/close.js",
+                "startLine": 1,
+                "endLine": 5,
+                "digest": "4b5230de79efe3225ddea0601d5cded4f2673a6d320f25c45543ca9e958bc707"
+              },
+              {
+                "path": "docs/testing.md",
+                "startLine": 1,
+                "endLine": 4,
+                "digest": "da61052a666a52500681e83808945e7cc4c761ec027a074b9c0253686837407b"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                "packages/api/src/create.js",
+                "packages/api/src/close.js",
+                "docs/testing.md"
+              ],
+              "independentSupports": 0,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Compared every explicit failure branch in the two supplied API operations for a different envelope.",
+                "Compared successful branches against the proposed failure-envelope scope."
+              ],
+              "excluded": [
+                "Successful body responses counter treating every response as an error envelope.",
+                "Worker delivery serves a different role.",
+                "Generated OpenSpec skills do not establish API behavior."
+              ],
+              "unknowns": [
+                "Independent authorship or mechanical copying cannot be established.",
+                "Other API operations, callers, tests, and behavior outside the checked branches were not supplied."
+              ]
+            },
+            "exceptions": [
+              "Successful responses use body instead of error.",
+              "Returned status fields alone do not establish HTTP transport behavior."
+            ],
+            "unknowns": [
+              "API-wide error policy remains unresolved."
+            ],
+            "guidanceDisposition": "reference-only"
+          },
+          {
+            "topic": "Native workflow authority",
+            "statement": "The candidate references original workflow skills without reproducing their procedures or granting implementation, revision, synchronization, or archive approval. Its relative links resolve from docs/rigup to supplied repository paths. It leaves confirmation, state, and verification requirements with the native sources.",
+            "classification": "explicit-rule",
+            "scope": [
+              ".agents/skills/openspec-propose/SKILL.md",
+              ".agents/skills/openspec-explore/SKILL.md",
+              ".agents/skills/openspec-update-change/SKILL.md",
+              ".agents/skills/openspec-apply-change/SKILL.md",
+              ".agents/skills/openspec-sync-specs/SKILL.md",
+              ".agents/skills/openspec-archive-change/SKILL.md"
+            ],
+            "supportingEvidence": [
+              {
+                "path": ".agents/skills/openspec-propose/SKILL.md",
+                "startLine": 1,
+                "endLine": 176,
+                "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+              },
+              {
+                "path": ".agents/skills/openspec-explore/SKILL.md",
+                "startLine": 1,
+                "endLine": 357,
+                "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+              },
+              {
+                "path": ".agents/skills/openspec-update-change/SKILL.md",
+                "startLine": 1,
+                "endLine": 110,
+                "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+              },
+              {
+                "path": ".agents/skills/openspec-apply-change/SKILL.md",
+                "startLine": 1,
+                "endLine": 207,
+                "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+              },
+              {
+                "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+                "startLine": 1,
+                "endLine": 291,
+                "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+              },
+              {
+                "path": ".agents/skills/openspec-archive-change/SKILL.md",
+                "startLine": 1,
+                "endLine": 222,
+                "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+              }
+            ],
+            "counterEvidence": [],
+            "coverage": {
+              "checked": [
+                ".agents/skills/openspec-propose/SKILL.md",
+                ".agents/skills/openspec-explore/SKILL.md",
+                ".agents/skills/openspec-update-change/SKILL.md",
+                ".agents/skills/openspec-apply-change/SKILL.md",
+                ".agents/skills/openspec-sync-specs/SKILL.md",
+                ".agents/skills/openspec-archive-change/SKILL.md"
+              ],
+              "independentSupports": 0,
+              "counterexampleSearched": true,
+              "counterexampleQueries": [
+                "Compared the candidate authority paragraph with native planning boundaries, confirmation requirements, blocked-state handling, synchronization validation, and archive checks."
+              ],
+              "excluded": [
+                "Generated workflow sources are explicit authority, not independent implementation-pattern supports."
+              ],
+              "unknowns": [
+                "Runtime CLI instructions and change-specific workflow state were not supplied."
+              ]
+            },
+            "exceptions": [],
+            "unknowns": [],
+            "guidanceDisposition": "follow-existing"
+          }
+        ],
+        "unknowns": [
+          "Acceptance is limited to the supplied candidate and filtered evidence; no additional sources were inspected.",
+          "Other API operations, callers, tests, CI configuration, and execution results were not supplied.",
+          "Historical approvals and change-specific artifacts were not supplied; this acceptance establishes no native workflow approval or completion state.",
+          "No conflicting explicit guidance was identified within the supplied evidence; unavailable sources could contain conflicts.",
+          "API-wide policy and independent origin of the matching implementations remain unresolved."
+        ]
+      }
+    }
+  ],
+  "limitations": [],
+  "fixtureCommit": "76d8e88d7c57286aad6bcd28e37cc4c7f7d790d8",
+  "openspecVersion": "1.16.0",
+  "reason": "Observed live host request/token budget exhausted",
+  "finishedAt": "2026-11-04T10:57:21.006Z",
+  "observedHostRequests": 5,
+  "observedHostTokens": 259253
+}

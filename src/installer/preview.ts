@@ -158,5 +158,5 @@ export async function installationInput(root:string,plan:SetupPlan):Promise<stri
   const present=unique.filter(s=>ownedContent(raw,s)!==undefined);
   const text=projectInput(raw,present);if(text!==null)values.push(path+'\0'+digest(text));
  }
- const config=await readTarget(root,'.rigup/config.yaml');return signature({values,config:config?digest(config):absentDigest});
+ const config=await readTarget(root,'.rigup/config.yaml');return signature({values,config:plan.assets.some(a=>a.target==='.rigup/config.yaml')?'configured-in-this-preview':config?digest(config):absentDigest});
 }

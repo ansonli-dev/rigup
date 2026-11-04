@@ -1,0 +1,18 @@
+{
+  "service": {
+    "independentSupports": ["src/orders/create.js", "src/orders/cancel.js"],
+    "initialCounterexample": "src/jobs/reconcile.js",
+    "pattern": "DomainError",
+    "scope": "src/orders",
+    "newCounterexamplePath": "src/orders/amend.js",
+    "newCounterexample": "export function amendOrder(order, replacementLines) {\n  if (order.status !== 'open') return {ok: false, reason: 'ORDER_NOT_OPEN'};\n  return {ok: true, order: {...order, lines: replacementLines}};\n}\n"
+  },
+  "monorepo": {
+    "independentSupports": ["packages/api/src/create.js", "packages/api/src/close.js"],
+    "initialCounterexample": "packages/worker/src/retry.js",
+    "pattern": "error response",
+    "scope": "packages/api",
+    "newCounterexamplePath": "packages/api/src/get.js",
+    "newCounterexample": "export function getAccount(account) {\n  if (!account) return {status: 404, body: {message: 'Account not found'}};\n  return {status: 200, body: account};\n}\n"
+  }
+}

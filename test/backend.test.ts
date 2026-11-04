@@ -222,6 +222,20 @@ test('restored_native_budget_is_not_reset_for_new_job',async()=>{
  const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async()=>{called=true;throw new Error('unexpected request');}});
  await assert.rejects(backend.run({...request,spent:{calls:2,tokens:20}},reader),/budget/);assert.equal(called,false);
 });
+test('native_failure_reports_actual_requests_and_known_or_unknown_usage',async()=>{
+ for(const failNetwork of [false,true]){
+  const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async url=>{
+   if(String(url).includes('count_tokens'))return new Response(JSON.stringify({input_tokens:10}),{headers:{'content-type':'application/json'}});
+   if(failNetwork)throw Error('transport interrupted');
+   return new Response(JSON.stringify({id:'m',type:'message',role:'assistant',model:'fixture',content:[{type:'text',text:'invalid JSON'}],stop_reason:'end_turn',usage:{input_tokens:10,output_tokens:5}}),{headers:{'content-type':'application/json'}});
+  }});
+  await assert.rejects(backend.run(request,reader),(error:any)=>{assert.deepEqual(error.usage,{calls:2,tokens:failNetwork?'unknown':15});return true;});
+ }
+});
+test('native_reserves_budget_before_dispatch_and_blocks_when_persistence_fails',async()=>{
+ let calls=0;const usage:any[]=[];const backend=nativeBackend({apiKey:'fixture',model:'fixture',onUsage:async value=>{usage.push(value);if(value.tokens==='unknown')throw Error('budget persistence failed');},fetch:async()=>{calls++;return new Response(JSON.stringify({input_tokens:10}),{headers:{'content-type':'application/json'}});}});
+ await assert.rejects(backend.run(request,reader));assert.equal(calls,1);assert.deepEqual(usage,[{calls:1,tokens:0},{calls:2,tokens:'unknown'}]);
+});
 test('native_result_preserves_reused_source_scope_and_explicit_rule',async()=>{
  const {project}=await import('./helpers.js');const fs=await import('node:fs/promises');const {join}=await import('node:path');const {repositoryReader}=await import('../src/analyzer/repository.js');
  await project(async root=>{

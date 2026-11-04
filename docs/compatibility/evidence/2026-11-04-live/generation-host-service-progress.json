@@ -1,0 +1,7 @@
+{
+  "caseId": "generation/host/service",
+  "status": "passed",
+  "finishedAt": "2026-11-04T10:55:13.178Z",
+  "observedRequests": 11,
+  "observedTokens": 582251
+}

@@ -1,3 +1,4 @@
+import type {RunProgressEvent} from '../progress.js';
 import {prepareIntegrations} from '../integrations/registry.js';
 import {PROMPT_VERSION} from '../analyzer/prompts.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
@@ -19,13 +20,14 @@ import {targetPath,ownedContent} from './ownership.js';
 import {loadManifest,type Manifest} from './baseline.js';
 export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;environment?:{node:string;platform:string};exitCode?:number}
 export interface InstallReport {status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
-export interface ApplyDependencies {cacheRoot?:string;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
+export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
 interface Transaction {previewId:string;installId:string;status:'prepared'|'complete';files:Record<string,{before:string;after:string}>;checks?:CheckResult[];receipts:NonNullable<Manifest['installedTools']>;report?:InstallReport}
 export async function apply(previewId:string,dependencies:ApplyDependencies={}):Promise<InstallReport>{
  const data=await loadPreview(previewId,dependencies.cacheRoot);if(!data.preview.executable)throw new Error('preview is blocked; prepare a new preview');
  const root=data.plan.root;const lock=dependencies.lock??await acquireLock(root,{stateRoot:dependencies.stateRoot,recover:dependencies.recover});
  if(lock.root!==root)throw new Error('execution lock root mismatch');
  const release=dependencies.lock?async()=>{}:()=>lock.release();
+ let completed=0;const total=data.plan.operations.length+data.files.length+1;const step=(task:string,status:RunProgressEvent['status']='running')=>dependencies.onProgress?.({stage:'apply',unit:'steps',task,completed,total,status,next:'verify actual wiring and commit manifest'});step('preconditions');
  const report:InstallReport={status:'pending',exitCode:3,previewId,written:[],operations:[],checks:[],warnings:[...data.preview.warnings]};
  try {
   await assertNoUnknownWriters(root,lock.stateRoot);
@@ -49,7 +51,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(tx?.status==='complete') {
    const m=await loadManifest(root);if(m?.installId!==tx.installId)throw new Error('completed manifest changed');
    for(const f of data.files){const actual=await readTarget(root,f.target);if((actual?digest(actual):absentDigest)!==tx.files[f.target].after)throw new Error('installed target changed; prepare a new update preview');}
-   return {...tx.report!,written:[]};
+   completed=total;step('verified completed installation','reused');return {...tx.report!,written:[]};
   }
   if((currentManifest?digest(currentManifest):absentDigest)!==data.manifestDigest)throw new Error('manifest changed since preview');
   if(await installationInput(root,data.plan)!==data.inputSnapshot)throw new Error('source input changed since preview');
@@ -62,23 +64,24 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(dependencies.signal?.aborted)return {...report,exitCode:130};
   for(const operation of data.plan.operations){
    if(dependencies.signal?.aborted)return {...report,exitCode:130};
-   if(tx.receipts[operation.integrationId]){const queried=await queryOperation(operation);if(queried.status!=='done')throw new Error('receipted external state changed');report.operations.push(queried);continue;}
+   if(tx.receipts[operation.integrationId]){const queried=await queryOperation(operation);if(queried.status!=='done')throw new Error('receipted external state changed');report.operations.push(queried);completed++;step(operation.id,'reused');continue;}
+   step(operation.id);
    const previous=await queryOperation(operation);
    // The durable operation record decides reuse; an unowned existing prefix alone never authorizes it.
    const result=await executeOperation(operation,{...dependencies.operation,authorizationRef:previewId,stateRoot:lock.stateRoot,signal:dependencies.signal});report.operations.push(result);
    if(result.status!=='done')return {...report,exitCode:dependencies.signal?.aborted?130:result.status==='failed'?1:3,status:result.status==='failed'?'failed':'pending'};
-   if(!result.receipt)throw new Error('external operation lacks verifiable receipt');tx.receipts[operation.integrationId]=result.receipt;await saveDurable(statePath,JSON.stringify(tx));await dependencies.hook?.('after-operation');
+   if(!result.receipt)throw new Error('external operation lacks verifiable receipt');completed++;step(operation.id);tx.receipts[operation.integrationId]=result.receipt;await saveDurable(statePath,JSON.stringify(tx));await dependencies.hook?.('after-operation');
   }
   for(const f of data.files){
    if(dependencies.signal?.aborted)return {...report,exitCode:130};
    const actual=await readTarget(root,f.target);const current=actual?digest(actual):absentDigest;const expected=tx.files[f.target];
-   if(current===expected.after)continue;
+   if(current===expected.after){completed++;step(f.target,'reused');continue;}
    if(current!==expected.before)throw new Error('target changed before write');
    // Backups are private and preserve actual L, never become the generated baseline.
    if(actual){const backup=join(lock.stateRoot,signature(root)+'.'+tx.installId+'.'+signature(f.target)+'.backup.json');await saveDurable(backup,JSON.stringify({target:f.target,bytes:actual.toString('base64')}));}
    if(f.next===undefined){if(actual)await unlink(await targetPath(root,f.target));}
    else {const mode=f.mode??(actual?(await lstat(await targetPath(root,f.target))).mode&0o777:0o644);await atomicProjectWrite(root,f.target,f.encoding==='base64'?Buffer.from(f.next,'base64'):Buffer.from(f.next),mode);}
-   report.written.push(f.target);await dependencies.hook?.('after-file');
+   completed++;step(f.target);report.written.push(f.target);await dependencies.hook?.('after-file');
   }
   if(dependencies.signal?.aborted)return {...report,exitCode:130};
   const verifyFiles=async()=>{for(const f of data.files){const actual=await readTarget(root,f.target);if((actual?digest(actual):absentDigest)!==tx!.files[f.target].after)throw new Error('written configuration differs from preview; baseline not committed');}};
@@ -93,6 +96,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   await dependencies.hook?.('after-manifest');
   if(data.plan.options.agents.length&&data.plan.assets.length)report.warnings.push('Native host loading/reload is unverified; configuration installation is separate from live host acceptance');
   report.status='complete';report.exitCode=report.checks.some(c=>c.status==='failed')?1:report.checks.some(c=>c.status==='pending')?3:0;
+  completed=total;step('manifest committed',report.exitCode===1?'failed':'complete');
   tx.status='complete';tx.report=report;await saveDurable(statePath,JSON.stringify(tx));return report;
  }finally{await release();}
 }

@@ -26,11 +26,11 @@ test('bare_non_tty_exits_2_without_writes', async () => {
   } finally { await rm(root,{recursive:true,force:true}); }
 });
 
-test('bare_tty_routes_by_project_state', async () => {
- let output='';
- const code=await runCli([], {cwd:tmpdir(),isTTY:true,write:(s:string)=>output+=s,read:async()=> '1'});
- assert.equal(code,2); assert.match(output,/init:/);
-});
+test('bare_tty_routes_by_project_state',()=>project(async root=>{
+ let output='';const answers=['1','1','4','3','1'];
+ const code=await runCli([],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null});
+ assert.equal(code,0);assert.match(output,/init:/);
+}));
 test('eof_never_confirms', async () => {
  let output='';
  assert.equal(await runCli([], {cwd:tmpdir(),isTTY:true,write:(s:string)=>output+=s,read:async()=>null}),130);
@@ -54,7 +54,7 @@ test('init_existing_manifest_uses_update_rules_and_doctor_is_read_only', async (
  try {
   await mkdir(join(root,'.rigup'));await writeFile(join(root,'.rigup/manifest.json'),original);
   for(const [args,expected] of [[['init'],'update'],[['doctor'],'doctor']] as const){
-   let out='';assert.equal(await runCli([...args],{cwd:root,isTTY:false,write:(s:string)=>out+=s}),expected==='doctor'?3:2);
+   let out='';assert.equal(await runCli([...args],{cwd:root,isTTY:false,write:(s:string)=>out+=s}),3);
    assert.match(out,new RegExp(expected+':'));
    assert.equal(await readFile(join(root,'.rigup/manifest.json'),'utf8'),original);
   }
@@ -64,10 +64,10 @@ import {project} from './helpers.js';
 test('explicit_dry_run_and_preflight_missing_inputs_never_call_backend_or_write_project',()=>project(async root=>project(async cache=>project(async state=>{
  let calls=0;const io={cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async()=>{calls++;throw Error('unexpected research');}}}};
  assert.equal(await runCli(['init','--agents','codex','--dry-run'],io),0);assert.equal(calls,0);assert.deepEqual(await readdir(root),[]);
- assert.equal(await runCli(['init','--yes'],io),2);assert.equal(calls,0);
+ assert.equal(await runCli(['init'],io),3);assert.equal(calls,0);
 }))));
 test('continuous_run_never_prompts_after_start',()=>project(async root=>project(async cache=>project(async state=>{
- let reads=0;const code=await runCli(['init','--agents','codex','--yes'],{cwd:root,isTTY:false,write:()=>{},read:async()=>{reads++;throw Error('stdin removed');},services:{cacheRoot:cache,stateRoot:state}});assert.equal(code,0);assert.equal(reads,0);
+ let reads=0;const code=await runCli(['init','--agents','codex'],{cwd:root,isTTY:false,write:()=>{},read:async()=>{reads++;throw Error('stdin removed');},services:{cacheRoot:cache,stateRoot:state}});assert.equal(code,0);assert.equal(reads,0);
 }))));
 test('host_pending_returns_3_and_preserves_project_bytes',()=>project(async root=>project(async cache=>project(async state=>{
  const before=await readdir(root);let output='';const code=await runCli(['init','--agents','codex','--sdd','openspec','--backend','host','--dry-run'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});assert.equal(code,3);assert.match(output,/Pending host research/);assert.deepEqual(await readdir(root),before);

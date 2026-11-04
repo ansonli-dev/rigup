@@ -13,15 +13,16 @@ async function readConfig(path: string, required = false): Promise<Record<string
     }
     throw error;
   }
-  const value: unknown = parse(source);
+  let value:unknown;try{value=parse(source);}catch{throw new Error('config: invalid YAML syntax');}
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('config: expected mapping');
   return value as Record<string, unknown>;
 }
 
 export function validateOptions(value: Record<string, unknown>): void {
   for (const key of Object.keys(value)) {
-    if (!['agents','backend','quality','customer','profile','templates','mcp','readBudget','scope','model','sdd','tools','customSkills','projectConventions'].includes(key)) throw new Error(key + ': unknown field');
+    if (!['agents','backend','quality','customer','executionPolicy','profile','templates','mcp','readBudget','researchBudget','scope','model','sdd','tools','customSkills','projectConventions'].includes(key)) throw new Error(key + ': unknown field');
   }
+  if(value.executionPolicy!==undefined){const p=value.executionPolicy as Record<string,unknown>;if(!p||typeof p!=='object'||Object.keys(p).some(k=>k!=='mode')||!['continuous','review'].includes(String(p.mode)))throw new Error('executionPolicy.mode: continuous or review required');}
   const kinds=['build','lint','test','environment','eval'];
   if(value.quality!==undefined){
    const q=value.quality as Record<string,unknown>;if(!q||typeof q!=='object'||Array.isArray(q))throw new Error('quality: expected object');
@@ -39,6 +40,7 @@ export function validateOptions(value: Record<string, unknown>): void {
    if(c.commands!==undefined){if(!c.commands||typeof c.commands!=='object'||Array.isArray(c.commands))throw new Error('customer.commands: expected map');for(const [name,command] of Object.entries(c.commands)){if(!['issue','mr','ci','deploy','rollback','feedback','environment'].includes(name))throw new Error('customer.commands: unsupported runtime capability');validateOptions({mcp:[{id:'customer-'+name,agents:['codex'],command}]});}}
    if(c.deployment!==undefined){const d=c.deployment as Record<string,unknown>;if(!d||typeof d!=='object'||Object.keys(d).some(k=>!['adapter','target','authorizationReference','recoveryRunbook'].includes(k))||['adapter','target','authorizationReference','recoveryRunbook'].some(k=>typeof d[k]!=='string'||!d[k]))throw new Error('customer.deployment: target, authorization and recovery reference required');}
   }
+  if(value.researchBudget!==undefined){const b=value.researchBudget as Record<string,unknown>;if(!b||typeof b!=='object'||Object.keys(b).some(k=>!['maxCalls','maxTokens'].includes(k))||['maxCalls','maxTokens'].some(k=>!Number.isSafeInteger(b[k])||Number(b[k])<1))throw new Error('researchBudget: positive maxCalls/maxTokens required');}
   if(value.sdd !== undefined && !['superpowers','openspec','spec-kit'].includes(String(value.sdd))) throw new Error('sdd: unsupported selection');
   if(value.tools !== undefined) {
    if(!Array.isArray(value.tools)) throw new Error('tools: expected list');
@@ -143,4 +145,12 @@ export async function loadOptions(root: string, overrides: Partial<SetupOptions>
   const profile = typeof profilePath === 'string' ? await readConfig(join(root,profilePath), true) : {};
   validateOptions(profile);
   return {...{agents: [], backend:'native'}, ...profile, ...project, ...overrides} as SetupOptions;
+}
+
+export async function configurationCandidate(root:string,options:SetupOptions):Promise<import('./integrations/registry.js').PreparedAsset>{
+ const {parseDocument}=await import('yaml');let source='';try{source=await readFile(join(root,'.rigup/config.yaml'),'utf8');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+ const doc=parseDocument(source);if(doc.errors.length)throw new Error('config: invalid YAML syntax');const previous=doc.toJS()??{};
+ for(const key of Object.keys(previous))if(!(key in options))doc.delete(key);
+ for(const [key,value] of Object.entries(options))if(value!==undefined&&JSON.stringify(previous[key])!==JSON.stringify(value))doc.set(key,value);
+ return {logicalId:'rigup:configuration',target:'.rigup/config.yaml',content:doc.toString(),ownership:{kind:'file'},source:{kind:'configuration',ref:'1'}};
 }

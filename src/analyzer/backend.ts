@@ -49,7 +49,7 @@ export async function validateResearch(data:unknown,reader:RepositoryReader):Pro
 }
 
 export class ResearchFailure extends Error {
- constructor(message:string,readonly unknowns:string[]=['Research incomplete; no semantic result accepted']) {super(message);this.name='ResearchFailure';}
+ constructor(message:string,readonly unknowns:string[]=['Research incomplete; no semantic result accepted'],readonly usage?:{calls:number;tokens:number|'unknown'}) {super(message);this.name='ResearchFailure';}
 }
 
 export function validateResearchRequest(request:ResearchRequest):void {

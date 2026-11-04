@@ -1,0 +1,63 @@
+{
+  "caseId": "claude/none/customer-mcp",
+  "status": "pending",
+  "checkedAt": "2026-11-04T11:17:40.013Z",
+  "finishedAt": "2026-11-04T11:17:45.608Z",
+  "version": "2.1.273 (Claude Code)",
+  "loggedIn": true,
+  "fixture": "/private/tmp/rigup-native-claude-z6S0Gr",
+  "commands": [
+    {
+      "executable": "claude",
+      "args": [
+        "--print",
+        "/rigup-live-canary\nRead the installed skill and its referenced fixture guidance. Report the exact fixture marker and call the configured read-only rigup_echo with it. Do not edit files or run commands.",
+        "--setting-sources",
+        "user,project",
+        "--settings",
+        "{\"disableAllHooks\":true}",
+        "--permission-mode",
+        "dontAsk",
+        "--permission-prompts",
+        "none",
+        "--tools",
+        "Read,Skill,ToolSearch",
+        "--allowedTools",
+        "Read,Skill,mcp__rigup-live-canary__rigup_echo",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "/private/tmp/rigup-native-claude-z6S0Gr/.mcp.json",
+        "--no-session-persistence",
+        "--no-chrome",
+        "--max-budget-usd",
+        "1",
+        "--output-format",
+        "json"
+      ],
+      "cwd": "/private/tmp/rigup-native-claude-z6S0Gr"
+    }
+  ],
+  "budget": {
+    "maxUsd": 1,
+    "maxWallMs": 90000
+  },
+  "exit": 1,
+  "loadedReferenceMarker": false,
+  "mcpConnected": true,
+  "echoCalled": false,
+  "mcpMethods": [
+    {
+      "method": "initialize"
+    },
+    {
+      "method": "tools/list"
+    }
+  ],
+  "apiErrorStatus": 401,
+  "terminalReason": "api_error",
+  "modelUsage": {},
+  "totalCostUsd": 0,
+  "resultDigest": "e25ed0a02ac842e77a5baaf16b6372e8f13e7b7a0e34aa44800ea291b29e1978",
+  "reason": "Native bounded session did not establish every discovery/reference/MCP claim; inspect fixture-local private transport evidence",
+  "scope": "Actual native skill/reference use with existing user authentication settings, hooks disabled and only Read/Skill/ToolSearch builtins and read-only customer MCP; no SDD gate inference"
+}

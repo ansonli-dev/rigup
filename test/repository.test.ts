@@ -99,3 +99,10 @@ test('project_native_entries_are_discovered_without_loading_skill_code',()=>proj
  assert.ok(p.nativeEntries?.codex?.includes('openspec-propose'));
  assert.equal(p.skillSources?.codex?.[0].origin,'local');
 }));
+test('research_fingerprint_uses_filtered_values_and_coverage_unknowns',()=>project(async root=>{
+ await writeFile(root+'/config.json',JSON.stringify({token:'first-secret',port:3000}));const a=await scanRepository(root,{agents:[],backend:'host'});await writeFile(root+'/config.json',JSON.stringify({token:'second-secret',port:3000}));const b=await scanRepository(root,{agents:[],backend:'host'});assert.equal(a.fingerprint,b.fingerprint);
+ await writeFile(root+'/sensitive.unknown','password=literal');const c=await scanRepository(root,{agents:[],backend:'host'});assert.notEqual(b.fingerprint,c.fingerprint);
+}));
+test('managed_sensitive_words_do_not_add_research_unknowns_or_change_fingerprint',()=>project(async root=>{
+ await writeFile(root+'/source.js','export const value=1;');const options={agents:[],backend:'host' as const};const first=await scanRepository(root,options);const {mkdir}=await import('node:fs/promises');const {digest}=await import('../src/analyzer/evidence.js');await mkdir(root+'/.rigup/baseline/id',{recursive:true});const whole='Authorization: preserve all approval boundaries.\n';const block='<!-- rigup:start -->\nAuthorization: preserve human gates.\n<!-- rigup:end -->\n';await writeFile(root+'/generated.md',whole);await writeFile(root+'/AGENTS.md',block);await writeFile(root+'/.rigup/baseline/id/whole',whole);await writeFile(root+'/.rigup/baseline/id/block',block);await writeFile(root+'/.rigup/manifest.json',JSON.stringify({schemaVersion:1,installId:'id',assets:[{target:'generated.md',ownership:{kind:'file'},digest:digest(whole),baseline:'.rigup/baseline/id/whole'},{target:'AGENTS.md',ownership:{kind:'block',start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'},digest:digest(block),baseline:'.rigup/baseline/id/block'}]}));const next=await scanRepository(root,options);assert.deepEqual(next.unknowns,first.unknowns);assert.equal(next.fingerprint,first.fingerprint);
+}));

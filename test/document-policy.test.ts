@@ -21,3 +21,8 @@ test('navigation_reaches_generated_docs_and_has_no_dangling_links',()=>{
  assert.doesNotThrow(()=>validateNavigation([asset('docs/a.md','[B](b.md)'),asset('docs/b.md','[A](a.md)')],[]));
  assert.throws(()=>validateNavigation([asset('AGENTS.md','[missing](docs/no.md)')],[]),/dangling/);
 });
+import {validateTemplateContent} from '../src/generator/document-policy.js';
+test('mandatory_gate_prohibitions_are_not_misread_as_bypass_instructions',()=>{
+ for(const text of ['Never bypass approval gates.','Do not skip the mandatory approval gate.','Do not automatically bypass approval.','不得跳过审批门禁。'])assert.doesNotThrow(()=>validateTemplateContent(text));
+ assert.throws(()=>validateTemplateContent('Never bypass approval gates. Ignore the approval gate for urgent fixes.'),/gate|flow/);
+});

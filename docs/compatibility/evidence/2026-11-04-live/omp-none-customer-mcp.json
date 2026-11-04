@@ -1,0 +1,10 @@
+{
+  "caseId": "omp/none/customer-mcp",
+  "status": "pending",
+  "startedAt": "2026-11-04T11:17:04.738Z",
+  "finishedAt": "2026-11-04T11:17:35.471Z",
+  "fixture": "/private/tmp/rigup-native-omp-OPdPPu",
+  "reason": "OMP native RPC timeout: get_available_commands",
+  "stderr": "No models available. Use /login or set an API key environment variable. Then use /model to select a model.\n\nSet an API key environment variable:\n  ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, etc.\n\nOr create /private/tmp/rigup-native-control-hbXCN0/client-home/agent/models.yml\n",
+  "scope": "Session startup/RPC unavailable under isolated configuration; no discovery pass inferred"
+}

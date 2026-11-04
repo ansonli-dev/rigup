@@ -1,0 +1,7 @@
+{
+  "caseId": "generation/host/monorepo",
+  "status": "passed",
+  "finishedAt": "2026-11-04T11:10:38.837Z",
+  "observedRequests": 10,
+  "observedTokens": 535648
+}

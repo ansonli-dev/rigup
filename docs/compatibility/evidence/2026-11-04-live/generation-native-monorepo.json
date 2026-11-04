@@ -1,0 +1,6 @@
+{
+  "caseId": "generation/native/monorepo",
+  "status": "pending",
+  "reason": "ANTHROPIC_API_KEY and ANTHROPIC_MODEL are required for real independent-model acceptance",
+  "checkedAt": "2026-11-04T10:59:32.391Z"
+}

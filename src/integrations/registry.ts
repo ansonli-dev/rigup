@@ -41,7 +41,7 @@ export function parseUpstreamLock(value:unknown):Recipe[]{
  return doc.integrations as Recipe[];
 }
 export async function loadUpstreamLock():Promise<Recipe[]>{return parseUpstreamLock(JSON.parse(await readFile(new URL('../../docs/compatibility/upstream-lock.json',import.meta.url),'utf8')));}
-export interface SddBinding {status:'source-bound';id:string;prepare:string[];deliver:string[];artifacts:string[];gates:string[]}
+export interface SddBinding {status:'source-bound';id:string;agent:string;prepare:string[];deliver:string[];artifacts:string[];gates:string[]}
 export function bindSdd(id:string,agent:string,available:string[]):SddBinding|{status:'pending';id:string;reason:string} {
  if(!['claude','codex','opencode','omp'].includes(agent)) throw new Error('unsupported host');
  if(id === 'superpowers' && agent === 'omp') return {status:'pending',id,reason:'OMP-specific Superpowers binding not verified; Pi support is not evidence for OMP'};
@@ -50,7 +50,7 @@ export function bindSdd(id:string,agent:string,available:string[]):SddBinding|{s
  const names=(list:string[])=>id === 'spec-kit' ? list.map(name=>agent === 'codex' ? 'speckit-'+name : 'speckit.'+name) : [...list];
  const prepare=names(descriptor.prepare);const deliver=names(descriptor.deliver);
  for(const entry of [...prepare,...deliver]) if(!available.includes(entry)) throw new Error('missing native entry: '+entry);
- return {status:'source-bound',id,prepare,deliver,artifacts:[...descriptor.artifacts],gates:[...descriptor.gates]};
+ return {status:'source-bound',id,agent,prepare,deliver,artifacts:[...descriptor.artifacts],gates:[...descriptor.gates]};
 }
 export interface SkillSource {name:string;origin:'plugin'|'local'|'managed'|'unknown';identity:string;digest?:string;satisfies:boolean}
 export function resolveSkillSource(name:string,sources:SkillSource[],selectedIdentity?:string):SkillSource {
@@ -62,9 +62,9 @@ export function resolveSkillSource(name:string,sources:SkillSource[],selectedIde
  return matches.find(s=>s.origin === 'plugin') ?? matches[0];
 }
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
-export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:{integrationId:string;reason:string}[];bindings:SddBinding[]}
+export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:{integrationId:string;reason:string}[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target:string}[]}
 export async function prepareIntegrations(profile:import('../analyzer/repository.js').ProjectProfile,options:import('../types.js').SetupOptions):Promise<IntegrationPreparation>{
- const lock=await loadUpstreamLock();const assets:PreparedAsset[]=[];const operations:SetupOperation[]=[];const warnings:string[]=[];const requirements:IntegrationPreparation['requirements']=[];const bindings:SddBinding[]=[];
+ const lock=await loadUpstreamLock();const assets:PreparedAsset[]=[];const operations:SetupOperation[]=[];const warnings:string[]=[];const requirements:IntegrationPreparation['requirements']=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
  const requireKnown=(id:string)=>{const recipe=lock.find(r=>r.integrationId === id);if(!recipe) throw new Error('unsupported integration: '+id);requireRecipeEvidence(recipe);return recipe;};
  for(const agent of options.agents) {if(!Object.hasOwn(agents,agent)) throw new Error('unknown agent');requireKnown(agent);}
  const push=(added:PreparedAsset[])=>{
@@ -106,7 +106,10 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   const copies=await collectCustomSkill(skill.source.startsWith('/') ? skill.source : profile.root+'/'+skill.source,agents[agent].skillDirectory);
   const entry=copies.find(a=>a.target.endsWith('/SKILL.md'))!;const name=entry.target.split('/').at(-2)!;
   const existing=profile.skillSources?.[agent]?.filter(s=>s.name === name) ?? [];
-  if(existing.length) {resolveSkillSource(name,existing);warnings.push(name+': reuse satisfied native source; no duplicate copy');continue;}
+  const resolved=existing.length?resolveSkillSource(name,existing):undefined;
+  if(skill.position==='release')requirements.push({integrationId:name,reason:'Customer release position pending a verified release adapter; no release workflow is installed'});
+  else if(skill.position)skillBindings.push({agent,consumer:'change-'+skill.position,target:resolved?.identity??entry.target});
+  if(resolved) {warnings.push(name+': reuse satisfied native source; no duplicate copy');continue;}
   push(copies.map(a=>({...a,...(skill.position && a === entry ? {consumer:'change-'+skill.position} : {})})));
  }
  const context=options.projectConventions?.documentRoutes?.context ?? 'docs/rigup';
@@ -122,5 +125,5 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
    warnings.push(operation.integrationId+': '+reason);requirements.push({integrationId:operation.integrationId,reason});
   }
  }
- return {assets,operations,warnings,requirements,bindings};
+ return {assets,operations,warnings,requirements,bindings,skillBindings};
 }

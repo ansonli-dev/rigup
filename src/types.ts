@@ -9,8 +9,10 @@ export interface SetupOptions {
   projectConventions?: {tracker?:{system:'gitlab'|'github'|'local'|'other';reference?:string;description?:string};documentRoutes?:Record<string,string>;labelMapping?:Record<string,string>};
   model?: {provider:'anthropic';model:string;apiKeyEnv:string};
   backend: 'native' | 'host';
+  executionPolicy?:{mode:'continuous'|'review'};
   profile?: string;
   scope?: string[];
+  researchBudget?:{maxCalls:number;maxTokens:number};
   readBudget?: {maxFiles:number;maxBytes:number};
   templates?: {source:string;target:string;values?:Record<string,string|number|boolean>}[];
   mcp?: {id:string;agents:Agent[];url?:string;command?:CommandSpec;envRefs?:string[]}[];
