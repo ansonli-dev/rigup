@@ -84,13 +84,14 @@ test('browser authentication snapshots and credential backups never enter resear
   const root=join(control,'project');await mkdir(root);await mkdir(join(root,'.auth'));
   const browser=JSON.stringify({cookies:[{name:'session',value:'browser-cookie-canary'}],origins:[{origin:'https://example.test',localStorage:[{name:'session',value:'browser-local-canary'}]}]});
   await writeFile(join(root,'.auth/user.json'),browser);await writeFile(join(root,'browser-state.json'),browser);
+  await writeFile(join(root,'cookie-command.json'),JSON.stringify({args:['--cookie','cookie-argument-canary','--cookie=cookie-argument-canary','--header=Cookie: session=cookie-argument-canary'],response:{'Set-Cookie':'session=cookie-argument-canary'}}));
   await writeFile(join(root,'.netrc.backup'),'machine example.test login user password backup-netrc-canary\n');
   // Synthetic marker with no cryptographic key material; exercise content denial.
   const key='-----BEGIN '+'PRIVATE KEY-----\nbackup-key-canary\n-----END PRIVATE KEY-----\n';
   await writeFile(join(root,'dev.key.backup'),key);await writeFile(join(root,'certificate-notes.txt'),key);
   let report:any;
   assert.equal(await executeLifecycle(root,{agents:['codex'],backend:'host',sdd:'openspec'},{dryRun:true},()=>{},{cacheRoot:join(control,'cache'),stateRoot:join(control,'state'),report:value=>{report=value;}}),3);
-  const exported=await readFile(report.requestPath,'utf8');assert.doesNotMatch(exported,/browser-(?:cookie|local)-canary|backup-(?:netrc|key)-canary/);
+  const exported=await readFile(report.requestPath,'utf8');assert.doesNotMatch(exported,/browser-(?:cookie|local)-canary|cookie-argument-canary|backup-(?:netrc|key)-canary/);
   const profile=await scanRepository(root,{agents:['codex'],backend:'host'});for(const path of ['.auth/user.json','.netrc.backup','dev.key.backup','certificate-notes.txt'])assert.ok(!profile.files.includes(path));
   assert.notEqual(READ_POLICY_VERSION,'5','invalidate earlier browser-state exports');
 }));

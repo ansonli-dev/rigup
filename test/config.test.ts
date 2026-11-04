@@ -76,3 +76,12 @@ test('customer_and_mcp_header_credentials_are_environment_references_only',async
  for(const args of [['-H','Authorization: Bearer literal-secret'],['--header=X-API-Key: literal-secret'],['--user','user:password']])assert.throws(()=>validateOptions({mcp:[{id:'customer',agents:['codex'],command:{executable:'server',args,cwd:'.',envRefs:[]}}]}),/credential|args|reference/);
  assert.doesNotThrow(()=>validateOptions({customer:{commands:{feedback:{executable:'client',args:['-H','Authorization: Bearer ${TOKEN}'],cwd:'.',envRefs:['TOKEN']}}}}));
 });
+test('cookie_credentials_require_declared_references_in_commands_and_are_forbidden_in_urls',async()=>{
+ const {validateOptions}=await import('../src/config.js');
+ for(const args of [['--cookie','fixture-session'],['-b','fixture-session'],['--cookie=fixture-session'],['-H','Cookie: session=fixture-session']]){
+  assert.throws(()=>validateOptions({mcp:[{id:'customer',agents:['codex'],command:{executable:'server',args,cwd:'.',envRefs:[]}}]}),/credential|reference/);
+  assert.throws(()=>validateOptions({customer:{commands:{feedback:{executable:'client',args,cwd:'.',envRefs:[]}}}}),/credential|reference/);
+ }
+ assert.throws(()=>validateOptions({mcp:[{id:'customer',agents:['codex'],url:'https://example.test/mcp?cookie=fixture-session'}]}),/credential/);
+ assert.doesNotThrow(()=>validateOptions({mcp:[{id:'customer',agents:['codex'],command:{executable:'server',args:['--cookie','${COOKIE}'],cwd:'.',envRefs:['COOKIE']}}]}));
+});

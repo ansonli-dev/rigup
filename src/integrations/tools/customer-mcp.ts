@@ -15,7 +15,7 @@ export async function prepareCustomerMcp(root:string,input:NonNullable<SetupOpti
  if(refs.some(ref=>!/^[_A-Za-z][_A-Za-z0-9]*$/.test(ref))) throw new Error('mcp.envRefs: invalid');
  if(input.url) {
   const url=new URL(input.url);
-  if(!['http:','https:'].includes(url.protocol) || url.username || url.password || [...url.searchParams.keys()].some(k=>/token|password|secret|key|auth/i.test(k))) throw new Error('mcp.url: credentials or unsupported transport');
+  if(!['http:','https:'].includes(url.protocol) || url.username || url.password || [...url.searchParams.keys()].some(k=>/token|password|secret|key|auth|cookies?/i.test(k))) throw new Error('mcp.url: credentials or unsupported transport');
   if(refs.length) throw new Error('mcp: remote authentication mapping requires explicit adapter');
  }
  let runner:string|undefined;

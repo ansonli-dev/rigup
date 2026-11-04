@@ -109,7 +109,7 @@ export function validateOptions(value: Record<string, unknown>): void {
         if((v.url === undefined) === (v.command === undefined)) throw new Error(field+': choose url or command');
         if(v.url !== undefined) {
          let url:URL;try {url=new URL(String(v.url));} catch {throw new Error(field+'.url: invalid');}
-         if(!['http:','https:'].includes(url.protocol)||url.username||url.password||[...url.searchParams.keys()].some(k=>/token|password|secret|auth|key/i.test(k))) throw new Error(field+'.url: credential values or unsupported transport');
+         if(!['http:','https:'].includes(url.protocol)||url.username||url.password||[...url.searchParams.keys()].some(k=>/token|password|secret|auth|key|cookies?/i.test(k))) throw new Error(field+'.url: credential values or unsupported transport');
         }
         if(v.command !== undefined) {
          const command=v.command as Record<string,unknown>;
@@ -117,15 +117,15 @@ export function validateOptions(value: Record<string, unknown>): void {
          for(const name of Object.keys(command)) if(!['executable','args','cwd','envRefs'].includes(name)) throw new Error(field+'.command.'+name+': unknown field');
          if(typeof command.executable !== 'string' || !command.executable || typeof command.cwd !== 'string' || !Array.isArray(command.args) || command.args.some(a=>typeof a !== 'string')) throw new Error(field+'.command: executable/args/cwd required');
          for(const [argIndex,arg] of (command.args as string[]).entries()) {
-          const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|credentials?)(?:=|$)/i;
+          const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|cookies?|b|credentials?)(?:=|$)/i;
           if(credentialFlag.test(arg)) {
            const credential=arg.includes('=') ? arg.slice(arg.indexOf('=')+1) : (command.args as string[])[argIndex+1];
            if(typeof credential !== 'string' || !/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(credential)) throw new Error(field+'.command.args: credential values forbidden; use declared environment references');
           }
-          const header=arg.match(/(?:authorization|proxy-authorization|(?:[A-Za-z0-9_-]*[-_])?(?:api[-_]?key|token))\s*[:=]\s*(?:Bearer\s+|Basic\s+)?(.+)$/i);
+          const header=arg.match(/(?:authorization|proxy-authorization|cookies?|set[-_]?cookie|(?:[A-Za-z0-9_-]*[-_])?(?:api[-_]?key|token))\s*[:=]\s*(?:Bearer\s+|Basic\s+)?(.+)$/i);
           if(header&&!/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(header[1]))throw new Error(field+'.command.args: literal header credential forbidden; use an environment reference');
           for(const ref of arg.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g))if(![...(Array.isArray(command.envRefs)?command.envRefs:[]),...(Array.isArray(v.envRefs)?v.envRefs:[])].includes(ref[1]))throw new Error(field+'.command.args: undeclared environment reference');
-          if(/^https?:\/\//i.test(arg)) {const url=new URL(arg);if(url.username||url.password||[...url.searchParams.keys()].some(k=>/token|password|secret|auth|key/i.test(k))) throw new Error(field+'.command.args: credential URL forbidden');}
+          if(/^https?:\/\//i.test(arg)) {const url=new URL(arg);if(url.username||url.password||[...url.searchParams.keys()].some(k=>/token|password|secret|auth|key|cookies?/i.test(k))) throw new Error(field+'.command.args: credential URL forbidden');}
          }
          if(!Array.isArray(command.envRefs) || command.envRefs.some(r=>typeof r !== 'string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(r))) throw new Error(field+'.command.envRefs: invalid');
         }
