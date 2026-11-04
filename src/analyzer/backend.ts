@@ -43,7 +43,7 @@ export async function validateResearch(data:unknown,reader:RepositoryReader):Pro
    for(const query of item.coverage.counterexampleQueries) await reader.search(query);
   }
   if(item.counterEvidence.length && !item.exceptions?.length && item.guidanceDisposition !== 'needs-decision') throw new Error('unexplained counterexample requires decision');
-  if(item.classification === 'suggestion' && item.guidanceDisposition !== 'reference-only') throw new Error('suggestion: cannot become a rule');
+  if(item.classification === 'suggestion' && !['reference-only','needs-decision'].includes(item.guidanceDisposition)) throw new Error('suggestion: cannot become a rule');
   if(item.classification !== 'suggestion' && !item.supportingEvidence.length) throw new Error('evidence: support required');
  }
 }

@@ -61,6 +61,12 @@ test('suggestions_do_not_become_rules_and_missing_refutation_is_not_promoted',as
  const base={statement:'Use a new style',classification:'suggestion',scope:['src'],supportingEvidence:[],counterEvidence:[],guidanceDisposition:'follow-existing'};
  await assert.rejects(validateResearch({observations:[base]},reader),/suggestion/);
 });
+test('conflicting recommendations may remain suggestions awaiting a human decision',async()=>{
+ const observation={topic:'query access',statement:'The existing recommendations conflict; do not choose a rule automatically',classification:'suggestion',scope:['src'],supportingEvidence:[],counterEvidence:[],guidanceDisposition:'needs-decision'};
+ const guidance=[{topic:'query access',scope:['src'],coverageStatus:'conflicting',consumers:['review'],gaps:['Existing sources disagree']}];
+ await assert.doesNotReject(()=>validateResearch({guidance,observations:[observation],unknowns:['Existing sources disagree']},reader));
+ await assert.rejects(()=>validateResearch({guidance,observations:[{...observation,guidanceDisposition:'follow-existing'}]},reader),/requires decision|suggestion/);
+});
 test('host_rejects_request_file_tampering',async()=>{
  const {hostBackend}=await import('../src/analyzer/host.js');const fs=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const cache=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-host-')));
