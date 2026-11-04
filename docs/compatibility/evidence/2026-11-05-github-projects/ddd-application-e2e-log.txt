@@ -1,0 +1,13 @@
+
+> domain-driven-hexagon@2.0.0 test:e2e
+> jest -i --config jest-e2e.json --json --outputFile=/private/tmp/rigup-github-e2e-Ob73Xm/ddd-post-rigup-e2e.json
+
+PASS tests/user/create-user/create-user.e2e-spec.ts
+PASS tests/user/delete-user/delete-user.e2e-spec.ts
+
+Test Suites: 2 passed, 2 total
+Tests:       7 passed, 7 total
+Snapshots:   0 total
+Time:        1.292 s, estimated 2 s
+Ran all test suites.
+Test results written to: ../ddd-post-rigup-e2e.json

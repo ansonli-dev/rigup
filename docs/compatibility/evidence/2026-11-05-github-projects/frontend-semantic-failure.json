@@ -1,0 +1,204 @@
+{
+  "caseId": "github-project/frontend/full-semantic",
+  "status": "failed",
+  "stage": "artifact acceptance; observed token budget exceeded",
+  "repository": "https://github.com/alan2207/bulletproof-react",
+  "commit": "9506629ed003a561c6627735480cce4994244bb4",
+  "rigupSource": "8e0b9e1",
+  "scopedApplication": "apps/react-vite plus root AGENTS/README/docs and native OpenSpec entries",
+  "startedAt": "2026-11-04T15:45:46.093Z",
+  "finishedAt": "2026-11-04T15:52:35.127Z",
+  "configuredBudget": {
+    "maxCalls": 12,
+    "maxTokens": 1200000
+  },
+  "actualModelCalls": 4,
+  "actualObservedTokens": 1564127,
+  "overrunTokens": 364127,
+  "requests": [
+    {
+      "kind": "artifact-content",
+      "expectedOutput": "acceptance",
+      "requestId": "f164917cf683aecdd6c4ca52ca000b4db3dac60312b7e25551478c3914dac244",
+      "requestBytes": 995461,
+      "visibleEvidenceFiles": 178,
+      "visibleEvidenceChars": 853449,
+      "largestEvidence": [
+        {
+          "path": "apps/react-vite/yarn.lock",
+          "chars": 501391
+        },
+        {
+          "path": ".agents/skills/openspec-explore/SKILL.md",
+          "chars": 23811
+        },
+        {
+          "path": ".agents/skills/openspec-propose/SKILL.md",
+          "chars": 16743
+        },
+        {
+          "path": ".agents/skills/openspec-archive-change/SKILL.md",
+          "chars": 16619
+        }
+      ],
+      "usage": {
+        "input_tokens": 388871,
+        "cached_input_tokens": 8832,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2615,
+        "reasoning_output_tokens": 36
+      },
+      "observedTokens": 391486,
+      "modelProcessExit": 0,
+      "modelDeclaredAcceptance": true,
+      "modelAcceptanceReason": "The candidate satisfies all eight acceptance criteria: it references original authority, accurately scopes the entry-point and generator discrepancies, retains needs-decision and testing obligations, preserves implementation and enforcement unknowns, avoids unsupported production claims, leaves native human gates unchanged, and uses valid relative links only to supplied existing paths.",
+      "outcomeSha256": "90b3e52cf13ec708de80f4423f585ad3e13755a8ba7a136182c04b7b95ffe0f7"
+    },
+    {
+      "kind": "analyze",
+      "expectedOutput": null,
+      "requestId": "ca04e8d8b1951a801729085673ad6c5f1d8efe1dcb26dae3faba5a46c3adc747",
+      "requestBytes": 952176,
+      "visibleEvidenceFiles": 178,
+      "visibleEvidenceChars": 853449,
+      "largestEvidence": [
+        {
+          "path": "apps/react-vite/yarn.lock",
+          "chars": 501391
+        },
+        {
+          "path": ".agents/skills/openspec-explore/SKILL.md",
+          "chars": 23811
+        },
+        {
+          "path": ".agents/skills/openspec-propose/SKILL.md",
+          "chars": 16743
+        },
+        {
+          "path": ".agents/skills/openspec-archive-change/SKILL.md",
+          "chars": 16619
+        }
+      ],
+      "usage": {
+        "input_tokens": 379409,
+        "cached_input_tokens": 8832,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3698,
+        "reasoning_output_tokens": 23
+      },
+      "observedTokens": 383107,
+      "modelProcessExit": 0,
+      "modelDeclaredAcceptance": null,
+      "modelAcceptanceReason": null,
+      "outcomeSha256": "9f4273bf482bc497aa4e77f0d85a6c7327c4915d6a3989ce946d51971a1233b3"
+    },
+    {
+      "kind": "artifact-plan",
+      "expectedOutput": "plan",
+      "requestId": "9baee10a653e8033e63ba9a50cabc6b376fb16cb018d238544b244f5d595130f",
+      "requestBytes": 986543,
+      "visibleEvidenceFiles": 178,
+      "visibleEvidenceChars": 853449,
+      "largestEvidence": [
+        {
+          "path": "apps/react-vite/yarn.lock",
+          "chars": 501391
+        },
+        {
+          "path": ".agents/skills/openspec-explore/SKILL.md",
+          "chars": 23811
+        },
+        {
+          "path": ".agents/skills/openspec-propose/SKILL.md",
+          "chars": 16743
+        },
+        {
+          "path": ".agents/skills/openspec-archive-change/SKILL.md",
+          "chars": 16619
+        }
+      ],
+      "usage": {
+        "input_tokens": 386560,
+        "cached_input_tokens": 4736,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 7378,
+        "reasoning_output_tokens": 55
+      },
+      "observedTokens": 393938,
+      "modelProcessExit": 0,
+      "modelDeclaredAcceptance": null,
+      "modelAcceptanceReason": null,
+      "outcomeSha256": "ff096a95783547924f11812bd13b69d56121d5e77955b92c28f3413d726a0582"
+    },
+    {
+      "kind": "artifact-content",
+      "expectedOutput": "content",
+      "requestId": "3cce8eab7093d1d6e2d61bc4be32a10894d14f092e724c20341d1275d3a7047a",
+      "requestBytes": 989406,
+      "visibleEvidenceFiles": 178,
+      "visibleEvidenceChars": 853449,
+      "largestEvidence": [
+        {
+          "path": "apps/react-vite/yarn.lock",
+          "chars": 501391
+        },
+        {
+          "path": ".agents/skills/openspec-explore/SKILL.md",
+          "chars": 23811
+        },
+        {
+          "path": ".agents/skills/openspec-propose/SKILL.md",
+          "chars": 16743
+        },
+        {
+          "path": ".agents/skills/openspec-archive-change/SKILL.md",
+          "chars": 16619
+        }
+      ],
+      "usage": {
+        "input_tokens": 391711,
+        "cached_input_tokens": 13696,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3885,
+        "reasoning_output_tokens": 28
+      },
+      "observedTokens": 395596,
+      "modelProcessExit": 0,
+      "modelDeclaredAcceptance": null,
+      "modelAcceptanceReason": null,
+      "outcomeSha256": "574a69fe5fd9b7bf09dd9ab5e0379f329dead32b127271e5b713d2d28567f73e"
+    }
+  ],
+  "usage": {
+    "aba8b4b8c0504495cbccf2c35de1f9a0dc4d119d088e88a743a5f81a1cd57e15.usage.json": {
+      "attempts": {
+        "ca04e8d8b1951a801729085673ad6c5f1d8efe1dcb26dae3faba5a46c3adc747": {
+          "status": "observed",
+          "tokens": 383107
+        },
+        "9baee10a653e8033e63ba9a50cabc6b376fb16cb018d238544b244f5d595130f": {
+          "status": "observed",
+          "tokens": 393938
+        },
+        "3cce8eab7093d1d6e2d61bc4be32a10894d14f092e724c20341d1275d3a7047a": {
+          "status": "observed",
+          "tokens": 395596
+        },
+        "f164917cf683aecdd6c4ca52ca000b4db3dac60312b7e25551478c3914dac244": {
+          "status": "observed",
+          "tokens": 391486
+        }
+      }
+    }
+  },
+  "cliExitCode": 1,
+  "cliError": "Codex result rejected: invalid evidence, output, or observed budget",
+  "publicErrorLimitation": "The CLI uses one generic rejected-result message; actual durable usage establishes the budget failure here.",
+  "researchAndContentImported": true,
+  "finalAcceptanceImported": false,
+  "rigupInstallationReached": false,
+  "modelRetryAfterFailure": false,
+  "originalUpstreamFilesModified": false,
+  "assessment": "Full semantic frontend E2E is NOT passed. Its later no-SDD tool installation is a separate result. No policy or model response was rewritten to bypass the budget.",
+  "remainingGap": "Stage-specific evidence selection and avoiding repeated complete lockfile contents are not implemented or verified by this run."
+}

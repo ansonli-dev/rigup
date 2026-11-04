@@ -1,0 +1,56 @@
+{
+  "auditor": "Implementation agent, source inspection; not formal human approval",
+  "ddd": {
+    "trackedFilesCheckedAfterApplicationChecks": 123,
+    "allOriginalBytesUnchanged": true,
+    "nativeOpenSpecFilesCheckedAgainstPreInstallExport": 6,
+    "allNativeWorkflowBytesUnchanged": true,
+    "checks": [
+      {
+        "claim": "Query access remains an unresolved documentation conflict, not a promoted mandatory style.",
+        "sources": [
+          "https://github.com/Sairyss/domain-driven-hexagon/blob/5c2d15a7e2d69e83dfddf28468ee9f30e02c30de/README.md",
+          "src/modules/user/queries/find-users/find-users.query-handler.ts"
+        ],
+        "inspection": "README Queries describes direct SQL, Ports describes the same handler as port-injected, while implementation injects a DatabasePool and calls pool.query. Generated project context retains the partial-source gap and original links."
+      },
+      {
+        "claim": "Existing dependency rules and native human gates are referenced instead of replaced.",
+        "sources": [
+          ".dependency-cruiser.js",
+          ".agents/skills/openspec-propose/SKILL.md",
+          ".agents/skills/openspec-apply-change/SKILL.md",
+          ".agents/skills/openspec-archive-change/SKILL.md"
+        ],
+        "inspection": "Both project references link existing authority; no new dynamic body job was needed. Native files match pre-install visible source exactly."
+      }
+    ],
+    "bug": {
+      "initialResult": "suggestion + needs-decision rejected as rule promotion",
+      "fixCommit": "bf8b7a1",
+      "regression": "conflicting recommendations may remain suggestions awaiting a human decision",
+      "red": true,
+      "green": true,
+      "safety": "follow-existing suggestion remains rejected",
+      "originalResponseReusedWithoutModification": true,
+      "originalOutcomeSha256": "745b65ebfb639c681deba9eb5aa26f82e3daa755ec808139aa9c02947b4581b5",
+      "callsInFinalCostIncludeOriginallyRejectedRequest": true
+    },
+    "gitDiffHeadTrackedExitCode": 0
+  },
+  "frontend": {
+    "trackedFilesCheckedAfterApplicationChecks": 535,
+    "allOriginalBytesUnchanged": true,
+    "nativeOpenSpecFilesCheckedAgainstPreInstallExport": 6,
+    "allNativeWorkflowBytesUnchanged": true,
+    "originalAGENTSUnchanged": true,
+    "fullSemanticStatus": "failed-budget; no semantic installation claimed",
+    "toolsOnlyStatus": "passed; explicit sdd none, no model invocation",
+    "gitDiffHeadTrackedExitCode": 0
+  },
+  "limits": [
+    "No formal human semantic approval claimed.",
+    "No remote deployment, GitLab runner, other hosts or alternate models tested.",
+    "Successful browser app behavior does not make the frontend Rigup semantic flow pass."
+  ]
+}

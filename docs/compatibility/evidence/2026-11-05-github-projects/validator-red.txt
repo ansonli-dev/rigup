@@ -1,0 +1,61 @@
+✔ tool_loop_only_exposes_read_tools_and_preserves_actual_model (11.660791ms)
+✔ fabricated_evidence_is_rejected (0.216542ms)
+✔ missing_credentials_and_budget_do_not_complete (0.122167ms)
+✔ host_response_requires_matching_request_and_changed_options_reject_old_response (23.740583ms)
+✔ analyze_propagates_pending_without_success_profile (593.881041ms)
+✔ token_preflight_rejects_oversized_input_before_generation (0.771125ms)
+✔ single_example_and_copied_support_cannot_be_promoted_to_convention (0.161459ms)
+✔ suggestions_do_not_become_rules_and_missing_refutation_is_not_promoted (0.046958ms)
+✖ conflicting recommendations may remain suggestions awaiting a human decision (1.406208ms)
+✔ host_rejects_request_file_tampering (5.165166ms)
+✔ host_export_contains_only_filtered_evidence (32.507958ms)
+✔ provider_cannot_invoke_exec_even_after_reading_source_instructions (1.243458ms)
+✔ host_response_changes_in_phase_versions_run_or_templates_are_rejected (6.219458ms)
+✔ host_symlinked_cache_cannot_create_project_directories (1.657125ms)
+✔ host_roundtrips_all_research_kinds_across_processes (950.155166ms)
+✔ unexplained_counterexamples_require_decision_instead_of_follow_existing (0.321291ms)
+✔ reusable_guidance_blocks_redundant_inference_and_partial_guidance_limits_gaps (0.268916ms)
+✔ convention_requires_replayable_counterexample_search (0.080708ms)
+✔ host_new_instance_does_not_reset_run_request_budget (4.355292ms)
+✔ conflicting_guidance_is_not_resolved_to_follow_existing (0.126542ms)
+✔ response_requires_existing_export_not_only_matching_digest (3.797625ms)
+✔ provider_failure_reports_unknowns_without_echoing_provider_payload (0.957833ms)
+✔ reusable_guidance_requires_verifiable_source_reference (0.103916ms)
+✔ accepted_host_response_cannot_change_model_on_replay (19.133625ms)
+✔ all_native_research_kinds_use_filtered_reader_content (59.230875ms)
+✔ restored_native_budget_is_not_reset_for_new_job (0.142958ms)
+✔ native_failure_reports_actual_requests_and_known_or_unknown_usage (0.874584ms)
+✔ native_reserves_budget_before_dispatch_and_blocks_when_persistence_fails (0.263917ms)
+✔ native_result_preserves_reused_source_scope_and_explicit_rule (16.9815ms)
+✔ backend_cannot_export_literal_mcp_credentials_in_request_options (0.223416ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 29
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2327.349667
+
+✖ failing tests:
+
+test at test/backend.test.ts:1:6003
+✖ conflicting recommendations may remain suggestions awaiting a human decision (1.406208ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted rejection.
+  Actual message: "suggestion: cannot become a rule"
+      at async TestContext.<anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/backend.test.ts:67:2)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: suggestion: cannot become a rule
+        at validateResearch (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/src/analyzer/backend.ts:46:99)
+        at async waitForActual (node:assert:646:5)
+        at async strict.doesNotReject (node:assert:789:33)
+        at async TestContext.<anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/backend.test.ts:67:2)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7),
+    expected: undefined,
+    operator: 'doesNotReject',
+    diff: 'simple'
+  }

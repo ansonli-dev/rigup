@@ -1,0 +1,629 @@
+{
+  "caseId": "github-project/frontend/tools-only",
+  "status": "passed",
+  "startedAt": "2026-11-04T15:58:09.300Z",
+  "finishedAt": "2026-11-04T16:01:34.532Z",
+  "repository": "https://github.com/alan2207/bulletproof-react",
+  "commit": "9506629ed003a561c6627735480cce4994244bb4",
+  "rigupSource": "bf8b7a1",
+  "steps": [
+    {
+      "label": "01-init-review",
+      "args": [
+        "init",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/frontend",
+        "--json",
+        "--sdd",
+        "none"
+      ],
+      "startedAt": "2026-11-04T15:58:09.404Z",
+      "finishedAt": "2026-11-04T15:58:10.689Z",
+      "exitCode": 3,
+      "phase": "handoff",
+      "status": "pending",
+      "previewId": "e6b532d1dce9f2d43914f9baf76cd48ddca4daa4c59a9f81bf4b13f3ef593b7e",
+      "written": null,
+      "operations": [
+        {
+          "id": "install:openwiki",
+          "status": null,
+          "message": null,
+          "integrationId": "openwiki",
+          "kind": "install",
+          "state": null
+        },
+        {
+          "id": "install:codegraph",
+          "status": null,
+          "message": null,
+          "integrationId": "codegraph",
+          "kind": "install",
+          "state": null
+        },
+        {
+          "id": "initialize:codegraph",
+          "status": null,
+          "message": null,
+          "integrationId": "codegraph",
+          "kind": "initialize",
+          "state": null
+        }
+      ],
+      "itemActions": [
+        {
+          "target": ".rigup/mcp/openwiki-codex.mjs",
+          "action": "create"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "create"
+        },
+        {
+          "target": ".rigup/mcp/codegraph-codex.mjs",
+          "action": "create"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "create"
+        }
+      ],
+      "warnings": [
+        "apps/react-vite/mock-server.ts: unreadable or denied by policy",
+        "apps/react-vite/public/favicon.ico: unreadable or denied by policy",
+        "apps/react-vite/public/logo192.png: unreadable or denied by policy",
+        "apps/react-vite/public/logo512.png: unreadable or denied by policy",
+        "apps/react-vite/public/mockServiceWorker.js: unreadable or denied by policy",
+        "apps/react-vite/src/config/paths.ts: unreadable or denied by policy",
+        "apps/react-vite/src/lib/api-client.ts: unreadable or denied by policy",
+        "apps/react-vite/src/lib/auth.tsx: unreadable or denied by policy",
+        "apps/react-vite/src/lib/authorization.tsx: unreadable or denied by policy",
+        "apps/react-vite/src/testing/data-generators.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/db.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/handlers/auth.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/utils.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/test-utils.tsx: unreadable or denied by policy",
+        "docs/assets/unidirectional-codebase.png: unreadable or denied by policy",
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending"
+      ],
+      "diagnostics": null
+    },
+    {
+      "label": "02-independent-apply",
+      "args": [
+        "update",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/frontend",
+        "--apply",
+        "e6b532d1dce9f2d43914f9baf76cd48ddca4daa4c59a9f81bf4b13f3ef593b7e",
+        "--sessions-ended",
+        "--json"
+      ],
+      "startedAt": "2026-11-04T15:58:10.695Z",
+      "finishedAt": "2026-11-04T15:58:47.711Z",
+      "exitCode": 0,
+      "phase": "apply",
+      "status": "complete",
+      "previewId": "e6b532d1dce9f2d43914f9baf76cd48ddca4daa4c59a9f81bf4b13f3ef593b7e",
+      "written": [
+        ".rigup/mcp/openwiki-codex.mjs",
+        ".codex/config.toml",
+        ".rigup/mcp/codegraph-codex.mjs"
+      ],
+      "operations": [
+        {
+          "id": null,
+          "status": "done",
+          "message": "Pinned installation verified",
+          "integrationId": null,
+          "kind": null,
+          "state": null
+        },
+        {
+          "id": null,
+          "status": "done",
+          "message": "Pinned installation verified",
+          "integrationId": null,
+          "kind": null,
+          "state": null
+        },
+        {
+          "id": null,
+          "status": "done",
+          "message": "Complete native CodeGraph index verified",
+          "integrationId": null,
+          "kind": null,
+          "state": {
+            "phase": "complete",
+            "files": 452,
+            "nodes": 3535
+          }
+        }
+      ],
+      "itemActions": [],
+      "warnings": [
+        "apps/react-vite/mock-server.ts: unreadable or denied by policy",
+        "apps/react-vite/public/favicon.ico: unreadable or denied by policy",
+        "apps/react-vite/public/logo192.png: unreadable or denied by policy",
+        "apps/react-vite/public/logo512.png: unreadable or denied by policy",
+        "apps/react-vite/public/mockServiceWorker.js: unreadable or denied by policy",
+        "apps/react-vite/src/config/paths.ts: unreadable or denied by policy",
+        "apps/react-vite/src/lib/api-client.ts: unreadable or denied by policy",
+        "apps/react-vite/src/lib/auth.tsx: unreadable or denied by policy",
+        "apps/react-vite/src/lib/authorization.tsx: unreadable or denied by policy",
+        "apps/react-vite/src/testing/data-generators.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/db.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/handlers/auth.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/utils.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/test-utils.tsx: unreadable or denied by policy",
+        "docs/assets/unidirectional-codebase.png: unreadable or denied by policy",
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending",
+        "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+      ],
+      "diagnostics": null
+    },
+    {
+      "label": "03-unchanged-preview",
+      "args": [
+        "update",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/frontend",
+        "--dry-run",
+        "--sessions-ended",
+        "--json",
+        "--sdd",
+        "none"
+      ],
+      "startedAt": "2026-11-04T15:58:47.757Z",
+      "finishedAt": "2026-11-04T15:58:48.507Z",
+      "exitCode": 0,
+      "phase": "preview",
+      "status": "not-installed",
+      "previewId": "80f9aea23d01961aecc641e113d0e5bc2c0d6d58339348061ce1db529fcd1a96",
+      "written": null,
+      "operations": [],
+      "itemActions": [
+        {
+          "target": ".rigup/mcp/openwiki-codex.mjs",
+          "action": "keep"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "keep"
+        },
+        {
+          "target": ".rigup/mcp/codegraph-codex.mjs",
+          "action": "keep"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "keep"
+        }
+      ],
+      "warnings": [
+        "apps/react-vite/mock-server.ts: unreadable or denied by policy",
+        "apps/react-vite/public/favicon.ico: unreadable or denied by policy",
+        "apps/react-vite/public/logo192.png: unreadable or denied by policy",
+        "apps/react-vite/public/logo512.png: unreadable or denied by policy",
+        "apps/react-vite/public/mockServiceWorker.js: unreadable or denied by policy",
+        "apps/react-vite/src/config/paths.ts: unreadable or denied by policy",
+        "apps/react-vite/src/lib/api-client.ts: unreadable or denied by policy",
+        "apps/react-vite/src/lib/auth.tsx: unreadable or denied by policy",
+        "apps/react-vite/src/lib/authorization.tsx: unreadable or denied by policy",
+        "apps/react-vite/src/testing/data-generators.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/db.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/handlers/auth.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/utils.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/test-utils.tsx: unreadable or denied by policy",
+        "docs/assets/unidirectional-codebase.png: unreadable or denied by policy",
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "openwiki: reuse receipted project installation 0.7.3",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending",
+        "codegraph: reuse receipted project installation 1.6.2",
+        "codegraph: verified native initialization reused"
+      ],
+      "diagnostics": null
+    },
+    {
+      "label": "04-unchanged-apply",
+      "args": [
+        "update",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/frontend",
+        "--apply",
+        "80f9aea23d01961aecc641e113d0e5bc2c0d6d58339348061ce1db529fcd1a96",
+        "--sessions-ended",
+        "--json"
+      ],
+      "startedAt": "2026-11-04T16:01:31.273Z",
+      "finishedAt": "2026-11-04T16:01:32.009Z",
+      "exitCode": 0,
+      "phase": "apply",
+      "status": "complete",
+      "previewId": "80f9aea23d01961aecc641e113d0e5bc2c0d6d58339348061ce1db529fcd1a96",
+      "written": [],
+      "operations": [],
+      "itemActions": [],
+      "warnings": [
+        "apps/react-vite/mock-server.ts: unreadable or denied by policy",
+        "apps/react-vite/public/favicon.ico: unreadable or denied by policy",
+        "apps/react-vite/public/logo192.png: unreadable or denied by policy",
+        "apps/react-vite/public/logo512.png: unreadable or denied by policy",
+        "apps/react-vite/public/mockServiceWorker.js: unreadable or denied by policy",
+        "apps/react-vite/src/config/paths.ts: unreadable or denied by policy",
+        "apps/react-vite/src/lib/api-client.ts: unreadable or denied by policy",
+        "apps/react-vite/src/lib/auth.tsx: unreadable or denied by policy",
+        "apps/react-vite/src/lib/authorization.tsx: unreadable or denied by policy",
+        "apps/react-vite/src/testing/data-generators.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/db.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/handlers/auth.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/mocks/utils.ts: unreadable or denied by policy",
+        "apps/react-vite/src/testing/test-utils.tsx: unreadable or denied by policy",
+        "docs/assets/unidirectional-codebase.png: unreadable or denied by policy",
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "openwiki: reuse receipted project installation 0.7.3",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending",
+        "codegraph: reuse receipted project installation 1.6.2",
+        "codegraph: verified native initialization reused",
+        "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+      ],
+      "diagnostics": null
+    },
+    {
+      "label": "06-doctor",
+      "args": [
+        "doctor",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/frontend",
+        "--json"
+      ],
+      "startedAt": "2026-11-04T16:01:32.009Z",
+      "finishedAt": "2026-11-04T16:01:32.251Z",
+      "exitCode": 3,
+      "phase": "doctor",
+      "status": "complete",
+      "previewId": "doctor",
+      "written": [],
+      "operations": [],
+      "itemActions": [],
+      "warnings": [],
+      "diagnostics": [
+        {
+          "category": "config",
+          "id": "manifest",
+          "state": "configured",
+          "reason": "Manifest schema readable"
+        },
+        {
+          "category": "config",
+          "id": "mcp-runner:openwiki-codex",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "mcp:codex:openwiki",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "mcp-runner:codegraph-codex",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "mcp:codex:codegraph",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "host",
+          "id": "codex:binary",
+          "state": "available",
+          "reason": "Executable present; version and loaded session not asserted"
+        },
+        {
+          "category": "host",
+          "id": "codex:load",
+          "state": "reload-required",
+          "reason": "Reload affected sessions; current native loading has not been observed"
+        },
+        {
+          "category": "tools",
+          "id": "openwiki:binary",
+          "state": "available",
+          "reason": "Pinned package, dependency tree, launcher and receipt verified"
+        },
+        {
+          "category": "tools",
+          "id": "openwiki:initialization",
+          "state": "pending",
+          "reason": "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it."
+        },
+        {
+          "category": "tools",
+          "id": "codegraph:binary",
+          "state": "available",
+          "reason": "Pinned package, dependency tree, launcher and receipt verified"
+        },
+        {
+          "category": "tools",
+          "id": "codegraph:initialization",
+          "state": "initialized",
+          "reason": "Complete native CodeGraph index verified"
+        }
+      ]
+    }
+  ],
+  "receipts": {
+    "software": {
+      "openwiki": {
+        "version": "0.7.3",
+        "packageLockDigest": "24e175a0bd18472f4a246cc51a262493f41f80744dc02914d62dd771a773cb3d"
+      },
+      "codegraph": {
+        "version": "1.6.2",
+        "packageLockDigest": "7ec5b868e8cc4c77ab6a04373e3072883ec39ee5d18604797d4310bd49d27f27"
+      }
+    },
+    "initialization": {
+      "codegraph": {
+        "version": "1.6.2",
+        "target": ".codegraph",
+        "identity": "16777229:66492324"
+      }
+    }
+  },
+  "sourceProtection": {
+    "checkedFiles": 535,
+    "changed": [],
+    "allOtherOriginalHashesUnchanged": true
+  },
+  "unchangedUpdate": {
+    "written": 0,
+    "newCalls": 0
+  },
+  "localNoteProtected": null,
+  "openWikiNativeStateCreated": false,
+  "codegraphQuery": {
+    "query": "getDiscussions",
+    "result": [
+      {
+        "node": {
+          "id": "function:d84e361dfb2a94fb66b6ffd8243d7d45",
+          "kind": "function",
+          "name": "getDiscussions",
+          "qualifiedName": "getDiscussions",
+          "filePath": "apps/react-vite/src/features/discussions/api/get-discussions.ts",
+          "language": "typescript",
+          "startLine": 7,
+          "endLine": 18,
+          "startColumn": 30,
+          "endColumn": 1,
+          "signature": "(\n  page = 1,\n): Promise<{\n  data: Discussion[];\n  meta: Meta;\n}>",
+          "visibility": null,
+          "isExported": true,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926531
+        },
+        "score": 116.15450012428659
+      },
+      {
+        "node": {
+          "id": "function:e9d70915c527a3b3b55ade59a74bfdf2",
+          "kind": "function",
+          "name": "getDiscussions",
+          "qualifiedName": "getDiscussions",
+          "filePath": "apps/nextjs-app/src/features/discussions/api/get-discussions.ts",
+          "language": "typescript",
+          "startLine": 7,
+          "endLine": 18,
+          "startColumn": 30,
+          "endColumn": 1,
+          "signature": "(\n  { page }: { page?: number } = { page: 1 },\n): Promise<{\n  data: Discussion[];\n  meta: Meta;\n}>",
+          "visibility": null,
+          "isExported": true,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926467
+        },
+        "score": 116.0564134167902
+      },
+      {
+        "node": {
+          "id": "function:a6c740ba2cccc02528f2361cff481759",
+          "kind": "function",
+          "name": "getDiscussions",
+          "qualifiedName": "getDiscussions",
+          "filePath": "apps/nextjs-pages/src/features/discussions/api/get-discussions.ts",
+          "language": "typescript",
+          "startLine": 7,
+          "endLine": 19,
+          "startColumn": 30,
+          "endColumn": 1,
+          "signature": "(\n  { page, cookie }: { page?: number; cookie?: string } = { page: 1 },\n): Promise<{\n  data: Discussion[];\n  meta: Meta;\n}>",
+          "visibility": null,
+          "isExported": true,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926498
+        },
+        "score": 115.96003671648262
+      },
+      {
+        "node": {
+          "id": "function:c819b81b8d5de65418dadbddd99279ec",
+          "kind": "function",
+          "name": "getDiscussionsQueryOptions",
+          "qualifiedName": "getDiscussionsQueryOptions",
+          "filePath": "apps/react-vite/src/features/discussions/api/get-discussions.ts",
+          "language": "typescript",
+          "startLine": 20,
+          "endLine": 27,
+          "startColumn": 42,
+          "endColumn": 1,
+          "signature": "({\n  page,\n}: { page?: number } = {})",
+          "visibility": null,
+          "isExported": true,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926531
+        },
+        "score": 62.28802201447022
+      },
+      {
+        "node": {
+          "id": "function:605c9bb35c19f816d4cbdedb7596ca79",
+          "kind": "function",
+          "name": "getDiscussionsQueryOptions",
+          "qualifiedName": "getDiscussionsQueryOptions",
+          "filePath": "apps/nextjs-app/src/features/discussions/api/get-discussions.ts",
+          "language": "typescript",
+          "startLine": 20,
+          "endLine": 27,
+          "startColumn": 42,
+          "endColumn": 1,
+          "signature": "({\n  page = 1,\n}: { page?: number } = {})",
+          "visibility": null,
+          "isExported": true,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926467
+        },
+        "score": 62.254342757198
+      },
+      {
+        "node": {
+          "id": "function:5a3ead0160b907b64fd072c2d948624f",
+          "kind": "function",
+          "name": "getDiscussionsQueryOptions",
+          "qualifiedName": "getDiscussionsQueryOptions",
+          "filePath": "apps/nextjs-pages/src/features/discussions/api/get-discussions.ts",
+          "language": "typescript",
+          "startLine": 21,
+          "endLine": 29,
+          "startColumn": 42,
+          "endColumn": 1,
+          "signature": "({\n  page,\n  cookie,\n}: { page?: number; cookie?: string } = {})",
+          "visibility": null,
+          "isExported": true,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926498
+        },
+        "score": 62.187583584455005
+      },
+      {
+        "node": {
+          "id": "import:6a3299cea0dcb985d63cebfc5ce113b1",
+          "kind": "import",
+          "name": "@/features/discussions/api/get-discussions",
+          "qualifiedName": "@/features/discussions/api/get-discussions",
+          "filePath": "apps/react-vite/src/app/routes/app/discussions/discussions.tsx",
+          "language": "tsx",
+          "startLine": 6,
+          "endLine": 6,
+          "startColumn": 0,
+          "endColumn": 88,
+          "signature": "import { getDiscussionsQueryOptions } from '@/features/discussions/api/get-discussions';",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926515
+        },
+        "score": 37.06655131181418
+      },
+      {
+        "node": {
+          "id": "import:0ff858fcde360c050d1f38884c6d5d77",
+          "kind": "import",
+          "name": "./get-discussions",
+          "qualifiedName": "./get-discussions",
+          "filePath": "apps/nextjs-app/src/features/discussions/api/create-discussion.ts",
+          "language": "typescript",
+          "startLine": 8,
+          "endLine": 8,
+          "startColumn": 0,
+          "endColumn": 63,
+          "signature": "import { getDiscussionsQueryOptions } from './get-discussions';",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926466
+        },
+        "score": 28.406664912307555
+      },
+      {
+        "node": {
+          "id": "import:1465c2a5a32614177f4f3b07f2c58b80",
+          "kind": "import",
+          "name": "./get-discussions",
+          "qualifiedName": "./get-discussions",
+          "filePath": "apps/nextjs-app/src/features/discussions/api/delete-discussion.ts",
+          "language": "typescript",
+          "startLine": 6,
+          "endLine": 6,
+          "startColumn": 0,
+          "endColumn": 63,
+          "signature": "import { getDiscussionsQueryOptions } from './get-discussions';",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926467
+        },
+        "score": 28.406664912307555
+      },
+      {
+        "node": {
+          "id": "import:fb8c0fe0345e869a39ef54ad7f7e601d",
+          "kind": "import",
+          "name": "./get-discussions",
+          "qualifiedName": "./get-discussions",
+          "filePath": "apps/nextjs-pages/src/features/discussions/api/create-discussion.ts",
+          "language": "typescript",
+          "startLine": 8,
+          "endLine": 8,
+          "startColumn": 0,
+          "endColumn": 63,
+          "signature": "import { getDiscussionsQueryOptions } from './get-discussions';",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793807926498
+        },
+        "score": 28.406664912307555
+      }
+    ]
+  },
+  "modelCalls": 0,
+  "observedTokens": 0,
+  "usage": {},
+  "generatedProjectContext": null,
+  "harnessCorrections": [
+    "The public merge action for an unchanged item is keep; the initial harness used an incorrect literal. Existing reports/effects were retained and validated without repeating model requests."
+  ],
+  "limitations": [
+    "Explicit --sdd none validates deterministic installation only; the separate full semantic frontend run remains a recorded failure.",
+    "Only the default local Codex backend; no model override or alternate host.",
+    "Application build/tests are separately recorded from Rigup installation.",
+    "Semantic findings require source audit; successful execution alone is not full human semantic acceptance."
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "ddd": {
+    "baselineBuild": {
+      "initialExit": 1,
+      "initialFailure": "TS2688: empty @types/minimatch 6 stub",
+      "configuredExit": 0
+    },
+    "postRigupBuild": {
+      "exitCode": 0
+    },
+    "baselineDatabaseE2E": {
+      "numTotalTests": 7,
+      "numPassedTests": 7,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "success": true
+    },
+    "postRigupDatabaseE2E": {
+      "numTotalTests": 7,
+      "numPassedTests": 7,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "success": true
+    },
+    "environmentAdjustments": [
+      "No upstream dependency lock; npm rejected its declared Slonik peer range. Isolated Yarn 1.22.22 installed unchanged package.json with the peer warning preserved.",
+      "Pin @types/minimatch 5.1.2 only in disposable node_modules; no tracked source or manifest change.",
+      "Both upstream migration/application database URIs omit DB_PORT; supply DB_HOST=127.0.0.1:50135 to the own test-container endpoint."
+    ],
+    "commands": [
+      "npm run build",
+      "NODE_ENV=test DB_HOST=127.0.0.1:50135 npm run migration:up:tests",
+      "NODE_ENV=test DB_HOST=127.0.0.1:50135 DB_PORT=50135 npm run test:e2e -- --json --outputFile=<report>"
+    ]
+  },
+  "frontend": {
+    "application": "apps/react-vite",
+    "baselineBuild": {
+      "exitCode": 0
+    },
+    "postRigupBuild": {
+      "exitCode": 0
+    },
+    "baselineVitest": {
+      "numTotalTests": 21,
+      "numPassedTests": 21,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "success": true
+    },
+    "postRigupVitest": {
+      "numTotalTests": 21,
+      "numPassedTests": 21,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "success": true
+    },
+    "browserE2E": {
+      "stats": {
+        "startTime": "2026-11-04T16:04:34.973Z",
+        "duration": 27784.129,
+        "expected": 3,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "cases": [
+        "authenticate: registration, logout and login",
+        "profile: user bio update",
+        "smoke: discussion create/read/update/delete and comment create/delete"
+      ],
+      "originalSpecFiles": [
+        "apps/react-vite/e2e/tests/auth.setup.ts",
+        "apps/react-vite/e2e/tests/profile.spec.ts",
+        "apps/react-vite/e2e/tests/smoke.spec.ts"
+      ],
+      "exitCode": 0,
+      "reports": "frontend-browser-e2e.json",
+      "runnerConfig": "External baseURL/loopback ports/report paths only; original tests and business source unchanged.",
+      "usesRealRemoteBackend": false,
+      "backend": "Repository own Express + MSW mock API",
+      "modelCalls": 0
+    },
+    "commands": [
+      "yarn install --frozen-lockfile --ignore-scripts --non-interactive",
+      "npm run build",
+      "CI=1 VITE_APP_API_URL=http://localhost:8080 npm test -- --run --maxWorkers=2 --minWorkers=1 --reporter=json --outputFile=<report>",
+      "node_modules/.bin/vite-node mock-server.ts",
+      "CI=1 PLAYWRIGHT_BROWSERS_PATH=<private-browser-directory> node_modules/.bin/playwright test --config <external-runner-config>"
+    ],
+    "scopeLimit": "Next.js variants were not built or browser-tested. Root prepare, which installs all three applications, was not run."
+  }
+}

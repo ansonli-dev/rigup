@@ -2,7 +2,7 @@
 
 更新：2026-11-04。依据 [上游核验标准](README.md)、[实施计划](../superpowers/plans/2026-11-02-rigup-implementation.md) 和 [文档生成标准](../superpowers/specs/2026-11-03-documentation-system-design.md)。所有状态绑定下列精确对象；协议解析、组件冒烟、真实模型和完整兼容分别留证。
 
-最新范围调整：按用户要求，OpenWiki 初始化已从脚手架移出，改为安装/接线后给出独立初始化指引；CodeGraph 保留受保护索引与恢复。下文较早的双工具自动初始化记录是历史证据，当前行为及最新 291 项通过结果见文末「OpenWiki 独立初始化交接」。
+最新范围调整：按用户要求，OpenWiki 初始化已从脚手架移出，改为安装/接线后给出独立初始化指引；CodeGraph 保留受保护索引与恢复。下文较早的双工具自动初始化记录是历史证据。最新本地结果为 292 项通过；真实 GitHub 项目 E2E 的通过项和前端预算失败见文末，不能合并称为全部通过。
 
 ## 四个独立结论
 
@@ -136,3 +136,21 @@ OpenWiki 的长流程不再属于脚手架初始化。CLI 和 onboarding 选择�
 脚手架完成后另开明确的 Codex 原生 MCP 会话，才调用 OpenWiki begin；再次 begin 恢复相同 runId，且不新增 Rigup 的 OpenWiki 所有权回执。此处仅验证独立规划入口和恢复，不生成 wiki 正文；整组验收 **modelCalls=0**，没有新增模型测试或外部模型凭据。
 
 本轮范围回归先观察到 6 项预期失败，再全部通过；补充旧已接受回执的只读对账测试。最终本地 `npm test`：**304 项，291 passed、13 opt-in live skipped、0 failed**。类型检查、构建和 pack dry-run 结果与边界决策见 [范围调整记录](evidence/2026-11-04-openwiki-handoff/scope-change.json)。历史自动初始化证据保留，不能用作当前默认流程声明。
+
+## 真实 GitHub 项目 E2E
+
+本轮使用实际 npm pack、独立消费目录安装的 CLI、真实 Codex 默认后端和官方 OpenSpec/工具；没有注入替代 backend、改写模型响应或测试其他模型。所有客户侧写入限于临时克隆。项目提交、顶层依赖实际版本、命令和证据入口见 [复验说明](evidence/2026-11-05-github-projects/README.md)、[项目锁定信息](evidence/2026-11-05-github-projects/projects-lock.json) 和 [汇总](evidence/2026-11-05-github-projects/summary.json)。
+
+- **DDD：Domain-Driven Hexagon，Rigup 主线 passed-after-fix。** 固定 `5c2d15a7e2d69e83dfddf28468ee9f30e02c30de`，123 个原始跟踪文件，包含用户/钱包聚合、CQRS、数据库迁移和行为测试。真实研究/规划、独立预览/apply、无变化 apply、用户说明保护、CodeGraph 原生 UserEntity 查询及 OpenWiki 独立初始化交接均完成；共 2 请求、400874 observed token。原 README 等已有规范足够时复用其路径，没有强造动态正文任务。原始 123 文件和 6 个 OpenSpec 原生 skill 的字节保持不变。[完整流程](evidence/2026-11-05-github-projects/ddd-e2e.json) 和 [来源抽核](evidence/2026-11-05-github-projects/source-audit.json)。
+- **前端：Bulletproof React 的 React Vite 应用，完整语义 E2E failed-budget。** 固定 `9506629ed003a561c6627735480cce4994244bb4`，研究范围为 React Vite 和根 AGENTS/README/docs、原生 SDD 入口。4 次真实 analyze/plan/content/acceptance 请求合计 **1564127 token**，第 4 次返回后超过预设 1200000；最终验收结果未导入，未走到语义安装。没有修改结果或重发请求使它变成通过。[保留的失败和实际用量](evidence/2026-11-05-github-projects/frontend-semantic-failure.json)。
+- **同一前端的独立工具安装 E2E passed，明确使用 `--sdd none`，modelCalls=0。** 实际安装两工具、Codex MCP 接线、受保护 CodeGraph 索引和 getDiscussions 查询、无变化 apply、doctor 和 OpenWiki 手动交接均通过。535 个原始跟踪文件（含根 AGENTS）和 6 个原生 OpenSpec skill 未变。[独立结果](evidence/2026-11-05-github-projects/frontend-tools-e2e.json)。这项结果不替代上面的完整语义失败。
+
+两个项目本身也实际运行：DDD 安装前后构建均通过，原有 PostgreSQL 行为 E2E 均 7/7；前端安装前后构建和 Vitest 均通过（21/21），真实 Chromium 跑原有注册/登录、讨论评论 CRUD、资料修改 3 项用例全部通过（含登录准备）。前端使用仓库自带 Express/MSW 测试 API，没有连接真实业务后端。[应用检查与环境差异](evidence/2026-11-05-github-projects/application-checks.json)、[浏览器原始报告](evidence/2026-11-05-github-projects/frontend-browser-e2e.json)。Next.js 两个变体未构建或进行浏览器测试。
+
+两项目还分别通过真实 Codex App Server 的 MCP initialize/list 与 CodeGraph explore 调用，实际返回 UserEntity/getDiscussions 当前源码；OpenWiki MCP 仅验证加载和工具发现，没有调用 begin 或创建原生状态。没有 turn/start，额外 modelCalls=0。[DDD 原生宿主结果](evidence/2026-11-05-github-projects/ddd-native-mcp.json)、[前端原生宿主结果](evidence/2026-11-05-github-projects/frontend-native-mcp.json)。这仍不替代模型遵守 gates 的完整会话测试。
+
+DDD 上游没有锁文件：npm 的 Slonik peer 依赖冲突、解析到空的 minimatch 类型 stub、URI 忽略 DB_PORT 均在安装 Rigup 前复现。仅通过隔离 Yarn、临时 node_modules 中固定类型版本及测试进程的 host:port 配置处理，未修改跟踪源码/清单。数据库为专用 PostgreSQL 16.15 临时容器。前端只按现有 yarn.lock 安装选中应用，未运行安装三个实现的根 prepare；浏览器 runner 仅在项目外补足 baseURL、隔离端口和报告路径。测试后专用 API、WebServer、数据库容器均已停止，端口关闭。
+
+真实 DDD 研究暴露并修复了 `suggestion + needs-decision` 被误判为规则升级的校验问题（`bf8b7a1`）。修复保留未决裁决，仍拒绝 `suggestion + follow-existing`；先失败再通过的回归及完整 **305 项：292 passed、13 opt-in live skipped、0 failed** 已留证。原来被拒绝的真实模型响应逐字保留并复用，其消费计入上述两次总数，没有重新请求。类型检查、构建、67 文件的打包检查均通过。
+
+尚未解决的真实规模问题是前端研究上下文：每阶段重复发送 178 文件、853449 字符，单个 yarn.lock 占 501391 字符。需要按阶段选择证据并减少完整锁文件重复；本轮只留证，未将该优化宣称为已实现。Codex 用量仍在响应后检查，单次可能先超额再被拒绝。来源抽核由实现 agent 完成，不冒充正式人工语义批准，也不推广到其他宿主、平台、模型或远端部署。

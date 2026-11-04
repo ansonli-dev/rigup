@@ -1,0 +1,63 @@
+{
+  "status": "mixed",
+  "ddd": {
+    "rigupEndToEnd": "passed-after-fix",
+    "source": "bf8b7a1",
+    "modelCalls": 2,
+    "tokens": 400874,
+    "applicationBuild": "passed",
+    "applicationDatabaseE2E": {
+      "before": 7,
+      "after": 7
+    },
+    "originalFilesUnchanged": 123
+  },
+  "frontend": {
+    "rigupFullSemanticEndToEnd": "failed-observed-budget",
+    "modelCalls": 4,
+    "tokens": 1564127,
+    "configuredTokenLimit": 1200000,
+    "rigupToolInstallationEndToEnd": "passed-sdd-none",
+    "additionalModelCalls": 0,
+    "applicationBuild": "passed-before-and-after",
+    "vitest": {
+      "before": 21,
+      "after": 21
+    },
+    "browserE2E": 3,
+    "originalFilesUnchanged": 535
+  },
+  "totalActualModelCalls": 6,
+  "totalObservedTokens": 1965001,
+  "modelOverride": false,
+  "actualServedModel": "Not exposed by Codex CLI; no model revision inferred",
+  "localRegression": {
+    "tests": 305,
+    "passed": 292,
+    "skipped": 13,
+    "failed": 0
+  },
+  "typecheck": "passed",
+  "build": "passed",
+  "packageFiles": 67,
+  "fixCommit": "bf8b7a1",
+  "knownRemainingGap": "Full frontend semantic initialization did not complete within its research budget. Repeated lockfile/context payload needs optimization; not fixed in this run.",
+  "servicesCleanup": {
+    "ownMockApi": "stopped",
+    "ownPostgresContainer": "removed (--rm)",
+    "loopbackPorts": {
+      "41731": "closed",
+      "41732": "closed",
+      "50135": "closed"
+    },
+    "temporaryClonesAndCaches": "retained for audit/reproduction; no credentials copied"
+  },
+  "temporaryWorkspace": "/private/tmp/rigup-github-e2e-Ob73Xm",
+  "nativeCodexMcp": {
+    "ddd": "passed",
+    "frontend": "passed",
+    "additionalModelCalls": 0,
+    "openWikiInitializationCalled": false,
+    "appServerProcesses": "terminated after acceptance"
+  }
+}

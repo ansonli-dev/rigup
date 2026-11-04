@@ -1,0 +1,732 @@
+{
+  "caseId": "github-project/ddd",
+  "status": "passed",
+  "startedAt": "2026-11-04T15:58:09.348Z",
+  "finishedAt": "2026-11-04T16:03:52.435Z",
+  "repository": "https://github.com/Sairyss/domain-driven-hexagon",
+  "commit": "5c2d15a7e2d69e83dfddf28468ee9f30e02c30de",
+  "rigupSource": "bf8b7a1",
+  "steps": [
+    {
+      "label": "01-init-review",
+      "args": [
+        "init",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/ddd",
+        "--json"
+      ],
+      "startedAt": "2026-11-04T15:58:09.412Z",
+      "finishedAt": "2026-11-04T15:59:44.780Z",
+      "exitCode": 3,
+      "phase": "handoff",
+      "status": "pending",
+      "previewId": "fdb2dcf26651dcc1c76dc0bc8872446a5053ba92769e74e6ba54d4676983621f",
+      "written": null,
+      "operations": [
+        {
+          "id": "install:openwiki",
+          "status": null,
+          "message": null,
+          "integrationId": "openwiki",
+          "kind": "install",
+          "state": null
+        },
+        {
+          "id": "install:codegraph",
+          "status": null,
+          "message": null,
+          "integrationId": "codegraph",
+          "kind": "install",
+          "state": null
+        },
+        {
+          "id": "initialize:codegraph",
+          "status": null,
+          "message": null,
+          "integrationId": "codegraph",
+          "kind": "initialize",
+          "state": null
+        }
+      ],
+      "itemActions": [
+        {
+          "target": ".rigup/mcp/openwiki-codex.mjs",
+          "action": "create"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "create"
+        },
+        {
+          "target": ".rigup/mcp/codegraph-codex.mjs",
+          "action": "create"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "create"
+        },
+        {
+          "target": ".agents/skills/change-prepare/SKILL.md",
+          "action": "create"
+        },
+        {
+          "target": ".agents/skills/change-prepare/references/project.md",
+          "action": "create"
+        },
+        {
+          "target": ".agents/skills/change-deliver/SKILL.md",
+          "action": "create"
+        },
+        {
+          "target": ".agents/skills/change-deliver/references/project.md",
+          "action": "create"
+        },
+        {
+          "target": "AGENTS.md",
+          "action": "create"
+        }
+      ],
+      "warnings": [
+        "assets/images/DomainDrivenHexagon.png: unreadable or denied by policy",
+        "src/configs/database.config.ts: unreadable or denied by policy",
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending"
+      ],
+      "diagnostics": null
+    },
+    {
+      "label": "02-independent-apply",
+      "args": [
+        "update",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/ddd",
+        "--apply",
+        "fdb2dcf26651dcc1c76dc0bc8872446a5053ba92769e74e6ba54d4676983621f",
+        "--sessions-ended",
+        "--json"
+      ],
+      "startedAt": "2026-11-04T15:59:44.781Z",
+      "finishedAt": "2026-11-04T16:00:22.353Z",
+      "exitCode": 0,
+      "phase": "apply",
+      "status": "complete",
+      "previewId": "fdb2dcf26651dcc1c76dc0bc8872446a5053ba92769e74e6ba54d4676983621f",
+      "written": [
+        ".rigup/mcp/openwiki-codex.mjs",
+        ".codex/config.toml",
+        ".rigup/mcp/codegraph-codex.mjs",
+        ".agents/skills/change-prepare/SKILL.md",
+        ".agents/skills/change-prepare/references/project.md",
+        ".agents/skills/change-deliver/SKILL.md",
+        ".agents/skills/change-deliver/references/project.md",
+        "AGENTS.md"
+      ],
+      "operations": [
+        {
+          "id": null,
+          "status": "done",
+          "message": "Pinned installation verified",
+          "integrationId": null,
+          "kind": null,
+          "state": null
+        },
+        {
+          "id": null,
+          "status": "done",
+          "message": "Pinned installation verified",
+          "integrationId": null,
+          "kind": null,
+          "state": null
+        },
+        {
+          "id": null,
+          "status": "done",
+          "message": "Complete native CodeGraph index verified",
+          "integrationId": null,
+          "kind": null,
+          "state": {
+            "phase": "complete",
+            "files": 101,
+            "nodes": 882
+          }
+        }
+      ],
+      "itemActions": [],
+      "warnings": [
+        "assets/images/DomainDrivenHexagon.png: unreadable or denied by policy",
+        "src/configs/database.config.ts: unreadable or denied by policy",
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending",
+        "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+      ],
+      "diagnostics": null
+    },
+    {
+      "label": "03-unchanged-preview",
+      "args": [
+        "update",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/ddd",
+        "--dry-run",
+        "--sessions-ended",
+        "--json"
+      ],
+      "startedAt": "2026-11-04T16:00:22.367Z",
+      "finishedAt": "2026-11-04T16:00:23.262Z",
+      "exitCode": 0,
+      "phase": "preview",
+      "status": "not-installed",
+      "previewId": "98f6a830f93875b0ad792ecdbe86391ff2127be52ddff5b65b7fdc87449d392e",
+      "written": null,
+      "operations": [],
+      "itemActions": [
+        {
+          "target": ".rigup/mcp/openwiki-codex.mjs",
+          "action": "keep"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "keep"
+        },
+        {
+          "target": ".rigup/mcp/codegraph-codex.mjs",
+          "action": "keep"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "keep"
+        },
+        {
+          "target": ".agents/skills/change-prepare/SKILL.md",
+          "action": "keep"
+        },
+        {
+          "target": ".agents/skills/change-prepare/references/project.md",
+          "action": "keep"
+        },
+        {
+          "target": ".agents/skills/change-deliver/SKILL.md",
+          "action": "keep"
+        },
+        {
+          "target": ".agents/skills/change-deliver/references/project.md",
+          "action": "keep"
+        },
+        {
+          "target": "AGENTS.md",
+          "action": "keep"
+        }
+      ],
+      "warnings": [
+        "assets/images/DomainDrivenHexagon.png: unreadable or denied by policy",
+        "src/configs/database.config.ts: unreadable or denied by policy",
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "openwiki: reuse receipted project installation 0.7.3",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending",
+        "codegraph: reuse receipted project installation 1.6.2",
+        "codegraph: verified native initialization reused"
+      ],
+      "diagnostics": null
+    },
+    {
+      "label": "04-unchanged-apply",
+      "args": [
+        "update",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/ddd",
+        "--apply",
+        "98f6a830f93875b0ad792ecdbe86391ff2127be52ddff5b65b7fdc87449d392e",
+        "--sessions-ended",
+        "--json"
+      ],
+      "startedAt": "2026-11-04T16:03:48.825Z",
+      "finishedAt": "2026-11-04T16:03:49.620Z",
+      "exitCode": 0,
+      "phase": "apply",
+      "status": "complete",
+      "previewId": "98f6a830f93875b0ad792ecdbe86391ff2127be52ddff5b65b7fdc87449d392e",
+      "written": [],
+      "operations": [],
+      "itemActions": [],
+      "warnings": [
+        "assets/images/DomainDrivenHexagon.png: unreadable or denied by policy",
+        "src/configs/database.config.ts: unreadable or denied by policy",
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "openwiki: reuse receipted project installation 0.7.3",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending",
+        "codegraph: reuse receipted project installation 1.6.2",
+        "codegraph: verified native initialization reused",
+        "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+      ],
+      "diagnostics": null
+    },
+    {
+      "label": "05-local-note-protection",
+      "args": [
+        "update",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/ddd",
+        "--dry-run",
+        "--sessions-ended",
+        "--json"
+      ],
+      "startedAt": "2026-11-04T16:03:49.621Z",
+      "finishedAt": "2026-11-04T16:03:50.536Z",
+      "exitCode": 0,
+      "phase": "preview",
+      "status": "not-installed",
+      "previewId": "f714bb539b0812392c77958dac41abe30e91f4e83e4e019730287747a37a5878",
+      "written": null,
+      "operations": [],
+      "itemActions": [
+        {
+          "target": ".rigup/mcp/openwiki-codex.mjs",
+          "action": "keep"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "keep"
+        },
+        {
+          "target": ".rigup/mcp/codegraph-codex.mjs",
+          "action": "keep"
+        },
+        {
+          "target": ".codex/config.toml",
+          "action": "keep"
+        },
+        {
+          "target": ".agents/skills/change-prepare/SKILL.md",
+          "action": "keep"
+        },
+        {
+          "target": ".agents/skills/change-prepare/references/project.md",
+          "action": "keep"
+        },
+        {
+          "target": ".agents/skills/change-deliver/SKILL.md",
+          "action": "keep"
+        },
+        {
+          "target": ".agents/skills/change-deliver/references/project.md",
+          "action": "keep"
+        },
+        {
+          "target": "AGENTS.md",
+          "action": "keep"
+        }
+      ],
+      "warnings": [
+        "assets/images/DomainDrivenHexagon.png: unreadable or denied by policy",
+        "src/configs/database.config.ts: unreadable or denied by policy",
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "openwiki: reuse receipted project installation 0.7.3",
+        "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+        "codegraph: binary 1.6.2 availability and native connection pending",
+        "codegraph: reuse receipted project installation 1.6.2",
+        "codegraph: verified native initialization reused"
+      ],
+      "diagnostics": null
+    },
+    {
+      "label": "06-doctor",
+      "args": [
+        "doctor",
+        "/private/tmp/rigup-github-e2e-Ob73Xm/ddd",
+        "--json"
+      ],
+      "startedAt": "2026-11-04T16:03:50.536Z",
+      "finishedAt": "2026-11-04T16:03:50.778Z",
+      "exitCode": 3,
+      "phase": "doctor",
+      "status": "complete",
+      "previewId": "doctor",
+      "written": [],
+      "operations": [],
+      "itemActions": [],
+      "warnings": [],
+      "diagnostics": [
+        {
+          "category": "config",
+          "id": "manifest",
+          "state": "configured",
+          "reason": "Manifest schema readable"
+        },
+        {
+          "category": "config",
+          "id": "mcp-runner:openwiki-codex",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "mcp:codex:openwiki",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "mcp-runner:codegraph-codex",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "mcp:codex:codegraph",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "codex:change-prepare",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "codex:change-prepare:context",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "codex:change-deliver",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "config",
+          "id": "codex:change-deliver:context",
+          "state": "pending",
+          "reason": "Local modification preserved; capability needs review"
+        },
+        {
+          "category": "config",
+          "id": "entry:AGENTS.md",
+          "state": "configured",
+          "reason": "Owned content present"
+        },
+        {
+          "category": "host",
+          "id": "codex:binary",
+          "state": "available",
+          "reason": "Executable present; version and loaded session not asserted"
+        },
+        {
+          "category": "host",
+          "id": "codex:load",
+          "state": "reload-required",
+          "reason": "Reload affected sessions; current native loading has not been observed"
+        },
+        {
+          "category": "tools",
+          "id": "openwiki:binary",
+          "state": "available",
+          "reason": "Pinned package, dependency tree, launcher and receipt verified"
+        },
+        {
+          "category": "tools",
+          "id": "openwiki:initialization",
+          "state": "pending",
+          "reason": "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it."
+        },
+        {
+          "category": "tools",
+          "id": "codegraph:binary",
+          "state": "available",
+          "reason": "Pinned package, dependency tree, launcher and receipt verified"
+        },
+        {
+          "category": "tools",
+          "id": "codegraph:initialization",
+          "state": "initialized",
+          "reason": "Complete native CodeGraph index verified"
+        }
+      ]
+    }
+  ],
+  "receipts": {
+    "software": {
+      "openwiki": {
+        "version": "0.7.3",
+        "packageLockDigest": "24e175a0bd18472f4a246cc51a262493f41f80744dc02914d62dd771a773cb3d"
+      },
+      "codegraph": {
+        "version": "1.6.2",
+        "packageLockDigest": "7ec5b868e8cc4c77ab6a04373e3072883ec39ee5d18604797d4310bd49d27f27"
+      }
+    },
+    "initialization": {
+      "codegraph": {
+        "version": "1.6.2",
+        "target": ".codegraph",
+        "identity": "16777229:66541649"
+      }
+    }
+  },
+  "sourceProtection": {
+    "checkedFiles": 123,
+    "changed": [],
+    "allOtherOriginalHashesUnchanged": true
+  },
+  "unchangedUpdate": {
+    "written": 0,
+    "newCalls": 0
+  },
+  "localNoteProtected": true,
+  "openWikiNativeStateCreated": false,
+  "codegraphQuery": {
+    "query": "UserEntity",
+    "result": [
+      {
+        "node": {
+          "id": "class:3847e83b55534c34a9bdec53d71206ba",
+          "kind": "class",
+          "name": "UserEntity",
+          "qualifiedName": "UserEntity",
+          "filePath": "src/modules/user/domain/user.entity.ts",
+          "language": "typescript",
+          "startLine": 15,
+          "endLine": 98,
+          "startColumn": 7,
+          "endColumn": 1,
+          "visibility": null,
+          "isExported": true,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793808021338
+        },
+        "score": 111.03928491360429
+      },
+      {
+        "node": {
+          "id": "import:34bf4ebebd73972633e7685b817d7bee",
+          "kind": "import",
+          "name": "../domain/user.entity",
+          "qualifiedName": "../domain/user.entity",
+          "filePath": "src/modules/user/database/user.repository.port.ts",
+          "language": "typescript",
+          "startLine": 2,
+          "endLine": 2,
+          "startColumn": 0,
+          "endColumn": 51,
+          "signature": "import { UserEntity } from '../domain/user.entity';",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793808021337
+        },
+        "score": 36.001242163677716
+      },
+      {
+        "node": {
+          "id": "import:fd05f2e376df0f5990f7599a57e2ee74",
+          "kind": "import",
+          "name": "../domain/user.entity",
+          "qualifiedName": "../domain/user.entity",
+          "filePath": "src/modules/user/database/user.repository.ts",
+          "language": "typescript",
+          "startLine": 7,
+          "endLine": 7,
+          "startColumn": 0,
+          "endColumn": 51,
+          "signature": "import { UserEntity } from '../domain/user.entity';",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793808021337
+        },
+        "score": 36.001242163677716
+      },
+      {
+        "node": {
+          "id": "import:8efcc104e6884da5915b8d79e588734a",
+          "kind": "import",
+          "name": "./domain/user.entity",
+          "qualifiedName": "./domain/user.entity",
+          "filePath": "src/modules/user/user.mapper.ts",
+          "language": "typescript",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 50,
+          "signature": "import { UserEntity } from './domain/user.entity';",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793808021339
+        },
+        "score": 36.001242163677716
+      },
+      {
+        "node": {
+          "id": "import:4107131b835e701346f315ea339bf438",
+          "kind": "import",
+          "name": "@modules/user/domain/user.entity",
+          "qualifiedName": "@modules/user/domain/user.entity",
+          "filePath": "src/modules/user/commands/create-user/create-user.service.ts",
+          "language": "typescript",
+          "startLine": 8,
+          "endLine": 8,
+          "startColumn": 0,
+          "endColumn": 62,
+          "signature": "import { UserEntity } from '@modules/user/domain/user.entity';",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793808021336
+        },
+        "score": 35.42999512419236
+      },
+      {
+        "node": {
+          "id": "method:01ef2e0193f427783e16bc51ba50f516",
+          "kind": "method",
+          "name": "create",
+          "qualifiedName": "UserEntity::create",
+          "filePath": "src/modules/user/domain/user.entity.ts",
+          "language": "typescript",
+          "startLine": 18,
+          "endLine": 34,
+          "startColumn": 2,
+          "endColumn": 3,
+          "signature": "(create: CreateUserProps): UserEntity",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": true,
+          "isAbstract": false,
+          "updatedAt": 1793808021338
+        },
+        "score": 32.32132977276335
+      },
+      {
+        "node": {
+          "id": "method:557f78ef64cd88ee7b6930ed335eb4ea",
+          "kind": "method",
+          "name": "makeAdmin",
+          "qualifiedName": "UserEntity::makeAdmin",
+          "filePath": "src/modules/user/domain/user.entity.ts",
+          "language": "typescript",
+          "startLine": 57,
+          "endLine": 59,
+          "startColumn": 2,
+          "endColumn": 3,
+          "signature": "(): void",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793808021338
+        },
+        "score": 32.18586294162556
+      },
+      {
+        "node": {
+          "id": "method:220015abdce36018bab8ea61275b48fa",
+          "kind": "method",
+          "name": "makeModerator",
+          "qualifiedName": "UserEntity::makeModerator",
+          "filePath": "src/modules/user/domain/user.entity.ts",
+          "language": "typescript",
+          "startLine": 61,
+          "endLine": 63,
+          "startColumn": 2,
+          "endColumn": 3,
+          "signature": "(): void",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793808021338
+        },
+        "score": 32.18586294162556
+      },
+      {
+        "node": {
+          "id": "method:5a35095b237b764d4ca18a50c9044bea",
+          "kind": "method",
+          "name": "delete",
+          "qualifiedName": "UserEntity::delete",
+          "filePath": "src/modules/user/domain/user.entity.ts",
+          "language": "typescript",
+          "startLine": 65,
+          "endLine": 71,
+          "startColumn": 2,
+          "endColumn": 3,
+          "signature": "(): void",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793808021338
+        },
+        "score": 32.18586294162556
+      },
+      {
+        "node": {
+          "id": "method:8be212986f85b12fcfe7873f1df02da4",
+          "kind": "method",
+          "name": "validate",
+          "qualifiedName": "UserEntity::validate",
+          "filePath": "src/modules/user/domain/user.entity.ts",
+          "language": "typescript",
+          "startLine": 95,
+          "endLine": 97,
+          "startColumn": 2,
+          "endColumn": 3,
+          "signature": "(): void",
+          "visibility": null,
+          "isExported": false,
+          "isAsync": false,
+          "isStatic": false,
+          "isAbstract": false,
+          "updatedAt": 1793808021338
+        },
+        "score": 32.18586294162556
+      }
+    ]
+  },
+  "modelCalls": 2,
+  "observedTokens": 400874,
+  "usage": {
+    "8259059682942f04cbdbb7054e877e3186172a3161ac70cb3da192cf195b9495.usage.json": {
+      "attempts": {
+        "29decdcd0693787df0909c033d774e7ae47251bd908e9b9beb31b01d03049b63": {
+          "status": "observed",
+          "tokens": 197289
+        },
+        "9ac6b06d90eaf7c42fa64e86983a3a53fdd09ac557aa785e5d70814c8fb8e800": {
+          "status": "observed",
+          "tokens": 203585
+        }
+      }
+    }
+  },
+  "generatedProjectContext": {
+    "targets": [
+      ".agents/skills/change-prepare/references/project.md",
+      ".agents/skills/change-deliver/references/project.md"
+    ],
+    "content": "# Project context\nNative prepare: openspec-propose\nNative deliver: openspec-apply-change, openspec-archive-change\nNative document routes: openspec/specs, openspec/changes\nRetain native artifact dependency checks and archive decisions\nUse existing project checks before marking implementation complete\n- [README.md](../../../../README.md)\n- [.dependency-cruiser.js](../../../../.dependency-cruiser.js)\n- [.eslintrc.js](../../../../.eslintrc.js)\n- [.prettierrc](../../../../.prettierrc)\n- [.agents/skills/openspec-explore/SKILL.md](../../openspec-explore/SKILL.md)\n- [.agents/skills/openspec-propose/SKILL.md](../../openspec-propose/SKILL.md)\n- [.agents/skills/openspec-apply-change/SKILL.md](../../openspec-apply-change/SKILL.md)\n- [.agents/skills/openspec-update-change/SKILL.md](../../openspec-update-change/SKILL.md)\n- [.agents/skills/openspec-sync-specs/SKILL.md](../../openspec-sync-specs/SKILL.md)\n- [.agents/skills/openspec-archive-change/SKILL.md](../../openspec-archive-change/SKILL.md)\n- [openspec/config.yaml](../../../../openspec/config.yaml)\nGuidance Architecture and development recommendations: partial; scope src, tests, database; gaps The Ports example describes the find-users query handler as depending on an injected repository port, while the Queries section and supplied implementation describe direct database access.\nGuidance Dependency boundaries: reusable; scope src; gaps \nGuidance Static analysis: reusable; scope src, tests; gaps \nGuidance Formatting: reusable; scope src, tests; gaps \nGuidance OpenSpec exploration: reusable; scope .agents/skills/openspec-explore/SKILL.md; gaps \nGuidance OpenSpec proposal: reusable; scope .agents/skills/openspec-propose/SKILL.md; gaps \nGuidance OpenSpec implementation: reusable; scope .agents/skills/openspec-apply-change/SKILL.md; gaps \nGuidance OpenSpec planning revisions: reusable; scope .agents/skills/openspec-update-change/SKILL.md; gaps \nGuidance OpenSpec specification synchronization: reusable; scope .agents/skills/openspec-sync-specs/SKILL.md; gaps \nGuidance OpenSpec archive: reusable; scope .agents/skills/openspec-archive-change/SKILL.md; gaps \nGuidance OpenSpec project configuration: reusable; scope openspec; gaps \nExisting build sensor in .: {\"executable\":\"npm\",\"args\":[\"run\",\"build\"],\"cwd\":\".\",\"envRefs\":[]}. Run only when authorized and relevant.\nExisting lint sensor in .: {\"executable\":\"npm\",\"args\":[\"run\",\"lint\"],\"cwd\":\".\",\"envRefs\":[]}. Run only when authorized and relevant.\nExisting test sensor in .: {\"executable\":\"npm\",\"args\":[\"run\",\"test\"],\"cwd\":\".\",\"envRefs\":[]}. Run only when authorized and relevant.\n"
+  },
+  "harnessCorrections": [
+    "The public merge action for an unchanged item is keep; the initial harness used an incorrect literal. Existing reports/effects were retained and validated without repeating model requests."
+  ],
+  "limitations": [
+    "Only the default local Codex backend; no model override or alternate host.",
+    "Application build/tests are separately recorded from Rigup installation.",
+    "Semantic findings require source audit; successful execution alone is not full human semantic acceptance."
+  ]
+}

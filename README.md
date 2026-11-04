@@ -164,4 +164,6 @@ RIGUP_LIVE_NATIVE=1 RIGUP_LIVE_CODEX=1 node --import tsx --test test/live-native
 RIGUP_LIVE_CODEX_BACKEND=1 RIGUP_OPENSPEC_BIN=/path/to/openspec node --import tsx --test test/live-codex-backend.test.ts
 ```
 
-第一组验证官方固定版本安装、初始化、缓存丢失恢复、部分索引终止恢复及 Codex MCP 连接，不调用模型。第二组使用本机默认 Codex 模型验证研究到安装与无变化复用；不运行模型切换。
+第一组验证官方固定版本安装、CodeGraph 受保护初始化/恢复、OpenWiki 独立交接及 Codex MCP 连接，不调用模型。第二组使用本机默认 Codex 模型验证研究到安装与无变化复用；不运行模型切换。
+
+另已对锁定提交的 Domain-Driven Hexagon 和 Bulletproof React 运行真实 GitHub 项目 E2E。DDD 主线通过，前端工具接线及业务浏览器测试通过；前端完整语义流程因研究预算超限未完成，保留失败结果。对象、环境调整、实际用量和复验入口见 [真实项目记录](docs/compatibility/evidence/2026-11-05-github-projects/README.md)。
