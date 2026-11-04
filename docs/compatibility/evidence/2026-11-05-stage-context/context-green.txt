@@ -1,0 +1,46 @@
+✔ Codex adapter upgrade continues a known charged run without resetting consumption (219.341541ms)
+✔ Codex adapter upgrade retains unknown and exhausted legacy charges before dispatch (181.429292ms)
+✔ fresh mainline selects local Codex without a provider API key (0.903584ms)
+✔ Codex receives only filtered evidence in a private cwd and cached acceptance costs no new call (87.833292ms)
+✔ Codex planning prompt uses stage-selected evidence instead of repeating the source scan (119.317416ms)
+✔ failed Codex attempts are charged before dispatch and never silently repeated (42.281625ms)
+✔ corrupt Codex usage ledger cannot reset an already charged budget (79.056208ms)
+✔ missing durable Codex budget cannot erase known spent usage (74.045542ms)
+✔ observed Codex token overrun is charged and rejected before acceptance (50.40725ms)
+✔ ordinary cache deletion does not authorize repeating an unresolved Codex request (59.468333ms)
+✔ completed durable Codex result survives cache loss without another charge (110.8085ms)
+✔ verified durable Codex accounting supersedes stale unknown consumer totals (107.239833ms)
+✔ Codex output with fabricated evidence never becomes accepted research (72.923667ms)
+✔ Codex tool events and missing usage fail instead of claiming a safe accepted result (65.168083ms)
+✔ Codex feature-discovery startup warning is not mistaken for a tool call (80.357166ms)
+✔ remaining Codex budget and cancellation are checked before invoking the model (38.657583ms)
+✔ missing local Codex reports unavailable without asking for an unrelated API key (36.090167ms)
+✔ Codex process is stopped if its durable process identity cannot be recorded (1181.108583ms)
+✔ dependency context omits lock bodies even when an older complete snapshot exists (76.2045ms)
+✔ dependency context is used for analysis planning content and acceptance (79.811208ms)
+✔ an evidence policy cannot import a response from a different export policy (72.878916ms)
+✔ tampered omission metadata cannot be accepted as the approved context (71.996791ms)
+✔ accepted dependency context can be reused without another request (52.047834ms)
+✔ omitting dependency bodies does not hide lock changes from the source fingerprint (61.268167ms)
+✔ stage analysis retains its bounded non-lock scan and full inventory (100.040042ms)
+✔ planning sends cited ranges and guardrails without unrelated project bodies or duplicate inventory (96.471083ms)
+✔ planning projects the analysis contract without replaying unrelated backend payload fields (101.852083ms)
+✔ content keeps current-topic counterexamples conflicts and native gates while excluding unrelated research (56.955458ms)
+✔ related artifact cycles retain only the connected jobs and their evidence (63.443334ms)
+✔ acceptance adds candidate-linked sources beyond seeds but never follows outside the inventory (59.18075ms)
+✔ missing seeds and omitted lock evidence are explicit and do not trigger a full-project fallback (58.25125ms)
+✔ stage selection rejects fabricated ranges digests and references outside the allowed reader (69.903583ms)
+✔ stage-only context changes preserve one run budget and incompatible policies cannot share acceptance (58.038125ms)
+✔ projected-away inputs still bind identity through their original digest (65.336042ms)
+✔ tampering selection or adding even self-digested unselected evidence cannot be accepted (65.73075ms)
+✔ unselected source changes still invalidate the full source fingerprint (66.775375ms)
+✔ invalid or missing stage output cannot fall back to exporting the whole project (54.563333ms)
+✔ missing topic labels do not group unrelated records or discard scoped counterexamples (72.998542ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 38
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2740.67025

@@ -9,7 +9,7 @@ import {codexAvailable,codexArguments,invokeCodex,type CodexInvocation,type Code
 export interface CodexBackendOptions {cacheRoot:string;stateRoot?:string;signal?:AbortSignal;onUsage?:(usage:{calls:number;tokens:number|'unknown'})=>Promise<void>;invoke?:(input:CodexInvocation)=>Promise<CodexOutcome>}
 interface Attempt {status:'reserved'|'observed';tokens:number|'unknown';identity?:ProcessIdentity}
 interface Ledger {attempts:Record<string,Attempt>}
-const codexAdapterVersion='2';
+const codexAdapterVersion='3';
 function totals(ledger:Ledger):{calls:number;tokens:number|'unknown'} {const items=Object.values(ledger.attempts);return {calls:items.length,tokens:items.some(a=>a.tokens==='unknown')?'unknown':items.reduce((n,a)=>n+Number(a.tokens),0)};}
 function observed(outcome:CodexOutcome):number {
  const events=outcome.stdout.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
@@ -39,7 +39,7 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
   if(!ledger.attempts||typeof ledger.attempts!=='object'||Array.isArray(ledger.attempts)||Object.values(ledger.attempts).some(a=>!a||!['reserved','observed'].includes(a.status)||a.tokens!=='unknown'&&(!Number.isSafeInteger(a.tokens)||a.tokens<0)))throw new ResearchFailure('Codex usage ledger is corrupt; reconciliation required');
   const accounting=ledger;
   const account=async()=>{await saveDurable(ledgerPath,JSON.stringify(accounting));await options.onUsage?.(totals(accounting));};
-  const exported=await hostBackend({cacheRoot:exchange,omitDependencyLocks:true}).run(context,reader);
+  const exported=await hostBackend({cacheRoot:exchange,stageEvidence:true}).run(context,reader);
   if(exported.status==='complete'){
    const dataSignature=signature(exported.value.data);
    const accepted=await readCache<{dataSignature:string;model:string}>(join(cache,signature(context)+'.result.json'));
@@ -72,7 +72,7 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
    const responsePath=join(cache,id+'.response.json');
    await saveDurable(responsePath,JSON.stringify({requestId:id,requestDigest:id,model,data}));
    await saveDurable(join(cache,signature(context)+'.result.json'),JSON.stringify({dataSignature:signature(data),model}));
-   const accepted=await hostBackend({cacheRoot:exchange,responsePath,omitDependencyLocks:true}).run(context,reader);
+   const accepted=await hostBackend({cacheRoot:exchange,responsePath,stageEvidence:true}).run(context,reader);
    if(accepted.status!=='complete')throw Error('Codex response not accepted');
    const value:ResearchResult={data,model,unknowns:accepted.value.unknowns.filter(s=>s!=='host token usage unknown'),usage:recoveredOutcome?{calls:0,tokens:0}:{calls:1,tokens}};
    return {status:'complete',value};

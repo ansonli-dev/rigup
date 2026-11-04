@@ -1,18 +1,18 @@
 import {privateDirectory,readCache,saveCache,signature} from '../generator/cache.js';
 import {mkdir,realpath,readFile,writeFile,lstat,rename} from 'node:fs/promises';
-import {join,resolve,relative,isAbsolute,parse,dirname,basename} from 'node:path';
+import {join,resolve,relative,isAbsolute,parse,dirname} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {validateResearchRequest,validateResearch,type AnalysisBackend} from './backend.js';
 import {READ_POLICY_VERSION} from './read-policy.js';
 import {PROMPT_VERSION,researchPrompt} from './prompts.js';
+import {stageContext,stageEvidence,dependencyLock,STAGE_EVIDENCE_POLICY} from './stage-context.js';
 function stable(value:unknown):string {
  if(Array.isArray(value)) return '['+value.map(stable).join(',')+']';
  if(value && typeof value === 'object') return '{'+Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).filter(([,v])=>v !== undefined).map(([k,v])=>JSON.stringify(k)+':'+stable(v)).join(',')+'}';
  return JSON.stringify(value);
 }
 function inside(root:string,path:string):boolean {const rel=relative(root,path);return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));}
-const dependencyLocks=new Set(['package-lock.json','npm-shrinkwrap.json','yarn.lock','pnpm-lock.yaml','bun.lock','bun.lockb']);
-export function hostBackend(options:{cacheRoot:string;responsePath?:string;requestPath?:string;omitDependencyLocks?:boolean}):AnalysisBackend {
+export function hostBackend(options:{cacheRoot:string;responsePath?:string;requestPath?:string;omitDependencyLocks?:boolean;stageEvidence?:boolean}):AnalysisBackend {
  return {run:async(request,reader)=>{
   validateResearchRequest(request);if(options.requestPath&&options.responsePath)throw new Error('request and response are mutually exclusive');
   if(request.budget.maxCalls<1 || request.budget.maxTokens<1) throw new Error('host budget exhausted');
@@ -29,9 +29,14 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   if(((await lstat(cache)).mode & 0o077) !== 0) throw new Error('private cache permissions required');
   if(cache !== requestedCache || inside(root,cache)) throw new Error('host cache symlink or project path denied');
   const paths=await reader.list();
-  const omittedEvidence=options.omitDependencyLocks?paths.filter(path=>dependencyLocks.has(basename(path))).map(path=>({path,reason:'Dependency lockfile body omitted from model context. Package manifests retain declared dependency ranges; exact locked/transitive versions are not supplied and must not be inferred.'})):[];
+  const task=options.stageEvidence?stageContext(request,paths):undefined;
+  const taskEvidence=task?await stageEvidence(reader,task.slices):undefined;
+  const selected=task?new Set(task.slices.map(slice=>slice.path)):undefined;
+  const protectedEvidence=options.omitDependencyLocks||options.stageEvidence;
+  const omittedEvidence=protectedEvidence?paths.filter(path=>dependencyLock(path)||selected&&!selected.has(path)).map(path=>({path,reason:dependencyLock(path)?'Dependency lockfile body omitted from model context. Package manifests retain declared dependency ranges; exact locked/transitive versions are not supplied and must not be inferred.':'Body not selected for the current '+task!.stage+' task. Inventory is navigation, not evidence of unprovided contents.'})):[];
   const omitted=new Set(omittedEvidence.map(item=>item.path));const evidencePaths=paths.filter(path=>!omitted.has(path));
-  const context={...request,root,promptVersion:PROMPT_VERSION,readPolicyVersion:READ_POLICY_VERSION,evidencePolicy:options.omitDependencyLocks?'dependency-manifests-v1':undefined};
+  const context={...request,input:task?task.input:request.input,root,promptVersion:PROMPT_VERSION,readPolicyVersion:READ_POLICY_VERSION,evidencePolicy:task?STAGE_EVIDENCE_POLICY:options.omitDependencyLocks?'dependency-manifests-v1':undefined,inputDigest:task?signature({input:request.input}):undefined,evidenceSelection:task?{stage:task.stage,selectionDigest:signature(task.slices),unavailable:task.unavailable}:undefined};
+  const instructions=researchPrompt+(task?'\nStage evidence policy: paths are a full inventory, NOT proof that their contents were read. Only supplied evidence bodies and exact visible ranges are available for new verification. Prior research is bounded comparison context. Do not claim knowledge of omitted bodies or uncited lines, or infer absence from selection. Preserve all supplied counterexamples, unresolved authority and unknowns. If a needed source is unavailable, state the limitation rather than inventing it. Native instructions and gates remain authoritative at their original paths.':'');
   const requestDigest=createHash('sha256').update(stable(context)).digest('hex');
   const requestId=requestDigest;
   const requestPath=join(cache,requestId+'.request.json');
@@ -40,7 +45,8 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   if(options.requestPath){if(!isAbsolute(options.requestPath)||!inside(cache,deliveryPath)||deliveryPath===cache)throw new Error('request export must be an absolute path inside private host cache');await privateDirectory(dirname(deliveryPath),root);}
   const verifyEvidence=(exported:any)=>{
    if(exported.evidenceDigest&&exported.evidenceDigest!==signature(exported.evidence))throw new Error('exported evidence changed');
-   if(options.omitDependencyLocks&&(!Array.isArray(exported.evidence)||typeof exported.evidenceDigest!=='string'||stable(exported.paths)!==stable(paths)||stable(exported.omittedEvidence)!==stable(omittedEvidence)||stable(exported.evidence.map((item:any)=>item?.evidence?.path))!==stable(evidencePaths)))throw new Error('exported evidence policy changed');
+   if(protectedEvidence&&(!Array.isArray(exported.evidence)||typeof exported.evidenceDigest!=='string'||stable(exported.paths)!==stable(paths)||stable(exported.omittedEvidence)!==stable(omittedEvidence)||(!task&&stable(exported.evidence.map((item:any)=>item?.evidence?.path))!==stable(evidencePaths))))throw new Error('exported evidence policy changed');
+   if(task&&stable(exported.evidence)!==stable(taskEvidence))throw new Error('exported task evidence changed or exceeds its selection');
   };
   const verifyDelivery=async(exported:any)=>{
    verifyEvidence(exported);
@@ -51,7 +57,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
    try {
     if((await lstat(acceptedPath)).isSymbolicLink()||(await lstat(requestPath)).isSymbolicLink())throw new Error('accepted/request path symlink denied');
     const accepted=JSON.parse(await readFile(acceptedPath,'utf8'));const exported=JSON.parse(await readFile(requestPath,'utf8'));
-    if(accepted.requestDigest!==requestDigest||stable(exported.context)!==stable(context)||exported.instructions!==researchPrompt)throw new Error('cached host acceptance context changed');
+    if(accepted.requestDigest!==requestDigest||stable(exported.context)!==stable(context)||exported.instructions!==instructions)throw new Error('cached host acceptance context changed');
     await verifyDelivery(exported);await validateResearch(accepted.result.data,reader);return {status:'complete',value:accepted.result};
    }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
   }
@@ -61,7 +67,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
    if(response.requestId !== requestId || response.requestDigest !== requestDigest) throw new Error('response does not match current request context digest');
    if((await lstat(requestPath)).isSymbolicLink()) throw new Error('request path symlink denied');
    const exported=JSON.parse(await readFile(requestPath,'utf8'));
-   if(exported.requestDigest !== requestDigest || exported.requestId !== requestId || stable(exported.context) !== stable(context) || exported.instructions !== researchPrompt) throw new Error('request context or instructions changed');
+   if(exported.requestDigest !== requestDigest || exported.requestId !== requestId || stable(exported.context) !== stable(context) || exported.instructions !== instructions) throw new Error('request context or instructions changed');
    await verifyDelivery(exported);await validateResearch(response.data,reader);
    if(typeof response.model !== 'string' || !response.model) throw new Error('response model: required');
    const unknowns=response.data.unknowns;
@@ -71,7 +77,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
    catch(error){if((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;if((await lstat(acceptedPath)).isSymbolicLink()) throw new Error('accepted path symlink denied');const prior=JSON.parse(await readFile(acceptedPath,'utf8'));if(prior.requestDigest !== requestDigest || stable(prior.result) !== stable(result)) throw new Error('response already consumed with different result');}
    return {status:'complete',value:result};
   }
-  const {kind,artifact,expectedOutput,input,spent,...runContext}=context;
+  const {kind,artifact,expectedOutput,input,spent,inputDigest,evidenceSelection,...runContext}=context;
   const runDigest=createHash('sha256').update(stable({runId:request.runId,root})).digest('hex');
   const budgetPath=join(cache,runDigest+'.budget.json');
   let state:{context:string;requests:string[];tokens:'unknown'}={context:stable(runContext),requests:[],tokens:'unknown'};
@@ -87,13 +93,13 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
    await writeFile(temporary,JSON.stringify(state),{flag:'wx',mode:0o600});await rename(temporary,budgetPath);
   }
   const prior=await readCache<any>(requestPath);
-  if(prior){if(prior.requestDigest!==requestDigest||stable(prior.context)!==stable(context)||prior.instructions!==researchPrompt)throw new Error('request context or instructions tampered or changed');await verifyDelivery(prior);if(options.requestPath&&prior.deliveryPath!==deliveryPath)throw new Error('request export target changed');deliveryPath=prior.deliveryPath??requestPath;}
+  if(prior){if(prior.requestDigest!==requestDigest||stable(prior.context)!==stable(context)||prior.instructions!==instructions)throw new Error('request context or instructions tampered or changed');await verifyDelivery(prior);if(options.requestPath&&prior.deliveryPath!==deliveryPath)throw new Error('request export target changed');deliveryPath=prior.deliveryPath??requestPath;}
   const snapshotPath=join(cache,signature({root,fingerprint:request.fingerprint,policy:READ_POLICY_VERSION,paths:evidencePaths})+'.evidence.json');
-  let snapshot=await readCache<any>(snapshotPath);
-  if(!snapshot||snapshot.digest!==signature(snapshot.evidence)||stable(snapshot.paths)!==stable(evidencePaths)){
+  let snapshot=task?{paths:evidencePaths,evidence:taskEvidence,digest:signature(taskEvidence)}:await readCache<any>(snapshotPath);
+  if(!task&&(!snapshot||snapshot.digest!==signature(snapshot.evidence)||stable(snapshot.paths)!==stable(evidencePaths))){
    const evidence=[];for(const path of evidencePaths)evidence.push(await reader.read(path,1));snapshot={paths:evidencePaths,evidence,digest:signature(evidence)};await saveCache(snapshotPath,JSON.stringify(snapshot));
   }
-  const exported={requestId,requestDigest,context,instructions:researchPrompt,paths,evidence:snapshot.evidence,evidenceDigest:snapshot.digest,...(options.omitDependencyLocks?{omittedEvidence}:{}),...(deliveryPath!==requestPath?{deliveryPath}:{})};
+  const exported={requestId,requestDigest,context,instructions,paths,evidence:snapshot.evidence,evidenceDigest:snapshot.digest,...(protectedEvidence?{omittedEvidence}:{}),...(deliveryPath!==requestPath?{deliveryPath}:{})};
   verifyEvidence(exported);
   try {await writeFile(requestPath,JSON.stringify(exported,null,2),{flag:'wx',mode:0o600});}
   catch(error){if((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;if((await lstat(requestPath)).isSymbolicLink()) throw new Error('request path symlink denied');const prior=JSON.parse(await readFile(requestPath,'utf8'));if(stable(prior) !== stable(exported)) throw new Error('refusing unknown or tampered request file');}

@@ -19,23 +19,23 @@ async function fixture(fn:(root:string,cache:string,request:ResearchRequest,read
 async function createBackend(options:any){return (await import('../src/analyzer/codex.js')).codexBackend(options);}
 const data={observations:[],unknowns:[]};
 const result=(body:unknown=data,extra:unknown[]=[])=>({code:0,lastMessage:JSON.stringify(body),stdout:[...extra,{type:'turn.completed',usage:{input_tokens:11,output_tokens:7,cached_input_tokens:3}}].map(v=>JSON.stringify(v)).join('\n')});
-async function legacyExchange(cache:string,request:ResearchRequest,reader:Awaited<ReturnType<typeof repositoryReader>>,attempts:{status:'reserved'|'observed';tokens:number|'unknown'}[]){
- const exchange=cache+'/ordinary/exchange',context={...request,spent:undefined,versions:{...request.versions,codex:'0.166.0',codexAdapter:'1'}};
- const prior=await hostBackend({cacheRoot:exchange}).run(context,reader);assert.equal(prior.status,'pending-host');if(prior.status!=='pending-host')throw Error('expected legacy export');
+async function legacyExchange(cache:string,request:ResearchRequest,reader:Awaited<ReturnType<typeof repositoryReader>>,attempts:{status:'reserved'|'observed';tokens:number|'unknown'}[],adapter='1'){
+ const exchange=cache+'/ordinary/exchange'+(adapter==='1'?'':'/codex-'+adapter),context={...request,spent:undefined,versions:{...request.versions,codex:'0.166.0',codexAdapter:adapter}};
+ const prior=await hostBackend({cacheRoot:exchange,omitDependencyLocks:adapter!=='1'}).run(context,reader);assert.equal(prior.status,'pending-host');if(prior.status!=='pending-host')throw Error('expected legacy export');
  await mkdir(cache+'/durable',{mode:0o700});const ledgerPath=cache+'/durable/'+signature({root:request.root,run:request.runId})+'.usage.json';
  const charged=Object.fromEntries(attempts.map((attempt,index)=>[index?signature({legacy:prior.requestId,index}):prior.requestId,attempt]));
  await writeFile(ledgerPath,JSON.stringify({attempts:charged}),{mode:0o600});
  const budgetPath=exchange+'/'+(await readdir(exchange)).find(p=>p.endsWith('.budget.json'));
  return {ledgerPath,charged,budgetPath,budget:await readFile(budgetPath,'utf8')};
 }
-test('Codex adapter upgrade continues a known charged run without resetting consumption',()=>fixture(async(_root,cache,request,reader)=>{
- const legacy=await legacyExchange(cache,request,reader,[{status:'observed',tokens:18}]);let calls=0;const usage:any[]=[];
+test('Codex adapter upgrade continues a known charged run without resetting consumption',async()=>{for(const adapter of ['1','2'])await fixture(async(_root,cache,request,reader)=>{
+ const legacy=await legacyExchange(cache,request,reader,[{status:'observed',tokens:18}],adapter);let calls=0;const usage:any[]=[];
  const backend=await createBackend({cacheRoot:cache+'/ordinary',stateRoot:cache+'/durable',onUsage:async(u:any)=>{usage.push(u);},invoke:async(input:any)=>{calls++;assert.doesNotMatch(input.prompt,/LOCK_BODY_IN_CODEX_PROMPT/);return result();}});
  const next=await backend.run({...request,kind:'artifact-plan',expectedOutput:'plan',spent:{calls:1,tokens:18}},reader);
  assert.equal(next.status,'complete');assert.equal(calls,1);assert.deepEqual(usage.at(-1),{calls:2,tokens:36});
  const ledger=JSON.parse(await readFile(legacy.ledgerPath,'utf8'));for(const [id,attempt] of Object.entries(legacy.charged))assert.deepEqual(ledger.attempts[id],attempt);
  assert.equal(await readFile(legacy.budgetPath,'utf8'),legacy.budget,'old exchange bookkeeping remains intact');
-}));
+});});
 test('Codex adapter upgrade retains unknown and exhausted legacy charges before dispatch',async()=>{
  for(const attempts of [[{status:'reserved' as const,tokens:'unknown' as const}],[{status:'observed' as const,tokens:18},{status:'observed' as const,tokens:18},{status:'observed' as const,tokens:18}],[{status:'observed' as const,tokens:10000}]])await fixture(async(_root,cache,request,reader)=>{
   const legacy=await legacyExchange(cache,request,reader,attempts),before=await readFile(legacy.ledgerPath,'utf8');let calls=0;
@@ -60,6 +60,12 @@ test('Codex receives only filtered evidence in a private cwd and cached acceptan
  const first=await backend.run(request,reader);assert.equal(first.status,'complete');if(first.status==='complete')assert.deepEqual(first.value.usage,{calls:1,tokens:18});
  assert.deepEqual(usage[0],{calls:1,tokens:'unknown'});assert.deepEqual(usage.at(-1),{calls:1,tokens:18});
  const reused=await backend.run(request,reader);assert.equal(reused.status,'complete');if(reused.status==='complete')assert.deepEqual(reused.value.usage,{calls:0,tokens:0});assert.equal(calls,1);
+}));
+test('Codex planning prompt uses stage-selected evidence instead of repeating the source scan',()=>fixture(async(_root,cache,request,reader)=>{
+ const prompts:string[]=[];const backend=await createBackend({cacheRoot:cache,invoke:async(input:any)=>{prompts.push(input.prompt);return result();}});
+ await backend.run(request,reader);await backend.run({...request,kind:'artifact-plan',expectedOutput:'plan',input:{profile:{files:await reader.list(),research:{data:{observations:[],guidance:[],unknowns:[]}}},previousInventory:[]}},reader);assert.equal(prompts.length,2);
+ assert.match(prompts[0],/createOrder/);assert.doesNotMatch(prompts[1],/export function createOrder/);const body=JSON.parse(prompts[1].slice(prompts[1].indexOf('{')));
+ assert.equal(body.context.evidencePolicy,'stage-evidence-v1');assert.ok(body.paths.includes('source.js'));assert.equal(body.evidence.length,0);assert.equal(body.context.input.profile.files,undefined);
 }));
 test('failed Codex attempts are charged before dispatch and never silently repeated',()=>fixture(async(root,cache,request,reader)=>{
  let calls=0;const usage:any[]=[];const backend=await createBackend({cacheRoot:cache,onUsage:async(u:any)=>{usage.push(u);},invoke:async()=>{calls++;throw Error('private transport failure');}});

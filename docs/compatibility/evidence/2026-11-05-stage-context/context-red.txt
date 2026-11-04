@@ -1,0 +1,221 @@
+✖ stage analysis retains its bounded non-lock scan and full inventory (64.494417ms)
+✖ planning sends cited ranges and guardrails without unrelated project bodies or duplicate inventory (54.821125ms)
+✖ content keeps current-topic counterexamples conflicts and native gates while excluding unrelated research (40.169208ms)
+✖ related artifact cycles retain only the connected jobs and their evidence (55.271083ms)
+✖ acceptance adds candidate-linked sources beyond seeds but never follows outside the inventory (43.308667ms)
+✖ missing seeds and omitted lock evidence are explicit and do not trigger a full-project fallback (56.686875ms)
+✖ stage selection rejects fabricated ranges digests and references outside the allowed reader (40.369292ms)
+✔ stage-only context changes preserve one run budget and incompatible policies cannot share acceptance (65.957875ms)
+✖ projected-away inputs still bind identity through their original digest (50.612291ms)
+✖ tampering selection or adding even self-digested unselected evidence cannot be accepted (54.287833ms)
+✖ unselected source changes still invalidate the full source fingerprint (55.694959ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 1
+ℹ fail 10
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 891.440417
+
+✖ failing tests:
+
+test at test/stage-context.test.ts:1:4941
+✖ stage analysis retains its bounded non-lock scan and full inventory (64.494417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + undefined
+  - 'stage-evidence-v1'
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:44:50)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'stage-evidence-v1',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/stage-context.test.ts:1:5391
+✖ planning sends cited ranges and guardrails without unrelated project bodies or duplicate inventory (54.821125ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(!evidencePaths(body).includes('src/z/linked.ts'))
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:49:56)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/stage-context.test.ts:1:6259
+✖ content keeps current-topic counterexamples conflicts and native gates while excluding unrelated research (40.169208ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(!paths.includes('src/z/unrelated.ts'))
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:58:9)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/stage-context.test.ts:1:7192
+✖ related artifact cycles retain only the connected jobs and their evidence (55.271083ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+      'api',
+      'related',
+  +   'unrelated'
+    ]
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:65:9)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'api', 'related', 'unrelated' ],
+    expected: [ 'api', 'related' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/stage-context.test.ts:1:7935
+✖ acceptance adds candidate-linked sources beyond seeds but never follows outside the inventory (43.308667ms)
+  TypeError: Cannot read properties of undefined (reading 'unavailable')
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:69:168)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)
+
+test at test/stage-context.test.ts:1:8468
+✖ missing seeds and omitted lock evidence are explicit and do not trigger a full-project fallback (56.686875ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(!readPaths.includes('yarn.lock'))
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:73:114)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/stage-context.test.ts:1:9274
+✖ stage selection rejects fabricated ranges digests and references outside the allowed reader (40.369292ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:77:41)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /range|evidence|inventory|path|digest/i,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at test/stage-context.test.ts:1:10473
+✖ projected-away inputs still bind identity through their original digest (50.612291ms)
+  AssertionError [ERR_ASSERTION]: Expected "actual" to be strictly unequal to:
+
+  undefined
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:88:71)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/stage-context.test.ts:1:11099
+✖ tampering selection or adding even self-digested unselected evidence cannot be accepted (54.287833ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:93:2)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /evidence|selection|context|policy/i,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at test/stage-context.test.ts:1:11822
+✖ unselected source changes still invalidate the full source fingerprint (55.694959ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(!evidencePaths(next.body).includes('src/z/unrelated.ts'))
+
+      at <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:97:172)
+      at async <anonymous> (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:35:2)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async project (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/helpers.ts:15:6)
+      at async fixture (/Users/yuan.li/.codex/worktrees/rigup-implementation/rigup/test/stage-context.test.ts:10:51)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
