@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "checkedAt": "2026-11-04T19:58:37.269Z",
+  "fixedSourceRevision": "0bedd50726265bbd4f568ac508e1074124551f2c",
+  "originalRunId": "fe5c4ad5-2617-4567-9e26-9f1f47199b34",
+  "sourceFingerprintUnchanged": true,
+  "originalTrackedFiles": 535,
+  "byteIdenticalOriginalFiles": 534,
+  "onlyOriginalChange": {
+    "path": "AGENTS.md",
+    "originalBodyRetained": true,
+    "addition": "Owned navigation only"
+  },
+  "nativeOpenSpecEntriesUnchanged": 6,
+  "uniqueVisibleSnippetsRevalidated": 178,
+  "artifact": {
+    "path": "docs/rigup/react-vite-api-cache-review.md",
+    "sha256": "0afd8b93ef975aac5baa6deb0d2d63336d01ba11c4e7a52b634447687daa2932",
+    "snapshot": "review-generated-api-review.md"
+  },
+  "notes": [
+    "All historical and fixed-policy visible snippets revalidated through the actual current filtered reader.",
+    "AGENTS has both the original cited span and a full line-preserving projection; owned navigation is blanked, not policy evidence.",
+    "Applicable and uncertain authority is retained for independent review; no project-wide convention is inferred.",
+    "App/build/browser/native checks preceded the authority follow-up; all original business files and native entries were reverified unchanged afterward.",
+    "Implementation-agent audit, not formal human semantic approval."
+  ]
+}

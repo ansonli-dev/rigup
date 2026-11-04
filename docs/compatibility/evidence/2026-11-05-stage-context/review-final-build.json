@@ -1,0 +1,42 @@
+{
+  "status": "passed",
+  "compiledCodeMatchesActualFixedConsumer": {
+    "analyzer/host": "224d5ea5a96aea3258e962d4950db97dab74ed8b402e2fe331aeda4e6d6da476",
+    "analyzer/codex": "8a242c17f371ed5ab8cb7171a09d85e3fc30274ec3c2a59d48c88226529f9eb4",
+    "analyzer/stage-context": "ccb9989bec2b04b58624abfd33a052be939ae61225217973f6f2e5ea886e1dd9",
+    "generator/generate": "a9e8c6f3b18a3da815165a405d848dce7a807a121c4d7aaf52deabecbcb91070",
+    "lifecycle": "ab9f305a02c587411d48d787e767f41de69723273d70d23a13bd926a34750f58"
+  },
+  "packageFiles": 68,
+  "originalLivePackagePreserved": true,
+  "fixedLiveSource": "0bedd50726265bbd4f568ac508e1074124551f2c",
+  "completionPackageSha256": "7d8710955a96d0bbd6f926a621e1bba640bef46a5141310208407bef8e9f4c4a",
+  "ports": [
+    {
+      "port": 41751,
+      "closed": true,
+      "code": "ECONNREFUSED"
+    },
+    {
+      "port": 41752,
+      "closed": true,
+      "code": "ECONNREFUSED"
+    }
+  ],
+  "testDaemonStopped": true,
+  "doctorExitCode": 3,
+  "pending": [
+    {
+      "category": "config",
+      "id": "codex:change-deliver:context",
+      "state": "pending",
+      "reason": "Local modification preserved; capability needs review"
+    },
+    {
+      "category": "tools",
+      "id": "openwiki:initialization",
+      "state": "pending",
+      "reason": "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it."
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "status": "passed-after-authority-fix",
+  "sourceRevision": "0bedd50726265bbd4f568ac508e1074124551f2c",
+  "upstreamCommit": "9506629ed003a561c6627735480cce4994244bb4",
+  "policy": "stage-evidence-v2",
+  "sameOriginalRun": "fe5c4ad5-2617-4567-9e26-9f1f47199b34",
+  "budget": {
+    "maxCalls": 12,
+    "maxTokens": 1200000
+  },
+  "totalActualModelCalls": 6,
+  "totalActualObservedTokens": 499754,
+  "preReviewModelCalls": 4,
+  "preReviewObservedTokens": 341053,
+  "followupModelCalls": 2,
+  "followupObservedTokens": 158701,
+  "allAttemptsPreserved": true,
+  "previousRoundObservedTokens": 558605,
+  "totalObservedTokenReductionPercent": 10.54,
+  "currentStages": [
+    {
+      "stage": "plan",
+      "evidenceFiles": 28,
+      "evidenceChars": 165989,
+      "bytes": 254438,
+      "source": "Reused unchanged original planning result; all cited source remains byte/hash valid.",
+      "previousEvidenceFiles": 177,
+      "previousEvidenceChars": 352080,
+      "previousBytes": 468518,
+      "evidenceReductionPercent": 52.85,
+      "payloadReductionPercent": 45.69
+    },
+    {
+      "stage": "acceptance",
+      "evidenceFiles": 27,
+      "evidenceChars": 174031,
+      "bytes": 273991,
+      "source": "Real regenerated stage-evidence-v2 request.",
+      "previousEvidenceFiles": 177,
+      "previousEvidenceChars": 352080,
+      "previousBytes": 465274,
+      "evidenceReductionPercent": 50.57,
+      "payloadReductionPercent": 41.11
+    },
+    {
+      "stage": "content",
+      "evidenceFiles": 27,
+      "evidenceChars": 174031,
+      "bytes": 269150,
+      "source": "Real regenerated stage-evidence-v2 request.",
+      "previousEvidenceFiles": 177,
+      "previousEvidenceChars": 352080,
+      "previousBytes": 457571,
+      "evidenceReductionPercent": 50.57,
+      "payloadReductionPercent": 41.18
+    }
+  ],
+  "laterStageEvidenceChars": 514051,
+  "previousLaterStageEvidenceChars": 1056240,
+  "laterStageEvidenceReductionPercent": 51.33,
+  "unchangedApplyWritten": 0,
+  "unchangedModelCalls": 0,
+  "userNoteProtected": true,
+  "originalBusinessAndNativeFilesProtected": true,
+  "appBuild": "passed",
+  "unitTests": 21,
+  "browserTests": 3,
+  "nativeQuery": "getDiscussions",
+  "openWikiInitialized": false,
+  "localRegression": {
+    "total": 334,
+    "passed": 320,
+    "skipped": 14,
+    "failed": 0
+  },
+  "reports": {
+    "initial": "bulletproof-semantic-e2e.json",
+    "followup": "review-followup-e2e.json",
+    "source": "review-source-audit.json",
+    "snippets": "review-snippet-verification.json",
+    "application": "application-checks.json"
+  }
+}

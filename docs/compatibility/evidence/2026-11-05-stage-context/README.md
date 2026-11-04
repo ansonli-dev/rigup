@@ -1,8 +1,24 @@
 # 按阶段选择上下文：真实 Bulletproof React E2E
 
-**完整语义 E2E 通过，保持 12 请求 / 1200000 observed token 预算。** 默认 Codex 实际执行 analyze → plan → content → acceptance，合计 **4 请求 / 341053 token**，较[上一轮仅省略锁文件的 558605 token](../2026-11-05-context-budget/README.md) 再减少 **38.95%**。本轮未修改模型响应、切换模型、禁用 SDD 或重置消费。两轮历史结果（包括最初预算失败）均逐字保留。
+**最终修复后通过，保持原 12 请求 / 1200000 observed token 预算。** 默认 Codex 的本轮累计消费为 **6 请求 / 499754 token**，包含首轮全部 4 请求 / 341053 token，以及同一原 run 内重新生成正文、独立验收的 **2 请求 / 158701 token**。相较[上一轮仅省略锁文件的 558605 token](../2026-11-05-context-budget/README.md)，连同修复续验成本仍少 **10.54%**。没有改写响应、换模型、禁用 SDD、抹除消费或另开修复预算。[最终汇总](review-summary.json)、[原运行续验](review-followup-e2e.json)、[最终来源复核](review-source-audit.json)。
 
-## 固定对象与阶段测量
+## 最终权威完整性修复与阶段结果
+
+一次独立审查发现两项 Important：根/输出范围的权威可能被漏掉；适用的 reusable/partial 规范缺少重复观察项时可能被裁掉。`0bedd50` 在同一修复轮补齐，使用 `stage-evidence-v2`：支持根目录、规范化路径及当前/关联输出范围；全部适用规范状态都保留；范围不明的来源带未知提示供核验，不默默丢弃。没有追加复审。[修复回归 RED](review-red.txt) → [73 项 GREEN](review-green.txt)。
+
+同时修复缓存重验：正文/验收的证据契约修订使旧候选失效，重新生成并独立验收。未变的完整研究与规划复用，runId、原消费、读取预算和重试历史保持不变；同目标、同所有权的旧产物经新验收后安全生成 update，预览恢复不重复请求。[变更正文的处置 RED](review-refresh-disposition-red.txt)。真实续验使用原 consent/run，旧 ledger 每一项保持原值，没有新建付费 ledger。
+
+- **plan：**复用未变的规划及已复核来源，28 个来源、165989 字符，相比上一轮每阶段 177/352080 少 **52.85%**。
+- **content：**修复后真实重生，27 个来源、174031 字符，少 **50.57%**；完整请求 269150 字节，少 **41.18%**。
+- **acceptance：**修复后真实独立验收，27 个来源、174031 字符，少 **50.57%**；完整请求 273991 字节，少 **41.11%**。
+
+最终后三阶段合计 **514051 字符**，相比 1056240 少 **51.33%**。续验新增实际用量为 **81429、77272**，原先四次消费完整保留。最终独立 apply、无变化 preview/apply（0 写入/0 新调用）和用户说明保护通过；源码指纹仍与原研究相同。
+
+[最终片段复核](review-snippet-verification.json)覆盖历史与当前的 **178 个唯一可见片段**；额外的一项是 AGENTS.md 全跨度的保留行号投影，托管导航被空行化，并未成为规则证据。534 个原文件字节不变，AGENTS 原正文保留，6 个原生入口未改。[最终正文存档](review-generated-api-review.md)仍按原目标路径解析链接。应用与原生测试在初轮完整运行时完成；续验后再次核对业务/原生文件未改，不冒充重新运行了应用测试。
+
+最终本地 **334 项：320 passed、14 opt-in live skipped、0 failed**，类型检查、构建和 68 文件打包通过。[完整回归](review-full-tests.txt)、[审查与全部裁决](final-review-results.json)。下文保留审查前的初轮测量，不能把其更小的裁剪量当作最终完整权威覆盖结果。
+
+## 初轮固定对象与阶段测量（审查前历史）
 
 实际使用源码 `e9aa1e4` 的 npm 包、独立消费目录和官方 OpenSpec 1.16.0。上游仍为 [Bulletproof React 的同一提交](https://github.com/alan2207/bulletproof-react/tree/9506629ed003a561c6627735480cce4994244bb4)，应用仍选 `apps/react-vite`。研究 scope、4000/24000000 读取预算、Codex 默认模型、OpenSpec、review 交接及两工具配置全部不变。[包摘要与实际版本](tool-versions.json)、[完整命令/选项/ledger/报告](bulletproof-semantic-e2e.json)、[汇总](summary.json)。默认模型的服务端 ID 未暴露，不作推断。
 
@@ -15,9 +31,9 @@
 
 ## 证据与恢复保护
 
-`stage-evidence-v1` 保留完整库存、全局源码指纹和明确的未提供来源列表；库存不是已读正文。精确引用的行号/摘要保留，模型不能从省略推断不存在或声称验证未提供内容。缺失 topic 时按直接来源、范围及门禁处理并披露不完整性，不把所有未命名主题混成一组。相关产物可成环；生成基线仍只用于比较。
+两个策略版本均保留完整库存、全局源码指纹和明确的未提供来源列表；库存不是已读正文。精确引用的行号/摘要保留，模型不能从省略推断不存在或声称验证未提供内容。缺失 topic 时按直接来源、范围及门禁处理并披露不完整性，不把所有未命名主题混成一组。相关产物可成环；生成基线仍只用于比较。最终权威范围行为以上述 v2 修复为准。
 
-原输入摘要及选择摘要绑定请求与接受来源，阶段字段不进入共享 host 运行上下文。Codex adapter 3 的交换记录使用独立版本目录，同一 root/run 的累计 ledger 键保持不变，v1/v2 的已知消费继续累计，未知或耗尽消费仍阻止发送。手工 host 默认不变。选中片段从过滤读取层重新物化并与请求严格比较，自行重算摘要的额外正文也不能混入；这些本地读取仍计入读取预算。
+原输入摘要及选择摘要绑定请求与接受来源，阶段字段不进入共享 host 运行上下文。Codex adapter 3/4 的交换记录各自使用版本目录，同一 root/run 的累计 ledger 键保持不变，旧消费继续累计，未知或耗尽消费仍阻止发送。手工 host 默认不变。选中片段从过滤读取层重新物化并与请求严格比较，自行重算摘要的额外正文也不能混入；这些本地读取仍计入读取预算。
 
 策略回归包括 [初始 RED](context-red.txt)、[缺失阶段](invalid-stage-red.txt)、[缺失 topic](topics-red.txt)、[投影](projection-red.txt)、[实际 Codex prompt 的回退失败](prompt-red.txt) 及 [38 项 GREEN](context-green.txt)。[本地完整回归](local-regressions.txt) 为 **329 项：315 passed、14 opt-in live skipped、0 failed**；类型检查和 [68 文件打包](pack.json) 通过，包中无测试、证据、scratch 或客户状态。
 
@@ -44,3 +60,5 @@ node --import tsx --test test/live-github-context.test.ts
 ```
 
 同一 CASE 续跑保留 fixture/result 及所有持久消费，不改变 scope/预算、不重复未知调用。本轮从新授权副本运行，未清空旧轮。原始模型结果仅留在私有临时 workspace，仓库归档程序报告和可复核的来源摘要。应用命令见 application-checks.json；其他宿主、模型切换、平台、Next.js、生产部署和正式人工语义批准仍各自待验。
+
+本次同预算修复续验的可执行入口为 [live-stage-followup.mjs](../../../../test/live-stage-followup.mjs)：显式设置 `RIGUP_LIVE_STAGE_FOLLOWUP=1` 及 workspace/新消费 CLI/source revision。它读取原已保存的 run/consent，调用真实 update → 独立 apply → 无变化检查，核对旧 ledger 逐项不变和总上限；遇到未知消费先停止，不创建新预算或清空缓存。续验前仅把本轮应用测试生成的 mocked-db.json 和浏览器 user.json 移至私有旁路快照，恢复原研究指纹；没有移动原跟踪文件。

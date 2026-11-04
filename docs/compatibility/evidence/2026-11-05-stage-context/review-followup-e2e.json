@@ -1,0 +1,918 @@
+{
+  "status": "passed",
+  "startedAt": "2026-11-04T19:49:23.909Z",
+  "workspace": "/private/tmp/rigup-context-e2e-z2Q0V6",
+  "root": "/private/tmp/rigup-context-e2e-z2Q0V6/frontend",
+  "upstreamCommit": "9506629ed003a561c6627735480cce4994244bb4",
+  "originalRunId": "fe5c4ad5-2617-4567-9e26-9f1f47199b34",
+  "continuation": "75271ef711e327c7f8e27788de011963f2d8b2f18d3d22e33b96d595457d4fb7",
+  "options": {
+    "agents": [
+      "codex"
+    ],
+    "backend": "codex",
+    "sdd": "openspec",
+    "executionPolicy": {
+      "mode": "review"
+    },
+    "tools": [
+      {
+        "id": "openwiki",
+        "install": true,
+        "initialize": false,
+        "agents": [
+          "codex"
+        ]
+      },
+      {
+        "id": "codegraph",
+        "install": true,
+        "initialize": true,
+        "agents": [
+          "codex"
+        ]
+      }
+    ],
+    "researchBudget": {
+      "maxCalls": 12,
+      "maxTokens": 1200000
+    },
+    "readBudget": {
+      "maxFiles": 4000,
+      "maxBytes": 24000000
+    },
+    "scope": [
+      "AGENTS.md",
+      "README.md",
+      "package.json",
+      "docs",
+      "apps/react-vite",
+      ".agents",
+      "openspec"
+    ]
+  },
+  "package": {
+    "sourceRevision": "0bedd50726265bbd4f568ac508e1074124551f2c",
+    "cliSha256": "cfe14765f886f199ec6855c382021004353072bf24b2c0e8fe45866fe5a07ad6",
+    "policySha256": "ccb9989bec2b04b58624abfd33a052be939ae61225217973f6f2e5ea886e1dd9",
+    "generatorSha256": "a9e8c6f3b18a3da815165a405d848dce7a807a121c4d7aaf52deabecbcb91070"
+  },
+  "before": {
+    "cdec162400df9e616218b8f6192f252f8907b1c86e37294c194a962e10df482a.usage.json": {
+      "attempts": {
+        "6fa1efbda0922a1e6a9782a554e2646749d764e6ed8bda85db2172c6e3c4aeec": {
+          "status": "observed",
+          "tokens": 136166
+        },
+        "20c16627ab0c116e9af4873edd13166b39f081c2386ca38580566d50e228bd07": {
+          "status": "observed",
+          "tokens": 77006
+        },
+        "b81b104358cc3dfa4714727955566553f7b629d8623b9c5929cb9679026a5a22": {
+          "status": "observed",
+          "tokens": 66346
+        },
+        "046df695e638f15d13251677e79160030921984dbe7e509fbab42e80b5cf586f": {
+          "status": "observed",
+          "tokens": 61535
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "label": "01-preview",
+      "args": [
+        "update",
+        "/private/tmp/rigup-context-e2e-z2Q0V6/frontend",
+        "--continue",
+        "75271ef711e327c7f8e27788de011963f2d8b2f18d3d22e33b96d595457d4fb7",
+        "--resume",
+        "--json"
+      ],
+      "code": 3,
+      "data": {
+        "phase": "handoff",
+        "installStatus": "pending",
+        "checks": [],
+        "pending": [
+          "End affected sessions / review the concrete preview"
+        ],
+        "conflicts": [],
+        "requiredInput": [],
+        "nextCommand": "rigup update \"/private/tmp/rigup-context-e2e-z2Q0V6/frontend\" --apply f918a775ebcd6b77b3a72112f1aef2abec9da674f83f5596376d1cc56d0a3888 --sessions-ended --resume",
+        "previewId": "f918a775ebcd6b77b3a72112f1aef2abec9da674f83f5596376d1cc56d0a3888",
+        "root": "/private/tmp/rigup-context-e2e-z2Q0V6/frontend",
+        "executable": true,
+        "runChecks": [],
+        "items": [
+          {
+            "logicalId": "mcp-runner:openwiki-codex",
+            "target": ".rigup/mcp/openwiki-codex.mjs",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "57f5e3a69c50af71733b2d6681c9e6aec569538724abf70ad198165b1e62650c"
+          },
+          {
+            "logicalId": "mcp:codex:openwiki",
+            "target": ".codex/config.toml",
+            "ownership": {
+              "kind": "toml-table",
+              "path": [
+                "mcp_servers",
+                "openwiki"
+              ]
+            },
+            "action": "keep",
+            "observedDigest": "3ad5f1508004fa904bf578139a2461c3d9d67acfcb2a3e6ffe9e62a2e4717537"
+          },
+          {
+            "logicalId": "mcp-runner:codegraph-codex",
+            "target": ".rigup/mcp/codegraph-codex.mjs",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "b7a680d5c423f78e27c6cca524071e0bc13a8b09d63af7c09c6b959cb8e30e62"
+          },
+          {
+            "logicalId": "mcp:codex:codegraph",
+            "target": ".codex/config.toml",
+            "ownership": {
+              "kind": "toml-table",
+              "path": [
+                "mcp_servers",
+                "codegraph"
+              ]
+            },
+            "action": "keep",
+            "observedDigest": "3ad5f1508004fa904bf578139a2461c3d9d67acfcb2a3e6ffe9e62a2e4717537"
+          },
+          {
+            "logicalId": "react-vite-api-cache-review",
+            "target": "docs/rigup/react-vite-api-cache-review.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "update",
+            "observedDigest": "8422e6ebfb7afa05aa76fe6863f3c3640db61aa2f706a994c3010f09b3722860",
+            "before": "# React Vite API cache and configuration review\n\nThis supplement supports implementers and reviewers working on the four checked React Vite hooks below. [API Layer](../api-layer.md) remains the existing authority for request declarations; its resolved guidance is not repeated here. These observations are bounded local patterns with unestablished independent provenance. They do not establish project-wide conventions or behavior in other applications.\n\n## Review the affected data and refresh choice\n\nThe checked mutation hooks use distinct mechanisms:\n\n| Checked hook | Refresh initiated in its success handler | Caller callback |\n| --- | --- | --- |\n| [useCreateComment](../../apps/react-vite/src/features/comments/api/create-comment.ts) | Calls `invalidateQueries` with the query key from `getInfiniteCommentsQueryOptions(discussionId)`; the [checked comments options](../../apps/react-vite/src/features/comments/api/get-comments.ts) define that key as `['comments', discussionId]`. | Invokes the supplied `onSuccess` afterward. |\n| [useUpdateDiscussion](../../apps/react-vite/src/features/discussions/api/update-discussion.ts) | Calls `refetchQueries` with the query key obtained from `getDiscussionQueryOptions(data.id)`. | Invokes the supplied `onSuccess` afterward. |\n| [useUpdateProfile](../../apps/react-vite/src/features/users/api/update-profile.ts) | Calls `refetchUser`, obtained from `useUser`, for the authenticated user. | Invokes the supplied `onSuccess` afterward. |\n\nDiscussion-query refetching and authenticated-user refetching are counterexamples to treating comments invalidation as a universal refresh mechanism. The omitted discussion-options and authentication implementations do not establish further key details or refresh guarantees.\n\n**Review suggestion:** Identify which data a proposed change affects and why its refresh mechanism fits the feature's requirements. These examples alone do not justify standardizing all hooks on one mechanism.\n\n## Separate initiation from completion\n\nIn all three checked mutation success handlers, the refresh call appears before the caller's `onSuccess` invocation. None of these handlers awaits the refresh call. Initiating refresh first therefore does not establish that refresh has completed, or that fresh data is available, when the caller callback runs.\n\n**Review suggestion:** Clarify whether caller behavior depends on starting refresh or on completed refresh. If completion matters, seek requirements and evidence for that guarantee rather than inferring it from statement order. Intended completion guarantees, runtime failure behavior, and caller expectations remain unknown; this supplement does not prescribe an implementation change.\n\n## Check accepted configuration against consumption\n\nIn [useInfiniteComments](../../apps/react-vite/src/features/comments/api/get-comments.ts), `UseCommentsOptions` contains an optional `queryConfig` property. The hook destructures only `discussionId` and passes the generated infinite-query options to `useInfiniteQuery`; it does not consume or forward `queryConfig`.\n\nAn accepted property in this options type is therefore not evidence that its configuration takes effect. Whether this mismatch is intentional remains unresolved. The supplied evidence does not establish automatic forwarding, an intentional API restriction, or a mandated repair.\n\n**Review suggestion:** Compare configuration a caller expects to influence the query with the properties the hook actually consumes. Resolve the intended contract before proposing forwarding, removal, or another change; none is required by these observations.\n\n## Authority and change boundaries\n\nThese review suggestions do not authorize implementation or replace [project guidance](../../AGENTS.md). The previously identified workflow and generator discrepancies remain unresolved at that original authority.\n\nNative OpenSpec controls remain at their original paths: [exploration](../../.agents/skills/openspec-explore/SKILL.md), [pl",
+            "after": "# React Vite API cache review guidance\n\nFor implementers and reviewers working on the four checked hooks below, this supplement addresses refresh choices, caller callbacks, and infinite-query configuration. [API Layer](../api-layer.md) remains the existing authority for request declarations; its resolved guidance is not repeated here.\n\nThese findings are bounded local patterns. Independent implementation provenance has not been established, and repeated scaffolding does not establish a project convention. They do not establish behavior for unchecked hooks or other applications.\n\n## Refresh choices and caller callbacks\n\n| Checked mutation hook | Refresh initiated in its success handler | Caller callback |\n| --- | --- | --- |\n| [useCreateComment](../../apps/react-vite/src/features/comments/api/create-comment.ts) | Calls `invalidateQueries` with the query key from `getInfiniteCommentsQueryOptions(discussionId)`. The [checked comments options](../../apps/react-vite/src/features/comments/api/get-comments.ts) use `['comments', discussionId]`. | Invokes the supplied `onSuccess` afterward with the handler arguments. |\n| [useUpdateDiscussion](../../apps/react-vite/src/features/discussions/api/update-discussion.ts) | Calls `refetchQueries` with the query key from `getDiscussionQueryOptions(data.id)`. The helper body is not supplied here. | Invokes the supplied `onSuccess` afterward with `data` and the remaining arguments. |\n| [useUpdateProfile](../../apps/react-vite/src/features/users/api/update-profile.ts) | Calls `refetchUser`, obtained from `useUser().refetch`. The authentication helper body is unavailable. | Invokes the supplied `onSuccess` afterward with the handler arguments. |\n\nThe discussion and profile examples are counterexamples to treating comment invalidation as a universal refresh mechanism. Each checked mutation extracts the caller's `onSuccess` and invokes it from its own success handler after initiating the listed refresh.\n\n**Initiation order is not completion order.** None of these three hooks awaits its refresh call. Their bodies therefore do not establish that refreshed data is available when the caller callback runs. Intended refresh guarantees and implementation intent remain unknown.\n\nReview suggestions, rather than existing project rules:\n\n- Identify the affected data and the actual refresh mechanism for the hook under review; avoid copying a mechanism solely because another checked hook uses it.\n- Check whether caller behavior depends on refresh initiation or refresh completion. If completion matters, seek evidence for that guarantee rather than inferring it from callback placement.\n- When reviewing callback composition, compare the caller's required arguments and timing with the checked handler. The examples alone do not authorize changing either contract.\n\n## Infinite-comments configuration\n\nIn [useInfiniteComments](../../apps/react-vite/src/features/comments/api/get-comments.ts), `UseCommentsOptions` contains an optional `queryConfig` property, but the hook destructures only `discussionId`. Its `useInfiniteQuery` call spreads the options returned by `getInfiniteCommentsQueryOptions(discussionId)` and does not consume or forward `queryConfig`.\n\nAcceptance by the options type does not establish runtime forwarding. Whether the omission is intentional remains unresolved. The supplied body establishes neither an intentional design choice nor a mandated repair.\n\nReview suggestion: trace any configuration a caller expects to affect the query through to the actual query options. If a caller depends on `queryConfig`, clarify the intended contract before proposing a change. Forwarding configuration, changing the accepted type, and retaining the current behavior are decisions requiring further context; this supplement selects none of them.\n\n## Evidence limits and native gates\n\nThe observations above are limited to the four linked hook files. Omitted callers, tests, shared configuration, authentication helpers, and depen"
+          },
+          {
+            "logicalId": "codex:change-prepare",
+            "target": ".agents/skills/change-prepare/SKILL.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "1f3328c0795f04a2df047b46a787af3ef99e5c45d03a02e74c3b89facb0092e7"
+          },
+          {
+            "logicalId": "codex:change-prepare:context",
+            "target": ".agents/skills/change-prepare/references/project.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "dbb3430d3a5e1a3045fa2a1ba359c8b3f20e4d84b609e6fdcccb87f6ffdaa361"
+          },
+          {
+            "logicalId": "codex:change-deliver",
+            "target": ".agents/skills/change-deliver/SKILL.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "5e2cfeb2e46044f287f87fe5288c496f08ad3c34a10f512422df012dde39c2bc"
+          },
+          {
+            "logicalId": "codex:change-deliver:context",
+            "target": ".agents/skills/change-deliver/references/project.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "9d040070accd3e8873190d398a62a9cb3fbbd04c6e7ca7cf04e6967a7feb68ad"
+          },
+          {
+            "logicalId": "entry:AGENTS.md",
+            "target": "AGENTS.md",
+            "ownership": {
+              "kind": "block",
+              "start": "<!-- rigup:start -->",
+              "end": "<!-- rigup:end -->"
+            },
+            "action": "keep",
+            "observedDigest": "813060eb780724c7ad56fac0db9c26c53fd6c169ec1c77809ce2bf3b42419d27"
+          }
+        ],
+        "blockers": [],
+        "operations": [],
+        "warnings": [
+          "apps/react-vite/mock-server.ts: unreadable or denied by policy",
+          "apps/react-vite/public/favicon.ico: unreadable or denied by policy",
+          "apps/react-vite/public/logo192.png: unreadable or denied by policy",
+          "apps/react-vite/public/logo512.png: unreadable or denied by policy",
+          "apps/react-vite/public/mockServiceWorker.js: unreadable or denied by policy",
+          "apps/react-vite/src/config/paths.ts: unreadable or denied by policy",
+          "apps/react-vite/src/lib/api-client.ts: unreadable or denied by policy",
+          "apps/react-vite/src/lib/auth.tsx: unreadable or denied by policy",
+          "apps/react-vite/src/lib/authorization.tsx: unreadable or denied by policy",
+          "apps/react-vite/src/testing/data-generators.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/db.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/handlers/auth.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/utils.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/test-utils.tsx: unreadable or denied by policy",
+          "docs/assets/unidirectional-codebase.png: unreadable or denied by policy",
+          "openwiki: binary 0.7.3 availability and native connection pending",
+          "openwiki: reuse receipted project installation 0.7.3",
+          "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+          "codegraph: binary 1.6.2 availability and native connection pending",
+          "codegraph: reuse receipted project installation 1.6.2",
+          "codegraph: verified native initialization reused"
+        ],
+        "exitCode": 3
+      }
+    },
+    {
+      "label": "02-apply",
+      "args": [
+        "update",
+        "/private/tmp/rigup-context-e2e-z2Q0V6/frontend",
+        "--apply",
+        "f918a775ebcd6b77b3a72112f1aef2abec9da674f83f5596376d1cc56d0a3888",
+        "--sessions-ended",
+        "--resume",
+        "--json"
+      ],
+      "code": 0,
+      "data": {
+        "phase": "apply",
+        "installStatus": "complete",
+        "checks": [],
+        "pending": [],
+        "conflicts": [],
+        "requiredInput": [],
+        "nextCommand": null,
+        "status": "complete",
+        "exitCode": 0,
+        "previewId": "f918a775ebcd6b77b3a72112f1aef2abec9da674f83f5596376d1cc56d0a3888",
+        "written": [
+          "docs/rigup/react-vite-api-cache-review.md"
+        ],
+        "operations": [],
+        "warnings": [
+          "apps/react-vite/mock-server.ts: unreadable or denied by policy",
+          "apps/react-vite/public/favicon.ico: unreadable or denied by policy",
+          "apps/react-vite/public/logo192.png: unreadable or denied by policy",
+          "apps/react-vite/public/logo512.png: unreadable or denied by policy",
+          "apps/react-vite/public/mockServiceWorker.js: unreadable or denied by policy",
+          "apps/react-vite/src/config/paths.ts: unreadable or denied by policy",
+          "apps/react-vite/src/lib/api-client.ts: unreadable or denied by policy",
+          "apps/react-vite/src/lib/auth.tsx: unreadable or denied by policy",
+          "apps/react-vite/src/lib/authorization.tsx: unreadable or denied by policy",
+          "apps/react-vite/src/testing/data-generators.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/db.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/handlers/auth.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/utils.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/test-utils.tsx: unreadable or denied by policy",
+          "docs/assets/unidirectional-codebase.png: unreadable or denied by policy",
+          "openwiki: binary 0.7.3 availability and native connection pending",
+          "openwiki: reuse receipted project installation 0.7.3",
+          "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+          "codegraph: binary 1.6.2 availability and native connection pending",
+          "codegraph: reuse receipted project installation 1.6.2",
+          "codegraph: verified native initialization reused",
+          "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+        ]
+      }
+    },
+    {
+      "label": "03-unchanged",
+      "args": [
+        "update",
+        "/private/tmp/rigup-context-e2e-z2Q0V6/frontend",
+        "--dry-run",
+        "--sessions-ended",
+        "--json"
+      ],
+      "code": 0,
+      "data": {
+        "phase": "preview",
+        "installStatus": "not-installed",
+        "checks": [],
+        "pending": [],
+        "conflicts": [],
+        "requiredInput": [],
+        "nextCommand": null,
+        "previewId": "aa093aaecfdeda592309f88ec49712083a455261d64611ac8c76da9e3a783879",
+        "root": "/private/tmp/rigup-context-e2e-z2Q0V6/frontend",
+        "executable": true,
+        "runChecks": [],
+        "items": [
+          {
+            "logicalId": "mcp-runner:openwiki-codex",
+            "target": ".rigup/mcp/openwiki-codex.mjs",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "57f5e3a69c50af71733b2d6681c9e6aec569538724abf70ad198165b1e62650c"
+          },
+          {
+            "logicalId": "mcp:codex:openwiki",
+            "target": ".codex/config.toml",
+            "ownership": {
+              "kind": "toml-table",
+              "path": [
+                "mcp_servers",
+                "openwiki"
+              ]
+            },
+            "action": "keep",
+            "observedDigest": "3ad5f1508004fa904bf578139a2461c3d9d67acfcb2a3e6ffe9e62a2e4717537"
+          },
+          {
+            "logicalId": "mcp-runner:codegraph-codex",
+            "target": ".rigup/mcp/codegraph-codex.mjs",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "b7a680d5c423f78e27c6cca524071e0bc13a8b09d63af7c09c6b959cb8e30e62"
+          },
+          {
+            "logicalId": "mcp:codex:codegraph",
+            "target": ".codex/config.toml",
+            "ownership": {
+              "kind": "toml-table",
+              "path": [
+                "mcp_servers",
+                "codegraph"
+              ]
+            },
+            "action": "keep",
+            "observedDigest": "3ad5f1508004fa904bf578139a2461c3d9d67acfcb2a3e6ffe9e62a2e4717537"
+          },
+          {
+            "logicalId": "react-vite-api-cache-review",
+            "target": "docs/rigup/react-vite-api-cache-review.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "0afd8b93ef975aac5baa6deb0d2d63336d01ba11c4e7a52b634447687daa2932"
+          },
+          {
+            "logicalId": "codex:change-prepare",
+            "target": ".agents/skills/change-prepare/SKILL.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "1f3328c0795f04a2df047b46a787af3ef99e5c45d03a02e74c3b89facb0092e7"
+          },
+          {
+            "logicalId": "codex:change-prepare:context",
+            "target": ".agents/skills/change-prepare/references/project.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "dbb3430d3a5e1a3045fa2a1ba359c8b3f20e4d84b609e6fdcccb87f6ffdaa361"
+          },
+          {
+            "logicalId": "codex:change-deliver",
+            "target": ".agents/skills/change-deliver/SKILL.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "5e2cfeb2e46044f287f87fe5288c496f08ad3c34a10f512422df012dde39c2bc"
+          },
+          {
+            "logicalId": "codex:change-deliver:context",
+            "target": ".agents/skills/change-deliver/references/project.md",
+            "ownership": {
+              "kind": "file"
+            },
+            "action": "keep",
+            "observedDigest": "9d040070accd3e8873190d398a62a9cb3fbbd04c6e7ca7cf04e6967a7feb68ad"
+          },
+          {
+            "logicalId": "entry:AGENTS.md",
+            "target": "AGENTS.md",
+            "ownership": {
+              "kind": "block",
+              "start": "<!-- rigup:start -->",
+              "end": "<!-- rigup:end -->"
+            },
+            "action": "keep",
+            "observedDigest": "813060eb780724c7ad56fac0db9c26c53fd6c169ec1c77809ce2bf3b42419d27"
+          }
+        ],
+        "blockers": [],
+        "operations": [],
+        "warnings": [
+          "apps/react-vite/mock-server.ts: unreadable or denied by policy",
+          "apps/react-vite/public/favicon.ico: unreadable or denied by policy",
+          "apps/react-vite/public/logo192.png: unreadable or denied by policy",
+          "apps/react-vite/public/logo512.png: unreadable or denied by policy",
+          "apps/react-vite/public/mockServiceWorker.js: unreadable or denied by policy",
+          "apps/react-vite/src/config/paths.ts: unreadable or denied by policy",
+          "apps/react-vite/src/lib/api-client.ts: unreadable or denied by policy",
+          "apps/react-vite/src/lib/auth.tsx: unreadable or denied by policy",
+          "apps/react-vite/src/lib/authorization.tsx: unreadable or denied by policy",
+          "apps/react-vite/src/testing/data-generators.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/db.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/handlers/auth.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/utils.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/test-utils.tsx: unreadable or denied by policy",
+          "docs/assets/unidirectional-codebase.png: unreadable or denied by policy",
+          "openwiki: binary 0.7.3 availability and native connection pending",
+          "openwiki: reuse receipted project installation 0.7.3",
+          "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+          "codegraph: binary 1.6.2 availability and native connection pending",
+          "codegraph: reuse receipted project installation 1.6.2",
+          "codegraph: verified native initialization reused"
+        ],
+        "exitCode": 0
+      }
+    },
+    {
+      "label": "04-unchanged-apply",
+      "args": [
+        "update",
+        "/private/tmp/rigup-context-e2e-z2Q0V6/frontend",
+        "--apply",
+        "aa093aaecfdeda592309f88ec49712083a455261d64611ac8c76da9e3a783879",
+        "--sessions-ended",
+        "--json"
+      ],
+      "code": 0,
+      "data": {
+        "phase": "apply",
+        "installStatus": "complete",
+        "checks": [],
+        "pending": [],
+        "conflicts": [],
+        "requiredInput": [],
+        "nextCommand": null,
+        "status": "complete",
+        "exitCode": 0,
+        "previewId": "aa093aaecfdeda592309f88ec49712083a455261d64611ac8c76da9e3a783879",
+        "written": [],
+        "operations": [],
+        "warnings": [
+          "apps/react-vite/mock-server.ts: unreadable or denied by policy",
+          "apps/react-vite/public/favicon.ico: unreadable or denied by policy",
+          "apps/react-vite/public/logo192.png: unreadable or denied by policy",
+          "apps/react-vite/public/logo512.png: unreadable or denied by policy",
+          "apps/react-vite/public/mockServiceWorker.js: unreadable or denied by policy",
+          "apps/react-vite/src/config/paths.ts: unreadable or denied by policy",
+          "apps/react-vite/src/lib/api-client.ts: unreadable or denied by policy",
+          "apps/react-vite/src/lib/auth.tsx: unreadable or denied by policy",
+          "apps/react-vite/src/lib/authorization.tsx: unreadable or denied by policy",
+          "apps/react-vite/src/testing/data-generators.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/db.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/handlers/auth.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/mocks/utils.ts: unreadable or denied by policy",
+          "apps/react-vite/src/testing/test-utils.tsx: unreadable or denied by policy",
+          "docs/assets/unidirectional-codebase.png: unreadable or denied by policy",
+          "openwiki: binary 0.7.3 availability and native connection pending",
+          "openwiki: reuse receipted project installation 0.7.3",
+          "OpenWiki initialization is a separate task after scaffolding: reload the selected coding agent in this project and ask it to initialize the repository wiki with OpenWiki MCP, starting at openwiki_begin (mode=init) and continuing its native page lifecycle. Resume saved progress if interrupted. Wiki generation can take a long time; scaffold setup does not run or wait for it.",
+          "codegraph: binary 1.6.2 availability and native connection pending",
+          "codegraph: reuse receipted project installation 1.6.2",
+          "codegraph: verified native initialization reused",
+          "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+        ]
+      }
+    }
+  ],
+  "historicalReport": "bulletproof-semantic-e2e.json",
+  "limits": {
+    "maxCalls": 12,
+    "maxTokens": 1200000
+  },
+  "notes": [
+    "Unchanged analysis/planning reused; content and independent acceptance regenerated for the expanded authority contract.",
+    "Original responses, case, run identity, known consumption and historical report remain unchanged."
+  ],
+  "requests": [
+    {
+      "requestId": "4e78a4dff71aee93b6535a583c6fb5167f63cd2543855c350db6744d09d7b97e",
+      "stage": "acceptance",
+      "policy": "stage-evidence-v2",
+      "bytes": 273991,
+      "evidenceFiles": 27,
+      "evidenceChars": 174031,
+      "selection": {
+        "stage": "acceptance",
+        "selectionDigest": "03e9c8e53853d440efae7ecaa823d84b19f61b5d40a859d40ff3345b9f96fd53",
+        "unavailable": []
+      },
+      "sourceRefs": [
+        {
+          "path": ".agents/skills/openspec-apply-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 207,
+          "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+        },
+        {
+          "path": ".agents/skills/openspec-archive-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 222,
+          "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+        },
+        {
+          "path": ".agents/skills/openspec-explore/SKILL.md",
+          "startLine": 1,
+          "endLine": 357,
+          "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+        },
+        {
+          "path": ".agents/skills/openspec-propose/SKILL.md",
+          "startLine": 1,
+          "endLine": 176,
+          "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+        },
+        {
+          "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+          "startLine": 1,
+          "endLine": 291,
+          "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+        },
+        {
+          "path": ".agents/skills/openspec-update-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 110,
+          "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+        },
+        {
+          "path": "AGENTS.md",
+          "startLine": 1,
+          "endLine": 290,
+          "digest": "c41df5e56f03f72955792360cb9d40d634c01f2848b38792c919a6a81f001013"
+        },
+        {
+          "path": "AGENTS.md",
+          "startLine": 1,
+          "endLine": 334,
+          "digest": "811d18c39588b1409f18f2aa77fd6d715174d733fc4f2f8c9e11cd4118073bab"
+        },
+        {
+          "path": "apps/react-vite/generators/component/index.cjs",
+          "startLine": 1,
+          "endLine": 57,
+          "digest": "3c1f58fc5b28758729f58c7ba5f4e5f884aadb4582ea2b661c962db99c28b8cd"
+        },
+        {
+          "path": "apps/react-vite/package.json",
+          "startLine": 1,
+          "endLine": 124,
+          "digest": "770724c0d08c5f7a84e0f38a2eeeb269bc959672458c4f60d4ef396abde8bae5"
+        },
+        {
+          "path": "apps/react-vite/README.md",
+          "startLine": 1,
+          "endLine": 31,
+          "digest": "b89da69e863028c9c21756199d9a1757c30bc5518b44b0e60bd053eb178a2757"
+        },
+        {
+          "path": "apps/react-vite/src/features/comments/api/create-comment.ts",
+          "startLine": 1,
+          "endLine": 49,
+          "digest": "5c3e33f6b02902ec596f1155200f6cc97a62ec80a878fb05b7e55aed492d1435"
+        },
+        {
+          "path": "apps/react-vite/src/features/comments/api/get-comments.ts",
+          "startLine": 1,
+          "endLine": 48,
+          "digest": "c5b2e72211e833de56f07b6ec176bc2b91cbb36da4838aed574b227c9dbe6de2"
+        },
+        {
+          "path": "apps/react-vite/src/features/discussions/api/update-discussion.ts",
+          "startLine": 1,
+          "endLine": 49,
+          "digest": "a926b792424a6a248b9fe7adeb820b9ca8fb664a8cf082e1386f9d352a7294f0"
+        },
+        {
+          "path": "apps/react-vite/src/features/users/api/update-profile.ts",
+          "startLine": 1,
+          "endLine": 41,
+          "digest": "a84fabc2fcbc3a59ae51eed7fe1e3969f18b970a8eba63c0b24007f556f949fa"
+        },
+        {
+          "path": "apps/react-vite/src/testing/mocks/handlers/comments.ts",
+          "startLine": 1,
+          "endLine": 132,
+          "digest": "4c8567ebe26c5b1b0341611745a2416ccaf843bca5e4429904684a6bdd688435"
+        },
+        {
+          "path": "docs/api-layer.md",
+          "startLine": 1,
+          "endLine": 24,
+          "digest": "417207ad44993d1d40963a1ae453da6638ba766e96a5a3301b660a7c1c1be071"
+        },
+        {
+          "path": "docs/application-overview.md",
+          "startLine": 1,
+          "endLine": 37,
+          "digest": "9df39f30657d0622b9f876ec528d915cdff9a5b9d98d96e17018232f0503ad46"
+        },
+        {
+          "path": "docs/components-and-styling.md",
+          "startLine": 1,
+          "endLine": 106,
+          "digest": "9e709cd7d8e33ee20f67cdace2723ed2672c8c69303fc4109bd6cfe167f9a94d"
+        },
+        {
+          "path": "docs/error-handling.md",
+          "startLine": 1,
+          "endLine": 18,
+          "digest": "ea971fe3e40954889ed1bbd3fa15c093ab3436fd121cd3646bb5b300667ce059"
+        },
+        {
+          "path": "docs/performance.md",
+          "startLine": 1,
+          "endLine": 96,
+          "digest": "72b77b6a7cfe2041a297549d628cdd55bc10512eb928f28b39f7421d52b3a51a"
+        },
+        {
+          "path": "docs/project-standards.md",
+          "startLine": 1,
+          "endLine": 78,
+          "digest": "23ecaf538bdc2fac1b947d2293fb415535ad9eabdb4e22c7671f5d9faa728b5c"
+        },
+        {
+          "path": "docs/project-structure.md",
+          "startLine": 1,
+          "endLine": 146,
+          "digest": "4457a40bab2bace057cf48f17f50922378e423a41e21c2d1bb5391d4c1be8452"
+        },
+        {
+          "path": "docs/security.md",
+          "startLine": 1,
+          "endLine": 56,
+          "digest": "9ca44fe0ef5b91fcddf32712afb632e9dde0f8e215fdb2b66d47b79916ad873e"
+        },
+        {
+          "path": "docs/state-management.md",
+          "startLine": 1,
+          "endLine": 75,
+          "digest": "8959673b2383560c33b29e8318d62633e1ed9f50a18b7695838edf2c3a0afc64"
+        },
+        {
+          "path": "docs/testing.md",
+          "startLine": 1,
+          "endLine": 54,
+          "digest": "f963db6de54f2b776cd793b949002fe04d94873ddbee7eed7bcfc5d88960987e"
+        },
+        {
+          "path": "package.json",
+          "startLine": 1,
+          "endLine": 12,
+          "digest": "52a58a1a0e0a597a93c9cfe9284d7296ad5c00723f29e03244a16c053db81dc4"
+        },
+        {
+          "path": "README.md",
+          "startLine": 1,
+          "endLine": 76,
+          "digest": "a471baa55ada446cc8727b0017caf7b03b3b5acbded3e41e5ef9a64e923fa281"
+        }
+      ]
+    },
+    {
+      "requestId": "bcabbe561e5fe06759f3da3a19fb01efa281a3f3651cdc8c5b781d994b8c442e",
+      "stage": "content",
+      "policy": "stage-evidence-v2",
+      "bytes": 269150,
+      "evidenceFiles": 27,
+      "evidenceChars": 174031,
+      "selection": {
+        "stage": "content",
+        "selectionDigest": "03e9c8e53853d440efae7ecaa823d84b19f61b5d40a859d40ff3345b9f96fd53",
+        "unavailable": [
+          "Authority scope unresolved for OpenSpec archive gates; retained for review without assuming global applicability",
+          "Authority scope unresolved for OpenSpec exploration gates; retained for review without assuming global applicability",
+          "Authority scope unresolved for OpenSpec implementation; retained for review without assuming global applicability",
+          "Authority scope unresolved for OpenSpec planning revisions; retained for review without assuming global applicability",
+          "Authority scope unresolved for OpenSpec proposal boundary; retained for review without assuming global applicability",
+          "Authority scope unresolved for OpenSpec synchronization; retained for review without assuming global applicability"
+        ]
+      },
+      "sourceRefs": [
+        {
+          "path": ".agents/skills/openspec-apply-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 207,
+          "digest": "c190210594f5b0c6b76f1b23d8ea261f94987adeed727ac0864b732ef7cdea75"
+        },
+        {
+          "path": ".agents/skills/openspec-archive-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 222,
+          "digest": "c3df5c96f8e829ed16952689de041d215b7d5749b0b261b1531c685d4ee68bed"
+        },
+        {
+          "path": ".agents/skills/openspec-explore/SKILL.md",
+          "startLine": 1,
+          "endLine": 357,
+          "digest": "0c97108351cff3bc0b84b53c173cfa6615b5fbcb67742140940bd7f2858e6231"
+        },
+        {
+          "path": ".agents/skills/openspec-propose/SKILL.md",
+          "startLine": 1,
+          "endLine": 176,
+          "digest": "3649c686b6afa5743998ae468cae29d343726fb5f27b657fc8bdd66b5a4ea1de"
+        },
+        {
+          "path": ".agents/skills/openspec-sync-specs/SKILL.md",
+          "startLine": 1,
+          "endLine": 291,
+          "digest": "6f951016a31d8400669573a1d154bb7275b71aee31e0891b1565c942b0df4a4f"
+        },
+        {
+          "path": ".agents/skills/openspec-update-change/SKILL.md",
+          "startLine": 1,
+          "endLine": 110,
+          "digest": "06eec5a4cc52f1ec436cdde3a0207b1ceafc3f1d8c7f6cbb853f3f648c0dbbee"
+        },
+        {
+          "path": "AGENTS.md",
+          "startLine": 1,
+          "endLine": 290,
+          "digest": "c41df5e56f03f72955792360cb9d40d634c01f2848b38792c919a6a81f001013"
+        },
+        {
+          "path": "AGENTS.md",
+          "startLine": 1,
+          "endLine": 334,
+          "digest": "811d18c39588b1409f18f2aa77fd6d715174d733fc4f2f8c9e11cd4118073bab"
+        },
+        {
+          "path": "apps/react-vite/generators/component/index.cjs",
+          "startLine": 1,
+          "endLine": 57,
+          "digest": "3c1f58fc5b28758729f58c7ba5f4e5f884aadb4582ea2b661c962db99c28b8cd"
+        },
+        {
+          "path": "apps/react-vite/package.json",
+          "startLine": 1,
+          "endLine": 124,
+          "digest": "770724c0d08c5f7a84e0f38a2eeeb269bc959672458c4f60d4ef396abde8bae5"
+        },
+        {
+          "path": "apps/react-vite/README.md",
+          "startLine": 1,
+          "endLine": 31,
+          "digest": "b89da69e863028c9c21756199d9a1757c30bc5518b44b0e60bd053eb178a2757"
+        },
+        {
+          "path": "apps/react-vite/src/features/comments/api/create-comment.ts",
+          "startLine": 1,
+          "endLine": 49,
+          "digest": "5c3e33f6b02902ec596f1155200f6cc97a62ec80a878fb05b7e55aed492d1435"
+        },
+        {
+          "path": "apps/react-vite/src/features/comments/api/get-comments.ts",
+          "startLine": 1,
+          "endLine": 48,
+          "digest": "c5b2e72211e833de56f07b6ec176bc2b91cbb36da4838aed574b227c9dbe6de2"
+        },
+        {
+          "path": "apps/react-vite/src/features/discussions/api/update-discussion.ts",
+          "startLine": 1,
+          "endLine": 49,
+          "digest": "a926b792424a6a248b9fe7adeb820b9ca8fb664a8cf082e1386f9d352a7294f0"
+        },
+        {
+          "path": "apps/react-vite/src/features/users/api/update-profile.ts",
+          "startLine": 1,
+          "endLine": 41,
+          "digest": "a84fabc2fcbc3a59ae51eed7fe1e3969f18b970a8eba63c0b24007f556f949fa"
+        },
+        {
+          "path": "apps/react-vite/src/testing/mocks/handlers/comments.ts",
+          "startLine": 1,
+          "endLine": 132,
+          "digest": "4c8567ebe26c5b1b0341611745a2416ccaf843bca5e4429904684a6bdd688435"
+        },
+        {
+          "path": "docs/api-layer.md",
+          "startLine": 1,
+          "endLine": 24,
+          "digest": "417207ad44993d1d40963a1ae453da6638ba766e96a5a3301b660a7c1c1be071"
+        },
+        {
+          "path": "docs/application-overview.md",
+          "startLine": 1,
+          "endLine": 37,
+          "digest": "9df39f30657d0622b9f876ec528d915cdff9a5b9d98d96e17018232f0503ad46"
+        },
+        {
+          "path": "docs/components-and-styling.md",
+          "startLine": 1,
+          "endLine": 106,
+          "digest": "9e709cd7d8e33ee20f67cdace2723ed2672c8c69303fc4109bd6cfe167f9a94d"
+        },
+        {
+          "path": "docs/error-handling.md",
+          "startLine": 1,
+          "endLine": 18,
+          "digest": "ea971fe3e40954889ed1bbd3fa15c093ab3436fd121cd3646bb5b300667ce059"
+        },
+        {
+          "path": "docs/performance.md",
+          "startLine": 1,
+          "endLine": 96,
+          "digest": "72b77b6a7cfe2041a297549d628cdd55bc10512eb928f28b39f7421d52b3a51a"
+        },
+        {
+          "path": "docs/project-standards.md",
+          "startLine": 1,
+          "endLine": 78,
+          "digest": "23ecaf538bdc2fac1b947d2293fb415535ad9eabdb4e22c7671f5d9faa728b5c"
+        },
+        {
+          "path": "docs/project-structure.md",
+          "startLine": 1,
+          "endLine": 146,
+          "digest": "4457a40bab2bace057cf48f17f50922378e423a41e21c2d1bb5391d4c1be8452"
+        },
+        {
+          "path": "docs/security.md",
+          "startLine": 1,
+          "endLine": 56,
+          "digest": "9ca44fe0ef5b91fcddf32712afb632e9dde0f8e215fdb2b66d47b79916ad873e"
+        },
+        {
+          "path": "docs/state-management.md",
+          "startLine": 1,
+          "endLine": 75,
+          "digest": "8959673b2383560c33b29e8318d62633e1ed9f50a18b7695838edf2c3a0afc64"
+        },
+        {
+          "path": "docs/testing.md",
+          "startLine": 1,
+          "endLine": 54,
+          "digest": "f963db6de54f2b776cd793b949002fe04d94873ddbee7eed7bcfc5d88960987e"
+        },
+        {
+          "path": "package.json",
+          "startLine": 1,
+          "endLine": 12,
+          "digest": "52a58a1a0e0a597a93c9cfe9284d7296ad5c00723f29e03244a16c053db81dc4"
+        },
+        {
+          "path": "README.md",
+          "startLine": 1,
+          "endLine": 76,
+          "digest": "a471baa55ada446cc8727b0017caf7b03b3b5acbded3e41e5ef9a64e923fa281"
+        }
+      ]
+    }
+  ],
+  "after": {
+    "cdec162400df9e616218b8f6192f252f8907b1c86e37294c194a962e10df482a.usage.json": {
+      "attempts": {
+        "6fa1efbda0922a1e6a9782a554e2646749d764e6ed8bda85db2172c6e3c4aeec": {
+          "status": "observed",
+          "tokens": 136166
+        },
+        "20c16627ab0c116e9af4873edd13166b39f081c2386ca38580566d50e228bd07": {
+          "status": "observed",
+          "tokens": 77006
+        },
+        "b81b104358cc3dfa4714727955566553f7b629d8623b9c5929cb9679026a5a22": {
+          "status": "observed",
+          "tokens": 66346
+        },
+        "046df695e638f15d13251677e79160030921984dbe7e509fbab42e80b5cf586f": {
+          "status": "observed",
+          "tokens": 61535
+        },
+        "bcabbe561e5fe06759f3da3a19fb01efa281a3f3651cdc8c5b781d994b8c442e": {
+          "status": "observed",
+          "tokens": 81429
+        },
+        "4e78a4dff71aee93b6535a583c6fb5167f63cd2543855c350db6744d09d7b97e": {
+          "status": "observed",
+          "tokens": 77272
+        }
+      }
+    }
+  },
+  "actualModelCalls": 6,
+  "actualObservedTokens": 499754,
+  "newModelCalls": 2,
+  "newObservedTokens": 158701,
+  "unchangedModelCalls": 0,
+  "unchangedWritten": 0,
+  "localNoteProtected": true,
+  "finishedAt": "2026-11-04T19:51:40.074Z"
+}

@@ -44,4 +44,4 @@
 
 - [x] Prepare a fresh pinned clone, official OpenSpec and identical options. Reuse unchanged frozen dependencies/browser downloads. Extend live test assertions for policy, current-job source/gates, exact snippets and later-stage evidence <=65% of analyze. Run real installed CLI with default Codex, independent apply, unchanged update and user-note protection; expected all pass within 12/1200000.
 - [x] Recheck source/native preservation, actual Codex MCP query, app build, 21 Vitest and 3 original Chromium cases. Stop test services. Archive actual measurements, tokens and comparison with the preserved prior round.
-- [ ] Run typecheck/build/full suite/pack, commit evidence, use task-done. Perform one fresh final review; fix Critical/Important once with RED→GREEN and full green suite, archive rulings, delete only this plan's scratch, retain branch/worktree.
+- [x] Run typecheck/build/full suite/pack, commit evidence, use task-done. Perform one fresh final review; fix Critical/Important once with RED→GREEN and full green suite, archive rulings, delete only this plan's scratch, retain branch/worktree.

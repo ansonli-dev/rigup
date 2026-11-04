@@ -1,0 +1,131 @@
+{
+  "status": "verified-fixed",
+  "reviewer": {
+    "agent": "stage_context_final_review",
+    "model": "gpt-6-astra",
+    "reasoning": "high",
+    "freshContext": true,
+    "readOnly": true,
+    "reviews": 1,
+    "rereviews": 0
+  },
+  "range": {
+    "base": "0214ffdb147e5747361fe796b8e1f09422793dc8",
+    "head": "3fb81ab",
+    "increment": "c703d7a..3fb81ab"
+  },
+  "reviewerAssessment": "With fixes",
+  "fixCommit": "0bedd50726265bbd4f568ac508e1074124551f2c",
+  "critical": [],
+  "important": [
+    {
+      "id": "scope-applicability",
+      "location": "src/analyzer/stage-context.ts:84",
+      "problem": "Root and current/connected output-directory scopes could lose explicit rules or unavailable authority.",
+      "status": "fixed",
+      "resolution": "Normalize scopes, recognize repository root, consider source and output locations, and conservatively retain unresolved scopes with disclosure."
+    },
+    {
+      "id": "reusable-partial-authority",
+      "location": "src/analyzer/stage-context.ts:87",
+      "problem": "Applicable reusable/partial guidance required a redundant observation or job reference.",
+      "status": "fixed",
+      "resolution": "Preserve applicable authority of all statuses with its exact source ranges."
+    }
+  ],
+  "coordinatorFix": {
+    "problem": "Previously accepted candidates could skip the expanded authority contract.",
+    "status": "fixed",
+    "resolution": "Version artifact evidence contracts; regenerate candidate bytes and independent acceptance without resetting plan/run/charges/retries. Rebind installed inventory for same-target/ownership update and preview resume.",
+    "tests": [
+      "artifact context upgrades regenerate content and acceptance without resetting plan run or charges",
+      "artifact context upgrades cannot reset an exhausted cached generation budget"
+    ]
+  },
+  "minor": [],
+  "deferredMinors": [],
+  "declinedToJudge": [
+    {
+      "behavior": "Previously reviewed behavior through c703d7a",
+      "executorRuling": "Retain the earlier independent reviews and inspect interactions with this increment without repeating that review.",
+      "costIfWrong": "An unrelated legacy defect could remain undiscovered."
+    },
+    {
+      "behavior": "Uncommitted user drafts and unrelated files",
+      "executorRuling": "Preserve the user work exactly as requested; do not fold it into this implementation.",
+      "costIfWrong": "Unrelated document issues remain outside this change."
+    },
+    {
+      "behavior": "Universal reduction for broad seeds or extensively connected jobs",
+      "executorRuling": "Preserve required evidence instead of enforcing an arbitrary body cap; this case has measured reduction.",
+      "costIfWrong": "A broader task can still produce a large context and exhaust its budget."
+    },
+    {
+      "behavior": "Additional reads from rematerializing selected source",
+      "executorRuling": "Retain strict current filtered-source comparison under the same read budget.",
+      "costIfWrong": "A tight read budget may exhaust sooner."
+    },
+    {
+      "behavior": "Reviewer reexecution of live/model/network checks",
+      "executorRuling": "Keep the reviewer read-only without new paid runs; use the actual archived execution and source audit, followed by real same-run content/acceptance after fixes.",
+      "costIfWrong": "The independent reviewer relies on implementation-agent measurement rather than duplicate live execution."
+    },
+    {
+      "behavior": "Other hosts/models/platforms, Next.js, deployment and formal human approval",
+      "executorRuling": "Preserve the explicitly deferred matrix and bounded Codex/React Vite conclusion.",
+      "costIfWrong": "Those compatibility and human semantic judgments remain unverified."
+    },
+    {
+      "behavior": "Automatic OpenWiki initialization",
+      "executorRuling": "Keep wiki generation manual and pending as the user requested; scaffold only installs/connects it.",
+      "costIfWrong": "Wiki pages remain ungenerated until the separate task runs."
+    }
+  ],
+  "rulings": [
+    "Ruling: Continue inline without design/plan confirmation — the user explicitly requested continuous implementation and real rerun without intermediate confirmation — a scope mistake would require a corrective commit.",
+    "Ruling: Use deterministic evidence/topic/path selection with all relevant counterexamples, applicable instructions/native gates and disclosed unavailable bodies, rather than a model relevance filter or silent file cap — task evidence must remain independently verifiable — unselected sources remain unknown and broad explicitly requested seeds may still produce a large task context.",
+    "Ruling: Use a fresh authorized pinned-copy E2E round at the same 12/1200000 cap and preserve all prior runs and this round's attempts — the user requested rerunning the new policy — this adds a separately recorded real test round and cannot erase earlier consumption.",
+    "Ruling: Re-read selected files through the filtered reader when preparing/importing stage context instead of trusting a mutable full-project snapshot — strict comparison verifies even self-digested extra or changed cache bodies against current visible source — selected reads remain charged and can exhaust a tight read budget sooner.",
+    "Ruling: Reuse unchanged analysis/planning but regenerate content and independent acceptance when their evidence contract changes — the two findings affect artifact-stage authority, and the saved plan retains the complete source research — a future change to planning semantics would need a separate plan invalidation contract. The same original run and ledger will retain all 4 calls / 341053 tokens and charge the follow-up; no new budget round.",
+    "Final: Ruling: Previously reviewed behavior through c703d7a — Retain the earlier independent reviews and inspect interactions with this increment without repeating that review. — An unrelated legacy defect could remain undiscovered.",
+    "Final: Ruling: Uncommitted user drafts and unrelated files — Preserve the user work exactly as requested; do not fold it into this implementation. — Unrelated document issues remain outside this change.",
+    "Final: Ruling: Universal reduction for broad seeds or extensively connected jobs — Preserve required evidence instead of enforcing an arbitrary body cap; this case has measured reduction. — A broader task can still produce a large context and exhaust its budget.",
+    "Final: Ruling: Additional reads from rematerializing selected source — Retain strict current filtered-source comparison under the same read budget. — A tight read budget may exhaust sooner.",
+    "Final: Ruling: Reviewer reexecution of live/model/network checks — Keep the reviewer read-only without new paid runs; use the actual archived execution and source audit, followed by real same-run content/acceptance after fixes. — The independent reviewer relies on implementation-agent measurement rather than duplicate live execution.",
+    "Final: Ruling: Other hosts/models/platforms, Next.js, deployment and formal human approval — Preserve the explicitly deferred matrix and bounded Codex/React Vite conclusion. — Those compatibility and human semantic judgments remain unverified.",
+    "Final: Ruling: Automatic OpenWiki initialization — Keep wiki generation manual and pending as the user requested; scaffold only installs/connects it. — Wiki pages remain ungenerated until the separate task runs."
+  ],
+  "verification": {
+    "red": "review-red.txt",
+    "refreshRed": "review-refresh-disposition-red.txt",
+    "green": {
+      "report": "review-green.txt",
+      "passed": 73,
+      "failed": 0
+    },
+    "suite": {
+      "report": "review-full-tests.txt",
+      "total": 334,
+      "passed": 320,
+      "skipped": 14,
+      "failed": 0
+    },
+    "typecheck": "passed",
+    "build": "passed through npm pack prepack",
+    "packageFiles": 68,
+    "live": {
+      "initialReport": "bulletproof-semantic-e2e.json",
+      "followupReport": "review-followup-e2e.json",
+      "sameOriginalRun": true,
+      "calls": 6,
+      "tokens": 499754,
+      "budget": {
+        "maxCalls": 12,
+        "maxTokens": 1200000
+      },
+      "sourceAudit": "review-source-audit.json",
+      "snippetAudit": "review-snippet-verification.json"
+    }
+  },
+  "disposition": "Both Important findings plus cache revalidation verified in one fix pass; no Critical or Minor remains. No merge/push. Branch/worktree and user drafts retained."
+}

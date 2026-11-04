@@ -2,7 +2,7 @@
 
 更新：2026-11-05。依据 [上游核验标准](README.md)、[实施计划](../superpowers/plans/2026-11-02-rigup-implementation.md) 和 [文档生成标准](../superpowers/specs/2026-11-03-documentation-system-design.md)。所有状态绑定下列精确对象；协议解析、组件冒烟、真实模型和完整兼容分别留证。
 
-最新范围调整：OpenWiki 仅安装/接线并交接独立初始化；CodeGraph 保留受保护索引与恢复。最新本地结果为 315 passed、14 opt-in live skipped、0 failed。前端完整语义 E2E 按阶段缩减证据后以原预算通过，实际 4 请求 / 341053 token；各轮历史结果和较早初始化记录保留，见文末独立复验。
+最新范围调整：OpenWiki 仅安装/接线并交接独立初始化；CodeGraph 保留受保护索引与恢复。最新本地结果为 320 passed、14 opt-in live skipped、0 failed。前端阶段优化及权威范围修复在原运行内通过，累计 6 请求 / 499754 token，包含修复前消费；各轮历史结果保留，最终结果见文末。
 
 ## 四个独立结论
 
@@ -167,7 +167,7 @@ DDD 上游没有锁文件：npm 的 Slonik peer 依赖冲突、解析到空的 m
 
 一次独立审查发现旧版未完成运行与 v2 host 预算上下文冲突的 Important；已在同一修复轮以两项 RED→GREEN 回归修复。host 交换记录按适配器版本分开，Codex 的 root/run 持久累计预算保持原键，未知或耗尽旧消费仍阻止发送。最终本地回归 **314 项：300 passed、14 opt-in live skipped、0 failed**，类型检查、构建和 67 文件打包通过。[审查、修复及完整裁决](evidence/2026-11-05-context-budget/final-review-results.json)。修复未追加真实模型调用，前述 E2E 保留其 `67512c6` 来源绑定；未推广为其他宿主/模型或正式人工语义批准。
 
-## 按阶段缩减证据后的完整语义复验
+## 按阶段缩减证据后的初轮完整语义复验（审查前）
 
 `e9aa1e4` 的 Codex adapter 3 使用 `stage-evidence-v1`：analyze 保留有界扫描；plan 读取研究引用，content 聚焦当前 job/关联闭包，acceptance 补入候选实际链接的来源。精确片段、适用指令与原生门禁、相关支持/反例、未决冲突和未知项保留，其他正文明确未提供。原输入/选择摘要绑定请求身份；同一 root/run 的累计 Codex ledger 不变。手工 host 默认不变，OpenWiki 仍独立初始化。
 
@@ -176,3 +176,11 @@ DDD 上游没有锁文件：npm 的 Slonik peer 依赖冲突、解析到空的 m
 独立 apply、0 写入/0 新调用的无变化更新、用户说明保护、真实索引和 Codex MCP getDiscussions 查询通过；没有 OpenWiki begin。534 个原文件字节不变，AGENTS 原正文保留并仅追加托管导航，6 个原生 OpenSpec skill 未改；177 个唯一导出片段全部经实际过滤源码重新校验。[来源抽核](evidence/2026-11-05-stage-context/source-audit.json)。应用构建、21/21 Vitest、3/3 Chromium 通过，测试服务已停止；doctor 保留用户说明和独立 Wiki 的 pending，同时核验完整 CodeGraph 索引。[应用与原生检查](evidence/2026-11-05-stage-context/application-checks.json)。
 
 本地 **329 项：315 passed、14 opt-in live skipped、0 failed**；定向 38/38、类型检查、构建和 68 文件打包通过。缺失阶段、缺失 topic、投影与实际 Codex prompt 回退均有 RED→GREEN 记录。成功范围仍限本次 Codex/React Vite 案例，不代替其他组合或正式人工语义批准。
+
+## 权威完整性修复后的同预算续验
+
+一次独立审查的两项 Important 已在同一修复轮完成：根/输出范围及适用 reusable/partial 来源现在保留；范围不明时带未知提示保留供核验。Codex adapter 4 使用 `stage-evidence-v2`，正文/验收证据契约变化使旧候选失效，未变的研究/规划复用；原 runId、累计消费、读取预算与重试历史不变。同目标/所有权的已安装产物经新验收生成安全 update，预览恢复不重复模型调用。[RED→GREEN 与全部裁决](evidence/2026-11-05-stage-context/final-review-results.json)。
+
+`0bedd50` 的真实消费包在**原 run、原 ledger、原 12/1200000 上限**内重新生成正文并独立验收，新增 **2 请求 / 158701 token**；加上全部初轮消费，累计 **6 请求 / 499754 token**。没有新开修复预算或改写旧结果。[实际续验](evidence/2026-11-05-stage-context/review-followup-e2e.json)。最终 plan/content/acceptance 为 **28/27/27 个来源**、**165989/174031/174031 字符**，后三阶段正文合计减少 **51.33%**。[最终逐阶段汇总](evidence/2026-11-05-stage-context/review-summary.json)。初轮更小的裁剪量不能作为最终权威覆盖结果。
+
+再次独立 apply、无变化更新（0 写入/0 新调用）与用户说明保护通过。178 个历史/当前唯一片段经实际过滤源重新校验，534 原文件字节不变、AGENTS 原正文仅加托管导航、6 个原生 skill 未改，原研究指纹保持相同。[最终来源抽核](evidence/2026-11-05-stage-context/review-source-audit.json)。应用与原生检查在初轮完成；续验后业务/原生文件再次核对未改，没有冒充重新运行应用测试。最终本地 **334 项：320 passed、14 skipped、0 failed**，定向 73/73、类型检查、构建和 68 文件打包通过；没有追加复审或其他宿主/模型矩阵。
