@@ -1,0 +1,134 @@
+{
+  "caseId": "protected-native/initialization-recovery",
+  "status": "passed",
+  "root": "/private/tmp/rigup-protected-native-oMgORq",
+  "startedAt": "2026-11-04T13:23:07.785Z",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "interrupted": [
+    {
+      "id": "install:openwiki",
+      "stage": "terminal",
+      "status": "done"
+    },
+    {
+      "id": "initialize:openwiki",
+      "stage": "dispatching"
+    }
+  ],
+  "query": [
+    {
+      "node": {
+        "id": "function:82a52997200357c9b792f4d9b49e77bd",
+        "kind": "function",
+        "name": "createOrder",
+        "qualifiedName": "createOrder",
+        "filePath": "src/order.js",
+        "language": "javascript",
+        "startLine": 1,
+        "endLine": 1,
+        "startColumn": 7,
+        "endColumn": 62,
+        "signature": "(reference)",
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1793798624029
+      },
+      "score": 103.00000212004406
+    }
+  ],
+  "runId": "97a1c8f3-6129-4141-87a9-f680a87a46e1",
+  "receipts": {
+    "software": {
+      "openwiki": {
+        "version": "0.7.3",
+        "packageLockDigest": "24e175a0bd18472f4a246cc51a262493f41f80744dc02914d62dd771a773cb3d"
+      },
+      "codegraph": {
+        "version": "1.6.2",
+        "packageLockDigest": "7ec5b868e8cc4c77ab6a04373e3072883ec39ee5d18604797d4310bd49d27f27"
+      }
+    },
+    "initialization": {
+      "openwiki": {
+        "version": "0.7.3",
+        "target": "openwiki",
+        "identity": "16777229:65609951"
+      },
+      "codegraph": {
+        "version": "1.6.2",
+        "target": ".codegraph",
+        "identity": "16777229:65611828"
+      }
+    }
+  },
+  "reports": [
+    {
+      "phase": "apply",
+      "installStatus": "complete",
+      "status": "complete",
+      "exitCode": 0,
+      "previewId": "b4653a8818cbd3c311ced699b931c9d7168e8a2ea993ec469dd7af4896e545e9",
+      "written": [
+        ".rigup/mcp/openwiki-codex.mjs",
+        ".codex/config.toml",
+        ".rigup/mcp/codegraph-codex.mjs"
+      ],
+      "operations": [
+        {
+          "status": "done",
+          "message": "Pinned installation verified",
+          "receipt": {
+            "version": "0.7.3",
+            "packageLockDigest": "24e175a0bd18472f4a246cc51a262493f41f80744dc02914d62dd771a773cb3d"
+          }
+        },
+        {
+          "status": "done",
+          "message": "OpenWiki initialized; Codex can resume the native page lifecycle",
+          "nativeReceipt": {
+            "version": "0.7.3",
+            "target": "openwiki",
+            "identity": "16777229:65609951"
+          },
+          "state": {
+            "phase": "planning",
+            "runId": "97a1c8f3-6129-4141-87a9-f680a87a46e1"
+          }
+        },
+        {
+          "status": "done",
+          "message": "Pinned installation verified",
+          "receipt": {
+            "version": "1.6.2",
+            "packageLockDigest": "7ec5b868e8cc4c77ab6a04373e3072883ec39ee5d18604797d4310bd49d27f27"
+          }
+        },
+        {
+          "status": "done",
+          "message": "Complete native CodeGraph index verified",
+          "nativeReceipt": {
+            "version": "1.6.2",
+            "target": ".codegraph",
+            "identity": "16777229:65611828"
+          },
+          "state": {
+            "phase": "complete",
+            "files": 3,
+            "nodes": 2
+          }
+        }
+      ],
+      "checks": [],
+      "warnings": [
+        "openwiki: binary 0.7.3 availability and native connection pending",
+        "codegraph: binary 1.6.2 availability and native connection pending",
+        "Native host loading/reload is unverified; configuration installation is separate from live host acceptance"
+      ]
+    }
+  ],
+  "finishedAt": "2026-11-04T13:23:46.772Z"
+}

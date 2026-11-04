@@ -1,7 +1,7 @@
 import {discoverNativeSources,nativeSkillMetadata,type NativeDiscoveryOptions} from './native-sources.js';
 import {agents} from '../integrations/agents/index.js';
 import type {Agent} from '../types.js';
-import {readdir,readFile,realpath,stat} from 'node:fs/promises';
+import {readdir,readFile,realpath,stat,lstat} from 'node:fs/promises';
 import {join,relative,dirname} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -11,8 +11,8 @@ import {readEvidence} from './evidence.js';
 import {digest,safePath} from './evidence.js';
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
 const exec=promisify(execFile);
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
-export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={}):Promise<ProjectProfile>{
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  root=await realpath(root);
  if(options.scope?.some(s=>s.startsWith('/')||s.split('/').includes('..')||s.includes('\\'))) throw new Error('scope: invalid relative path');
  const profile:ProjectProfile={root,fingerprint:'',files:[],git:{available:false},commands:{build:[],lint:[],test:[],environment:[],eval:[]},unknowns:[],truncated:false,readPolicyVersion:READ_POLICY_VERSION};
@@ -28,6 +28,7 @@ export async function scanRepository(root:string,options:SetupOptions,discovery:
   for(const entry of (await readdir(dir,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){
    if(['.git','node_modules','dist','.superpowers'].includes(entry.name)||secretName.test(entry.name)) continue;
    const file=join(dir,entry.name);const path=relative(root,file).split('\\').join('/');
+   if(generatedScopes.some(scope=>path===scope||path.startsWith(scope+'/')))continue;
    if(options.scope?.length && !options.scope.some(s=>path === s || path.startsWith(s+'/') || s.startsWith(path+'/'))) continue;
    if((managed.get(path)??[]).some(o=>o.kind==='file')) continue;
    if(path.startsWith('.rigup/baseline/')||path === '.rigup/manifest.json'||path === '.rigup/config.yaml'||path.startsWith('.rigup/tools/')) continue;
@@ -114,6 +115,16 @@ async function loadManaged(root:string,profile:Pick<ProjectProfile,'unknowns'|'t
  try{
   const manifest=JSON.parse(await readFile(await safePath(root,'.rigup/manifest.json'),'utf8'));sawManifest=true;
   if(manifest.schemaVersion!==1||!Array.isArray(manifest.assets))throw new Error('manifest structure');
+  for(const [id,receipt] of Object.entries(manifest.initializedTools??{}) as [string,import('../types.js').NativeInitializationReceipt][]){
+   if(!['codegraph','openwiki'].includes(id)){untrusted=true;continue;}
+   const target=id==='codegraph'?'.codegraph':'openwiki',control='.rigup/native/'+id;
+   // Quarantine a known native output even when its ownership proof broke.
+   for(const scope of [target,control,...(id==='codegraph'?['.codegraph-rigup-init']:[])])managed.set(scope,[{kind:'file'}]);
+   try{
+    const info=await lstat(await safePath(root,target));const marker=JSON.parse(await readFile(await safePath(root,control+'/promotion.json'),'utf8'));
+    if(!info.isDirectory()||receipt.target!==target||receipt.identity!==String(info.dev)+':'+String(info.ino)||marker.root!==root||marker.id!==id||marker.version!==receipt.version||marker.target!==target||marker.identity!==receipt.identity)throw Error('native ownership mismatch');
+   }catch{untrusted=true;}
+  }
   for(const asset of manifest.assets){
    const target=asset?.target;
    if(typeof target!=='string'||target.startsWith('/')||target.includes('\\')||target.split('/').some((p:string)=>!p||p==='.'||p==='..')){untrusted=true;continue;}

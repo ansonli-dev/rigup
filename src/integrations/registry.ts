@@ -93,19 +93,19 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   if(!tool) throw new Error('unsupported executable adapter');
   if(selection.agents.some(a=>!options.agents.includes(a))) throw new Error('tool MCP target agent not selected');
   for(const agent of selection.agents) {
-   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable:selection.install ? resolve(profile.root,'.rigup/tools/'+tool.id+'/node_modules/.bin/'+tool.software) : tool.software,args:tool.mcpArgs(agent),cwd:'.',envRefs:[]}},tool.id+'-'+agent);push(prepared.assets);
+   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable:selection.install||selection.initialize&&!!profile.installedTools?.[tool.id] ? resolve(profile.root,'.rigup/tools/'+tool.id+'/node_modules/.bin/'+tool.software) : tool.software,args:tool.mcpArgs(agent),cwd:'.',envRefs:[]}},tool.id+'-'+agent);push(prepared.assets);
   }
   warnings.push(tool.id+': binary '+recipe.version+' availability and native connection pending');
   let installed=false;
-  if(selection.install) {
+  if(selection.install||selection.initialize&&profile.installedTools?.[tool.id]) {
    const prepared=await prepareSoftwareInstall(profile.root,selection.id,recipe.version,recipe.packageIntegrity,profile.installedTools?.[tool.id]);
    if('pending' in prepared) {warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}
    else if('reused' in prepared) {installed=true;warnings.push(tool.id+': reuse receipted project installation '+prepared.version);}
-   else operations.push(prepared);
+   else if(selection.install) operations.push(prepared);
   }
   if(selection.initialize) {
-   const prepared=await prepareNativeInitialization(profile.root,selection.id,recipe.version,recipe.packageIntegrity,{installed,prerequisiteIds:operations.filter(o=>o.id==='install:'+selection.id).map(o=>o.id)});
-   if('pending' in prepared){warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}else operations.push(prepared);
+   const prepared=await prepareNativeInitialization(profile.root,selection.id,recipe.version,recipe.packageIntegrity,{installed,prerequisiteIds:operations.filter(o=>o.id==='install:'+selection.id).map(o=>o.id),receipt:profile.initializedTools?.[tool.id]});
+   if('pending' in prepared){warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}else if('reused' in prepared)warnings.push(tool.id+': verified native initialization reused');else operations.push(prepared);
   }
  }
  for(const skill of options.customSkills ?? []) for(const agent of options.agents) {

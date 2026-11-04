@@ -7,12 +7,14 @@ import {privateDirectory,signature,readCache} from '../generator/cache.js';
 import {defaultStateRoot,processIdentity,isAlive,type ProcessIdentity} from './lock.js';
 import {loadUpstreamLock} from '../integrations/registry.js';
 import {prepareSoftwareInstall} from '../integrations/tools/software.js';
-export interface OperationResult {status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:{version:string;packageLockDigest:string}}
+import {initializationRecipe,emptyNativeScope,type NativeTool} from '../integrations/tools/initialization.js';
+import {queryNativeInitialization,resumableNativeOperation,nativeEnvironment} from '../integrations/tools/native-state.js';
+export interface OperationResult {status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:{version:string;packageLockDigest:string};nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:ProcessIdentity;result?:OperationResult}
 export interface OperationDependencies {stateRoot?:string;authorizationRef?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
-export function operationRoot(operation:SetupOperation):string {const i=operation.parameters.args.indexOf('--prefix');const prefix=operation.parameters.args[i+1];if(i<0||!prefix||!isAbsolute(prefix))throw new Error('operation project root unavailable');return resolve(prefix,'../../..');}
+export function operationRoot(operation:SetupOperation):string {if(operation.kind==='initialize'&&isAbsolute(operation.parameters.cwd))return operation.parameters.cwd;const i=operation.parameters.args.indexOf('--prefix');const prefix=operation.parameters.args[i+1];if(i<0||!prefix||!isAbsolute(prefix))throw new Error('operation project root unavailable');return resolve(prefix,'../../..');}
 export async function queryOperation(operation:SetupOperation):Promise<OperationResult>{
- try{return await queryInstalledTool(operationRoot(operation),{prefix:operation.protection.target,id:operation.integrationId,name:operation.query.name,version:operation.query.version,integrity:operation.query.integrity});}catch{return {status:'unknown',message:'Cannot prove external operation result; manual reconciliation required'};}
+ try{if(operation.kind==='initialize')return await queryNativeInitialization(operation);return await queryInstalledTool(operationRoot(operation),{prefix:operation.protection.target,id:operation.integrationId,name:operation.query.name,version:operation.query.version,integrity:operation.query.integrity});}catch{return {status:'unknown',message:'Cannot prove external operation result; manual reconciliation required'};}
 }
 export async function pendingOperations(root:string,stateRoot=defaultStateRoot()):Promise<PendingOperation[]>{
  const state=await privateDirectory(stateRoot,root);return (await readCache<{operations:PendingOperation[]}>(join(state,signature(root)+'.operations.json')))?.operations??[];
@@ -22,17 +24,18 @@ export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateR
  for(const item of await pendingOperations(root,stateRoot)){
   if(item.identity&&await writerAlive(item.identity))throw new Error('previous writing process still active; project blocked');
   if(item.stage!=='prepared'&&item.result?.status!=='done') {
-   const result=await queryOperation(item.operation);if(result.status!=='done')throw new Error('unresolved durable operation; manual reconciliation required');
+   const result=await queryOperation(item.operation);if(result.status!=='done'&&!await resumableNativeOperation(item.operation))throw new Error('unresolved durable operation; manual reconciliation required');
   }
  }
 }
-const bootstrap=`const {spawn}=require('node:child_process');let started=false;process.stdin.once('data',()=>{started=true;const spec=JSON.parse(process.argv[1]);const child=spawn(spec.executable,spec.args,{cwd:spec.cwd,stdio:'ignore',shell:false,env:process.env});child.once('error',()=>process.exit(1));child.once('exit',(code)=>process.exit(code??1));});process.stdin.once('end',()=>{if(!started)process.exit(1)});`;
+const bootstrap=`const {spawn}=require('node:child_process');let started=false;process.stdin.once('data',()=>{started=true;const spec=JSON.parse(process.argv[1]);const child=spawn(spec.executable,spec.args,{cwd:spec.cwd,stdio:'ignore',shell:false,env:spec.env??process.env});child.once('error',()=>process.exit(1));child.once('exit',(code)=>process.exit(code??1));});process.stdin.once('end',()=>{if(!started)process.exit(1)});`;
 export async function executeOperation(operation:SetupOperation,dependencies:OperationDependencies={}):Promise<OperationResult>{
- if(operation.kind!=='install'||!['openwiki','codegraph'].includes(operation.integrationId))return {status:'pending',message:'No verified executable adapter; manual operation required'};
+ if(!['install','initialize'].includes(operation.kind)||!['openwiki','codegraph'].includes(operation.integrationId))return {status:'pending',message:'No verified executable adapter; manual operation required'};
  if(!dependencies.authorizationRef)return {status:'pending',message:'Explicit preview authorization reference required before dispatch'};
  const root=operationRoot(operation);
  const recipes=await loadUpstreamLock();const recipe=recipes.find(r=>r.integrationId===operation.integrationId)!;
  if(operation.version!==recipe.version||operation.query.integrity!==recipe.packageIntegrity)return {status:'pending',message:'Operation version/integrity is not verified'};
+ if(operation.kind==='initialize'&&signature(initializationRecipe(root,operation.integrationId as NativeTool,recipe.version,recipe.packageIntegrity,operation.prerequisiteIds))!==signature(operation))return {status:'pending',message:'Initialization parameters differ from verified recipe'};
  const stateRoot=await privateDirectory(dependencies.stateRoot??defaultStateRoot(),root);const path=join(stateRoot,signature(root)+'.operations.json');
  const state=await readCache<{operations:PendingOperation[]}>(path)??{operations:[]};const key=signature(operation);let record=state.operations.find(r=>r.parametersDigest===key);
  const save=dependencies.save??saveDurable;const persist=()=>save(path,JSON.stringify(state));
@@ -40,16 +43,22 @@ export async function executeOperation(operation:SetupOperation,dependencies:Ope
   if(record.identity&&await writerAlive(record.identity))return {status:'unknown',message:'Previous writing process has not exited; project remains blocked'};
   if(record.stage!=='prepared') {
    const result=await queryOperation(operation);if(result.status==='done'){record.stage='terminal';record.result=result;await persist();return result;}
-   return {status:'unknown',message:'Prior dispatch may have happened; manual reconciliation required before retry'};
+   if(!await resumableNativeOperation(operation))return {status:'unknown',message:'Prior dispatch may have happened; manual reconciliation required before retry'};
   }
  }
- const expected=await prepareSoftwareInstall(root,operation.integrationId as 'openwiki'|'codegraph',recipe.version,recipe.packageIntegrity);
- if('pending' in expected||'reused' in expected||signature(expected)!==key)return {status:'pending',message:'Operation protection or parameters differ from verified recipe'};
+ if(operation.kind==='install'){
+  const expected=await prepareSoftwareInstall(root,operation.integrationId as NativeTool,recipe.version,recipe.packageIntegrity);
+  if('pending' in expected||'reused' in expected||signature(expected)!==key)return {status:'pending',message:'Operation protection or parameters differ from verified recipe'};
+ }else{
+  const installed=await queryInstalledTool(root,{prefix:'.rigup/tools/'+operation.integrationId,id:operation.integrationId,...operation.query});
+  if(installed.status!=='done')return {status:'pending',message:'Pinned installation must be verified before native initialization'};
+  if(!record||record.stage==='prepared')try{for(const scope of operation.declaredWrites)await emptyNativeScope(root,scope);}catch{return {status:'pending',message:'Native scope changed before dispatch; preserve content and re-preview'};}
+ }
  if(!record){record={authorizationRef:dependencies.authorizationRef,root,operation,parametersDigest:key,stage:'prepared'};state.operations.push(record);}
  await persist(); // Durable intent exists BEFORE any child can perform writes.
  if(dependencies.signal?.aborted)return {status:'pending',message:'Cancelled before dispatch'};
  if(dependencies.launch){record.stage='dispatching';await persist();const result=await dependencies.launch(operation);record.stage='terminal';record.result=result;await persist();return result;}
- const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...operation.parameters,cwd:root})],{detached:true,stdio:['pipe','ignore','ignore']});
+ const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...operation.parameters,cwd:root,...(operation.kind==='initialize'?{env:nativeEnvironment(operation)}:{})})],{detached:true,stdio:['pipe','ignore','ignore']});
  if(!child.pid)throw new Error('Cannot start protected operation process');
  const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>(resolve=>{child.once('error',()=>resolve({code:1,signal:null}));child.once('exit',(code,signal)=>resolve({code,signal}));});
  try{record.identity=await processIdentity(child.pid);record.stage='dispatching';await persist();}catch(e){child.stdin.end();await completed;throw e;}

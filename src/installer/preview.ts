@@ -13,6 +13,8 @@ import type {Ownership} from '../managed-input.js';
 import type {PreparedAsset} from '../integrations/registry.js';
 import {loadUpstreamLock} from '../integrations/registry.js';
 import {prepareSoftwareInstall} from '../integrations/tools/software.js';
+import {initializationRecipe,emptyNativeScope,type NativeTool} from '../integrations/tools/initialization.js';
+import {queryInstalledTool} from '../integrations/tools/installed-state.js';
 import {digest} from '../analyzer/evidence.js';
 import {privateDirectory,signature,readCache,saveCache} from '../generator/cache.js';
 import {validateTemplateContent} from '../generator/document-policy.js';
@@ -102,9 +104,18 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const lock=await loadUpstreamLock();
  for(const op of plan.operations){
   try{
-   const recipe=lock.find(r=>r.integrationId===op.integrationId);if(!recipe||op.kind!=='install'||!['openwiki','codegraph'].includes(op.integrationId))throw new Error('external operation has no verified adapter');
-   const expected=await prepareSoftwareInstall(root,op.integrationId as 'openwiki'|'codegraph',recipe.version,recipe.packageIntegrity);
-   if('pending' in expected||'reused' in expected||signature(expected)!==signature(op))throw new Error('operation differs from verified recipe');
+   const recipe=lock.find(r=>r.integrationId===op.integrationId);if(!recipe||!['install','initialize'].includes(op.kind)||!['openwiki','codegraph'].includes(op.integrationId))throw new Error('external operation has no verified adapter');
+   if(plan.operations.filter(o=>o.id===op.id).length!==1||op.prerequisiteIds.some(id=>!plan.operations.slice(0,plan.operations.indexOf(op)).some(o=>o.id===id)))throw new Error('missing or reordered operation prerequisite');
+   if(op.kind==='install'){
+    const expected=await prepareSoftwareInstall(root,op.integrationId as NativeTool,recipe.version,recipe.packageIntegrity);
+    if('pending' in expected||'reused' in expected||signature(expected)!==signature(op))throw new Error('operation differs from verified recipe');
+   }else{
+    const prerequisites=plan.operations.filter(o=>o.kind==='install'&&o.integrationId===op.integrationId).map(o=>o.id);
+    const expected=initializationRecipe(root,op.integrationId as NativeTool,recipe.version,recipe.packageIntegrity,prerequisites);
+    if(signature(expected)!==signature(op))throw new Error('initialization differs from verified recipe');
+    if(!prerequisites.length){const receipt=oldManifest?.installedTools?.[op.integrationId];const installed=await queryInstalledTool(root,{prefix:'.rigup/tools/'+op.integrationId,id:op.integrationId,...op.query,lockDigest:receipt?.packageLockDigest});if(!receipt||installed.status!=='done')throw new Error('initialization requires receipted software');}
+    for(const scope of op.declaredWrites)await emptyNativeScope(root,scope);
+   }
    if(op.declaredWrites.some(scope=>allTargets.some(target=>target===scope||target.startsWith(scope+'/')||scope.startsWith(target+'/'))))throw new Error('external operation overlaps candidate');
    operationPreconditions.push({id:op.id,state:await operationPrecondition(root,op.protection.target)});
   }catch{blockers.push(op.id+': external operation protection or recipe validation failed');}
@@ -150,7 +161,8 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
 }
 
 export async function installationInput(root:string,plan:SetupPlan):Promise<string>{
- const profile=await scanRepository(root,plan.options);const old=(await loadManifest(root))?.assets??[];const values:string[]=[];
+ const scopes=plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites);
+ const profile=await scanRepository(root,plan.options,{},scopes);const old=(await loadManifest(root))?.assets??[];const values:string[]=[];
  for(const path of profile.files) {
   let raw=(await readTarget(root,path))!.toString('utf8');
   const selectors=[...old,...plan.assets].filter(a=>a.target===path).map(a=>a.ownership);

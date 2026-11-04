@@ -25,7 +25,7 @@ import {assertNoUnknownWriters} from './installer/operations.js';
 import {preview} from './installer/preview.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
-import {apply,type CheckResult} from './installer/apply.js';
+import {apply,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
 export interface LifecycleFlags {dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean}
 export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;report?:(value:Record<string,unknown>)=>void}
 interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string}
@@ -44,7 +44,12 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   await assertNoUnknownWriters(root,lock.stateRoot);
   const base=await privateDirectory(services.cacheRoot??join(homedir(),'.cache','rigup'),root);
   const cache=await privateDirectory(join(base,'generation'),root);const requests=await privateDirectory(join(base,'host'),root);const previews=await privateDirectory(join(base,'previews'),root);const runs=await privateDirectory(join(base,'runs'),root);
+  if(flags.resume){const interrupted=await restoreInterruptedPreview(root,options,previews,lock.stateRoot);if(interrupted){
+   if(flags.dryRun||flags.review){services.report?.({phase:'preview',previewId:interrupted,installStatus:'pending',message:'Durable interrupted preview restored; resume without dry-run/review to apply'});return 3;}
+   const installed=await apply(interrupted,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,recover:true,signal:services.signal,onProgress:emit,runChecks:services.runChecks});services.report?.({phase:'apply',installStatus:installed.status,...installed});write('Resumed protected installation '+installed.status+'\n');return installed.exitCode;
+  }}
   const profile=await scanRepository(root,options);const old=await loadManifest(root);profile.installedTools=old?.installedTools;
+  profile.initializedTools=old?.initializedTools;
   const prepared=await prepareIntegrations(profile,options);
   const config=await readTarget(root,'.rigup/config.yaml');
   const consent=signature({root,options,effectiveModel,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,executionMode:flags.dryRun?'dry-run':flags.review?'review':'continuous',versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},fingerprint:profile.fingerprint});
