@@ -7,7 +7,7 @@ export const secretName=/(^\.env($|\.)|^(?:\.auth|\.netrc|_netrc|\.git-credentia
 const sensitive=/token|password|passwd|secret|credential|authorization|api[-_]?key|private[-_]?key|^(?:auth|authentication|creds|cookies?|set[-_]?cookie|localStorage|sessionStorage)$/i;
 const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|cookies?|b|credentials?)$/i;
 const credentialAssignment=/(?:token|password|passwd|secret|credentials?|creds|authorization|api[-_]?key|private[-_]?key)[\w-]*["']?\s*[:=]|(?:^|[\s"'])auth(?:entication)?["']?\s*[:=]/i;
-const structuredCredentialAssignment=(value:string)=>credentialAssignment.test(value)||/(?:^|[\s\"'=]|--?)(?:set[-_]?)?cookies?[\"']?\s*[:=]/i.test(value);
+const structuredCredentialAssignment=(value:string)=>credentialAssignment.test(value)||/(?:set[-_]?)?cookies?[\"']?\s*[:=]/i.test(value);
 function redactComment(token:string):string {
  if(!sensitive.test(token)&&!credentialAssignment.test(token)&&! /\b(?:auth(?:entication)?|cookies?|localStorage|sessionStorage|api\s+key|private\s+key|access\s+key)\b/i.test(token))return token;
  const prefix=token.startsWith('/*')?'/*':token.startsWith('//')?'//':'#';

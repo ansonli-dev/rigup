@@ -79,9 +79,18 @@ test('customer_and_mcp_header_credentials_are_environment_references_only',async
 test('cookie_credentials_require_declared_references_in_commands_and_are_forbidden_in_urls',async()=>{
  const {validateOptions}=await import('../src/config.js');
  for(const args of [['--cookie','fixture-session'],['-b','fixture-session'],['--cookie=fixture-session'],['-H','Cookie: session=fixture-session']]){
-  assert.throws(()=>validateOptions({mcp:[{id:'customer',agents:['codex'],command:{executable:'server',args,cwd:'.',envRefs:[]}}]}),/credential|reference/);
-  assert.throws(()=>validateOptions({customer:{commands:{feedback:{executable:'client',args,cwd:'.',envRefs:[]}}}}),/credential|reference/);
+  assert.throws(()=>validateOptions({mcp:[{id:'customer',agents:['codex'],command:{executable:args[0]==='-b'?'curl':'server',args,cwd:'.',envRefs:[]}}]}),/credential|reference/);
+  assert.throws(()=>validateOptions({customer:{commands:{feedback:{executable:args[0]==='-b'?'curl':'client',args,cwd:'.',envRefs:[]}}}}),/credential|reference/);
  }
  assert.throws(()=>validateOptions({mcp:[{id:'customer',agents:['codex'],url:'https://example.test/mcp?cookie=fixture-session'}]}),/credential/);
  assert.doesNotThrow(()=>validateOptions({mcp:[{id:'customer',agents:['codex'],command:{executable:'server',args:['--cookie','${COOKIE}'],cwd:'.',envRefs:['COOKIE']}}]}));
+});
+test('interpreter_flags_remain_usable_while_curl_short_auth_flags_require_references',async()=>{
+ const {validateOptions}=await import('../src/config.js');
+ const options=(executable:string,args:string[],envRefs:string[]=[])=>({mcp:[{id:'customer',agents:['codex'],command:{executable,args,cwd:'.',envRefs}}]});
+ for(const args of [['-u','server.py'],['-I','-u','server.py'],['-u','-b','server.py']])assert.doesNotThrow(()=>validateOptions(options('python3',args)));
+ assert.doesNotThrow(()=>validateOptions(options('server',['-b','100'])));
+ for(const args of [['-u','user:password'],['-uuser:password'],['-b','session=value'],['-bsession=value']])assert.throws(()=>validateOptions(options('/usr/bin/curl',args)),/credential|reference/);
+ assert.throws(()=>validateOptions(options('python3',['server.py','-u','private-value'])),/credential|reference/);
+ assert.doesNotThrow(()=>validateOptions(options('curl',['-u${CREDS}','-b','${COOKIE}'],['CREDS','COOKIE'])));
 });

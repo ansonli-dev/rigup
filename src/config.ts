@@ -117,9 +117,12 @@ export function validateOptions(value: Record<string, unknown>): void {
          for(const name of Object.keys(command)) if(!['executable','args','cwd','envRefs'].includes(name)) throw new Error(field+'.command.'+name+': unknown field');
          if(typeof command.executable !== 'string' || !command.executable || typeof command.cwd !== 'string' || !Array.isArray(command.args) || command.args.some(a=>typeof a !== 'string')) throw new Error(field+'.command: executable/args/cwd required');
          for(const [argIndex,arg] of (command.args as string[]).entries()) {
-          const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|cookies?|b|credentials?)(?:=|$)/i;
-          if(credentialFlag.test(arg)) {
-           const credential=arg.includes('=') ? arg.slice(arg.indexOf('=')+1) : (command.args as string[])[argIndex+1];
+          const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|cookies?|credentials?)(?:=|$)/i;
+          const executableName=command.executable.split(/[\\/]/).at(-1)!.replace(/\.exe$/i,'').toLowerCase();
+          const interpreterFlag=/^(?:python|pypy)(?:\d+(?:\.\d+)*)?$/.test(executableName)&&/^-[ub]$/.test(arg)&&(command.args as string[]).slice(0,argIndex).every(prior=>prior.startsWith('-')&&!['-c','-m','--'].includes(prior));
+          const curlShort=executableName==='curl'?arg.match(/^-[ub](.*)$/):null;
+          if(credentialFlag.test(arg)&&!interpreterFlag||curlShort) {
+           const credential=curlShort?.[1] ? curlShort[1].replace(/^=/,'') : arg.includes('=') ? arg.slice(arg.indexOf('=')+1) : (command.args as string[])[argIndex+1];
            if(typeof credential !== 'string' || !/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(credential)) throw new Error(field+'.command.args: credential values forbidden; use declared environment references');
           }
           const header=arg.match(/(?:authorization|proxy-authorization|cookies?|set[-_]?cookie|(?:[A-Za-z0-9_-]*[-_])?(?:api[-_]?key|token))\s*[:=]\s*(?:Bearer\s+|Basic\s+)?(.+)$/i);
