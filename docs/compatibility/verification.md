@@ -2,7 +2,7 @@
 
 更新：2026-11-05。依据 [上游核验标准](README.md)、[实施计划](../superpowers/plans/2026-11-02-rigup-implementation.md) 和 [文档生成标准](../superpowers/specs/2026-11-03-documentation-system-design.md)。所有状态绑定下列精确对象；协议解析、组件冒烟、真实模型和完整兼容分别留证。
 
-最新范围调整：OpenWiki 仅安装/接线并交接独立初始化；CodeGraph 保留受保护索引与恢复。最新本地结果为 298 passed、14 opt-in live skipped、0 failed。前端完整语义 E2E 在上下文优化后以原预算通过，实际 4 请求 / 558605 token；首轮预算失败及较早自动初始化记录仍是历史证据，见文末的独立复验。
+最新范围调整：OpenWiki 仅安装/接线并交接独立初始化；CodeGraph 保留受保护索引与恢复。最新本地结果为 300 passed、14 opt-in live skipped、0 failed。前端完整语义 E2E 在上下文优化后以原预算通过，实际 4 请求 / 558605 token；首轮预算失败及较早自动初始化记录仍是历史证据，见文末的独立复验。
 
 ## 四个独立结论
 
@@ -163,4 +163,6 @@ DDD 上游没有锁文件：npm 的 Slonik peer 依赖冲突、解析到空的 m
 
 独立 review/apply、无变化更新（0 写入/0 新调用）、用户补充内容保护、CodeGraph 受保护初始化和原生 getDiscussions 查询均通过；OpenWiki 没有初始化。生成一份 React Vite API 审查补充；534 个原文件字节不变，AGENTS.md 原正文逐字保留并仅追加托管导航，6 个原生 OpenSpec skill 未改。[来源抽核](evidence/2026-11-05-context-budget/source-audit.json)。
 
-原业务构建、21/21 Vitest、3/3 Chromium 以及真实 Codex MCP 发现/查询通过；测试服务已停止。doctor 在停止测试 daemon 后核验 CodeGraph 完整索引；仍为用户补充说明及 OpenWiki 独立初始化返回 pending，不声称全部诊断通过。[应用检查](evidence/2026-11-05-context-budget/application-checks.json)、[原生宿主](evidence/2026-11-05-context-budget/frontend-native-mcp.json)。本地回归 **312 项：298 passed、14 opt-in live skipped、0 failed**，类型检查、构建、67 文件打包检查通过；未推广为其他宿主/模型或正式人工语义批准。
+原业务构建、21/21 Vitest、3/3 Chromium 以及真实 Codex MCP 发现/查询通过；测试服务已停止。doctor 在停止测试 daemon 后核验 CodeGraph 完整索引；仍为用户补充说明及 OpenWiki 独立初始化返回 pending，不声称全部诊断通过。[应用检查](evidence/2026-11-05-context-budget/application-checks.json)、[原生宿主](evidence/2026-11-05-context-budget/frontend-native-mcp.json)。
+
+一次独立审查发现旧版未完成运行与 v2 host 预算上下文冲突的 Important；已在同一修复轮以两项 RED→GREEN 回归修复。host 交换记录按适配器版本分开，Codex 的 root/run 持久累计预算保持原键，未知或耗尽旧消费仍阻止发送。最终本地回归 **314 项：300 passed、14 opt-in live skipped、0 failed**，类型检查、构建和 67 文件打包通过。[审查、修复及完整裁决](evidence/2026-11-05-context-budget/final-review-results.json)。修复未追加真实模型调用，前述 E2E 保留其 `67512c6` 来源绑定；未推广为其他宿主/模型或正式人工语义批准。

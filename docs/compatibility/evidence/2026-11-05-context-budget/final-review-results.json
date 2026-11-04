@@ -1,0 +1,144 @@
+{
+  "reviewedAt": "2026-11-04T18:30:08.628Z",
+  "reviewer": {
+    "agent": "context_budget_final_review",
+    "model": "gpt-6-astra",
+    "reasoning": "high",
+    "freshContext": true,
+    "readOnly": true,
+    "reviews": 1,
+    "rereviews": 0
+  },
+  "range": {
+    "base": "0214ffdb147e5747361fe796b8e1f09422793dc8",
+    "head": "c30ab63",
+    "focus": "5049fe9..c30ab63 and its lifecycle interactions; earlier implementation already independently reviewed"
+  },
+  "requirements": "docs/superpowers/plans/2026-11-05-context-budget.md",
+  "reviewerAssessment": "With fixes",
+  "reviewerStrengths": [
+    "Closed omission preserves inventory, fingerprints, manifests, source and handwritten names.",
+    "Policy binds request/acceptance identity while the cumulative Codex ledger key remains stable.",
+    "Real E2E records support four stages and 558605 tokens under the unchanged scope/budget.",
+    "All three original ledger rulings are reasonable."
+  ],
+  "findings": {
+    "critical": [],
+    "important": [
+      {
+        "id": "adapter-upgrade-recovery",
+        "locations": [
+          "src/analyzer/codex.ts:31",
+          "src/analyzer/host.ts:34",
+          "src/analyzer/host.ts:81"
+        ],
+        "problem": "Adapter v2 and evidencePolicy change host runContext, but host budget keyed by runId/root collided with v1 on resume, rejecting before durable Codex accounting could allow remaining-budget continuation.",
+        "reviewerReproduction": "Temporary v1-equivalent export and an observed 1-call/18-token charge, then v2 planning with the same runId and remaining 12/1200000 budget: run context changed; restart preparation; zero invocations and charge retained.",
+        "severityAccepted": "Important",
+        "resolution": "Version the host exchange directory by Codex adapter; preserve root/run Codex ledger and old exchange files.",
+        "fixCommit": "03d41dda234e9c9498cd4492fb517f61fdca4724",
+        "tests": [
+          "Codex adapter upgrade continues a known charged run without resetting consumption",
+          "Codex adapter upgrade retains unknown and exhausted legacy charges before dispatch"
+        ],
+        "red": "review-red.txt",
+        "green": "review-green.txt",
+        "status": "fixed"
+      }
+    ],
+    "minor": []
+  },
+  "declinedToJudge": [
+    {
+      "behavior": "Earlier branch implementation outside the incremental changes and their interactions",
+      "executorRuling": "Retain prior independent reviews and focus this one review on the context change and lifecycle interactions.",
+      "costIfWrong": "A pre-existing defect outside this change could remain undiscovered."
+    },
+    {
+      "behavior": "Exact locked/transitive dependency versions",
+      "executorRuling": "Keep the explicit bounded omission and disclosure; manifests provide declared ranges, not verified resolutions.",
+      "costIfWrong": "Exact/transitive versions remain unverified in this context."
+    },
+    {
+      "behavior": "Completed prior semantic results with unchanged evidence",
+      "executorRuling": "Retain completed results when existing source/options/version/provenance guards still match; prior richer evidence is not inherently invalidated by omitting future lock bodies.",
+      "costIfWrong": "If those guards miss relevant context, an outdated conclusion could be reused."
+    },
+    {
+      "behavior": "Provider-side hard token caps",
+      "executorRuling": "Keep the documented observed-usage enforcement; the CLI has no verified server-side hard cap, while this actual round remained below its unchanged limit.",
+      "costIfWrong": "One future request may overrun before its returned result is rejected and its charge retained."
+    },
+    {
+      "behavior": "Claude, model switching, other hosts/platforms, Next.js variants and production deployment",
+      "executorRuling": "Keep the user-authorized Codex/React Vite scope and explicit deferred matrix; do not broaden success claims.",
+      "costIfWrong": "Compatibility outside the declared case remains unverified."
+    },
+    {
+      "behavior": "Formal human semantic approval",
+      "executorRuling": "Keep implementation-agent source auditing clearly distinct from human approval.",
+      "costIfWrong": "Semantic quality may still need an independent human judgment."
+    },
+    {
+      "behavior": "Pending doctor status for local note and manual OpenWiki initialization",
+      "executorRuling": "Preserve the deliberate user edit and independent wiki handoff; report doctor exit 3 and the verified CodeGraph index after daemon shutdown.",
+      "costIfWrong": "Treating the partial diagnostic as universal readiness could hide a separate issue."
+    },
+    {
+      "behavior": "Fallback cloning of a moving default branch",
+      "executorRuling": "Require the documented prepared pinned clone; keep the revision check before any model dispatch, rather than silently accepting a newer checkout.",
+      "costIfWrong": "An unprepared reproduction must explicitly check out the pinned revision before it can proceed."
+    },
+    {
+      "behavior": "Fresh paid E2E round versus exhausted historical round",
+      "executorRuling": "Retain the authorized rerun on the same source/scope and 12/1200000 cap, with the entire historical failed round and all new attempts preserved.",
+      "costIfWrong": "The new round consumes an additional 558605 observed tokens; it does not erase the old 1564127."
+    }
+  ],
+  "rulings": [
+    "Ruling: Execute inline without plan approval checkpoints — the user explicitly requested continuous implementation until the real E2E passes — a mistaken scope choice would require a corrective commit.",
+    "Ruling: Omit only closed dependency-lock filenames for Codex and keep manual host exchange default unchanged — complete lock bodies are the measured context hotspot and do not establish project conventions — exact locked/transitive versions remain unverified unless independently supplied.",
+    "Ruling: Run a fresh copy of the same pinned source with the same scope and 12 / 1200000 budget, preserving the prior failed run — the user explicitly authorized a rerun, not erasing prior consumption — this consumes a separate authorized test round and all attempts within it must remain charged.",
+    "Final: Ruling: Earlier branch implementation outside the incremental changes and their interactions — Retain prior independent reviews and focus this one review on the context change and lifecycle interactions. — A pre-existing defect outside this change could remain undiscovered.",
+    "Final: Ruling: Exact locked/transitive dependency versions — Keep the explicit bounded omission and disclosure; manifests provide declared ranges, not verified resolutions. — Exact/transitive versions remain unverified in this context.",
+    "Final: Ruling: Completed prior semantic results with unchanged evidence — Retain completed results when existing source/options/version/provenance guards still match; prior richer evidence is not inherently invalidated by omitting future lock bodies. — If those guards miss relevant context, an outdated conclusion could be reused.",
+    "Final: Ruling: Provider-side hard token caps — Keep the documented observed-usage enforcement; the CLI has no verified server-side hard cap, while this actual round remained below its unchanged limit. — One future request may overrun before its returned result is rejected and its charge retained.",
+    "Final: Ruling: Claude, model switching, other hosts/platforms, Next.js variants and production deployment — Keep the user-authorized Codex/React Vite scope and explicit deferred matrix; do not broaden success claims. — Compatibility outside the declared case remains unverified.",
+    "Final: Ruling: Formal human semantic approval — Keep implementation-agent source auditing clearly distinct from human approval. — Semantic quality may still need an independent human judgment.",
+    "Final: Ruling: Pending doctor status for local note and manual OpenWiki initialization — Preserve the deliberate user edit and independent wiki handoff; report doctor exit 3 and the verified CodeGraph index after daemon shutdown. — Treating the partial diagnostic as universal readiness could hide a separate issue.",
+    "Final: Ruling: Fallback cloning of a moving default branch — Require the documented prepared pinned clone; keep the revision check before any model dispatch, rather than silently accepting a newer checkout. — An unprepared reproduction must explicitly check out the pinned revision before it can proceed.",
+    "Final: Ruling: Fresh paid E2E round versus exhausted historical round — Retain the authorized rerun on the same source/scope and 12/1200000 cap, with the entire historical failed round and all new attempts preserved. — The new round consumes an additional 558605 observed tokens; it does not erase the old 1564127."
+  ],
+  "deferredMinors": [],
+  "verification": {
+    "focused": {
+      "total": 23,
+      "passed": 23,
+      "failed": 0
+    },
+    "full": {
+      "total": 314,
+      "passed": 300,
+      "skipped": 14,
+      "failed": 0,
+      "report": "review-full-tests.txt"
+    },
+    "typecheck": "passed",
+    "build": "passed through npm pack prepack",
+    "packageFiles": 67,
+    "reviewPackageSha256": "07a2b67b88a94f30a2b22e8f45dec069edf555f74695111ddf7e995a2092e002",
+    "packageReport": "review-pack.json",
+    "liveSemanticSource": "67512c68e0439d9d613c9ebb4433f75aa3e7e86a",
+    "liveSemantic": {
+      "calls": 4,
+      "tokens": 558605,
+      "budget": {
+        "maxCalls": 12,
+        "maxTokens": 1200000
+      },
+      "report": "bulletproof-semantic-e2e.json"
+    },
+    "liveModelCallsAfterReview": 0
+  },
+  "disposition": "All Critical/Important findings resolved by one verified fix pass; no deferred minors; branch and worktree retained without merge or push."
+}

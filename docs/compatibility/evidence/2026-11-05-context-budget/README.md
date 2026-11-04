@@ -36,4 +36,6 @@ node --import tsx --test test/live-github-context.test.ts
 
 同一 CASE 的重试保留 fixture/result 和全部 durable ledger，不能改变 scope/预算或清掉失败消费。原始模型结果仅存私有临时 workspace；仓库归档脱敏的程序报告。应用命令见 application-checks.json；原生检查 RPC 见 frontend-native-mcp.json。
 
-策略回归 [RED](context-red.txt) / [GREEN](context-green.txt) 已留证。[本地回归](local-regressions.txt)：312 项，298 passed、14 opt-in live skipped、0 failed。类型检查、构建和 [67 文件打包清单](pack.json) 通过，包中无测试、证据、scratch 或客户状态。其他宿主、模型切换、平台和部署的既有待办不由本案例代替。
+策略回归 [RED](context-red.txt) / [GREEN](context-green.txt) 已留证。[初次本地回归](local-regressions.txt)：312 项，298 passed、14 opt-in live skipped、0 failed。类型检查、构建和 [67 文件打包清单](pack.json) 通过，包中无测试、证据、scratch 或客户状态。
+
+一次独立审查发现升级恢复问题：适配器 v2 的上下文会与旧 host 预算文件冲突，阻止尚有预算的中断运行继续。修复将 host 交换记录按适配器版本分开存放，同一 root/run 的 Codex 持久 ledger 不变，旧消费不清零。两项回归先失败再通过，覆盖可继续、未知用量、调用数耗尽和 token 耗尽；定向 23/23、[最终完整回归](review-full-tests.txt) **314 项：300 passed、14 skipped、0 failed**，类型检查和 67 文件打包通过。上述真实语义运行明确绑定 `67512c6`；该记账兼容性修复使用本地回归验证，没有追加付费模型请求。[审查、修复与全部裁决](final-review-results.json)。其他宿主、模型切换、平台、部署和正式人工语义批准的既有待办不由本案例代替。
