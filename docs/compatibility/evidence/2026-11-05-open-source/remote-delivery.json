@@ -1,0 +1,179 @@
+{
+  "repository": "https://github.com/ansonli-dev/rigup",
+  "branch": "main",
+  "verifiedRuntimeAndDocumentationCommit": "e07162ba9dca01c8ecda6623651813426fd28d7f",
+  "workflow": {
+    "event": "push",
+    "conclusion": "success",
+    "url": "https://github.com/ansonli-dev/rigup/actions/runs/41926672832",
+    "createdAt": "2026-11-04T22:35:56Z",
+    "updatedAt": "2026-11-04T22:36:59Z",
+    "jobs": [
+      {
+        "name": "Node 24 / macos-latest",
+        "conclusion": "success",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41926672832/job/126912747797",
+        "tests": {
+          "total": 354,
+          "passed": 339,
+          "skippedOptInLive": 15,
+          "failed": 0
+        },
+        "package": {
+          "status": "passed",
+          "package": "rigup-0.1.0.tgz",
+          "integrity": "sha512-gl6MSVlnmMZ1wh+trHJc9o5lQvRc990D9vAlvjonp5+PbqV8a7B9DgJfNq2Y7glMyoA8MHaoQwNoe3ZE9ecZDA==",
+          "files": 79,
+          "lifecycle": [
+            "help",
+            "version",
+            "preview",
+            "session handoff",
+            "independent apply",
+            "no-op update",
+            "doctor"
+          ],
+          "doctorExit": 3,
+          "doctorHostState": "reload-required",
+          "modelCalls": 0
+        },
+        "steps": [
+          {
+            "name": "Set up job",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run npm ci",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run npm run check",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run npm audit --audit-level=low",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run git diff --exit-code",
+            "conclusion": "success"
+          },
+          {
+            "name": "Post Run actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903",
+            "conclusion": "success"
+          },
+          {
+            "name": "Post Run actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3",
+            "conclusion": "success"
+          },
+          {
+            "name": "Complete job",
+            "conclusion": "success"
+          }
+        ]
+      },
+      {
+        "name": "Node 24 / ubuntu-latest",
+        "conclusion": "success",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41926672832/job/126912748290",
+        "tests": {
+          "total": 354,
+          "passed": 339,
+          "skippedOptInLive": 15,
+          "failed": 0
+        },
+        "package": {
+          "status": "passed",
+          "package": "rigup-0.1.0.tgz",
+          "integrity": "sha512-gl6MSVlnmMZ1wh+trHJc9o5lQvRc990D9vAlvjonp5+PbqV8a7B9DgJfNq2Y7glMyoA8MHaoQwNoe3ZE9ecZDA==",
+          "files": 79,
+          "lifecycle": [
+            "help",
+            "version",
+            "preview",
+            "session handoff",
+            "independent apply",
+            "no-op update",
+            "doctor"
+          ],
+          "doctorExit": 3,
+          "doctorHostState": "reload-required",
+          "modelCalls": 0
+        },
+        "steps": [
+          {
+            "name": "Set up job",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run npm ci",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run npm run check",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run npm audit --audit-level=low",
+            "conclusion": "success"
+          },
+          {
+            "name": "Run git diff --exit-code",
+            "conclusion": "success"
+          },
+          {
+            "name": "Post Run actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903",
+            "conclusion": "success"
+          },
+          {
+            "name": "Post Run actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3",
+            "conclusion": "success"
+          },
+          {
+            "name": "Complete job",
+            "conclusion": "success"
+          }
+        ]
+      }
+    ],
+    "rawDownloadedLogSha256": "3ec3d7810df6f43069ab3c6e420f4688f5e13244d953725450ac2695b3329c66"
+  },
+  "push": {
+    "force": false,
+    "remoteWasEmpty": true,
+    "initialCredentialMismatch": "OS keychain selected another account and was denied; command-scoped gh credential helper used verified ansonli-dev; global credential configuration unchanged"
+  },
+  "secrets": {
+    "historyThrough": "e07162ba9dca01c8ecda6623651813426fd28d7f",
+    "commitsScanned": 49,
+    "approximateBytes": 3865338,
+    "findings": 0,
+    "stagedEvidenceFindings": 0
+  },
+  "openGitHubIssuesAtDelivery": 0,
+  "knownLocallyActionableOpenFindings": [],
+  "cleanup": {
+    "testContainersRunning": 0,
+    "testDaemonsOrRunnersRunning": 0,
+    "ports42880_41861_41862": "closed",
+    "scope": "only owned disposable test resources"
+  },
+  "externalConditions": "../../status.md",
+  "laterDocumentationCommit": "Archives this successful runtime CI and completes the plan; its own push CI is observed before the final user handoff."
+}

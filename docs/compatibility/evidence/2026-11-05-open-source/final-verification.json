@@ -80,5 +80,6 @@
     "observedRed": 3,
     "focusedPassed": 49,
     "report": "credential-boundary-regressions.json"
-  }
+  },
+  "remoteCI": "remote-delivery.json"
 }
