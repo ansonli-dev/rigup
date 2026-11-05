@@ -86,3 +86,32 @@ test('continuation_rejects_changed_inputs_without_project_writes',()=>project(as
 test('apply_id_cannot_redirect_cli_to_a_different_project_root',()=>project(async root=>project(async other=>project(async cache=>project(async state=>{
  const {preview}=await import('../src/installer/preview.js');const {scanRepository}=await import('../src/analyzer/repository.js');const options={agents:[],backend:'host' as const};const p=await preview({root:other,fingerprint:(await scanRepository(other,options)).fingerprint,options,assets:[{logicalId:'a',target:'other.md',content:'must not write',ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],operations:[],dispositions:[],warnings:[],requirements:[],versions:{}},[],{cacheRoot:cache+'/previews'});let out='';assert.equal(await runCli(['update','--apply',p.previewId,'--sessions-ended'],{cwd:root,isTTY:false,write:s=>out+=s,services:{cacheRoot:cache,stateRoot:state}}),1);assert.match(out,/root|project/);assert.deepEqual(await readdir(other),[]);
 })))));
+
+
+test('first_run_with_only_a_backend_still_guides_missing_agents_and_sdd',()=>project(async root=>project(async cache=>project(async state=>{
+ const {readFile}=await import('node:fs/promises');const answers=['1','2','3','3'];const reports:Record<string,any>[]=[];let output='';
+ const code=await runCli(['init','--backend','host'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null,services:{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}});
+ assert.equal(code,3,output);assert.equal(answers.length,0);const paused=reports.find(r=>r.requestPath);assert.ok(paused,'interactive selections must reach actual host research');
+ const request=JSON.parse(await readFile(paused.requestPath,'utf8'));assert.deepEqual(request.context.options.agents,['claude']);assert.equal(request.context.options.sdd,'openspec');assert.equal(request.context.options.backend,'host');assert.equal(request.context.root,root);assert.deepEqual(await readdir(root),[]);
+}))));
+
+test('interactive_agent_selection_preserves_explicit_sdd_and_tool_arguments',()=>project(async root=>project(async cache=>project(async state=>{
+ const {readFile}=await import('node:fs/promises');const answers=['1'];const reports:Record<string,any>[]=[];let output='';
+ const code=await runCli(['init','--sdd','openspec','--tools','none','--backend','host','--dry-run'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null,services:{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}});
+ assert.equal(code,3,output);assert.equal(answers.length,0);const paused=reports.find(r=>r.requestPath);assert.ok(paused);
+ const request=JSON.parse(await readFile(paused.requestPath,'utf8'));assert.deepEqual(request.context.options.agents,['claude']);assert.equal(request.context.options.sdd,'openspec');assert.equal(request.context.options.tools,undefined);assert.deepEqual(await readdir(root),[]);
+}))));
+
+test('explicit_first_run_selections_do_not_need_reentering_in_a_terminal',()=>project(async root=>project(async cache=>project(async state=>{
+ let output='';const code=await runCli(['init','--agents','claude','--sdd','none','--tools','none','--dry-run'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>{throw Error('Explicit choices must not be asked again');},services:{cacheRoot:cache,stateRoot:state}});
+ assert.equal(code,0,output);assert.deepEqual(await readdir(root),[]);
+}))));
+
+
+test('partial_native_api_key_reference_reaches_the_tty_model_and_secret_guide',()=>project(async root=>project(async cache=>project(async state=>{
+ const previousModel=process.env.ANTHROPIC_MODEL;const previousKey=process.env.RIGUP_TEST_NAMED_API_KEY;delete process.env.ANTHROPIC_MODEL;delete process.env.RIGUP_TEST_NAMED_API_KEY;
+ try{let output='';const answers=['fixture-model',null];const reads:boolean[]=[];
+  const code=await runCli(['init','--agents','claude','--sdd','openspec','--tools','none','--api-key-env','RIGUP_TEST_NAMED_API_KEY','--dry-run'],{cwd:root,isTTY:true,write:s=>output+=s,read:async secret=>{reads.push(!!secret);return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state}});
+  assert.equal(code,130,output);assert.deepEqual(reads,[false,true]);assert.match(output,/RIGUP_TEST_NAMED_API_KEY/);assert.deepEqual(await readdir(root),[]);
+ }finally{if(previousModel===undefined)delete process.env.ANTHROPIC_MODEL;else process.env.ANTHROPIC_MODEL=previousModel;if(previousKey===undefined)delete process.env.RIGUP_TEST_NAMED_API_KEY;else process.env.RIGUP_TEST_NAMED_API_KEY=previousKey;}
+}))));

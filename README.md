@@ -15,31 +15,45 @@ git clone https://github.com/ansonli-dev/rigup.git
 cd rigup
 npm ci
 npm run build
-node dist/cli.js --help
+npm link
+rigup --help
 ```
 
-Run the built CLI by its absolute path (`node /path/to/rigup/dist/cli.js`), or run `npm link` after building to register the `rigup` command.
+Run `npm link` once in the source checkout to register the `rigup` command on your npm prefix's PATH. Keep the checkout available; rebuild after source updates. You can also run the built CLI directly with `node /path/to/rigup/dist/cli.js`.
 
 ## Use
 
-Prepare the selected SDD's official entry points in the target project first. Start with a preview; `--dry-run` stores private candidates and a preview without installing project assets.
+Run this from the project root in an interactive terminal:
 
 ```sh
-node dist/cli.js init /path/to/project --agents codex --sdd openspec --dry-run --json
-node dist/cli.js init /path/to/project --agents codex --sdd openspec --review --json
+cd /path/to/project
+rigup init
 ```
 
-Review the concrete changes, end agent sessions that load affected assets, then run the reported `nextCommand` from an independent terminal. Subsequent updates and read-only diagnosis use:
+The guide asks for missing agents, SDD, optional tools, and the research backend, then offers continuous, review, or dry-run mode. Codex is the suggested agent/backend; select another in the guide. Running `rigup` alone opens the project menu.
+
+Arguments are optional. Supply some to preselect those choices and let the guide fill the rest, or supply everything for scripts:
 
 ```sh
-node dist/cli.js update /path/to/project --json
-node dist/cli.js doctor /path/to/project --json
+rigup init --agents codex
+rigup init --agents codex --sdd openspec --dry-run --json
+rigup init /path/to/another-project --agents codex --sdd openspec --review --json
+```
+
+Omitting the path uses the current directory. `--json` and non-interactive input do not prompt; provide the selections they need. The selected SDD must have its official entry points installed; missing prerequisites remain actionable pending items. `--dry-run` stores private candidates and a preview without installing project assets.
+
+Review concrete changes, end agent sessions that load affected assets, then run the reported `nextCommand` from an independent terminal. Later commands also default to the current project:
+
+```sh
+rigup update
+rigup update --configure
+rigup doctor
 ```
 
 Tool-only setup needs neither an SDD nor model calls:
 
 ```sh
-node dist/cli.js init /path/to/project --agents codex --sdd none --tools openwiki,codegraph --review --json
+rigup init --agents codex --sdd none --tools openwiki,codegraph --review --json
 ```
 
 OpenWiki setup installs the software, registers MCP, and provides a separate initialization guide. Start its long-running wiki generation as a separate task. CodeGraph initialization uses isolated staging, integrity checks, and recoverable installation.

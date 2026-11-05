@@ -1,0 +1,87 @@
+{
+  "status": "passed",
+  "baseCommit": "39dcaad19bdbac3da84ee7d4c7328addcb58940c",
+  "binding": "Exact source and built-file hashes bind the local candidate; no model/provider inference.",
+  "sourceFiles": {
+    "src/cli.ts": "ce7af3c4727858eda63e399cfa866d1c21fc4dcbdc7be6ba8071496b0cc73839",
+    "src/onboarding.ts": "411932a037b16d11c480758e79929df8c54d692caf943a054426c5adce1fd898",
+    "dist/cli.js": "a714049c45118ea6f606d51ebf13434d6699bc2dc28db6c3cd153d3ee4e83bdc",
+    "dist/onboarding.js": "db1e8be4d040bbc05b6b84dc47a9aab537724577b9bd08b68be7f461fc15bf47",
+    "package.json": "c8fd03306b4ee9d62b7eaec5510ae50232144a28f07ec164ad45a38bbb1785ea"
+  },
+  "runtime": {
+    "node": "v24.15.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "registration": "actual npm link in isolated npm_config_prefix; no global user command changed",
+  "cases": [
+    {
+      "case": "project-root-init",
+      "command": [
+        "rigup",
+        "init"
+      ],
+      "realPty": true,
+      "exitCode": 0,
+      "answeredQuestions": 4,
+      "currentDirectoryUsed": true,
+      "projectUntouched": true,
+      "modelCalls": 0,
+      "transcriptSha256": "fb4eef3807252f052cb0dd85830333b55e125c805996d0d7f191818ed9f644ee"
+    },
+    {
+      "case": "project-root-menu",
+      "command": [
+        "rigup"
+      ],
+      "realPty": true,
+      "exitCode": 0,
+      "answeredQuestions": 5,
+      "currentDirectoryUsed": true,
+      "projectUntouched": true,
+      "modelCalls": 0,
+      "transcriptSha256": "87edfb14e96c1fe211757442ebb21e584793d3a00bd0ae3184fc2b3829e27319"
+    },
+    {
+      "case": "provided-choices",
+      "command": [
+        "rigup",
+        "init",
+        "--agents",
+        "claude",
+        "--sdd",
+        "none",
+        "--tools",
+        "none",
+        "--dry-run"
+      ],
+      "realPty": true,
+      "exitCode": 0,
+      "answeredQuestions": 0,
+      "currentDirectoryUsed": true,
+      "projectUntouched": true,
+      "modelCalls": 0,
+      "transcriptSha256": "6caec4512b18faa62706d51f68e726f407a51d93373133a41d3c6ab011526f22"
+    },
+    {
+      "case": "partial-backend",
+      "command": [
+        "rigup",
+        "init",
+        "--backend",
+        "host",
+        "--dry-run"
+      ],
+      "realPty": true,
+      "exitCode": 0,
+      "answeredQuestions": 3,
+      "currentDirectoryUsed": true,
+      "projectUntouched": true,
+      "modelCalls": 0,
+      "transcriptSha256": "5aec892bb519b811abffb00b71694d613580f9c9e94f0ffcbb6c0af24f483e18"
+    }
+  ],
+  "modelCalls": 0,
+  "scope": "macOS real terminal / source-linked executable; Windows and actual SDD/provider compatibility remain separate"
+}

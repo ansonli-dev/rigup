@@ -12,8 +12,20 @@ Rigup 为项目接入 coding agent、原生研发流程、MCP 和已有工程检
 npm ci
 npm test
 npm run build
-node dist/cli.js --help
+npm link
+rigup --help
 ```
+
+在源码目录注册命令后，在**目标项目根目录**执行：
+
+```sh
+rigup init
+# 直接运行 rigup 可打开 init/update/doctor 菜单。
+```
+
+TTY 引导只补问首次设置缺少的选择；参数可以部分提供，例如 `rigup init --agents claude`。未提供路径使用当前目录；给出路径可作用于其他项目。已给参数先保留，`b` 返回时可以重新选择。已有项目复用保存的设置；`rigup update --configure` 显式重开完整设置引导。`--json` 不启动交互，即使在终端运行也一样。
+
+`npm link` 连接到源码 checkout，需要保留该目录；移动或删除后应从新的源码目录重新构建并执行 `npm link`。如果提示找不到 `rigup`，检查 npm prefix 的 bin 是否在 PATH（Windows 的命令 shim 位于 prefix 本身）；也可先用 `node /absolute/path/to/rigup/dist/cli.js init`。当前仍未发布 npm registry 包，不使用 registry 同名包代替本项目。
 
 先在目标目录或宿主可发现的用户/插件位置准备所选 SDD 的官方入口。Rigup 核对原生调用名、来源身份和已声明依赖；可核实的启用插件会参与发现，多来源冲突、依赖缺失或版本不明确时保持待处理。原生客户端实际加载仍需独立验证。框架与工具的精确来源见 [upstream-lock.json](../compatibility/upstream-lock.json)。
 

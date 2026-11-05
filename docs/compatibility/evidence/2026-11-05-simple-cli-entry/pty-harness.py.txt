@@ -1,0 +1,57 @@
+import os, pty, select, time, signal, subprocess, tempfile, pathlib, json, hashlib, shutil
+source=pathlib.Path.cwd().resolve()
+workspace=pathlib.Path(tempfile.mkdtemp(prefix='rigup-entry-')).resolve()
+evidence=pathlib.Path('/private/tmp/rigup-simple-entry-pty-evidence');evidence.mkdir(exist_ok=True)
+prefix=workspace/'prefix';prefix.mkdir()
+for name in ['npmrc','global-npmrc']:(workspace/name).write_text('')
+linkenv=os.environ.copy();linkenv.update(npm_config_prefix=str(prefix),npm_config_userconfig=str(workspace/'npmrc'),npm_config_globalconfig=str(workspace/'global-npmrc'))
+linked=subprocess.run(['npm','link','--ignore-scripts','--no-audit','--no-fund'],cwd=source,env=linkenv,capture_output=True,text=True,timeout=90)
+(evidence/'npm-link.log').write_text(linked.stdout+linked.stderr)
+assert linked.returncode==0, 'isolated npm link failed'
+case_list=[
+ ('project-root-init',['init'],[('目标 agents','2'),('原生 SDD','4'),('可选工具','3'),('1. continuous','3')]),
+ ('project-root-menu',[],[('1. init','1'),('目标 agents','2'),('原生 SDD','4'),('可选工具','3'),('1. continuous','3')]),
+ ('provided-choices',['init','--agents','claude','--sdd','none','--tools','none','--dry-run'],[]),
+ ('partial-backend',['init','--backend','host','--dry-run'],[('目标 agents','1'),('原生 SDD','4'),('可选工具','3')])
+]
+results=[]
+for name,args,steps in case_list:
+ project=workspace/name;project.mkdir();case_home=workspace/(name+'-home');case_home.mkdir(mode=0o700)
+ env=os.environ.copy();env.update(PATH=str(prefix/'bin')+os.pathsep+env['PATH'],HOME=str(case_home),CODEX_HOME=str(case_home/'.codex'),CLAUDE_CONFIG_DIR=str(case_home/'.claude'),XDG_CONFIG_HOME=str(case_home/'config'),XDG_STATE_HOME=str(case_home/'state'),XDG_CACHE_HOME=str(case_home/'cache'),NO_COLOR='1')
+ assert pathlib.Path(shutil.which('rigup',path=env['PATH'])).resolve()==source/'dist/cli.js'
+ pid,fd=pty.fork()
+ if pid==0:
+  os.chdir(project);os.execvpe('rigup',['rigup']+args,env)
+ data=b'';index=0;started=time.monotonic();status=None
+ try:
+  while time.monotonic()-started<25:
+   ready,_,_=select.select([fd],[],[],0.15)
+   if ready:
+    try:chunk=os.read(fd,65536)
+    except OSError:chunk=b''
+    if chunk:data+=chunk
+   text=data.decode('utf8',errors='replace')
+   if index<len(steps) and steps[index][0] in text:
+    time.sleep(0.08);os.write(fd,(steps[index][1]+'\r').encode());index+=1
+   done,current=os.waitpid(pid,os.WNOHANG)
+   if done:status=current;break
+  if status is None:raise RuntimeError('TTY timeout: '+name)
+  (evidence/(name+'.log')).write_bytes(data)
+  code=os.waitstatus_to_exitcode(status)
+  assert code==0,(name,code,text[-2400:])
+  assert index==len(steps),(name,'missing input')
+  assert 'init: '+str(project) in text,(name,'wrong cwd')
+  assert not list(project.iterdir()),(name,'dry run wrote the project')
+  if name=='provided-choices':assert '目标 agents' not in text and '原生 SDD' not in text
+  results.append({'case':name,'command':['rigup']+args,'realPty':True,'exitCode':code,'answeredQuestions':index,'currentDirectoryUsed':True,'projectUntouched':True,'modelCalls':0,'transcriptSha256':hashlib.sha256(data).hexdigest()})
+  print(json.dumps(results[-1]),flush=True)
+ finally:
+  if status is None:
+   try:os.killpg(pid,signal.SIGTERM)
+   except ProcessLookupError:pass
+   os.waitpid(pid,0)
+  os.close(fd)
+files=['src/cli.ts','src/onboarding.ts','dist/cli.js','dist/onboarding.js','package.json']
+report={'status':'passed','baseCommit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=source,text=True).strip(),'binding':'Exact source and built-file hashes bind the local candidate; no model/provider inference.','sourceFiles':{name:hashlib.sha256((source/name).read_bytes()).hexdigest() for name in files},'runtime':json.loads(subprocess.check_output(['node','-p','JSON.stringify({node:process.version,platform:process.platform,arch:process.arch})'],text=True)),'registration':'actual npm link in isolated npm_config_prefix; no global user command changed','cases':results,'modelCalls':0,'scope':'macOS real terminal / source-linked executable; Windows and actual SDD/provider compatibility remain separate'}
+(evidence/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+shutil.rmtree(workspace)

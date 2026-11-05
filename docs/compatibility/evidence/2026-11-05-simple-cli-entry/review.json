@@ -1,0 +1,40 @@
+{
+  "base": "39dcaad19bdbac3da84ee7d4c7328addcb58940c",
+  "reviewer": "fresh-context Codex; read-only; no subreviews",
+  "reviewedScope": "Current CLI/onboarding/package-entry changes, plus user correction that ini was a typo and must not be added",
+  "verdictBeforeFixes": "with fixes",
+  "findings": [
+    {
+      "severity": "P2",
+      "finding": "Back could lose tool scope after changing agents",
+      "observedRed": true,
+      "fixed": true,
+      "regression": "returning_to_agents_keeps_explicit_tool_registration_on_the_new_agent"
+    },
+    {
+      "severity": "P2",
+      "finding": "Native API-key-env-only argument failed before TTY model onboarding",
+      "observedRed": true,
+      "fixed": true,
+      "regression": "partial_native_api_key_reference_reaches_the_tty_model_and_secret_guide"
+    }
+  ],
+  "verification": {
+    "focusedPassed": 34,
+    "total": 362,
+    "passed": 347,
+    "optInSkipped": 15,
+    "failed": 0,
+    "typecheck": "passed",
+    "build": "passed",
+    "docs": "passed; 39 Markdown files / 361 local targets before adding this evidence index",
+    "package": "80 files; actual PATH command, current-directory preview/apply/update/doctor passed",
+    "packageIntegrity": "sha512-GSz8fLx3SETt7pcbnVIWfmG47VMbhGN6pzvLqzOG0usuotxEE0k7S8YG5Nf2IR8LKGlh0KmI91Fzthk7IyDHMw==",
+    "modelCalls": 0
+  },
+  "declinedScope": [
+    "Paid provider/semantic E2E was not rerun for terminal selection changes; existing budgets and source-bound evidence retained",
+    "Windows/WSL2 native runtime requires the separate documented target environments"
+  ],
+  "deferredMinors": []
+}

@@ -15,31 +15,45 @@ git clone https://github.com/ansonli-dev/rigup.git
 cd rigup
 npm ci
 npm run build
-node dist/cli.js --help
+npm link
+rigup --help
 ```
 
-使用绝对路径运行 `node /path/to/rigup/dist/cli.js`，或在构建后通过 `npm link` 注册 `rigup` 命令。
+在源码目录执行一次 `npm link`，将 `rigup` 注册到 npm prefix 的 PATH；保留该源码目录，更新代码后重新构建。也可直接运行 `node /path/to/rigup/dist/cli.js`。
 
 ## 开始使用
 
-先在目标项目准备所选 SDD 的官方入口，再预览安装。`--dry-run` 保存私有候选和预览，不安装到项目。
+在项目根目录的交互终端运行即可：
 
 ```sh
-node dist/cli.js init /path/to/project --agents codex --sdd openspec --dry-run --json
-node dist/cli.js init /path/to/project --agents codex --sdd openspec --review --json
+cd /path/to/project
+rigup init
 ```
 
-检查实际预览，结束会加载待改资产的 agent 会话，再在独立终端执行输出中的 `nextCommand`。后续使用 `update` 更新，使用 `doctor` 只读检查：
+引导会补问未提供的 agents、SDD、可选工具和研究后端，再选择连续执行、审阅或只预览。默认建议使用 Codex，也能在引导中选择其他宿主。直接运行 `rigup` 会打开项目菜单。
+
+参数可以全不填、只填一部分，或在脚本中完整指定：
 
 ```sh
-node dist/cli.js update /path/to/project --json
-node dist/cli.js doctor /path/to/project --json
+rigup init --agents codex
+rigup init --agents codex --sdd openspec --dry-run --json
+rigup init /path/to/another-project --agents codex --sdd openspec --review --json
+```
+
+省略路径就使用当前目录。引导保留已给出的选择，按 `b` 可返回修改；`--json` 和非交互运行不读取键盘，需要通过参数或配置提供必要选择。所选 SDD 的官方入口仍须准备好，缺失时会给出具体待办。`--dry-run` 保存私有候选和预览，不安装到项目。
+
+检查实际预览，结束会加载待改资产的 agent 会话，再从独立终端执行输出的 `nextCommand`。日常命令也默认作用于当前项目：
+
+```sh
+rigup update
+rigup update --configure
+rigup doctor
 ```
 
 只安装工具时，不需要 SDD 或模型调用：
 
 ```sh
-node dist/cli.js init /path/to/project --agents codex --sdd none --tools openwiki,codegraph --review --json
+rigup init --agents codex --sdd none --tools openwiki,codegraph --review --json
 ```
 
 OpenWiki 只安装软件、登记 MCP 并给出独立初始化指引；长时间的 wiki 生成由用户另开任务执行。CodeGraph 的初始化使用隔离暂存、完整性检查和恢复流程。

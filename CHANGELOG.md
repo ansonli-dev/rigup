@@ -4,6 +4,8 @@ Changes to the source distribution are recorded here. There is no npm registry r
 
 ## Unreleased — 0.1.0 development preview
 
+- Make project-root `rigup init` the primary usage, preserve explicit choices while guiding missing first-run options, and allow back navigation to revisit supplied choices. Verify the installed command through PATH.
+
 - Add the external validation handoff for Claude on another machine and separate native Windows/WSL2 verification, including commands, acceptance checks, budgets and recovery.
 
 - Fix shell quoting in review handoff commands and sensitive configuration comments, browser sessions, credential backups and private-key material in research evidence; invalidate old exports under read policy 6.

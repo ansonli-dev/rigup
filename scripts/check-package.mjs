@@ -3,7 +3,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {mkdtemp, mkdir, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join, resolve} from 'node:path';
+import {delimiter, dirname, join, resolve} from 'node:path';
 
 const exec = promisify(execFile);
 const source = resolve('.');
@@ -29,28 +29,28 @@ try {
   await writeFile(join(project, '.rigup', 'config.yaml'), JSON.stringify({agents: ['codex'], backend: 'codex', customSkills: [{source: skill}]}));
   // Make the handoff contract explicit on CI as well as inside a real agent.
   // This marker does not assert actual native discovery or start a model turn.
-  const env = {...process.env, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'), XDG_STATE_HOME: join(home, 'state'), CODEX_THREAD_ID: 'distribution-smoke-controlled-session', NO_COLOR: '1'};
-  const run = async args => exec(cli, args, {cwd: project, env, timeout: 60_000, maxBuffer: 1_000_000});
+  const env = {...process.env, PATH: [dirname(cli), process.env.PATH].filter(Boolean).join(delimiter), HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'), XDG_STATE_HOME: join(home, 'state'), CODEX_THREAD_ID: 'distribution-smoke-controlled-session', NO_COLOR: '1'};
+  const run = async args => exec('rigup', args, {cwd: project, env, timeout: 60_000, maxBuffer: 1_000_000});
   assert.match((await run(['--help'])).stdout, /rigup init/);
   const version = JSON.parse(await readFile(join(source, 'package.json'), 'utf8')).version;
   assert.equal((await run(['--version'])).stdout.trim(), version);
-  const preview = JSON.parse((await run(['init', project, '--sdd', 'none', '--tools', 'none', '--dry-run', '--json'])).stdout);
+  const preview = JSON.parse((await run(['init', '--sdd', 'none', '--tools', 'none', '--dry-run', '--json'])).stdout);
   assert.ok(preview.previewId, 'dry run must produce a reusable preview');
-  await assert.rejects(run(['update', project, '--apply', preview.previewId, '--json']), error => error.code === 3 && JSON.parse(error.stdout).exitCode === 3, 'apply must require a session handoff');
-  const installed = JSON.parse((await run(['update', project, '--apply', preview.previewId, '--sessions-ended', '--json'])).stdout);
+  await assert.rejects(run(['update', '--apply', preview.previewId, '--json']), error => error.code === 3 && JSON.parse(error.stdout).exitCode === 3, 'apply must require a session handoff');
+  const installed = JSON.parse((await run(['update', '--apply', preview.previewId, '--sessions-ended', '--json'])).stdout);
   assert.equal(installed.installStatus, 'complete');
   assert.match(await readFile(join(project, '.agents/skills/distribution-canary/SKILL.md'), 'utf8'), /distribution-canary/);
-  const unchanged = JSON.parse((await run(['update', project, '--sessions-ended', '--json'])).stdout);
+  const unchanged = JSON.parse((await run(['update', '--sessions-ended', '--json'])).stdout);
   assert.equal(unchanged.installStatus, 'complete');
   assert.deepEqual(unchanged.written, []);
   let diagnosed;
-  try { diagnosed = await run(['doctor', project, '--json']); }
+  try { diagnosed = await run(['doctor', '--json']); }
   catch (error) { if (error.code !== 3) throw error; diagnosed = error; }
   const health = JSON.parse(diagnosed.stdout);
   assert.equal(health.status, 'complete');
   assert.ok(health.diagnostics.filter(item => item.category === 'config').every(item => item.state === 'configured'));
   assert.ok(health.diagnostics.some(item => item.category === 'host' && item.state === 'reload-required'));
-  console.log(JSON.stringify({status: 'passed', package: archive.filename, integrity: archive.integrity, files: paths.length, lifecycle: ['help', 'version', 'preview', 'session handoff', 'independent apply', 'no-op update', 'doctor'], doctorExit: health.exitCode, doctorHostState: 'reload-required', modelCalls: 0}));
+  console.log(JSON.stringify({status: 'passed', package: archive.filename, integrity: archive.integrity, files: paths.length, lifecycle: ['PATH command', 'help', 'version', 'current-directory preview', 'session handoff', 'independent apply', 'no-op update', 'doctor'], doctorExit: health.exitCode, doctorHostState: 'reload-required', modelCalls: 0}));
 } finally {
   await rm(workspace, {recursive: true, force: true});
 }
