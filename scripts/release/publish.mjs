@@ -3,6 +3,7 @@ import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {lstat, mkdir, readdir, readFile, writeFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
+import {setTimeout as delay} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
 import {promisify} from 'node:util';
 import {sha256, sourceRoot} from './build.mjs';
@@ -250,6 +251,12 @@ export async function publishRelease({repository, bundle, runGh: gh = runGh}) {
       notesFile,
     ]);
     release = await findRelease();
+    // GitHub can acknowledge draft creation before the list endpoint shows it.
+    for (let retry = 0; !release && retry < 5; retry++) {
+      await delay(1000);
+      release = await findRelease();
+    }
+    assert.ok(release, 'New draft is not visible yet. Rerun the publisher with the original build artifacts.');
   }
   verifyIdentity(release);
   const missing = missingReleaseAssets(release, assets);

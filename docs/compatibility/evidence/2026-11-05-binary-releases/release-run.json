@@ -1,0 +1,165 @@
+{
+  "release": {
+    "id": 434861216,
+    "tag": "v0.1.0",
+    "url": "https://github.com/ansonli-dev/rigup/releases/tag/v0.1.0",
+    "publishedAt": "2026-11-05T06:43:58Z",
+    "draft": false,
+    "prerelease": true,
+    "assets": [
+      {
+        "name": "install.sh",
+        "size": 7539,
+        "digest": "sha256:18d2c263d708911921975f2cf31584516f698b0bd46db442de9e9f5e977cc251",
+        "download": "https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/install.sh"
+      },
+      {
+        "name": "release-manifest.json",
+        "size": 12663,
+        "digest": "sha256:f81ff0c9bddb5d70bd22fc9693c1b4ec87bbe44b17869b997ffb8185dc02aa06",
+        "download": "https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/release-manifest.json"
+      },
+      {
+        "name": "rigup-0.1.0-darwin-arm64.tar.gz",
+        "size": 56853370,
+        "digest": "sha256:0d502d53234ebb56ce49fada7a1f3beec1cce7f351ebf7e7b66729cd59029cd7",
+        "download": "https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0-darwin-arm64.tar.gz"
+      },
+      {
+        "name": "rigup-0.1.0-darwin-x64.tar.gz",
+        "size": 58211489,
+        "digest": "sha256:48f680ecd033e210fa415cc0f904334b09b3de861351323f2855e65874c2cb18",
+        "download": "https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0-darwin-x64.tar.gz"
+      },
+      {
+        "name": "rigup-0.1.0-linux-arm64.tar.gz",
+        "size": 62122512,
+        "digest": "sha256:9a6003c97028a8cfcd1e96b7e0f9e89d158f4012e0bfd1292018b6abdd9aa984",
+        "download": "https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0-linux-arm64.tar.gz"
+      },
+      {
+        "name": "rigup-0.1.0-linux-x64.tar.gz",
+        "size": 62405633,
+        "digest": "sha256:c063015a729acb9e5b690397968bf20e581d964cdbd3b37a65171bab769926bc",
+        "download": "https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0-linux-x64.tar.gz"
+      },
+      {
+        "name": "rigup-0.1.0.tgz",
+        "size": 140901,
+        "digest": "sha256:eee8ea2a95ed7e620d78735a991122125f3ea11730342af8c95a9b39f45f76c0",
+        "download": "https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0.tgz"
+      },
+      {
+        "name": "SHA256SUMS",
+        "size": 633,
+        "digest": "sha256:486bc8bb0a2587b6f9d72497b6c2bc1f10ca55e1133e93951429d7d608f177a1",
+        "download": "https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/SHA256SUMS"
+      }
+    ]
+  },
+  "source": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+  "buildOnly": {
+    "conclusion": "success",
+    "event": "workflow_dispatch",
+    "headSha": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "databaseId": 127089982946,
+        "name": "Portable / linux-x64",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41980728572/job/127089982946"
+      },
+      {
+        "conclusion": "success",
+        "databaseId": 127089983281,
+        "name": "Portable / darwin-x64",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41980728572/job/127089983281"
+      },
+      {
+        "conclusion": "success",
+        "databaseId": 127089983305,
+        "name": "Portable / linux-arm64",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41980728572/job/127089983305"
+      },
+      {
+        "conclusion": "success",
+        "databaseId": 127089983345,
+        "name": "Portable / darwin-arm64",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41980728572/job/127089983345"
+      },
+      {
+        "conclusion": "skipped",
+        "databaseId": 127090900847,
+        "name": "Publish verified prerelease",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41980728572/job/127090900847"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/ansonli-dev/rigup/actions/runs/41980728572"
+  },
+  "mainCIAtTag": "https://github.com/ansonli-dev/rigup/actions/runs/41980727566",
+  "releaseWorkflow": {
+    "attempt": 2,
+    "conclusion": "success",
+    "event": "push",
+    "headSha": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "databaseId": 127095081049,
+        "name": "Publish verified prerelease",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41981623779/job/127095081049"
+      },
+      {
+        "conclusion": "success",
+        "databaseId": 127095081335,
+        "name": "Portable / darwin-x64",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41981623779/job/127095081335"
+      },
+      {
+        "conclusion": "success",
+        "databaseId": 127095081908,
+        "name": "Portable / darwin-arm64",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41981623779/job/127095081908"
+      },
+      {
+        "conclusion": "success",
+        "databaseId": 127095082464,
+        "name": "Portable / linux-x64",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41981623779/job/127095082464"
+      },
+      {
+        "conclusion": "success",
+        "databaseId": 127095113688,
+        "name": "Portable / linux-arm64",
+        "url": "https://github.com/ansonli-dev/rigup/actions/runs/41981623779/job/127095113688"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/ansonli-dev/rigup/actions/runs/41981623779"
+  },
+  "firstPublisherAttempt": {
+    "job": "https://github.com/ansonli-dev/rigup/actions/runs/41981623779/job/127094241082",
+    "observed": "Draft creation succeeded. Immediate release-list read did not identify the draft. A later authenticated read showed the matching empty draft.",
+    "recovery": "Rerun failed job with original build artifacts; existing draft identity and eight asset digests checked before publication.",
+    "followUp": "Bounded draft visibility retry reproduced RED and passed GREEN on main."
+  },
+  "anonymous": {
+    "access": "HTTPS downloads in an isolated environment without GitHub credentials",
+    "archive": "0d502d53234ebb56ce49fada7a1f3beec1cce7f351ebf7e7b66729cd59029cd7",
+    "installerSha256": "18d2c263d708911921975f2cf31584516f698b0bd46db442de9e9f5e977cc251",
+    "compiledNpmSha256": "eee8ea2a95ed7e620d78735a991122125f3ea11730342af8c95a9b39f45f76c0",
+    "macosArm64UserLocalInstall": true,
+    "adHocLauncherSignatureVerified": true,
+    "npmTarballVersion": "0.1.0",
+    "modelCalls": 0,
+    "releaseMetadataDigestsMatched": 8,
+    "downloadBytesVerified": [
+      "SHA256SUMS",
+      "release-manifest.json",
+      "install.sh",
+      "rigup-0.1.0-darwin-arm64.tar.gz",
+      "rigup-0.1.0.tgz"
+    ]
+  }
+}

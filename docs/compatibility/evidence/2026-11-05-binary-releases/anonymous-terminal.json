@@ -1,0 +1,34 @@
+{
+  "status": "passed",
+  "noSystemNodeOrNpm": true,
+  "cases": [
+    {
+      "scenario": "guided-preview",
+      "command": "rigup init",
+      "exitCode": 0,
+      "answers": 4,
+      "realTerminal": true,
+      "projectUntouched": true,
+      "transcriptSha256": "78619298588b6607f8b2aeb915dec7171921c0095532f1582a7006fb67e7b4bb"
+    },
+    {
+      "scenario": "guided-interrupt",
+      "command": "rigup init",
+      "exitCode": 130,
+      "answers": 1,
+      "realTerminal": true,
+      "projectUntouched": true,
+      "transcriptSha256": "712e95301ce8a3dcee4a013574da2b4c4ec4d65be83b862e2c4541c9cee259fb"
+    },
+    {
+      "scenario": "guided-eof",
+      "command": "rigup init",
+      "exitCode": 130,
+      "answers": 1,
+      "realTerminal": true,
+      "projectUntouched": true,
+      "transcriptSha256": "80cc68917e3644fb56682aad9d6cad1bbcc5700e104bb3878d0e31acb12ef881"
+    }
+  ],
+  "modelCalls": 0
+}

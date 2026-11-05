@@ -232,3 +232,36 @@ test('unrelated or digest-mismatched drafts are preserved without GitHub mutatio
   remote.assets[0].digest = `sha256:${'0'.repeat(64)}`;
   await assert.rejects(publishRelease({repository, bundle, runGh}), /uploaded.*digest/i);
 });
+
+test('publishing waits for a newly created draft to appear in the release listing', async () => {
+  const {publishRelease} = await import('../scripts/release/publish.mjs');
+  const {bundle, remote} = draftFixture();
+  let created = false;
+  let readsAfterCreation = 0;
+  const mutations: string[] = [];
+  const runGh = async (args: string[]) => {
+    if (args.includes(`repos/${repository}/commits/${tag}`)) return JSON.stringify({sha: sourceCommit});
+    if (args.includes(`repos/${repository}/releases?per_page=100`)) {
+      const visible = created && ++readsAfterCreation > 1;
+      return JSON.stringify([visible ? [remote] : []]);
+    }
+    if (args.includes(`repos/${repository}/releases/${remote.id}`)) return JSON.stringify(remote);
+    mutations.push(args[1]);
+    if (args[1] === 'create') {
+      assert.ok(args.includes('--draft'));
+      assert.ok(args.includes('--verify-tag'));
+      created = true;
+      remote.assets = [];
+    } else if (args[1] === 'upload') {
+      remote.assets = draftFixture().remote.assets;
+    } else if (args[1] === 'edit') {
+      remote.draft = false;
+    } else {
+      assert.fail(`Unexpected GitHub mutation ${args[1]}`);
+    }
+    return '';
+  };
+  assert.equal((await publishRelease({repository, bundle, runGh})).status, 'published');
+  assert.deepEqual(mutations, ['create', 'upload', 'edit']);
+  assert.equal(readsAfterCreation, 2);
+});

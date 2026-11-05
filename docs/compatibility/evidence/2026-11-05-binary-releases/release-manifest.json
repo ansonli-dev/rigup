@@ -1,0 +1,371 @@
+{
+  "schemaVersion": 1,
+  "tag": "v0.1.0",
+  "version": "0.1.0",
+  "source": {
+    "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+    "dirty": false
+  },
+  "sourceLockSha256": "680ff0f04196d8e67caa79b3f60fd96c352c912ec7e460d50b32cb6beb95bdd5",
+  "assets": [
+    {
+      "name": "rigup-0.1.0-darwin-arm64.tar.gz",
+      "sha256": "0d502d53234ebb56ce49fada7a1f3beec1cce7f351ebf7e7b66729cd59029cd7",
+      "size": 56853370
+    },
+    {
+      "name": "rigup-0.1.0-darwin-x64.tar.gz",
+      "sha256": "48f680ecd033e210fa415cc0f904334b09b3de861351323f2855e65874c2cb18",
+      "size": 58211489
+    },
+    {
+      "name": "rigup-0.1.0-linux-arm64.tar.gz",
+      "sha256": "9a6003c97028a8cfcd1e96b7e0f9e89d158f4012e0bfd1292018b6abdd9aa984",
+      "size": 62122512
+    },
+    {
+      "name": "rigup-0.1.0-linux-x64.tar.gz",
+      "sha256": "c063015a729acb9e5b690397968bf20e581d964cdbd3b37a65171bab769926bc",
+      "size": 62405633
+    },
+    {
+      "name": "rigup-0.1.0.tgz",
+      "sha256": "eee8ea2a95ed7e620d78735a991122125f3ea11730342af8c95a9b39f45f76c0",
+      "size": 140901
+    },
+    {
+      "name": "install.sh",
+      "sha256": "18d2c263d708911921975f2cf31584516f698b0bd46db442de9e9f5e977cc251",
+      "size": 7539
+    }
+  ],
+  "targets": [
+    {
+      "metadata": {
+        "schemaVersion": 1,
+        "version": "0.1.0",
+        "target": "darwin-arm64",
+        "source": {
+          "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+          "dirty": false
+        },
+        "runtime": {
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-darwin-arm64.tar.gz",
+          "sha256": "aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a"
+        },
+        "npm": {
+          "name": "rigup-0.1.0.tgz",
+          "sha256": "eee8ea2a95ed7e620d78735a991122125f3ea11730342af8c95a9b39f45f76c0",
+          "integrity": "sha512-T0+C1k2nTwb5VKQgW2NPgLTzkwImR58QkZUD4E1tQA3YfkvwtwaeBaiY+NzBpD5mMNDX5dcwTmadRMoiLohS9A=="
+        },
+        "sourceLockSha256": "680ff0f04196d8e67caa79b3f60fd96c352c912ec7e460d50b32cb6beb95bdd5",
+        "application": "lib/app/dist/cli.js",
+        "runtimeExecutable": "lib/node/bin/node",
+        "consumerRuntime": "Installed MCP/hooks use Node on the consuming host/CI; the CLI only prepends its bundled runtime for its own children.",
+        "asset": {
+          "name": "rigup-0.1.0-darwin-arm64.tar.gz",
+          "sha256": "0d502d53234ebb56ce49fada7a1f3beec1cce7f351ebf7e7b66729cd59029cd7",
+          "size": 56853370
+        }
+      },
+      "smoke": {
+        "status": "passed",
+        "target": "darwin-arm64",
+        "version": "0.1.0",
+        "source": {
+          "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+          "dirty": false
+        },
+        "runtime": {
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-darwin-arm64.tar.gz",
+          "sha256": "aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a"
+        },
+        "archiveSha256": "0d502d53234ebb56ce49fada7a1f3beec1cce7f351ebf7e7b66729cd59029cd7",
+        "systemNodeOrNpmOnCliPath": false,
+        "relocated": true,
+        "throughPathSymlink": true,
+        "lifecycle": [
+          "help",
+          "version",
+          "preview",
+          "session handoff",
+          "independent apply",
+          "no-op",
+          "doctor"
+        ],
+        "originalBusinessPreserved": true,
+        "standaloneRunnerWithoutRigupApplication": true,
+        "consumerNodeExplicitlyProvided": true,
+        "doctorExit": 3,
+        "modelCalls": 0
+      },
+      "native": {
+        "status": "passed",
+        "target": "darwin-arm64",
+        "version": "0.1.0",
+        "source": {
+          "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+          "dirty": false
+        },
+        "runtime": {
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-darwin-arm64.tar.gz",
+          "sha256": "aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a"
+        },
+        "archiveSha256": "0d502d53234ebb56ce49fada7a1f3beec1cce7f351ebf7e7b66729cd59029cd7",
+        "systemNodeOrNpmOnCliPath": false,
+        "pinnedSoftwareInstalled": [
+          "openwiki@0.7.3",
+          "codegraph@1.6.2"
+        ],
+        "codegraphInitialized": true,
+        "businessQuery": true,
+        "noOpReinitialized": false,
+        "openwikiScaffoldInitialization": false,
+        "openwikiHandoff": true,
+        "daemonCleanup": {
+          "outcome": "no-daemon-record"
+        },
+        "reports": [
+          {
+            "args": [
+              "init",
+              "--agents",
+              "codex",
+              "--sdd",
+              "none",
+              "--tools",
+              "openwiki,codegraph",
+              "--review",
+              "--json"
+            ],
+            "exitCode": 3,
+            "phase": "handoff",
+            "installStatus": "pending"
+          },
+          {
+            "args": [
+              "update",
+              "--apply",
+              "5d4637f365ca6064e947a380ece63ed4d68d747c4a7355b2f75ceb5bee9bdc22",
+              "--sessions-ended",
+              "--json"
+            ],
+            "exitCode": 0,
+            "phase": "apply",
+            "installStatus": "complete"
+          },
+          {
+            "args": [
+              "update",
+              "--dry-run",
+              "--json"
+            ],
+            "exitCode": 0,
+            "phase": "preview",
+            "installStatus": "not-installed"
+          },
+          {
+            "args": [
+              "update",
+              "--sessions-ended",
+              "--json"
+            ],
+            "exitCode": 0,
+            "phase": "apply",
+            "installStatus": "complete"
+          }
+        ],
+        "modelCalls": 0
+      }
+    },
+    {
+      "metadata": {
+        "schemaVersion": 1,
+        "version": "0.1.0",
+        "target": "darwin-x64",
+        "source": {
+          "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+          "dirty": false
+        },
+        "runtime": {
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-darwin-x64.tar.gz",
+          "sha256": "d5e336d588c45be0c37dbd52cc29895593009ca4997a77a1fd02815131ed0e52"
+        },
+        "npm": {
+          "name": "rigup-0.1.0.tgz",
+          "sha256": "eee8ea2a95ed7e620d78735a991122125f3ea11730342af8c95a9b39f45f76c0",
+          "integrity": "sha512-T0+C1k2nTwb5VKQgW2NPgLTzkwImR58QkZUD4E1tQA3YfkvwtwaeBaiY+NzBpD5mMNDX5dcwTmadRMoiLohS9A=="
+        },
+        "sourceLockSha256": "680ff0f04196d8e67caa79b3f60fd96c352c912ec7e460d50b32cb6beb95bdd5",
+        "application": "lib/app/dist/cli.js",
+        "runtimeExecutable": "lib/node/bin/node",
+        "consumerRuntime": "Installed MCP/hooks use Node on the consuming host/CI; the CLI only prepends its bundled runtime for its own children.",
+        "asset": {
+          "name": "rigup-0.1.0-darwin-x64.tar.gz",
+          "sha256": "48f680ecd033e210fa415cc0f904334b09b3de861351323f2855e65874c2cb18",
+          "size": 58211489
+        }
+      },
+      "smoke": {
+        "status": "passed",
+        "target": "darwin-x64",
+        "version": "0.1.0",
+        "source": {
+          "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+          "dirty": false
+        },
+        "runtime": {
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-darwin-x64.tar.gz",
+          "sha256": "d5e336d588c45be0c37dbd52cc29895593009ca4997a77a1fd02815131ed0e52"
+        },
+        "archiveSha256": "48f680ecd033e210fa415cc0f904334b09b3de861351323f2855e65874c2cb18",
+        "systemNodeOrNpmOnCliPath": false,
+        "relocated": true,
+        "throughPathSymlink": true,
+        "lifecycle": [
+          "help",
+          "version",
+          "preview",
+          "session handoff",
+          "independent apply",
+          "no-op",
+          "doctor"
+        ],
+        "originalBusinessPreserved": true,
+        "standaloneRunnerWithoutRigupApplication": true,
+        "consumerNodeExplicitlyProvided": true,
+        "doctorExit": 3,
+        "modelCalls": 0
+      }
+    },
+    {
+      "metadata": {
+        "schemaVersion": 1,
+        "version": "0.1.0",
+        "target": "linux-arm64",
+        "source": {
+          "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+          "dirty": false
+        },
+        "runtime": {
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-linux-arm64.tar.gz",
+          "sha256": "95c264150aceb7f3437a29fd6984924f5f8d1511ea3cbd6c508b83f6c555dae2"
+        },
+        "npm": {
+          "name": "rigup-0.1.0.tgz",
+          "sha256": "eee8ea2a95ed7e620d78735a991122125f3ea11730342af8c95a9b39f45f76c0",
+          "integrity": "sha512-T0+C1k2nTwb5VKQgW2NPgLTzkwImR58QkZUD4E1tQA3YfkvwtwaeBaiY+NzBpD5mMNDX5dcwTmadRMoiLohS9A=="
+        },
+        "sourceLockSha256": "680ff0f04196d8e67caa79b3f60fd96c352c912ec7e460d50b32cb6beb95bdd5",
+        "application": "lib/app/dist/cli.js",
+        "runtimeExecutable": "lib/node/bin/node",
+        "consumerRuntime": "Installed MCP/hooks use Node on the consuming host/CI; the CLI only prepends its bundled runtime for its own children.",
+        "asset": {
+          "name": "rigup-0.1.0-linux-arm64.tar.gz",
+          "sha256": "9a6003c97028a8cfcd1e96b7e0f9e89d158f4012e0bfd1292018b6abdd9aa984",
+          "size": 62122512
+        }
+      },
+      "smoke": {
+        "status": "passed",
+        "target": "linux-arm64",
+        "version": "0.1.0",
+        "source": {
+          "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+          "dirty": false
+        },
+        "runtime": {
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-linux-arm64.tar.gz",
+          "sha256": "95c264150aceb7f3437a29fd6984924f5f8d1511ea3cbd6c508b83f6c555dae2"
+        },
+        "archiveSha256": "9a6003c97028a8cfcd1e96b7e0f9e89d158f4012e0bfd1292018b6abdd9aa984",
+        "systemNodeOrNpmOnCliPath": false,
+        "relocated": true,
+        "throughPathSymlink": true,
+        "lifecycle": [
+          "help",
+          "version",
+          "preview",
+          "session handoff",
+          "independent apply",
+          "no-op",
+          "doctor"
+        ],
+        "originalBusinessPreserved": true,
+        "standaloneRunnerWithoutRigupApplication": true,
+        "consumerNodeExplicitlyProvided": true,
+        "doctorExit": 3,
+        "modelCalls": 0
+      }
+    },
+    {
+      "metadata": {
+        "schemaVersion": 1,
+        "version": "0.1.0",
+        "target": "linux-x64",
+        "source": {
+          "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+          "dirty": false
+        },
+        "runtime": {
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-linux-x64.tar.gz",
+          "sha256": "361718c444e49af2ca5a110c83ba6a8901143f23ab285ebbef0341f391f482a9"
+        },
+        "npm": {
+          "name": "rigup-0.1.0.tgz",
+          "sha256": "eee8ea2a95ed7e620d78735a991122125f3ea11730342af8c95a9b39f45f76c0",
+          "integrity": "sha512-T0+C1k2nTwb5VKQgW2NPgLTzkwImR58QkZUD4E1tQA3YfkvwtwaeBaiY+NzBpD5mMNDX5dcwTmadRMoiLohS9A=="
+        },
+        "sourceLockSha256": "680ff0f04196d8e67caa79b3f60fd96c352c912ec7e460d50b32cb6beb95bdd5",
+        "application": "lib/app/dist/cli.js",
+        "runtimeExecutable": "lib/node/bin/node",
+        "consumerRuntime": "Installed MCP/hooks use Node on the consuming host/CI; the CLI only prepends its bundled runtime for its own children.",
+        "asset": {
+          "name": "rigup-0.1.0-linux-x64.tar.gz",
+          "sha256": "c063015a729acb9e5b690397968bf20e581d964cdbd3b37a65171bab769926bc",
+          "size": 62405633
+        }
+      },
+      "smoke": {
+        "status": "passed",
+        "target": "linux-x64",
+        "version": "0.1.0",
+        "source": {
+          "commit": "1c63658108bc1ffcc5f937b90c5ecc902310923d",
+          "dirty": false
+        },
+        "runtime": {
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-linux-x64.tar.gz",
+          "sha256": "361718c444e49af2ca5a110c83ba6a8901143f23ab285ebbef0341f391f482a9"
+        },
+        "archiveSha256": "c063015a729acb9e5b690397968bf20e581d964cdbd3b37a65171bab769926bc",
+        "systemNodeOrNpmOnCliPath": false,
+        "relocated": true,
+        "throughPathSymlink": true,
+        "lifecycle": [
+          "help",
+          "version",
+          "preview",
+          "session handoff",
+          "independent apply",
+          "no-op",
+          "doctor"
+        ],
+        "originalBusinessPreserved": true,
+        "standaloneRunnerWithoutRigupApplication": true,
+        "consumerNodeExplicitlyProvided": true,
+        "doctorExit": 3,
+        "modelCalls": 0
+      }
+    }
+  ]
+}
