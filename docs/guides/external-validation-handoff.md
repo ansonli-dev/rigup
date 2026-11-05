@@ -45,6 +45,7 @@ English: a maintainer handoff for Claude Code on another machine, native Windows
 
 ### 环境准备
 
+- Claude 官方安装条件包括 macOS 13+ 或受支持的 Linux（如 Ubuntu 20.04+）、x64/ARM64 和至少 4 GB RAM；记录实际系统。上游可安装不等于本项目该平台已经验收。
 - 安装 **Node.js 24.x**、npm、Git、POSIX shell 和外部 `ps`；最小 Debian/Ubuntu 需 `procps`。这里选 24.x 是为了同时满足 Rigup 及锁定 CodeGraph 1.6.2 的 Node `<25` 约束，不能直接安装下载页默认的其他 LTS 主版本。
 - 能访问 GitHub、npm registry 和所选 Claude 账号/组织的模型服务；准备实际可用的 Claude Code 登录或组织提供商配置。代理/网关必须与所选认证方式一致。
 - 按[上游锁](../compatibility/upstream-lock.json)先复现 Claude Code **2.1.273**。若只能使用其他版本，记录实际版本，建立新的版本场景，不静默修改锁文件或把新版本结果算到旧版本。
@@ -70,9 +71,10 @@ command -v ps
 npm ci > "$EVIDENCE/npm-ci.log" 2>&1
 # 上一条退出非 0 就停下修复安装，再继续；不要跳过安装错误。
 npm run check > "$EVIDENCE/default-check.log" 2>&1
+set +e  # 后续 CLI 正常交接可能退出 3，改为按每条命令/报告显式判断。
 ```
 
-本节 `set -e` 让失败停止后续执行；重开终端后从已保存的 CASE_ROOT 恢复变量和日志，先修复失败步骤。默认检查不调用付费模型；先确认它通过，再开启 live 标志。
+环境准备段的 `set -e` 让失败停止后续执行；成功后恢复普通 shell 行为，以便处理正常的退出 3。后面的每个步骤都要按其验收条件检查退出码，失败时不进入下一场景。重开终端后从已保存的 CASE_ROOT 恢复变量和日志，先修复失败步骤。默认检查不调用付费模型；先确认它通过，再开启 live 标志。
 
 按 [Claude 官方安装说明](https://code.claude.com/docs/en/setup)安装固定版本。安装器只在确实需要安装/切换版本的机器上运行：
 
@@ -252,7 +254,7 @@ node "$RIGUP_CLI" init "$PROJECT" --agents claude --sdd none --tools openwiki,co
 
 ### 安装与环境边界
 
-在支持 WSL 安装命令的 Windows 中，以管理员 PowerShell 执行，然后按提示重启、创建 Ubuntu 用户：
+`wsl --install` 要求 Windows 10 2004 / build 19041+ 或 Windows 11；还需可用的虚拟化与 WSL2 条件。在管理员 PowerShell 执行，然后按提示重启、创建 Ubuntu 用户：
 
 ```powershell
 wsl --install -d Ubuntu
@@ -293,7 +295,7 @@ Node 24 从 [Node 官方下载](https://nodejs.org/en/download)选择对应 Linu
 
 ### 环境准备与已知移植边界
 
-准备 Windows 版本/build、NTFS、本机架构对应的 Node **24.x**、Git for Windows、PowerShell 7 和 Claude Code。PowerShell 可按 [Microsoft 官方安装文档](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)安装；Node 下载选择 24.x 和对应 Windows x64/ARM64。x64 成功不推广到 ARM64 或 Server；先用本地普通目录，不用 OneDrive/共享盘。
+记录 Windows 版本/build、NTFS；Claude 官方原生安装条件是 Windows 10 1809+ 或 Windows Server 2019+、x64/ARM64、至少 4 GB RAM，但 Rigup 原生验收仍待执行。准备本机架构对应的 Node **24.x**、Git for Windows、PowerShell 7 和 Claude Code。PowerShell 可按 [Microsoft 官方安装文档](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)安装；Node 下载选择 24.x 和对应 Windows x64/ARM64。x64 成功不推广到 ARM64 或 Server；先用本地普通目录，不用 OneDrive/共享盘。
 
 Claude 原生安装与需要时的 Git Bash 路径设置：
 
