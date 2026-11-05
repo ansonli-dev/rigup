@@ -4,26 +4,24 @@
 
 Rigup prepares project-specific workflows for coding agents. It reads repository evidence, generates candidates, previews changes, and installs skills, MCP connections, hooks, and CI scripts with protected updates. Installed assets run independently of the Rigup CLI.
 
-**0.1.0 is a development preview, installed from source.** Local Codex is the default research backend. Configuration adapters exist for Claude Code, Codex, OpenCode, and Oh My Pi, with Superpowers, OpenSpec, and Spec Kit entry points. Actual discovery, model behavior, and workflow gates are verified separately; see [tested scope and remaining prerequisites](docs/compatibility/status.md).
+**0.1.0 is a development preview.** Local Codex is the default research backend. Configuration adapters exist for Claude Code, Codex, OpenCode, and Oh My Pi, with Superpowers, OpenSpec, and Spec Kit entry points. See [tested scope and remaining prerequisites](docs/compatibility/status.md) for native discovery, model behavior, and workflow gate coverage.
 
 ## Install
 
-Requires Node.js 24+, npm, Git, a POSIX shell, and `ps` (`procps` on minimal Linux images). Semantic research also requires an authenticated Codex CLI. This project has not published an npm registry release; install this repository rather than an unrelated package with the same name.
+Download Rigup for macOS or Linux (ARM64 and x64) from [GitHub Releases](https://github.com/ansonli-dev/rigup/releases). Each portable archive includes the `rigup` executable and its Node runtime. You can also install it into your user directory with the release installer.
 
 ```sh
-git clone https://github.com/ansonli-dev/rigup.git
-cd rigup
-npm ci
-npm run build
-npm link
-rigup --help
+curl -fL --proto '=https' -o rigup-install.sh https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/install.sh
+sh rigup-install.sh
+export PATH="$HOME/.local/bin:$PATH"
+rigup --version
 ```
 
-Run `npm link` once in the source checkout to register the `rigup` command on your npm prefix's PATH. Keep the checkout available; rebuild after source updates. You can also run the built CLI directly with `node /path/to/rigup/dist/cli.js`.
+The CLI uses Git and standard POSIX tools, including `ps`. Linux requires glibc 2.35 or later. Semantic research requires a configured backend. For manual downloads, checksums, Windows with WSL2, and installation from source, see the [installation guide](docs/guides/releases.md).
 
 ## Use
 
-Run this from the project root in an interactive terminal:
+Run this from the project root in an interactive terminal.
 
 ```sh
 cd /path/to/project

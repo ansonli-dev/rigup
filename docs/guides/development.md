@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Use Node.js 24+, npm, Git, a POSIX shell, and `ps` (the `procps` package in minimal Debian containers). The default test suite requires child-process execution, local pipes, temporary directories, and Git repositories; a sandbox that denies these operations is not a supported test environment. Linux and macOS are the CI targets. Native Windows and WSL2 have not been validated for this project. Follow the [external validation handoff](external-validation-handoff.md) to test them separately; WSL2 success does not establish native Windows support.
+Use Node.js 24+, npm, Git, a C compiler, a POSIX shell, and `ps` (the `procps` package in minimal Debian containers). The default test suite requires child-process execution, local pipes, temporary directories, and Git repositories. Linux and macOS are the CI targets. Follow the [external validation handoff](external-validation-handoff.md) to test native Windows and WSL2 separately.
 
 ```sh
 npm ci
@@ -83,8 +83,20 @@ Generated GitLab jobs use a regular stage from an explicit root `stages` list, o
 
 ## Release checklist
 
+Release packaging uses curl, tar, and standard shell utilities. On macOS, install Xcode Command Line Tools for `cc` and `codesign`. Build on the target operating system and architecture.
+
+```sh
+npm ci
+npm run release:build -- --out-dir release-out
+npm run release:check -- release-out/rigup-0.1.0-darwin-arm64.tar.gz
+```
+
+Adjust the archive name to your platform. Use a fresh output directory for another build. `node scripts/release/check-native.mjs` accepts the archive path and uses the public npm registry for the pinned tool smoke. It performs zero model requests.
+
 1. Review changes, compatibility claims, ownership/recovery behavior, dependency licenses, and the changelog.
 2. Run `npm ci`, `npm run check`, `npm audit`, and the relevant opt-in tests. Scan source and Git history for secrets before a public push.
 3. Inspect `npm pack --dry-run --json`; exclude fixtures, private exchanges, caches, and generated evidence. Run the package smoke from a clean source checkout.
 4. Record exact tested commits and environments, and list externally blocked checks with prerequisites.
-5. Push the reviewed source and verify CI. Tag or publish a registry release only after an explicit maintainer decision; remove `private: true` only as part of that separate release.
+5. Push the reviewed source and verify CI. Run the **Release** workflow by manual dispatch to build and check all four portable targets.
+6. For an approved release, push a new `v<version>` tag at that commit matching `package.json`. The tag workflow rebuilds all four targets, validates the receipts and archive hashes, and publishes the verified development preview through GitHub Releases.
+7. Check the published assets from an unauthenticated client. Keep published tags and bytes immutable. If an upload stops in a draft, inspect that draft and the matching run before retrying. A source fix needs a new version and tag.

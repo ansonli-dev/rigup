@@ -1,8 +1,10 @@
 # Changelog
 
-Changes to the source distribution are recorded here. There is no npm registry release yet.
+Release downloads and notes are available through [GitHub Releases](https://github.com/ansonli-dev/rigup/releases).
 
-## Unreleased — 0.1.0 development preview
+## 0.1.0 development preview
+
+- Package the `rigup` executable with pinned Node.js and locked production dependencies for macOS and Linux on ARM64 and x64. Publish versioned downloads, SHA-256 checksums, and a user-local installer through GitHub Releases.
 
 - Make project-root `rigup init` the primary usage, preserve explicit choices while guiding missing first-run options, and allow back navigation to revisit supplied choices. Verify the installed command through PATH.
 

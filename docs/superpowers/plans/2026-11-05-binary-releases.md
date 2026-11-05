@@ -44,10 +44,10 @@
 
 **Interfaces:** `renderInstaller({version})` returns the pinned-version installer. It consumes Task 1's archive layout/checksum contract and is shipped by Task 3. No change to project installation authority.
 
-- [ ] Write real local HTTP fixture tests for checksum refusal, unrelated command protection, supported selection, version/path validation, install/repeat/upgrade and rollback retention; observe RED.
-- [ ] Implement checksum-first staged installation, an owned atomic symlink update, no silent shell/profile changes, and explicit failure/cleanup behavior.
-- [ ] Add download/install/verify/upgrade/rollback/uninstall instructions, runtime/license/platform limits, and Packages rationale. Use repository URLs for source-only evidence referenced by packaged guides.
-- [ ] Commit; task gate `npm run check` and installer tests pass.
+- [x] Write real local HTTP fixture tests for checksum refusal, unrelated command protection, supported selection, version/path validation, install/repeat/upgrade and rollback retention; observe RED.
+- [x] Implement checksum-first staged installation, an owned atomic symlink update, no silent shell/profile changes, and explicit failure/cleanup behavior.
+- [x] Add download/install/verify/upgrade/rollback/uninstall instructions, runtime/license/platform limits, and Packages rationale. Use repository URLs for source-only evidence referenced by packaged guides.
+- [x] Commit; task gate `npm run check` and installer tests pass.
 
 ### Task 3: Multi-platform build, review and actual publication
 

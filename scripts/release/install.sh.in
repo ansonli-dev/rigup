@@ -1,0 +1,175 @@
+#!/bin/sh
+set -eu
+umask 077
+export LC_ALL=C
+
+fail() {
+  printf 'rigup install: %s\n' "$*" >&2
+  exit 1
+}
+valid_tag() {
+  case $1 in *[!0-9A-Za-z.-]*) return 1 ;; esac
+  printf '%s\n' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+}
+
+version=${RIGUP_VERSION:-@@VERSION@@}
+valid_tag "$version" || fail 'Use a release version such as v0.1.0.'
+case $(uname -s) in
+  Darwin) platform=darwin ;;
+  Linux)
+    platform=linux
+    glibc=$(getconf GNU_LIBC_VERSION 2>/dev/null) || fail 'The Linux release requires glibc 2.35 or newer.'
+    printf '%s\n' "$glibc" | awk '$1=="glibc" {split($2,v,"."); if(v[1]>2 || (v[1]==2 && v[2]>=35)) ok=1} END {exit !ok}' ||
+      fail 'The Linux release requires glibc 2.35 or newer.'
+    ;;
+  *) fail 'Choose a supported macOS/Linux environment. On Windows, use the Linux build inside WSL2.' ;;
+esac
+case $(uname -m) in
+  arm64|aarch64) architecture=arm64 ;;
+  x86_64|amd64) architecture=x64 ;;
+  *) fail 'The release provides ARM64 and x64 builds.' ;;
+esac
+target=$platform-$architecture
+top=rigup-${version#v}-$target
+archive=$top.tar.gz
+base=${RIGUP_DOWNLOAD_BASE_URL:-https://github.com/ansonli-dev/rigup/releases/download}
+case $base in
+  https://*) protocols='=https' ;;
+  http://127.0.0.1:*) protocols='=http,https' ;;
+  *) fail 'Downloads require HTTPS. Local loopback HTTP is reserved for tests.' ;;
+esac
+url=${base%/}/$version
+
+install_dir=${RIGUP_INSTALL_DIR:-${HOME:?HOME is required}/.local/share/rigup}
+bin_dir=${RIGUP_BIN_DIR:-$HOME/.local/bin}
+for directory in "$install_dir" "$bin_dir"; do
+  case $directory in
+    /|*/../*|*/..|*'
+'*) fail 'Installation directories must be absolute paths without parent traversal.' ;;
+    /*) ;;
+    *) fail 'Installation directories must be absolute paths.' ;;
+  esac
+  [ ! -L "$directory" ] || fail 'Select the real installation directory instead of a directory symlink.'
+done
+mkdir -p "$install_dir" "$bin_dir"
+install_dir=$(cd -P "$install_dir" && pwd -P)
+bin_dir=$(cd -P "$bin_dir" && pwd -P)
+marker=$install_dir/.rigup-release-installation
+format='Rigup Release installation v1'
+command_path=$bin_dir/rigup
+
+if [ -e "$marker" ] || [ -L "$marker" ]; then
+  [ ! -L "$marker" ] && [ "$(cat "$marker")" = "$format" ] || fail 'Unrecognized installation directory marker.'
+elif [ -n "$(ls -A "$install_dir")" ]; then
+  fail 'Refusing to use an unrelated non-empty installation directory.'
+fi
+[ ! -L "$install_dir/versions" ] || fail 'Version storage must be a real directory.'
+check_command() {
+  if [ -L "$command_path" ]; then
+    link_target=$(readlink "$command_path")
+    installed_tag=${link_target#"$install_dir/versions/"}
+    installed_tag=${installed_tag%/rigup}
+    prior=$install_dir/versions/$installed_tag
+    valid_tag "$installed_tag" &&
+      [ "$link_target" = "$prior/rigup" ] && [ ! -L "$prior" ] &&
+      [ -f "$link_target" ] && [ ! -L "$link_target" ] &&
+      [ -f "$prior/.rigup-install-receipt" ] && [ ! -L "$prior/.rigup-install-receipt" ] ||
+      fail 'Refusing to replace an unrelated rigup symlink.'
+  elif [ -e "$command_path" ]; then
+    fail 'Refusing to replace an unrelated rigup command. Choose another RIGUP_BIN_DIR.'
+  fi
+}
+check_command
+lock=$install_dir/.install-lock
+mkdir "$lock" 2>/dev/null || fail 'Installation lock is occupied. Check its owner before recovery.'
+work=
+link_stage=
+cleanup() {
+  [ -z "$work" ] || rm -rf -- "$work"
+  [ -z "$link_stage" ] || rm -rf -- "$link_stage"
+  rm -f -- "$lock/owner"
+  rmdir "$lock" 2>/dev/null || :
+}
+trap cleanup 0
+trap 'exit 130' INT
+trap 'exit 143' TERM
+printf '%s\n' "$$" > "$lock/owner"
+ps -p "$$" -o lstart= >> "$lock/owner"
+[ -f "$marker" ] || printf '%s\n' "$format" > "$marker"
+[ ! -L "$install_dir/versions" ] || fail 'Version storage must be a real directory.'
+mkdir -p "$install_dir/versions"
+work=$(mktemp -d "$install_dir/.stage.XXXXXX")
+
+download() {
+  curl -q --fail --silent --show-error --location --proto "$protocols" --tlsv1.2 \
+    --retry 2 --connect-timeout 20 --max-time 240 --output "$work/$1" -- "$url/$1"
+}
+download SHA256SUMS
+expected=$(awk -v asset="$archive" '$2==asset {sum=$1; count++} END {if(count!=1) exit 1; print sum}' "$work/SHA256SUMS") ||
+  fail 'The release does not contain a unique checksum for this platform.'
+printf '%s\n' "$expected" | grep -Eq '^[0-9a-f]{64}$' || fail 'Invalid SHA-256 checksum in release manifest.'
+download "$archive"
+if command -v sha256sum >/dev/null 2>&1; then
+  actual=$(sha256sum "$work/$archive")
+elif command -v shasum >/dev/null 2>&1; then
+  actual=$(shasum -a 256 "$work/$archive")
+else
+  fail 'Install sha256sum or shasum to verify the archive.'
+fi
+[ "${actual%% *}" = "$expected" ] || fail 'Archive checksum mismatch. The current command is unchanged.'
+
+tar -tzf "$work/$archive" > "$work/entries" || fail 'Cannot list the release archive.'
+tar -tvzf "$work/$archive" > "$work/types" || fail 'Cannot inspect the release archive.'
+# Permit regular files, directories and the relative npm executable links.
+# Symlinks stay within the archive and cannot act as extraction parents.
+awk -v root="$top" '
+  FNR==NR {
+    if ($0=="" || index($0,"\\") || $0 ~ /(^|\/)\.\.(\/|$)/) exit 1
+    if ($0!=root && index($0,root"/")!=1) exit 1
+    if (seen[$0]++) exit 1
+    next
+  }
+  {
+    type=substr($0,1,1)
+    if (type!="-" && type!="d" && type!="l") exit 1
+    if (type!="l") next
+    if (split($0,link," -> ")!=2) exit 1
+    start=index(link[1]," "root"/")
+    if (!start) exit 1
+    name=substr(link[1],start+1)
+    if (!(name in seen)) exit 1
+    for (member in seen) if (index(member,name"/")==1) exit 1
+    target=link[2]
+    depth=split(name,parts,"/")-2
+    while (index(target,"../")==1) { depth--; target=substr(target,4) }
+    if (depth<0 || target=="" || substr(target,1,1)=="/" || index(target,"\\") || target ~ /(^|\/)\.\.(\/|$)/) exit 1
+  }
+  END {if (NR==0) exit 1}
+' "$work/entries" "$work/types" || fail 'Unsafe archive path, file type or link.'
+
+tar --no-same-owner -xzf "$work/$archive" -C "$work"
+prepared=$work/$top
+[ -d "$prepared" ] && [ ! -L "$prepared" ] && [ -x "$prepared/rigup" ] &&
+  [ -x "$prepared/lib/node/bin/node" ] && [ -f "$prepared/lib/app/dist/cli.js" ] &&
+  [ -f "$prepared/BUILD_INFO.json" ] || fail 'Incomplete release archive.'
+[ "$("$prepared/rigup" --version)" = "${version#v}" ] || fail 'Downloaded command version differs from the requested release.'
+receipt=$prepared/.rigup-install-receipt
+[ ! -e "$receipt" ] && [ ! -L "$receipt" ] || fail 'Unexpected receipt in release archive.'
+printf '%s\n' "$version" "$target" "$expected" > "$receipt"
+destination=$install_dir/versions/$version
+if [ -e "$destination" ] || [ -L "$destination" ]; then
+  [ ! -L "$destination" ] && [ -x "$destination/rigup" ] && [ -x "$destination/lib/node/bin/node" ] &&
+    diff -qr "$prepared" "$destination" >/dev/null || fail 'Existing version is modified or unrelated. Reconcile it before installation.'
+else
+  mv "$prepared" "$destination"
+fi
+check_command
+link_stage=$(mktemp -d "$bin_dir/.rigup-link.XXXXXX")
+ln -s "$destination/rigup" "$link_stage/rigup"
+mv -f "$link_stage/rigup" "$command_path"
+printf 'Installed Rigup %s at %s\n' "${version#v}" "$command_path"
+case :${PATH:-}: in
+  *:"$bin_dir":*) ;;
+  *) printf 'Add this directory to PATH: %s\n' "$bin_dir" ;;
+esac
+printf 'From your project directory, run rigup init.\n'

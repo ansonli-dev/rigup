@@ -4,26 +4,24 @@
 
 Rigup 根据项目已有证据，为 coding agent 接入研发流程、skills、MCP 和工程检查。它先研究、生成候选和预览，再通过受保护的更新安装；已有用户修改会参与三方比较。安装后的 skills、MCP runner、hooks 和 CI 脚本可独立运行。
 
-**当前为 0.1.0 开发预览版，通过源码安装。** 默认使用本机已登录的 Codex。四种宿主及三种 SDD 有配置适配，但真实兼容性按场景验证，详见[当前验证状态](docs/compatibility/status.md)。
+**当前为 0.1.0 开发预览版。** 默认使用本机已登录的 Codex。四种宿主及三种 SDD 有配置适配，真实兼容性按场景验证，详见[当前验证状态](docs/compatibility/status.md)。
 
 ## 安装
 
-需要 Node.js 24+、npm、Git、POSIX shell 和 `ps`（最小 Linux 镜像安装 `procps`）。语义研究还需要可用的 Codex CLI 登录。不要在 npm registry 中安装同名包来替代本仓库。
+在 [GitHub Releases](https://github.com/ansonli-dev/rigup/releases) 下载 macOS 或 Linux 的 ARM64、x64 便携包。包内含 `rigup` 可执行命令和 Node 运行时，无需克隆或编译项目。也可以用安装脚本装到个人目录。
 
 ```sh
-git clone https://github.com/ansonli-dev/rigup.git
-cd rigup
-npm ci
-npm run build
-npm link
-rigup --help
+curl -fL --proto '=https' -o rigup-install.sh https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/install.sh
+sh rigup-install.sh
+export PATH="$HOME/.local/bin:$PATH"
+rigup --version
 ```
 
-在源码目录执行一次 `npm link`，将 `rigup` 注册到 npm prefix 的 PATH；保留该源码目录，更新代码后重新构建。也可直接运行 `node /path/to/rigup/dist/cli.js`。
+CLI 需要 Git 和 `ps` 等常见 POSIX 工具，Linux 需要 glibc 2.35 或以上版本。语义研究仍需配置后端。手动下载、校验、WSL2 和源码安装见[安装指南](docs/guides/releases.md)。
 
 ## 开始使用
 
-在项目根目录的交互终端运行即可：
+在项目根目录的交互终端运行。
 
 ```sh
 cd /path/to/project

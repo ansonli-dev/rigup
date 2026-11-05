@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "download": "local loopback HTTP serving the exact portable prototype",
+  "archive": "rigup-0.1.0-darwin-arm64.tar.gz",
+  "archiveSha256": "a8404fb1baacf4b15328912777e97a6b013cacb7f687c45ea4ed222f028483fe",
+  "version": "0.1.0",
+  "installAndRepeat": true,
+  "symlinkTargetVersioned": true,
+  "relocatedPathWithSpacesAndQuotes": true,
+  "noSystemNodeOrNpmForCli": true,
+  "currentDirectoryPreview": true,
+  "modelCalls": 0
+}
