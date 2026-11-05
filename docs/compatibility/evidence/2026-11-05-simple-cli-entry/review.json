@@ -27,14 +27,23 @@
     "failed": 0,
     "typecheck": "passed",
     "build": "passed",
-    "docs": "passed; 39 Markdown files / 361 local targets before adding this evidence index",
+    "docs": "passed; 40 Markdown files / 365 local targets",
     "package": "80 files; actual PATH command, current-directory preview/apply/update/doctor passed",
-    "packageIntegrity": "sha512-GSz8fLx3SETt7pcbnVIWfmG47VMbhGN6pzvLqzOG0usuotxEE0k7S8YG5Nf2IR8LKGlh0KmI91Fzthk7IyDHMw==",
+    "packageIntegrity": "sha512-NJU7HMWwg6CELnJJpfYhqe3yiZN0EnvbDKvwyqTiHv6RmSGJleNv0AEK0rjNIbkzpqiQ9+RbWaSqq9IbeyPiQQ==",
     "modelCalls": 0
   },
   "declinedScope": [
     "Paid provider/semantic E2E was not rerun for terminal selection changes; existing budgets and source-bound evidence retained",
     "Windows/WSL2 native runtime requires the separate documented target environments"
   ],
-  "deferredMinors": []
+  "deferredMinors": [],
+  "ciFollowup": {
+    "firstRun": "https://github.com/ansonli-dev/rigup/actions/runs/41964726532",
+    "source": "637baeeddd94b2fc51f442db8a8ef55d5c743ad1",
+    "tests": "Both runners passed 347 tests / 15 live skips; package local-link validation failed",
+    "finding": "The final source docs index linked to an evidence directory excluded from the package",
+    "fix": "Use a public repository URL for source-only evidence in the distributed docs index",
+    "localVerification": "Source links and isolated 80-file package/PATH lifecycle passed after the fix",
+    "packageIntegrity": "sha512-NJU7HMWwg6CELnJJpfYhqe3yiZN0EnvbDKvwyqTiHv6RmSGJleNv0AEK0rjNIbkzpqiQ9+RbWaSqq9IbeyPiQQ=="
+  }
 }

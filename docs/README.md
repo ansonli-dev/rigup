@@ -20,4 +20,4 @@ These records explain decisions and preserve history. A historical proposal or u
 - [Historical validation ledger](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/verification.md): dated observations, failures, repairs, and source-bound evidence.
 - [Open source preparation references](https://github.com/ansonli-dev/rigup/blob/main/docs/research/2026-11-05-open-source-practices.md).
 
-- [Project-root CLI terminal verification](compatibility/evidence/2026-11-05-simple-cli-entry/README.md): real registered command, interactive/no-argument/partial-argument paths, review fixes and model-free checks.
+- [Project-root CLI terminal verification](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-05-simple-cli-entry/README.md): real registered command, interactive/no-argument/partial-argument paths, review fixes and model-free checks.
