@@ -4,7 +4,7 @@ Thank you for helping improve Rigup. Read the [current validation status](docs/c
 
 ## Local development
 
-Use Node.js 24+, npm, and Git:
+Use Node.js 24+, npm, Git, and a C compiler.
 
 ```sh
 npm ci
@@ -27,4 +27,4 @@ Contributions are accepted under the [MIT License](LICENSE). Only contribute mat
 
 ## Releases
 
-The repository currently distributes a development preview from source; `private: true` intentionally prevents npm publication. See the [release checklist](docs/guides/development.md#release-checklist). Publishing or deployment requires a separate maintainer decision.
+Development preview downloads are distributed through [GitHub Releases](https://github.com/ansonli-dev/rigup/releases). The package stays private for registry publication. Maintainers can follow the [release checklist](docs/guides/development.md#release-checklist) to verify builds before publishing a tag.

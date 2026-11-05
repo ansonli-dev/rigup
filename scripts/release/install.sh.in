@@ -124,7 +124,7 @@ tar -tvzf "$work/$archive" > "$work/types" || fail 'Cannot inspect the release a
 # Symlinks stay within the archive and cannot act as extraction parents.
 awk -v root="$top" '
   FNR==NR {
-    if ($0=="" || index($0,"\\") || $0 ~ /(^|\/)\.\.(\/|$)/) exit 1
+    if ($0=="" || index($0,"\\") || index($0,"//") || $0 ~ /(^|\/)\.\.?(\/|$)/) exit 1
     if ($0!=root && index($0,root"/")!=1) exit 1
     if (seen[$0]++) exit 1
     next

@@ -55,8 +55,8 @@
 
 **Interfaces:** Publisher consumes exactly four validated target metadata/archives, one npm tgz and Task 2's installer. It outputs checksums, a release manifest, notes and the complete GitHub prerelease.
 
-- [ ] Write publisher validation tests: version mismatch, missing/duplicate/mixed-source artifacts and partial-build publication rejected; observe RED.
-- [ ] Implement pinned official Actions, read-only build jobs, build-only dispatch and version/tag-gated publisher; draft then publish only after complete validation.
+- [x] Write publisher validation tests: version mismatch, missing/duplicate/mixed-source artifacts and partial-build publication rejected; observe RED.
+- [x] Implement pinned official Actions, read-only build jobs, build-only dispatch and version/tag-gated publisher; draft then publish only after complete validation.
 - [ ] Run the four native runner builds and archive smokes; inspect real failures, fix root causes and preserve evidence.
 - [ ] Obtain one fresh whole-change correctness/security/release review against the spec. Fix all locally actionable findings with RED/GREEN; keep precise external conditions.
 - [ ] Run final default/package/release/installer/secret checks. Commit and push, verify main CI.
