@@ -10,7 +10,7 @@ install_rigup() {
 
   # Advance this URL after verifying the next public release.
   curl -q -fsSL --proto '=https' --tlsv1.2 --retry 2 --connect-timeout 20 --max-time 60 \
-    --output "$installer" https://github.com/ansonli-dev/rigup/releases/download/v0.2.0/install.sh
+    --output "$installer" https://github.com/ansonli-dev/rigup/releases/download/v0.2.1/install.sh
   /bin/sh "$installer" </dev/null
 }
 
