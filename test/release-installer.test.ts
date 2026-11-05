@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {gzipSync} from 'node:zlib';
 import {createHash} from 'node:crypto';
-import {mkdtemp, mkdir, readFile, readlink, realpath, rm, writeFile, stat} from 'node:fs/promises';
+import {mkdtemp, mkdir, readFile, readdir, readlink, realpath, rm, writeFile, stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {execFile} from 'node:child_process';
+import {execFile, spawnSync} from 'node:child_process';
 import {promisify} from 'node:util';
 const exec = promisify(execFile),
   target = process.platform + '-' + process.arch;
@@ -259,3 +259,51 @@ exec "/bin/\${0##*/}" "$@"
     assert.notEqual(result.code, 0);
     assert.equal(await readlink(command), other);
   }));
+
+test('the one-line installer runs the release script only after a complete download', async () => {
+  const bootstrap = await readFile(new URL('../install.sh', import.meta.url), 'utf8');
+  const root = await mkdtemp(join(tmpdir(), 'rigup-bootstrap-'));
+  try {
+    const tools = join(root, 'tools');
+    const scratch = join(root, 'downloads');
+    const selected = join(root, 'installation with spaces');
+    const requestedUrl = join(root, 'requested-url');
+    await mkdir(tools);
+    await mkdir(scratch);
+    await writeFile(join(tools, 'curl'), `#!/bin/sh
+set -eu
+while [ "$1" != --output ]; do shift; done
+printf '%s\n' "$3" > "$RIGUP_TEST_REQUESTED_URL"
+cat > "$2" <<'INSTALLER'
+printf 'release installer ran for %s\\n' "$RIGUP_INSTALL_DIR"
+INSTALLER
+exit "$RIGUP_TEST_DOWNLOAD_STATUS"
+`, {mode: 0o755});
+    const run = (status: string) => spawnSync('/bin/sh', [], {
+      input: bootstrap,
+      encoding: 'utf8',
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PATH: `${tools}:${process.env.PATH}`,
+        TMPDIR: scratch,
+        RIGUP_INSTALL_DIR: selected,
+        RIGUP_TEST_REQUESTED_URL: requestedUrl,
+        RIGUP_TEST_DOWNLOAD_STATUS: status,
+      },
+    });
+
+    const failed = run('18');
+    assert.equal(failed.status, 18, failed.stderr);
+    assert.equal(failed.stdout, '');
+    assert.deepEqual(await readdir(scratch), []);
+
+    const installed = run('0');
+    assert.equal(installed.status, 0, installed.stderr);
+    assert.equal(installed.stdout.trim(), `release installer ran for ${selected}`);
+    assert.match(await readFile(requestedUrl, 'utf8'), /^https:\/\/github\.com\/ansonli-dev\/rigup\/releases\/download\/v[\w.-]+\/install\.sh\n$/);
+    assert.deepEqual(await readdir(scratch), []);
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});

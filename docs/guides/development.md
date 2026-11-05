@@ -67,4 +67,5 @@ npm run release:check -- release-out/rigup-0.1.0-darwin-arm64.tar.gz
 1. Run the default checks and secret scan, inspect `npm pack --dry-run --json`, and update the changelog and support claims.
 2. Verify CI on the release commit. Manually dispatch **Release** for a build-only check on all four targets.
 3. For publication, push a new `v<version>` tag matching `package.json`. The tag workflow verifies the archives, receipts, and uploads before publishing the prerelease.
-4. Download a published archive anonymously, verify its checksum, and run the extracted command. If publication stops at a draft, inspect it and rerun the failed publisher with the original build artifacts. Use a new version for changes to a published release.
+4. Download a published archive anonymously, verify its checksum, and run the extracted command. Advance the root `install.sh` URL to the verified release and check the public one-line command.
+5. If publication stops at a draft, inspect it and rerun the failed publisher with the original build artifacts. Use a new version for changes to a published release.

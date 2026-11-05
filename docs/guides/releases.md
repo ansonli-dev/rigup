@@ -3,13 +3,14 @@
 Use the [v0.1.0 release](https://github.com/ansonli-dev/rigup/releases/tag/v0.1.0) on macOS or Linux (ARM64 or x64). The portable archive includes Node.js. Keep Git and standard POSIX tools, including `ps`, on PATH. Linux needs glibc 2.35 or later. macOS launchers are ad-hoc signed. Windows users can run the Linux build inside WSL2. See the [platform checks](../compatibility/status.md) and [Windows handoff](external-validation-handoff.md).
 
 ```sh
-curl -fL --proto '=https' -o rigup-install.sh https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/install.sh &&
-  sh rigup-install.sh
+curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 rigup --version
 ```
 
-The installer checks the archive checksum and links `rigup` into `~/.local/bin`. Then run `rigup init` from the project directory. Semantic research requires a configured backend. Installed MCP runners, hooks, and CI scripts use Node on the consuming environment's PATH. Supply Node.js 24 or add the retained bundle's `lib/node/bin` to that environment. See the [usage reference](usage.md).
+The public entry point downloads the versioned installer for the current preview, v0.1.0. That installer checks the archive checksum and links `rigup` into `~/.local/bin`. Use the [versioned installer](https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/install.sh) to pin this release or inspect it before running. The [entry point source](https://github.com/ansonli-dev/rigup/blob/main/install.sh) shows which release it selects.
+
+Run `rigup init` from your project directory. Semantic research requires a configured backend. Installed MCP runners, hooks, and CI scripts use Node on the consuming environment's PATH. Supply Node.js 24 or add the retained bundle's `lib/node/bin` to that environment. See the [usage reference](usage.md).
 
 ## Manual download
 
