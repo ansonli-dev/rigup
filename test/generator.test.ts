@@ -10,7 +10,8 @@ test('valid_artifact_list_starts_pending_and_preserves_evidence_contract',()=>{
  const result=validateArtifactList([job],['errors']);assert.equal(result.length,1);assert.equal(result[0].status,'pending');assert.equal(result[0].consumer,'agent-entry');
 });
 import {generate} from '../src/generator/generate.js';
-import {scanRepository} from '../src/analyzer/repository.js';
+import {prepareProjectRules} from '../src/generator/project-rules.js';
+import {repositoryReader,scanRepository} from '../src/analyzer/repository.js';
 import {digest} from '../src/analyzer/evidence.js';
 import {project,setNativeEntries} from './helpers.js';
 import {writeFile,readFile,readdir,rm,mkdir} from 'node:fs/promises';
@@ -99,6 +100,63 @@ test('explicit rules from existing documentation are linked without regenerating
   assert.doesNotMatch(asset.content,/Use the service boundary for writes/);
  }
 }));
+test('a guidance-only project installs a scoped topic index without content requests',()=>fixture(async(root,cache)=>{
+ const original='Existing service policy.';
+ let policyPath='policy.md';await writeFile(root+'/'+policyPath,original);
+ const backend:AnalysisBackend={run:async(request,reader)=>{
+  assert.equal(request.expectedOutput,'plan');
+  const sourceRef=(await reader.read(policyPath,1,1)).evidence;
+  const behavior=(await reader.read('src.txt',1,1)).evidence;
+  return {status:'complete',value:{model:'fixture',usage:{calls:1,tokens:10},unknowns:[],data:{
+   artifacts:[],dispositions:[],unknowns:[],ruleTopics:[{id:'service',title:'Service boundaries'},{id:'events',title:'Events'}],
+   observations:[
+    {topicId:'events',topic:'Delivery behavior',statement:'Retry behavior needs a decision.',classification:'local-pattern',scope:['src.txt'],supportingEvidence:[behavior],counterEvidence:[],guidanceDisposition:'needs-decision'},
+    {topicId:'events',topic:'Approval scope',statement:'Legacy commits bypass the approval gate.',classification:'local-pattern',scope:['src.txt'],supportingEvidence:[behavior],counterEvidence:[],guidanceDisposition:'needs-decision'},
+   ],
+   guidance:[{topicId:'service',topic:'Service boundaries',sourceRef,scope:['src.txt'],coverageStatus:'reusable',consumers:['prepare'],gaps:[]}],
+  }}};
+ }};
+ const result=await generate(await scanRepository(root,opts),opts,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ const [index,...pages]=result.value.assets.filter(asset=>asset.source.kind==='semantic');
+ assert.equal(index?.target,'docs/rigup/development-rules.md');assert.deepEqual(pages,[]);
+ assert.match(index.content,/Service boundaries[\s\S]*policy\.md#L1-L1.*src\.txt/);
+ assert.match(index.content,/Events[\s\S]*Delivery behavior[\s\S]*Retry behavior needs a decision\.[\s\S]*src\.txt#L1-L1/);
+ assert.match(index.content,/`needs-decision` Approval scope[\s\S]*src\.txt#L1-L1/);
+ assert.ok(result.value.assets.every(asset=>!asset.content.includes('bypass the approval gate')));
+ assert.doesNotMatch(index.content,/Existing service policy/);
+ assert.match(result.value.assets.find(asset=>asset.target==='AGENTS.md')!.content,/development-rules\.md/);
+ const invalidRoute={...opts,projectConventions:{documentRoutes:{context:'openspec/changes'}}};
+ await assert.rejects(async()=>generate(await scanRepository(root,invalidRoute),invalidRoute,backend,[],{cacheRoot:cache}),/change history/);
+ policyPath=index.target;await mkdir(root+'/docs/rigup',{recursive:true});await writeFile(root+'/'+policyPath,original);
+ const existing=await generate(await scanRepository(root,opts),opts,backend,[],{cacheRoot:cache});
+ if(existing.status!=='complete')throw Error('pending');
+ assert.ok(existing.value.assets.every(asset=>asset.target!==policyPath));
+ assert.match(existing.value.assets.find(asset=>asset.target==='AGENTS.md')!.content,/development-rules\.md#L1-L1/);
+}));
+test('one original range can govern differently scoped topics',()=>{
+ const ref={path:'docs/policy.md',startLine:1,endLine:1,digest:digest('Run the module tests.')};
+ const ruleTopics=[{id:'server',title:'Server'},{id:'client',title:'Client'}];
+ const observations=ruleTopics.map(({id})=>({topicId:id,topic:'Test command',statement:'Run the module tests.',classification:'explicit-rule',scope:[id],supportingEvidence:[ref],counterEvidence:[],guidanceDisposition:'reference-only'}));
+ const result=prepareProjectRules({observations,ruleTopics},[ref.path,'server/index.ts','client/index.ts'],'docs/rigup/development-rules.md');
+ assert.equal(result.guidance.length,2);
+ assert.match(result.referenceIndex?.content??'',/Server[\s\S]*policy\.md#L1-L1.*server[\s\S]*Client[\s\S]*policy\.md#L1-L1.*client/);
+});
+test('topic selection bounds rule counts and keeps ordinary source settings out of explicit rules',()=>{
+ const ruleTopics=Array.from({length:12},(_,i)=>({id:'topic-'+i,title:'Topic '+i}));
+ const config={path:'config.json',startLine:1,endLine:1,digest:digest('{}')};
+ const bootstraps=['src/bootstrap.ts','test/setup.ts'].map(path=>({...config,path}));
+ const observation={classification:'explicit-rule',guidanceDisposition:'follow-existing',scope:['.'],supportingEvidence:[config],counterEvidence:[]};
+ const observations=[
+  {...observation,topicId:'topic-0',topic:'Unenforced parity',statement:'Keep the two bootstraps identical.',scope:bootstraps.map(ref=>ref.path),supportingEvidence:bootstraps},
+  {...observation,topicId:'undeclared',topic:'Undeclared',statement:'An unassigned rule.'},
+  ...ruleTopics.flatMap(({id})=>Array.from({length:5},(_,i)=>({...observation,topicId:id,topic:id+' rule '+i,statement:'Follow this setting.'}))),
+ ];
+ const {job}=prepareProjectRules({observations,ruleTopics},[config.path,...bootstraps.map(ref=>ref.path)],'docs/rigup/development-rules.md');
+ assert.equal(job?.ruleSources?.length,18);assert.equal(job?.ruleTopics?.length,12);
+ assert.ok(job?.ruleTopics?.every(topic=>topic.ruleIds.length>=1&&topic.ruleIds.length<=4));
+ assert.ok(job?.ruleSources?.every(source=>!['Unenforced parity','Undeclared'].includes(source.topic)));
+});
 test('raw_config_is_not_semantic_input_but_effective_options_are',()=>fixture(async(root,cache)=>{
  await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml','backend: host\n');const first=await scanRepository(root,opts);await writeFile(root+'/.rigup/config.yaml','# comment\nbackend: host\n');assert.equal((await scanRepository(root,opts)).fingerprint,first.fingerprint);
 }));
@@ -141,11 +199,12 @@ test('guidance_preserves_pattern_scope_examples_and_exceptions',()=>fixture(asyn
  const f=fake();const backend:AnalysisBackend={run:async(r,reader)=>{if(r.expectedOutput==='plan')assert.deepEqual((r.input as any).profile.research.data,research);return f.backend.run(r,reader);}};
  const p=await scanRepository(root,opts);p.research={data:research,model:'prior',unknowns:['worker unexamined'],usage:{calls:1,tokens:1}};const result=await generate(p,opts,backend,[],{cacheRoot:cache});if(result.status!=='complete')throw Error('pending');assert.deepEqual(result.value.operations,[]);
 }));
-test('project development rules turn verified conventions into instructions for both change skills',()=>fixture(async(root,cache)=>{
+test('project development rule topics share one accepted job and are discoverable by both change skills',()=>fixture(async(root,cache)=>{
  await mkdir(root+'/src/orders',{recursive:true});
  await writeFile(root+'/src/orders/create.ts','export const create = () => orderClient.post();\n');
  await writeFile(root+'/src/orders/list.ts','export const list = () => orderClient.get();\n');
- await mkdir(root+'/docs');await writeFile(root+'/docs/conventions.md','# 原项目规则\n订单请求沿用共享错误处理。\n');
+ await writeFile(root+'/src/orders/package.json','{"scripts":{"test":"vitest run"}}\n');
+ await mkdir(root+'/docs');await writeFile(root+'/docs/conventions.md','# 原项目规则\n订单请求沿用共享错误处理。\n测试约定单独记录。\n');
  const selected={...opts,documentLanguage:'zh-CN'};
  const requests:ResearchRequest[]=[];
  let invalid=false;
@@ -153,15 +212,24 @@ test('project development rules turn verified conventions into instructions for 
   requests.push(request);
   const files=['src/orders/create.ts','src/orders/list.ts'];
   const evidence=await Promise.all(files.map(async file=>(await reader.read(file,1,1)).evidence));
-  const convention={topic:'订单 API 边界',statement:'在订单模块通过共享客户端调用 API。',classification:'convention',scope:['src/orders'],supportingEvidence:evidence,counterEvidence:[],exceptions:['仅限订单代码。\n在其他模块先确认。'],guidanceDisposition:'follow-existing',coverage:{independentSupports:2,counterexampleSearched:true,counterexampleQueries:['fetch(']}};
+  const exceptionRef=(await reader.read('src.txt',1,1)).evidence;
+  const convention={topicId:'orders-api',topic:'订单 API 边界',statement:'在订单模块通过共享客户端调用 API。',classification:'convention',scope:['src/orders'],supportingEvidence:evidence,counterEvidence:[exceptionRef],exceptions:['仅限订单代码。\n在其他模块先确认。'],guidanceDisposition:'follow-existing',coverage:{independentSupports:2,counterexampleSearched:true,counterexampleQueries:['fetch(']}};
+  const testSource=(await reader.read('src/orders/package.json',1,1)).evidence;
   const observations=request.expectedOutput==='plan'?[convention,
+   {...convention,topicId:'testing',topic:'执行订单测试',classification:'explicit-rule',supportingEvidence:[testSource]},
    {...convention,topic:'未经确认的例子',classification:'local-pattern',guidanceDisposition:'reference-only'},
    {...convention,topic:'全局规则缺少权威',classification:'explicit-rule',scope:['.']},
    {...convention,topic:'待决边界',classification:'local-pattern',supportingEvidence:[evidence[0]],counterEvidence:[evidence[1]],guidanceDisposition:'needs-decision'}]:[];
   const sourceRef=(await reader.read('docs/conventions.md',2,2)).evidence;
-  const guidance=[{topic:'错误处理',sourceRef,scope:['src/orders'],coverageStatus:'reusable',consumers:['prepare','deliver'],gaps:[]}];
-  const data={observations,unknowns:[],...(request.expectedOutput==='plan'?{artifacts:[],dispositions:[],guidance}:
-   request.expectedOutput==='content'?{rulebook:{title:'项目开发规范',existing:'已有规范',inferred:'代码惯例',when:'适用时机',verify:'验证方式',exceptions:'例外',rules:[{sourceId:invalid?'unknown':'R1',trigger:'新增订单请求时',instruction:'调用共享的 orderClient。参照[原项目规则](../conventions.md)。',verification:'检查订单代码通过 orderClient 发起请求。保留标记 [A-Z](42)。'}]}}:
+  const guidance=[{topicId:'errors',topic:'错误处理',sourceRef,scope:['src/orders'],coverageStatus:'reusable',consumers:['prepare','deliver'],gaps:[]},
+   {topicId:'testing',topic:'测试指引',sourceRef:(await reader.read('docs/conventions.md',3,3)).evidence,scope:['src/orders'],coverageStatus:'reusable',consumers:['prepare','deliver'],gaps:[]}];
+  const ruleTopics=[{id:'orders-api',title:'订单接口'},{id:'testing',title:'测试约定'},{id:'errors',title:'错误处理'},{id:'empty',title:'无证据主题'}];
+  if(request.expectedOutput==='acceptance'){
+   const input=request.input as {candidatePages?:{target:string;content:string}[]};
+   assert.deepEqual(input.candidatePages?.map(page=>page.target.split('/').at(-1)),['orders-api.md','testing.md']);
+  }
+  const data={observations,unknowns:[],...(request.expectedOutput==='plan'?{artifacts:[],dispositions:[],guidance,ruleTopics}:
+   request.expectedOutput==='content'?{rulebook:{title:'项目开发规范',existing:'已有规范',inferred:'代码惯例',when:'适用时机',verify:'验证方式',exceptions:'例外',support:'支撑证据',counter:'反例证据',decisions:'待确认',rules:[{sourceId:invalid?'unknown':'R1',trigger:'新增订单请求时',instruction:'调用共享的 `orderClient`。参照[原项目规则](docs/conventions.md#L2-L2)。',verification:'检查订单代码通过 orderClient 发起请求。保留标记 [A-Z](42)。'},{sourceId:'R2',trigger:'修改订单代码时',instruction:'执行订单测试。',verification:'使用项目的测试脚本。'}]}}:
    {accepted:true,reason:'规则和范围均有源码依据'})};
   return {status:'complete',value:{data,model:'fixture',unknowns:[],usage:{calls:1,tokens:10}}};
  }};
@@ -170,11 +238,22 @@ test('project development rules turn verified conventions into instructions for 
  if(result.status!=='complete')throw Error('pending');
  assert.deepEqual(requests.map(r=>r.expectedOutput),['plan','content','acceptance']);
  assert.ok(requests.every(r=>(r.options as typeof selected).documentLanguage==='zh-CN'));
- const rulebook=result.value.assets.find(asset=>asset.target==='docs/rigup/development-rules.md');
- assert.ok(rulebook);
- assert.match(rulebook.content,/项目开发规范[\s\S]*代码惯例[\s\S]*新增订单请求时[\s\S]*调用共享的 orderClient[\s\S]*验证方式/);
+ const index=result.value.assets.find(asset=>asset.target==='docs/rigup/development-rules.md');
+ const rulebook=result.value.assets.find(asset=>asset.target==='docs/rigup/development-rules/orders-api.md');
+ const testing=result.value.assets.find(asset=>asset.target==='docs/rigup/development-rules/testing.md');
+ assert.ok(index&&rulebook&&testing);
+ assert.match(index.content,/项目开发规范[\s\S]*development-rules\/orders-api\.md[\s\S]*src\/orders[\s\S]*development-rules\/testing\.md/);
+ assert.match(index.content,/\.\.\/conventions\.md#L2-L2/);
+ assert.match(index.content,/待确认[\s\S]*待决边界[\s\S]*src\/orders\/list\.ts#L1-L1/);
+ assert.doesNotMatch(index.content,/调用共享的 orderClient|无证据主题/);
+ assert.ok(!result.value.assets.some(asset=>asset.target.endsWith('/errors.md')));
+ assert.match(rulebook.content,/订单接口[\s\S]*代码惯例[\s\S]*新增订单请求时[\s\S]*调用共享的 `orderClient`[\s\S]*验证方式[\s\S]*支撑证据/);
+ assert.match(testing.content,/测试约定[\s\S]*执行订单测试/);
+ assert.doesNotMatch(testing.content,/调用共享的 orderClient/);
  assert.match(rulebook.content,/src\/orders\/create\.ts/);
- assert.match(rulebook.content,/\[原项目规则\]\(\.\.\/conventions\.md#L2-L2\)/);
+ assert.match(rulebook.content,/\[原项目规则\]\(\.\.\/\.\.\/conventions\.md#L2-L2\)/);
+ assert.doesNotMatch(rulebook.content,/conventions\.md#L3-L3/);
+ assert.match(rulebook.content,/反例证据\*\* \[src\.txt:1–1\]/);
  assert.match(rulebook.content,/仅限订单代码。 在其他模块先确认。/);
  assert.doesNotMatch(rulebook.content,/未经确认的例子|全局规则缺少权威|待决边界/);
  for(const name of ['change-prepare','change-deliver']){
@@ -184,11 +263,29 @@ test('project development rules turn verified conventions into instructions for 
  }
  assert.match(result.value.assets.find(asset=>asset.target==='AGENTS.md')!.content,/development-rules\.md/);
  const inventory=result.value.assets.map(asset=>({...asset,digest:digest(asset.content)}));
- await generate(profile,selected,backend,inventory,{cacheRoot:cache});
+ const reader=await repositoryReader(root,selected),reads:string[]=[];
+ await generate(profile,selected,backend,inventory,{cacheRoot:cache,reader:{...reader,read:async(path,start,end)=>{reads.push(path);return reader.read(path,start,end);}}});
+ assert.equal(reads.filter(path=>path==='docs/conventions.md').length,1);
  assert.equal(requests.length,3);
+ const cachePath=cache+'/'+(await readdir(cache)).find(file=>file.endsWith('.json'));
+ const saved=JSON.parse(await readFile(cachePath,'utf8'));
+ saved.candidates[index.logicalId].pages[0].content+='\nCorrupted topic text.\n';
+ await writeFile(cachePath,JSON.stringify(saved));
+ const recovered=await generate(profile,selected,backend,inventory,{cacheRoot:cache});
+ assert.equal(recovered.status,'complete');
+ if(recovered.status==='complete')assert.equal(recovered.value.assets.find(asset=>asset.logicalId===rulebook.logicalId)?.content,rulebook.content);
+ assert.deepEqual(requests.slice(3).map(request=>request.expectedOutput),['content','acceptance']);
+ const legacy={...index,digest:digest('Previous single document')};
+ const migrated=await generate(profile,selected,backend,[legacy],{cacheRoot:cache+'/migration'});
+ if(migrated.status!=='complete')throw Error('pending');
+ assert.equal(migrated.value.assets.find(asset=>asset.target===index.target)?.logicalId,index.logicalId);
+ assert.equal(migrated.value.dispositions.find(disposition=>disposition.logicalId===index.logicalId)?.action,'update');
  const moved=await generate(profile,{...selected,projectConventions:{documentRoutes:{context:'docs/team'}}},backend,inventory,{cacheRoot:cache});
  if(moved.status!=='complete')throw Error('pending');
- assert.notEqual(moved.value.assets.find(asset=>asset.target==='docs/team/development-rules.md')?.logicalId,rulebook.logicalId);
+ const movePlan=requests.filter(request=>request.expectedOutput==='plan').at(-1)?.input as {previousRuleTopics:{id:string;target:string}[]};
+ assert.deepEqual(movePlan.previousRuleTopics.map(topic=>topic.id),['orders-api','testing']);
+ assert.notEqual(moved.value.assets.find(asset=>asset.target==='docs/team/development-rules.md')?.logicalId,index.logicalId);
+ assert.equal(moved.value.dispositions.find(disposition=>disposition.logicalId===index.logicalId)?.action,'retire');
  assert.equal(moved.value.dispositions.find(disposition=>disposition.logicalId===rulebook.logicalId)?.action,'retire');
  invalid=true;
  await assert.rejects(generate(profile,selected,backend,[],{cacheRoot:cache+'/invalid'}),/rule source|rulebook/);

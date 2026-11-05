@@ -2,12 +2,17 @@ import type {ArtifactJob} from './artifacts.js';
 import {relativeTarget} from './artifacts.js';
 export const DOCUMENT_POLICY_VERSION='1';
 export const markdownLinks=(text:string)=>text.matchAll(/(?<!\\)(?:\\\\)*\[[^\]]*\]\(([^)]+)\)/g);
+const overview=/as[- ]is|system overview|architecture overview|系统现状|架构全景/i;
+export function validateDocumentTarget(target:string,allowedRoots:string[]):void {
+ if(!relativeTarget(target)||!allowedRoots.some(root=>relativeTarget(root)&&target.startsWith(root+'/'))||/\/(?:SKILL|AGENTS|CLAUDE)\.md$/.test(target)) throw new Error('document target outside allowed scope');
+ if(overview.test(target)) throw new Error('AS-IS belongs to OpenWiki');
+ if(/\/(?:changes|specs|plans|adr|glossary)(?:\/|\.)|proposal\.md$|tasks\.md$/i.test(target)) throw new Error('setup cannot prefill change history, ADR or glossary');
+}
 export function validateDocumentJob(job:ArtifactJob,allowedRoots:string[],emptyProject=false):void{
  if(!job.consumer.trim()) throw new Error('consumer required');
  if(!job.reason.trim()) throw new Error('generation reason required');
- if(!relativeTarget(job.target)||!allowedRoots.some(root=>relativeTarget(root)&&job.target.startsWith(root+'/'))||/\/(?:SKILL|AGENTS|CLAUDE)\.md$/.test(job.target)) throw new Error('document target outside allowed scope');
- if(/as[- ]is|system overview|architecture overview|系统现状|架构全景/i.test(job.purpose+' '+job.target)) throw new Error('AS-IS belongs to OpenWiki');
- if(/\/(?:changes|specs|plans|adr|glossary)(?:\/|\.)|proposal\.md$|tasks\.md$/i.test(job.target)) throw new Error('setup cannot prefill change history, ADR or glossary');
+ validateDocumentTarget(job.target,allowedRoots);
+ if(overview.test(job.purpose)) throw new Error('AS-IS belongs to OpenWiki');
  if(emptyProject) throw new Error('empty project has no evidenced document gaps');
 }
 export function validateTemplateContent(content:string):void {

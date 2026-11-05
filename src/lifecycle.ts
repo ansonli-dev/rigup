@@ -78,6 +78,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    // and continuation when the user requested recovery rather than fresh work.
    const previous=signature({...input,versions:{prompt:'4',template:'1',document:'1',read:'6'}});
    if(await savedRun(previous))throw new Error('Saved research uses the v0.1.1 evidence contract. Resume or reconcile it with v0.1.1, or explicitly start a new preview without --resume.');
+   const flatRules=signature({...input,versions:{prompt:'7',template:'2',document:'1',read:'6'}});
+   if(await savedRun(flatRules))throw new Error('Saved research uses the single-document evidence contract. Resume it with the previous Rigup build, or explicitly start a new preview without --resume.');
   }
   if(!run)run={root,options,effectiveModel,mode:{dryRun:flags.dryRun,yes:flags.yes,review:flags.review,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent};
   if(signature(run.options)!==signature(options))throw Error('durable research options changed; reconciliation required');

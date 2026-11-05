@@ -6,7 +6,7 @@ import {promisify} from 'node:util';
 import {createWriteStream} from 'node:fs';
 import {access,mkdir,mkdtemp,readFile,readdir,realpath,writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {dirname,join,resolve} from 'node:path';
+import {dirname,join,relative,resolve} from 'node:path';
 
 const exec=promisify(execFile);
 const sha=(value:Buffer|string)=>createHash('sha256').update(value).digest('hex');
@@ -72,15 +72,27 @@ for(const fixture of cases)test(`live ${fixture.name} completes semantic setup w
   const rules=manifest.assets.find((asset:any)=>asset.logicalId==='project-development-rules');assert.ok(rules,'project must have an accepted prescriptive rules document');
   const rulesText=await readFile(join(root,rules.target),'utf8');assert.match(rulesText,/#L\d+-L\d+/);
   if(fixture.language==='zh-CN')assert.match(rulesText.split('\n')[0],/\p{Script=Han}/u);
+  const topics=manifest.assets.filter((asset:any)=>asset.logicalId.startsWith(rules.logicalId+':topic:'));
+  assert.ok(topics.length>=4,'these projects must produce substantive rules across at least four distinct topics');
+  for(const topic of topics){
+   const content=await readFile(join(root,topic.target),'utf8');
+   assert.ok(rulesText.includes(']('+relative(dirname(rules.target),topic.target)+')'),'index links to each managed topic');
+   assert.match(content,/^### /m);assert.match(content,/#L\d+-L\d+/);
+   if(fixture.language==='zh-CN')assert.match(content.split('\n')[0],/\p{Script=Han}/u);
+  }
+  assert.doesNotMatch(rulesText,/^### /m,'the index should route readers to rules rather than repeat them');
   const before=await ledgers();const counts=usage(before);assert.ok(counts.calls>0&&counts.calls<=12);assert.ok(typeof counts.tokens==='number'&&counts.tokens<=1200000);
   const unchanged=await run('03-unchanged-preview',['update',root,'--dry-run','--sessions-ended','--json']);assert.equal(unchanged.code,0,JSON.stringify(unchanged.data));assert.deepEqual(unchanged.data.operations,[]);assert.ok(unchanged.data.items.every((i:any)=>i.action==='keep'));
   const applied=await run('04-unchanged-apply',['update',root,'--apply',unchanged.data.previewId,'--sessions-ended','--json']);assert.equal(applied.code,0,JSON.stringify(applied.data));assert.deepEqual(applied.data.written,[]);assert.deepEqual(await ledgers(),before);
-  const reference=manifest.assets.find((a:any)=>a.target.endsWith('change-deliver/references/project.md'));assert.ok(reference);const refPath=join(root,reference.target),note='\nLocal E2E note: preserve this user-maintained addition.\n';const ref=await readFile(refPath,'utf8');if(!ref.endsWith(note))await writeFile(refPath,ref+note);
+  const reference=manifest.assets.find((a:any)=>a.target.endsWith('change-deliver/references/project.md'));assert.ok(reference);
+  const noted=[reference.target,topics[0].target],note='\nLocal E2E note: preserve this user-maintained addition.\n';
+  for(const target of noted){const path=join(root,target),content=await readFile(path,'utf8');if(!content.endsWith(note))await writeFile(path,content+note);}
   const protectedPreview=await run('05-local-note',['update',root,'--dry-run','--sessions-ended','--json']);assert.equal(protectedPreview.code,0,JSON.stringify(protectedPreview.data));
-  assert.equal(protectedPreview.data.items.find((item:any)=>item.target===reference.target)?.action,'keep');
+  for(const target of noted)assert.equal(protectedPreview.data.items.find((item:any)=>item.target===target)?.action,'keep');
   const protectedApply=await run('06-local-note-apply',['update',root,'--apply',protectedPreview.data.previewId,'--sessions-ended','--json']);
   assert.equal(protectedApply.code,0,JSON.stringify(protectedApply.data));assert.deepEqual(protectedApply.data.written,[]);
-  assert.ok((await readFile(refPath,'utf8')).endsWith(note));assert.deepEqual(await ledgers(),before);
+  for(const target of noted)assert.ok((await readFile(join(root,target),'utf8')).endsWith(note));
+  assert.deepEqual(await ledgers(),before);
   const originalChanges=[];for(const [path,hash] of Object.entries(marker.originalHashes)){const body=await readFile(join(root,path));if(sha(body)===hash)continue;assert.equal(path,'AGENTS.md');const original=(await exec('git',['-C',root,'show','HEAD:AGENTS.md'])).stdout;assert.ok(body.toString().includes(original));originalChanges.push({path,originalContentRetained:true});}
   for(const [path,hash] of Object.entries(marker.nativeHashes))assert.equal(sha(await readFile(join(root,path))),hash);
   const symbol=slug==='ddd'?'UserEntity':'getDiscussions';

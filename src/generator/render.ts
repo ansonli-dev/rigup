@@ -8,7 +8,7 @@ import {digest} from '../analyzer/evidence.js';
 import {isProjectRulesId} from './project-rules.js';
 import {markdownLinks} from './document-policy.js';
 export const TEMPLATE_VERSION='2';
-export interface GuidanceBinding {topic:string;sourceRef?:Evidence;scope:string[];coverageStatus:string;consumers:string[];gaps:string[]}
+export interface GuidanceBinding {topic:string;topicId?:string;sourceRef?:Evidence;scope:string[];coverageStatus:string;consumers:string[];gaps:string[]}
 const inline=(value:string)=>value.replace(/[\r\n\t]+/g,' ').replace(/[\\`*_\[\]<>]/g,'\\$&');
 const link=(from:string,to:string,label=to,anchor='')=>`[${inline(label)}](${posix.relative(posix.dirname(from),to).split('/').map(part=>encodeURIComponent(part).replaceAll('(','%28').replaceAll(')','%29')).join('/')}${anchor})`;
 const original=(from:string,ref:Evidence)=>link(from,ref.path,ref.path,`#L${ref.startLine}-L${ref.endLine}`);
@@ -27,7 +27,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
  const reused=guidance.flatMap(g=>g.sourceRef&&(g.coverageStatus==='reusable'||g.coverageStatus==='partial')?[g.sourceRef]:[]);
  const commandSources=new Set(Object.values(profile.commands).flat().map(command=>posix.join(command.cwd,'package.json')));
  const hookSources=profile.files.filter(path=>/(?:^|\/)(?:\.husky\/(?:pre-commit|pre-push)|\.pre-commit-config\.ya?ml|\.?lefthook\.ya?ml|\.?lintstagedrc(?:\.[a-z]+)?|lint-staged\.config\.[a-z]+)$/.test(path));
- const rules=semantic.find(a=>isProjectRulesId(a.logicalId));
+ const rules=semantic.find(a=>isProjectRulesId(a.logicalId)&&a.target.endsWith('/development-rules.md'));
  const add=(logicalId:string,target:string,content:string,ownership:PreparedAsset['ownership']={kind:'file'})=>result.push({logicalId,target,content,ownership,source:{kind:'fixed-template',ref:TEMPLATE_VERSION,digest:digest(content)}});
  const entryTargets=new Set<string>();
  for(const agent of options.agents) {
@@ -44,7 +44,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
    for(const b of customerBindings)if(b.nativeName)lines.push('- Invoke existing native customer skill: '+inline(b.nativeName)+'. Preserve its gates.');
    if(rules||refs.length||guidance.length){
     lines.push('','## Project guidance','');
-    if(rules)lines.push('- Before planning or editing, read '+link(refTarget,rules.target,'project development rules')+' and apply the rules that cover the changed paths.');
+    if(rules)lines.push('- Before planning or editing, use the scopes in the '+link(refTarget,rules.target,'project development rules index')+' to open the topics and original guidance that apply to the changed paths.');
     lines.push(...refs.map(p=>'- '+link(refTarget,p)));
     for(const g of guidance){
      const source=g.sourceRef?' '+original(refTarget,g.sourceRef)+'.':'';

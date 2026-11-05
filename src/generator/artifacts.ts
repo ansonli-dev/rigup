@@ -10,14 +10,23 @@ export interface ProjectRuleSource {
  counterEvidence:Evidence[];
  exceptions:string[];
 }
-export interface ArtifactJob {logicalId:string;target:string;purpose:string;consumer:string;required:boolean;reason:string;sourceRefs:Evidence[];seedPaths:string[];relatedArtifacts:string[];acceptance:string[];status:'pending'|'done';ruleSources?:ProjectRuleSource[]}
+export interface ProjectRuleTopic {
+ id:string;
+ title:string;
+ target?:string;
+ scope:string[];
+ ruleIds:string[];
+ guidance:{source:Evidence;scope:string[]}[];
+}
+export interface ArtifactPage {logicalId:string;target:string;content:string}
+export interface ArtifactJob {logicalId:string;target:string;purpose:string;consumer:string;required:boolean;reason:string;sourceRefs:Evidence[];seedPaths:string[];relatedArtifacts:string[];acceptance:string[];status:'pending'|'done';ruleSources?:ProjectRuleSource[];ruleTopics?:ProjectRuleTopic[]}
 export function relativeTarget(target:string):boolean {return !!target && !target.startsWith('/') && !target.includes('\\') && !target.split('/').includes('..') && posix.normalize(target) === target && target !== '.';}
 export function validateArtifactList(input:unknown,required:string[]):ArtifactJob[]{
  if(!Array.isArray(input)) throw new Error('artifacts: expected array');
  const ids=new Set<string>(),targets=new Set<string>();
  const jobs=input.map(raw=>{
   if(!raw || typeof raw !== 'object') throw new Error('artifact: expected object');
-  if('ruleSources' in raw) throw new Error('artifact.ruleSources: reserved for verified project rules');
+  if('ruleSources' in raw||'ruleTopics' in raw) throw new Error('artifact rule metadata is reserved for verified project rules');
   for(const key of ['logicalId','target','purpose','consumer','reason']) if(typeof raw[key] !== 'string' || !raw[key].trim()) throw new Error('artifact.'+key+': required');
   if(!relativeTarget(raw.target)||!raw.target.endsWith('.md')) throw new Error('artifact.target: invalid or escaping target');
   if(ids.has(raw.logicalId)||targets.has(raw.target)) throw new Error('duplicate artifact id or target');ids.add(raw.logicalId);targets.add(raw.target);

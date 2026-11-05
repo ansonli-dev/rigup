@@ -41,7 +41,7 @@ export async function validateResearch(data:unknown,reader:RepositoryReader):Pro
  if(guidance !== undefined && !Array.isArray(guidance)) throw new Error('guidance: expected array');
  for(const source of (guidance ?? []) as Record<string,unknown>[]) {
   if(typeof source.topic !== 'string' || !['reusable','partial','missing','conflicting','unavailable'].includes(String(source.coverageStatus)) || !Array.isArray(source.scope) || !Array.isArray(source.consumers) || !Array.isArray(source.gaps)) throw new Error('guidance: invalid source assessment');
-  const derived=observations.filter(item=>item.topic === source.topic && item.classification !== 'explicit-rule');
+  const derived=observations.filter(item=>item.topic === source.topic && (source.topicId===undefined||item.topicId===undefined||item.topicId===source.topicId) && item.classification !== 'explicit-rule');
   if(source.coverageStatus === 'reusable' && derived.length) throw new Error('guidance: reuse sufficient source before inference');
   if(source.coverageStatus === 'partial' && derived.some(item=>!(source.gaps as unknown[]).includes(item.gap))) throw new Error('guidance: research must address declared gap');
   if(['conflicting','unavailable'].includes(String(source.coverageStatus)) && derived.some(item=>item.guidanceDisposition === 'follow-existing')) throw new Error('guidance: unresolved source requires decision');

@@ -69,6 +69,16 @@ test('reader_and_search_share_cumulative_budget_and_scope',()=>project(async roo
  await assert.rejects(reader.search('four'),/budget/);
  await assert.rejects(reader.read('outside.ts',1,1),/inventory/);
 }));
+test('different counterexample queries share one budgeted corpus scan',()=>project(async root=>{
+ const {repositoryReader}=await import('../src/analyzer/repository.js');
+ await writeFile(join(root,'a.ts'),'first\nsecond');
+ const budget={calls:0,bytes:0};
+ const reader=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:1,maxBytes:12}},{budget});
+ const [first,second]=await Promise.all([reader.search('first'),reader.search('second')]);
+ assert.equal(first[0].evidence.startLine,1);assert.equal(second[0].evidence.startLine,2);
+ assert.deepEqual(budget,{calls:1,bytes:12});
+ await assert.rejects(reader.read('a.ts',1),/budget/);
+}));
 test('missing_baseline_disables_cache_and_is_not_silent',()=>project(async root=>{
  await mkdir(join(root,'.rigup'));
  await writeFile(join(root,'.rigup/manifest.json'),JSON.stringify({schemaVersion:1,assets:[{target:'guide.md',baseline:'.rigup/baseline/missing',ownership:{kind:'file'},digest:'unknown'}]}));

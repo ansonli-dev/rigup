@@ -95,14 +95,21 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
   const content=lines.slice(start-1,end).join('\n');
   return {content,evidence:{path,startLine:start,endLine:end,digest:digest(content)}};
  };
+ // Counterexample queries share one filtered snapshot for this reader.
+ let corpus:Promise<{path:string;lines:string[]}[]>|undefined;
+ const loadCorpus=async()=>{
+  const files:{path:string;lines:string[]}[]=[];
+  for(const path of allowed){
+   await charge((await stat(await safePath(root,path))).size);
+   files.push({path,lines:(await visibleText(path)).split('\n')});
+  }
+  return files;
+ };
  return {
   list:async()=>[...allowed],read,
   search:async(query:string)=>{
    const matches:Awaited<ReturnType<typeof readEvidence>>[]=[];
-   for(const path of allowed) {
-    const file=await safePath(root,path);const size=(await stat(file)).size;
-    await charge(size);const text=await visibleText(path);
-    const lines=text.split('\n');
+   for(const {path,lines} of await (corpus??=loadCorpus())) {
     for(let i=0;i<lines.length;i++) if(lines[i].includes(query)) matches.push({content:lines[i],evidence:{path,startLine:i+1,endLine:i+1,digest:digest(lines[i])}});
    }
    return matches;

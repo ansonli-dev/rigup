@@ -96,6 +96,16 @@ test('rulebook acceptance keeps exact source ranges even when the candidate link
  assert.ok(body.evidence.some((e:any)=>e.evidence.path===update.path&&e.evidence.digest===update.digest));
  assert.doesNotMatch(JSON.stringify(body.evidence),/OUTSIDE_NEEDED_RANGE/);
 }));
+test('topic collection acceptance keeps rendered pages and resolves their links from the page directory',()=>fixture(async f=>{
+ const update=await f.ref('src/a/update.ts',2,2);
+ const page={target:'docs/rigup/api/mutations.md',content:'[Source](../../../src/a/update.ts#L2-L2)'};
+ const job={...f.job,sourceRefs:[update],ruleSources:[{supportingEvidence:[update]}],ruleTopics:[{id:'mutations',target:page.target}],seedPaths:[]};
+ const {body}=await exported(f,f.phase('acceptance',{input:{job,research:{guidance:[],observations:[],unknowns:[]},candidate:'[Mutations](api/mutations.md)',candidatePages:[page]}}));
+ assert.deepEqual(body.context.input.candidatePages,[page]);
+ assert.ok(body.evidence.some((e:any)=>e.evidence.path===update.path&&e.evidence.digest===update.digest));
+ assert.doesNotMatch(JSON.stringify(body.evidence),/OUTSIDE_NEEDED_RANGE|UNRELATED_PROJECT_BODY/);
+ assert.deepEqual(body.context.evidenceSelection.unavailable,[]);
+}));
 test('missing seeds and omitted lock evidence are explicit and do not trigger a full-project fallback',()=>fixture(async f=>{
  const lock=await f.ref('yarn.lock'),job={...f.job,sourceRefs:[...f.job.sourceRefs,lock],seedPaths:['src/missing.ts','yarn.lock']};const readPaths:string[]=[];const original=f.reader;f.reader={...original,read:async(...args:Parameters<RepositoryReader['read']>)=>{readPaths.push(args[0]);return original.read(...args);}};
  const {body}=await exported(f,f.phase('content',{input:{job,research:{...f.research,artifacts:[job]}}}));assert.ok(!readPaths.includes('yarn.lock'));assert.ok(body.context.evidenceSelection.unavailable.some((s:string)=>s.includes('src/missing.ts')));assert.ok(body.context.evidenceSelection.unavailable.some((s:string)=>s.includes('yarn.lock')));assert.ok(!evidencePaths(body).includes('src/z/unrelated.ts'));

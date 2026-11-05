@@ -54,8 +54,8 @@ export function stageContext(request:ResearchRequest,paths:string[],nativeEntryP
   for(const path of paths)if(!dependencyLock(path))add({path,startLine:1,chunkLines:64});
  }else if(stage==='plan'){
   const profile=record(input.profile),research=record(profile.research);
-  const data=record(research.data),analysis={guidance:data.guidance,observations:data.observations,unknowns:data.unknowns};
-  projected={allowedRoots:input.allowedRoots,profile:{commands:profile.commands,research:{data:analysis,unknowns:research.unknowns},unknowns:profile.unknowns},previousInventory:input.previousInventory,inventoryPolicy:input.inventoryPolicy};
+  const data=record(research.data),analysis={ruleTopics:data.ruleTopics,guidance:data.guidance,observations:data.observations,unknowns:data.unknowns};
+  projected={allowedRoots:input.allowedRoots,profile:{commands:profile.commands,research:{data:analysis,unknowns:research.unknowns},unknowns:profile.unknowns},previousInventory:input.previousInventory,previousRuleTopics:input.previousRuleTopics,inventoryPolicy:input.inventoryPolicy};
   refs(analysis);
   for(const path of paths)if(instruction(path)||nativeEntries.has(path)||manifest(path))add({path,startLine:1});
   if(!research.data)unavailable.add('Prior analysis unavailable; do not infer unprovided project conventions');
@@ -73,13 +73,20 @@ export function stageContext(request:ResearchRequest,paths:string[],nativeEntryP
    for(const path of strings(current.seedPaths))anchors.add(path);
    refs(current.sourceRefs);for(const path of strings(current.seedPaths))seed(path);
   }
-  if(stage==='acceptance'&&typeof input.candidate==='string')for(const link of markdownLinks(input.candidate)){
-   let raw=link[1].split('#')[0];if(!raw||/^(?:https?:|mailto:)/.test(raw))continue;
-   try{raw=decodeURIComponent(raw);}catch{unavailable.add(raw+': invalid candidate link');continue;}
-   const target=posix.normalize(posix.join(posix.dirname(job.target),raw));
-   if(raw.startsWith('/')||!allowed.has(target)){unavailable.add(raw+': candidate link outside supplied source inventory');continue;}
-   if(ruleRefs.has(target)){anchors.add(target);continue;}
-   anchors.add(target);add({path:target,startLine:1});
+  const candidatePages=stage==='acceptance'?array(input.candidatePages):[];
+  if(stage==='acceptance'&&typeof input.candidate==='string'){
+   const topicTargets=new Set(array(job.ruleTopics).map(topic=>topic.target).filter(target=>typeof target==='string'));
+   if(candidatePages.length!==topicTargets.size||new Set(candidatePages.map(page=>page.target)).size!==candidatePages.length||
+    candidatePages.some(page=>!topicTargets.has(page.target)||typeof page.content!=='string'))throw Error('Acceptance requires every planned topic page');
+   for(const page of [{target:job.target,content:input.candidate},...candidatePages])for(const link of markdownLinks(page.content)){
+    let raw=link[1].split('#')[0];if(!raw||/^(?:https?:|mailto:)/.test(raw))continue;
+    try{raw=decodeURIComponent(raw);}catch{unavailable.add(raw+': invalid candidate link');continue;}
+    const target=posix.normalize(posix.join(posix.dirname(page.target),raw));
+    if(!raw.startsWith('/')&&(topicTargets.has(target)||target===job.target&&topicTargets.size))continue;
+    if(raw.startsWith('/')||!allowed.has(target)){unavailable.add(raw+': candidate link outside supplied source inventory');continue;}
+    if(ruleRefs.has(target)){anchors.add(target);continue;}
+    anchors.add(target);add({path:target,startLine:1});
+   }
   }
   const taskLocations=[...anchors,...[...connected.values()].map(j=>j.target).filter((target:unknown)=>typeof target==='string')];
   const applies=(path:string)=>taskLocations.some(anchor=>within(anchor,posix.dirname(path)));
@@ -101,10 +108,10 @@ export function stageContext(request:ResearchRequest,paths:string[],nativeEntryP
   const observations=array(research.observations).filter(o=>neededObservation(o)||hasTopic(o)&&topics.has(o.topic));
   const guidance=array(research.guidance).filter(g=>neededGuidance(g)||hasTopic(g)&&topics.has(g.topic)||references(g.sourceRef).some(e=>guard(e.path)));
   if(array(research.observations).some(o=>!hasTopic(o)))unavailable.add('Research observations without topic labels use task references, scope and guardrails; cross-topic completeness is unknown');
-  const scopedResearch={guidance,observations,unknowns:research.unknowns,artifacts:[...connected.values()],dispositions:array(research.dispositions).filter(d=>connected.has(d.logicalId))};
+  const scopedResearch={guidance,observations,unknowns:research.unknowns,artifacts:[...connected.values()].filter(artifact=>!job.ruleSources||artifact!==job),dispositions:array(research.dispositions).filter(d=>connected.has(d.logicalId))};
   refs(scopedResearch);
   for(const path of paths)if(guard(path)||manifest(path)&&applies(path))add({path,startLine:1});
-  projected={job,research:scopedResearch,...(stage==='acceptance'?{candidate:input.candidate}:{attempt:input.attempt,repairReason:input.repairReason})};
+  projected={job,research:scopedResearch,...(stage==='acceptance'?{candidate:input.candidate,candidatePages:input.candidatePages}:{attempt:input.attempt,repairReason:input.repairReason})};
  }
  return {stage,input:projected,slices:[...slices.values()].sort((a,b)=>a.path.localeCompare(b.path)||a.startLine-b.startLine||(a.endLine??Infinity)-(b.endLine??Infinity)),unavailable:[...unavailable].sort()};
 }

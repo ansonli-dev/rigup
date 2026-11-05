@@ -48,7 +48,7 @@ mcp:
 ## 项目研发流程
 
 - `--language` 和 `documentLanguage` 接受 `auto` 或语言标签，例如 `zh-CN`、`en`、`ja`。默认 `auto` 参照适用的项目指引。此设置用于新生成的项目规范和语义文档。已有文档保留原文，原生流程入口保留其名称和模板。
-- 证据支持的开发规范写入 `docs/rigup/development-rules.md`，也可通过 `projectConventions.documentRoutes.context` 指定目录。原有指引以带行号的链接引用。代码惯例按已验证的模块限定范围。
+- 从 `docs/rigup/development-rules.md` 按变更路径查找适用主题，再阅读 `development-rules/<topic>.md` 或原有指引。主题根据项目证据选择，原有指引以带行号的链接引用。可通过 `projectConventions.documentRoutes.context` 指定输出目录。
 - 使用 `change-prepare` 将需求、适用规则和检查写入所选 SDD 的提案与任务。审批后使用 `change-deliver` 实现并验证。两者共享项目指引，按变更范围复用已有的测试、CI 和 hooks。
 
 ## 研究后端与预算
