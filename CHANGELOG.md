@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 · 2026-11-06 · Development preview
+
+- Organize project development rules by topic. Use a bounded source survey and request additional evidence by topic when needed.
+- Preview and install the base workflow with `rigup init --defer-research`. Generate and review project rules in a separate update.
+- List specialized project checks with their working directories. Scope proposals to affected paths and verify callers before changing shared contracts.
+- Install OpenWiki and CodeGraph in parallel after approval. Preserve operation receipts across interrupted installs.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.2.0) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.2.0)
+
 ## 0.1.1 · 2026-11-05 · Development preview
 
 - Publish the verified release tarball to npm from GitHub Actions using Trusted Publishing.

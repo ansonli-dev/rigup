@@ -9,17 +9,17 @@ npm install -g @ansonli.dev/rigup
 rigup --version
 ```
 
-To pin or roll back the CLI, install a specific version such as `npm install -g @ansonli.dev/rigup@0.1.1`. To remove the CLI, run `npm uninstall -g @ansonli.dev/rigup`.
+To pin or roll back the CLI, install a specific version such as `npm install -g @ansonli.dev/rigup@0.2.0`. To remove the CLI, run `npm uninstall -g @ansonli.dev/rigup`.
 
 If the original v0.1.0 GitHub `.tgz` is installed in the same npm prefix, run `npm uninstall -g rigup` there before installing the scoped package. The GitHub archive is also available as a direct download for Node.js users.
 
 ```sh
-npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.1.1/rigup-0.1.1.tgz
+npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.2.0/rigup-0.2.0.tgz
 ```
 
 ## Portable installer
 
-Use the v0.1.1 release on macOS or Linux (ARM64 or x64). The portable archive includes Node.js. Keep Git and standard POSIX tools, including `ps`, on PATH. Linux needs glibc 2.35 or later. macOS launchers are ad-hoc signed. Windows users can run the Linux build inside WSL2. [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.1.1) · [Platform checks](../compatibility/status.md) · [Windows handoff](external-validation-handoff.md)
+Use the v0.2.0 release on macOS or Linux (ARM64 or x64). The portable archive includes Node.js. Keep Git and standard POSIX tools, including `ps`, on PATH. Linux needs glibc 2.35 or later. macOS launchers are ad-hoc signed. Windows users can run the Linux build inside WSL2. [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.2.0) · [Platform checks](../compatibility/status.md) · [Windows handoff](external-validation-handoff.md)
 
 ```sh
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
@@ -27,16 +27,16 @@ export PATH="$HOME/.local/bin:$PATH"
 rigup --version
 ```
 
-The public entry point downloads a versioned installer. That installer checks the archive checksum and links `rigup` into `~/.local/bin`. Use the versioned installer to pin this release or inspect it before running. [v0.1.1 installer](https://github.com/ansonli-dev/rigup/releases/download/v0.1.1/install.sh) · [Entry point source](https://github.com/ansonli-dev/rigup/blob/main/install.sh)
+The public entry point downloads a versioned installer. That installer checks the archive checksum and links `rigup` into `~/.local/bin`. Use the versioned installer to pin this release or inspect it before running. [v0.2.0 installer](https://github.com/ansonli-dev/rigup/releases/download/v0.2.0/install.sh) · [Entry point source](https://github.com/ansonli-dev/rigup/blob/main/install.sh)
 
 Run `rigup init` from your project directory. Semantic research requires a configured backend. Installed MCP runners, hooks, and CI scripts use Node on the consuming environment's PATH. Supply Node.js 24 or add the retained bundle's `lib/node/bin` to that environment. See the [usage reference](usage.md).
 
 ## Manual download
 
-Choose `rigup-0.1.1-<target>.tar.gz` and `SHA256SUMS` from the same release. Use `darwin-arm64` for Apple Silicon, `darwin-x64` for Intel Mac, and `linux-arm64` or `linux-x64` for Linux. Check `uname -m` if unsure.
+Choose `rigup-0.2.0-<target>.tar.gz` and `SHA256SUMS` from the same release. Use `darwin-arm64` for Apple Silicon, `darwin-x64` for Intel Mac, and `linux-arm64` or `linux-x64` for Linux. Check `uname -m` if unsure.
 
 ```sh
-archive=rigup-0.1.1-darwin-arm64.tar.gz
+archive=rigup-0.2.0-darwin-arm64.tar.gz
 awk -v name="$archive" '$2 == name {print; found++} END {if (found != 1) exit 1}' SHA256SUMS > "$archive.sha256" &&
   shasum -a 256 -c "$archive.sha256" &&
   tar -xzf "$archive" &&
