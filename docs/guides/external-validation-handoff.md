@@ -192,13 +192,13 @@ node "$RIGUP_CLI" init "$PROJECT" --profile "$CASE_ROOT/claude-host-profile.yaml
 
    ```sh
    cd "$PROJECT"
-   claude --print "Read only the exported request at $REQUEST_FILE. Follow its instructions and context.expectedOutput. Use only its supplied evidence, preserve unknowns and exact evidence digests. Return ONLY the data JSON object requested, without an envelope or Markdown fences. Do not run commands or change files." \
-     --add-dir "$(dirname "$REQUEST_FILE")" --tools Read --allowedTools Read \
+   claude --print 'Treat stdin as the exported Rigup request. Follow its instructions and context.expectedOutput. Use only its supplied evidence, preserve unknowns and exact evidence digests. Return ONLY the data JSON object requested, without an envelope or Markdown fences.' \
+     --tools '' \
      --setting-sources user --settings '{"disableAllHooks":true}' \
      --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
      --permission-mode dontAsk --permission-prompts none --no-session-persistence --no-chrome \
      --max-budget-usd 1 --output-format json \
-     > "$EVIDENCE/claude-host-step-01.transport.json" 2> "$EVIDENCE/claude-host-step-01.stderr.log"
+     < "$REQUEST_FILE" > "$EVIDENCE/claude-host-step-01.transport.json" 2> "$EVIDENCE/claude-host-step-01.stderr.log"
    node --input-type=module - "$REQUEST_FILE" "$EVIDENCE/claude-host-step-01.transport.json" "$RESPONSE_FILE" <<'JS'
    import {readFile,writeFile} from 'node:fs/promises';
    const [requestFile,transportFile,responseFile]=process.argv.slice(2);
@@ -211,7 +211,7 @@ node "$RIGUP_CLI" init "$PROJECT" --profile "$CASE_ROOT/claude-host-profile.yaml
    JS
    ```
 
-   这个包装只关联当前请求身份与原始模型数据；Rigup 随后做真实 schema/evidence 验证。模型输出无效时保留 transport 和消费，不自动修饰成有效答案。host 手工路径不等同于默认 Codex 的阶段上下文优化；这里只用限定 scope 的小 fixture，不将其直接扩展成全仓付费回归。
+   请求通过 stdin 完整传给 Claude，并关闭内置工具，避免把单行大 JSON 交给文件 Read 工具时发生显示截断。保持这个小 fixture；若超出当前 CLI/stdin 或模型上下文限制，先缩小明确 scope 并重新准备，不截断或篡改请求。这个包装只关联当前请求身份与原始模型数据；Rigup 随后做真实 schema/evidence 验证。模型输出无效时保留 transport 和消费，不自动修饰成有效答案。host 手工路径不等同于默认 Codex 的阶段上下文优化；这里只用限定 scope 的小 fixture，不将其直接扩展成全仓付费回归。
 
 3. 在终端执行输出的具体 `nextCommand`；源码安装没有 `rigup` 命令时，只把开头的 `rigup` 替换为 `node "$RIGUP_CLI"`，保留真实 root、`--continue`、`--response` 参数，不自行构造 ID。每次请求和费用都写入账本。host 接口把 token 用量标作 unknown；人工费用对账不能变更成自动已知 token，不能据此声明硬 token 预算验收。
 4. 如果返回新 `requestPath`，只处理那一阶段。如果收到 `phase=handoff` 和真实 `previewId`，先审阅预览、退出加载相关资产的 Claude 会话，再从独立终端执行其 `update --apply ... --sessions-ended`。新的终端要重新设置 `RIGUP_CLI`。
@@ -442,7 +442,7 @@ Remove-Item Env:RIGUP_LIVE_EVIDENCE_DIR
 
 安装与认证说明核对于 2026-11-05；官方网页会变化，实际版本的 `--help` 与记录同样需要保留。
 
-- [Claude Code 安装/固定版本/Windows](https://code.claude.com/docs/en/setup)、[认证](https://code.claude.com/docs/en/authentication)、[CLI flags 与预算语义](https://code.claude.com/docs/en/cli-reference)。
+- [Claude Code 安装/固定版本/Windows](https://code.claude.com/docs/en/setup)、[认证](https://code.claude.com/docs/en/authentication)、[CLI flags 与预算语义](https://code.claude.com/docs/en/cli-reference)、[stdin 与结构化 transport](https://code.claude.com/docs/en/headless)。
 - [Microsoft WSL 安装与版本检查](https://learn.microsoft.com/en-us/windows/wsl/install)、[PowerShell 安装](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)、[Node.js 官方下载](https://nodejs.org/en/download)。
 - [锁定 Superpowers 安装说明](https://github.com/obra/superpowers/blob/2ce8aa15d05bd57213e6f746f953aafb7ded7a8b/README.md)、[锁定 OpenSpec 工具入口](https://github.com/Fission-AI/OpenSpec/blob/27c0515724decc633818c735ee596481eec78a8b/docs/supported-tools.md)、[锁定 Spec Kit 安装来源](https://github.com/github/spec-kit/blob/e0d414929552a4084d918babfd70d859f129eb13/README.md)。
 - [开发与测试](development.md)、[使用与恢复](usage.md)、[当前验证范围](../compatibility/status.md)、[上游版本锁](../compatibility/upstream-lock.json)。
