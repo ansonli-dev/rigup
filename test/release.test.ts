@@ -16,16 +16,17 @@ import {join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawn} from 'node:child_process';
 
-const run = (file: string, args: string[], options: {cwd: string; env: NodeJS.ProcessEnv}, input = '') =>
+const run = (file: string, args: string[], options: {cwd: string; env: NodeJS.ProcessEnv}, input?: string) =>
   new Promise<{code: number | null; stdout: string; stderr: string}>((done, reject) => {
-    const child = spawn(file, args, {...options, stdio: ['pipe', 'pipe', 'pipe']});
+    const child = spawn(file, args, {...options, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']});
     let stdout = '',
       stderr = '';
     child.stdout.on('data', (chunk) => (stdout += chunk));
     child.stderr.on('data', (chunk) => (stderr += chunk));
     child.once('error', reject);
     child.once('close', (code) => done({code, stdout, stderr}));
-    child.stdin.end(input);
+    child.stdin?.once('error', reject);
+    child.stdin?.end(input);
   });
 
 test('portable launcher uses its own runtime and resources through relocation and a symlink', async () => {

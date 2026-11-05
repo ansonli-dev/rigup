@@ -11,7 +11,7 @@ import {promisify} from 'node:util';
 const exec = promisify(execFile),
   target = process.platform + '-' + process.arch;
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
-type UnsafeArchive = boolean | 'link' | 'dot-link';
+type UnsafeArchive = boolean | 'link' | 'dot-link' | 'slash-link';
 
 function archive(version: string, unsafe: UnsafeArchive = false) {
   const top = 'rigup-' + version + '-' + target;
@@ -26,6 +26,8 @@ function archive(version: string, unsafe: UnsafeArchive = false) {
     files.push({name: top + '/lib/app/outside', content: '', mode: 0o755, link: '../../../../../escaped'});
   if (unsafe === 'dot-link')
     files.push({name: top + '/lib/app/./outside', content: '', mode: 0o755, link: '../../../escaped'});
+  if (unsafe === 'slash-link')
+    files.push({name: top + '/lib/app/outside/', content: '', mode: 0o755, link: '../../../escaped'});
   const blocks: Buffer[] = [];
   for (const f of files) {
     const body = Buffer.from(f.content),
@@ -223,4 +225,37 @@ test('dot segments cannot hide an archive symlink that escapes its version direc
     assert.notEqual(result.code, 0);
     assert.match(result.stderr, /unsafe|archive|link/i);
     await assert.rejects(stat(join(f.env.RIGUP_BIN_DIR, 'rigup')));
+  }));
+
+test('trailing slashes cannot hide an archive symlink that escapes its version directory', () =>
+  fixture(async (f) => {
+    f.add('0.1.0', {unsafe: 'slash-link'});
+    const result = await f.install();
+    assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /unsafe|archive|link/i);
+    await assert.rejects(stat(join(f.env.RIGUP_BIN_DIR, 'rigup')));
+  }));
+
+test('first installation preserves a command created after the ownership check', () =>
+  fixture(async (f) => {
+    f.add('0.1.0');
+    const tools = join(f.root, 'simulated-race');
+    const other = join(f.root, 'unrelated-command');
+    const command = join(f.env.RIGUP_BIN_DIR, 'rigup');
+    await mkdir(tools);
+    await writeFile(other, 'unrelated command\n');
+    const inject = `#!/bin/sh
+for argument; do last=$argument; done
+if [ "$last" = "$RIGUP_BIN_DIR/rigup" ]; then
+  /bin/ln -s "$RIGUP_RACE_OTHER" "$last" || exit 1
+fi
+exec "/bin/\${0##*/}" "$@"
+`;
+    for (const tool of ['ln', 'mv']) await writeFile(join(tools, tool), inject, {mode: 0o755});
+    const result = await f.install('0.1.0', {
+      PATH: `${tools}:${f.env.PATH}`,
+      RIGUP_RACE_OTHER: other,
+    });
+    assert.notEqual(result.code, 0);
+    assert.equal(await readlink(command), other);
   }));

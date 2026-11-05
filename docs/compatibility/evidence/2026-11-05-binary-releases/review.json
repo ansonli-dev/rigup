@@ -1,0 +1,16 @@
+{
+  "reviewedSource": "ed721b19fea744c74db0830f2f5ece17126bd316",
+  "focusedTestsPassed": 19,
+  "critical": 0,
+  "important": [{"finding": "Installer symlink name ending in slash could escape the extracted version", "verification": "Full loopback installer exited 0 before the fix and rejected the same archive afterward"}],
+  "minor": 0,
+  "additionalRegressions": [{"finding": "A command appearing during first installation could be overwritten", "verification": "A competing link injected after the ownership check is preserved by non-overwriting initial link creation"}],
+  "firstBuildRun": {
+    "url": "https://github.com/ansonli-dev/rigup/actions/runs/41979939736",
+    "macOS": "ARM64 and x64 passed",
+    "Linux": "Both targets exposed an empty-stdin EPIPE in the incomplete launcher test. The fixture now ignores stdin when no input is supplied.",
+    "publish": "skipped"
+  },
+  "deferredPlatformChecks": ["native Windows", "actual WSL2 host and native clients", "Developer ID and notarization"],
+  "modelCalls": 0
+}

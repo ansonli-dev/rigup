@@ -65,6 +65,7 @@ elif [ -n "$(ls -A "$install_dir")" ]; then
 fi
 [ ! -L "$install_dir/versions" ] || fail 'Version storage must be a real directory.'
 check_command() {
+  managed_command=false
   if [ -L "$command_path" ]; then
     link_target=$(readlink "$command_path")
     installed_tag=${link_target#"$install_dir/versions/"}
@@ -75,6 +76,7 @@ check_command() {
       [ -f "$link_target" ] && [ ! -L "$link_target" ] &&
       [ -f "$prior/.rigup-install-receipt" ] && [ ! -L "$prior/.rigup-install-receipt" ] ||
       fail 'Refusing to replace an unrelated rigup symlink.'
+    managed_command=true
   elif [ -e "$command_path" ]; then
     fail 'Refusing to replace an unrelated rigup command. Choose another RIGUP_BIN_DIR.'
   fi
@@ -137,7 +139,7 @@ awk -v root="$top" '
     start=index(link[1]," "root"/")
     if (!start) exit 1
     name=substr(link[1],start+1)
-    if (!(name in seen)) exit 1
+    if (name ~ /\/$/ || !(name in seen)) exit 1
     for (member in seen) if (index(member,name"/")==1) exit 1
     target=link[2]
     depth=split(name,parts,"/")-2
@@ -164,9 +166,13 @@ else
   mv "$prepared" "$destination"
 fi
 check_command
-link_stage=$(mktemp -d "$bin_dir/.rigup-link.XXXXXX")
-ln -s "$destination/rigup" "$link_stage/rigup"
-mv -f "$link_stage/rigup" "$command_path"
+if [ "$managed_command" = true ]; then
+  link_stage=$(mktemp -d "$bin_dir/.rigup-link.XXXXXX")
+  ln -s "$destination/rigup" "$link_stage/rigup"
+  mv -f "$link_stage/rigup" "$command_path"
+else
+  ln -sn "$destination/rigup" "$command_path" || fail 'A rigup command appeared during installation.'
+fi
 printf 'Installed Rigup %s at %s\n' "${version#v}" "$command_path"
 case :${PATH:-}: in
   *:"$bin_dir":*) ;;
