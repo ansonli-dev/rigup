@@ -65,6 +65,12 @@ test('tools flag keeps OpenWiki generation separate from protected CodeGraph ini
  let output='';const code=await runCli(['init','--tools','openwiki,codegraph','--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
  assert.equal(code,0,output);const report=JSON.parse(output);assert.equal(report.executable,true);assert.deepEqual(report.operations.map((o:any)=>o.id),['install:openwiki','install:codegraph','initialize:codegraph']);assert.ok(report.warnings.some((w:string)=>/openwiki_begin/.test(w)));assert.deepEqual(await readdir(root),[]);
 }))));
+test('missing OpenSpec bindings return a copyable recovery command without applying',()=>project(async root=>project(async cache=>project(async state=>{
+ let output='';const code=await runCli(['init','--agents','codex','--sdd','openspec','--defer-research','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
+ assert.equal(code,3);const report=JSON.parse(output);assert.equal(report.executable,false);
+ assert.match(report.nextCommand,/npx --yes @fission-ai\/openspec@1\.16\.0 init --tools codex --profile core/);
+ assert.deepEqual(await readdir(root),[]);
+}))));
 test('explicit_dry_run_and_preflight_missing_inputs_never_call_backend_or_write_project',()=>project(async root=>project(async cache=>project(async state=>{
  let calls=0;const io={cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async()=>{calls++;throw Error('unexpected research');}}}};
  assert.equal(await runCli(['init','--agents','codex','--dry-run'],io),0);assert.equal(calls,0);assert.deepEqual(await readdir(root),[]);
@@ -89,7 +95,7 @@ test('apply_id_cannot_redirect_cli_to_a_different_project_root',()=>project(asyn
 
 
 test('first_run_with_only_a_backend_still_guides_missing_agents_and_sdd',()=>project(async root=>project(async cache=>project(async state=>{
- const {readFile}=await import('node:fs/promises');const answers=['1','2','3','','3'];const reports:Record<string,any>[]=[];let output='';
+ const {readFile}=await import('node:fs/promises');const answers=['1','2','3','2','','3'];const reports:Record<string,any>[]=[];let output='';
  const code=await runCli(['init','--backend','host'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null,services:{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}});
  assert.equal(code,3,output);assert.equal(answers.length,0);const paused=reports.find(r=>r.requestPath);assert.ok(paused,'interactive selections must reach actual host research');
  const request=JSON.parse(await readFile(paused.requestPath,'utf8'));assert.deepEqual(request.context.options.agents,['claude']);assert.equal(request.context.options.sdd,'openspec');assert.equal(request.context.options.backend,'host');assert.equal(request.context.root,root);assert.deepEqual(await readdir(root),[]);

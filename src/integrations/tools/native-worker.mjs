@@ -18,10 +18,11 @@ async function safe(path){
  for(const part of path.split('/')){current=resolve(current,part);try{if((await lstat(current)).isSymbolicLink())throw Error('Native symlink denied');}catch(e){if(e.code!=='ENOENT')throw e;}}
  return current;
 }
-async function safeTree(path){
+async function safeTree(path,daemonSocket){
  const info=await lstat(path).catch(e=>{if(e.code==='ENOENT')return null;throw e;});if(!info)return;
+ if(path===daemonSocket&&info.isSocket())return;
  if(info.isSymbolicLink()||!info.isDirectory()&&!info.isFile())throw Error('Unsafe native state entry');
- if(info.isDirectory())for(const name of await readdir(path))await safeTree(resolve(path,name));
+ if(info.isDirectory())for(const name of await readdir(path))await safeTree(resolve(path,name),daemonSocket);
 }
 async function empty(path){const info=await lstat(path).catch(e=>{if(e.code==='ENOENT')return null;throw e;});if(info&&(!info.isDirectory()||(await readdir(path)).length))throw Error('Native target is no longer empty');}
 async function syncDirectory(path){const file=await open(path,'r');try{await file.sync();}finally{await file.close();}}
@@ -48,10 +49,12 @@ async function codegraphState(path){
  }finally{db.close();}
 }
 async function query(){
- await safeTree(await safe(target));
+ const path=await safe(target);
  const marker=JSON.parse(await readFile(await safe(control+'/promotion.json'),'utf8'));
- const actual=await identity(await safe(target));
+ const actual=await identity(path);
  if(marker.root!==root||marker.id!==id||marker.target!==target||marker.version!==version||marker.identity!==actual)throw Error('Native promotion ownership does not match');
+ // The pinned CodeGraph daemon can serve this verified index during an update.
+ await safeTree(path,id==='codegraph'?resolve(path,'daemon.sock'):undefined);
  const state=id==='openwiki'?await openwikiState(root):await codegraphState(await safe(target));
  return {status:'done',message:id==='openwiki'?'OpenWiki initialized; Codex can resume the native page lifecycle':'Complete native CodeGraph index verified',nativeReceipt:{version,target,identity:actual},state};
 }

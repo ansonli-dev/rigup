@@ -112,10 +112,22 @@ test('missing durable Codex budget cannot erase known spent usage',()=>fixture(a
  await rm(cache+'/'+(await readdir(cache)).find(p=>p.endsWith('.usage.json')));
  await assert.rejects(()=>backend.run({...request,spent:{calls:1,tokens:18}},reader),/budget|ledger/i);
 }));
-test('observed Codex token overrun is charged and rejected before acceptance',()=>fixture(async(root,cache,request,reader)=>{
- const usage:any[]=[];const backend=await createBackend({cacheRoot:cache,onUsage:async(u:any)=>{usage.push(u);},invoke:async()=>result()});
- await assert.rejects(()=>backend.run({...request,budget:{maxCalls:3,maxTokens:17}},reader),/budget/);assert.deepEqual(usage.at(-1),{calls:1,tokens:18});
+test('Codex stops an oversized request before dispatch and resumes with the approved new token limit',()=>fixture(async(root,cache,request,reader)=>{
+ const usage:any[]=[];let calls=0;const settings={cacheRoot:cache,onUsage:async(u:any)=>{usage.push(u);},invoke:async()=>{calls++;return result();}};
+ const bounded={...request,budget:{maxCalls:3,maxTokens:1000}};
+ const backend=await createBackend(settings);
+ await assert.rejects(()=>backend.run(bounded,reader),/estimated.*remaining.*1000/i);
+ assert.equal(calls,0);assert.deepEqual(usage,[]);
+ assert.equal((await (await createBackend({...settings,tokenLimit:10000})).run(bounded,reader)).status,'complete');
+ assert.equal(calls,1);
+}));
+test('observed Codex token overrun is charged and recovered without a repeated call',()=>fixture(async(root,cache,request,reader)=>{
+ const usage:any[]=[];let calls=0;const settings={cacheRoot:cache,onUsage:async(u:any)=>{usage.push(u);},invoke:async()=>{calls++;return {code:0,lastMessage:JSON.stringify(data),stdout:JSON.stringify({type:'turn.completed',usage:{input_tokens:10000,output_tokens:1}})};}};
+ const backend=await createBackend(settings);
+ await assert.rejects(()=>backend.run(request,reader),/observed.*10001.*10000/i);assert.deepEqual(usage.at(-1),{calls:1,tokens:10001});
  assert.ok(!(await readdir(cache+'/exchange',{recursive:true})).some(p=>p.endsWith('.accepted.json')));
+ const recovered=await (await createBackend({...settings,tokenLimit:20000})).run({...request,spent:{calls:1,tokens:10001}},reader);
+ assert.equal(recovered.status,'complete');assert.equal(calls,1);
 }));
 test('ordinary cache deletion does not authorize repeating an unresolved Codex request',()=>fixture(async(root,cache,request,reader)=>{
  let calls=0;const settings={cacheRoot:cache+'/ordinary',stateRoot:cache+'/durable',invoke:async()=>{calls++;throw Error('transport lost');}};

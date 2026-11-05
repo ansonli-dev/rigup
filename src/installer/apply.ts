@@ -48,6 +48,10 @@ function previewFileTransitions(data:PreviewData):Transaction['files']{
 function assertPreviewFileTransitions(tx:Transaction,data:PreviewData):void{
  if(signature(tx.files)!==signature(previewFileTransitions(data)))throw Error('Durable apply record differs from the approved preview; reconciliation required');
 }
+export async function interruptedApplyId(root:string,stateRoot:string):Promise<string|undefined>{
+ const tx=await readApplyRecord(join(stateRoot,signature(root)+'.apply.json'));
+ return tx?.status==='prepared'?tx.previewId:undefined;
+}
 export async function restoreInterruptedPreview(root:string,options:SetupOptions,cacheRoot:string,stateRoot:string):Promise<string|undefined>{
  const tx=await readApplyRecord(join(stateRoot,signature(root)+'.apply.json'));
  if(tx?.status!=='prepared')return;

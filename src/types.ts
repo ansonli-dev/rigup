@@ -46,6 +46,7 @@ export interface NativeInitializationReceipt {version:string;target:string;ident
 export interface ManagedAsset {logicalId:string;target:string;ownership:import('./managed-input.js').Ownership;digest:string;baseline?:string;encoding?:'utf8'|'base64';mode?:number;source?:{kind:string;ref:string;digest?:string}}
 export interface AssetDisposition {logicalId:string;action:'retain'|'update'|'retire'|'pending';reason:string}
 export type ProjectRulesStatus='pending'|'ready';
-export interface SetupPlan {projectRules?:ProjectRulesStatus;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:{integrationId:string;reason:string}[];versions:Record<string,string>}
+export interface SetupRequirement {integrationId:string;reason:string;nextCommand?:string}
+export interface SetupPlan {projectRules?:ProjectRulesStatus;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
 
 export type CheckKind='build'|'lint'|'test'|'environment'|'eval';

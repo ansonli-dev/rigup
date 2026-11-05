@@ -3,6 +3,8 @@ import {readFile} from 'node:fs/promises';
 import {readDurableRecord,saveDurable} from './private-record.js';
 import {configurationCandidate} from './config.js';
 import {validateResearch,ResearchFailure} from './analyzer/backend.js';
+import {CodexTokenLimit,researchBudget} from './analyzer/budget.js';
+import {quoteShell as quote} from './shell-command.js';
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
@@ -26,21 +28,22 @@ import {preview,loadPreview,type Preview} from './installer/preview.js';
 import {sessionHandoffRequired} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
-import {apply,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
-export interface LifecycleFlags {deferResearch?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean}
+import {apply,interruptedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
+export interface LifecycleFlags {deferResearch?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
 export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;report?:(value:Record<string,unknown>)=>void}
-interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string}
+interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string}
 async function readRun(path:string,root:string,consent:string):Promise<Run|undefined>{
  const run=await readDurableRecord<Run>(path,'Durable research run');
  if(!run)return;
  if(run.root!==root||run.consent!==consent||typeof run.runId!=='string'||!run.runId||!run.spent||!Number.isSafeInteger(run.spent.calls)||run.spent.calls<0||run.spent.tokens!=='unknown'&&(!Number.isSafeInteger(run.spent.tokens)||run.spent.tokens<0))throw Error('durable research run invalid; reconciliation required');
+ if(run.researchTokens!==undefined&&(!Number.isSafeInteger(run.researchTokens)||run.researchTokens<1))throw Error('Durable research token limit invalid; reconciliation required');
  return run;
 }
 export async function executeLifecycle(root:string,options:SetupOptions,flags:LifecycleFlags,write:(s:string)=>void,services:LifecycleServices={}):Promise<number>{
  if(!options.agents.length){write('agents: choose at least one native host before research\n');services.report?.({phase:'preflight',installStatus:'pending',requiredInput:[{field:'agents',sources:['project configuration','selected profile','CLI overrides'],provide:'--agents codex (or another supported host)'}]});return 3;}
  const needsResearch=!!options.sdd&&!flags.deferResearch;
  if(flags.deferResearch&&(!options.sdd||flags.request||flags.response||flags.continuation))throw Error('Deferred research requires initial setup with a development workflow');
- const budget=options.researchBudget??{maxCalls:60,maxTokens:100000};
+ const budget=researchBudget(options);
  const model=options.model?.model??services.credentials?.model??process.env.ANTHROPIC_MODEL;
  const effectiveModel:SetupOptions['model']=options.backend==='native'&&needsResearch&&model?{provider:'anthropic',model,apiKeyEnv:options.model?.apiKeyEnv??'ANTHROPIC_API_KEY'}:undefined;
  const lock=await acquireLock(root,{stateRoot:services.stateRoot,recover:flags.resume});
@@ -48,7 +51,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  const progress=createProgressReporter({runId:lock.id,phases,isTTY:!!services.isTTY,write,clock:services.clock});let active:RunProgressEvent={stage:phases[0],task:'bounded source scan',completed:0,next:'prepare selected integrations'};const emit=(event:RunProgressEvent)=>{active=event;progress.event(event);};emit(active);
  const heartbeat=setInterval(()=>progress.tick(),1000);heartbeat.unref();
  let review=flags.review||flags.deferResearch;
-  const quote=(s:string)=>"'"+s.replaceAll("'","'\"'\"'")+"'";
+ let researchResumeId:string|undefined;
  const handoff=async(result:Preview):Promise<boolean>=>{
   if(!review&&!await sessionHandoffRequired(root,flags.sessionsEnded))return false;
   const nextCommand='rigup update '+quote(root)+' --apply '+result.previewId+' --sessions-ended'+(flags.resume?' --resume':'');
@@ -59,7 +62,15 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   await assertNoUnknownWriters(root,lock.stateRoot);
   const base=await privateDirectory(services.cacheRoot??join(homedir(),'.cache','rigup'),root);
   const cache=await privateDirectory(join(base,'generation'),root);const requests=await privateDirectory(join(base,'host'),root);const previews=await privateDirectory(join(base,'previews'),root);const runs=await privateDirectory(join(lock.stateRoot,'runs'),root);
-  if(flags.resume){const interrupted=await restoreInterruptedPreview(root,options,previews,lock.stateRoot);if(interrupted){
+  if(flags.continuation||flags.researchTokens!==undefined){
+   const interrupted=await interruptedApplyId(root,lock.stateRoot);
+   if(interrupted){
+    const message='Finish or reconcile interrupted installation '+interrupted+' with its original approval before continuing research';
+    emit({...active,status:'waiting',requiresUserAction:true,waiting:'interrupted installation',next:'reconcile the approved apply'});
+    services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId:interrupted,pending:[message]});
+    write(message+'\n');return 3;
+   }
+  }else if(flags.resume){const interrupted=await restoreInterruptedPreview(root,options,previews,lock.stateRoot);if(interrupted){
    const restored=(await loadPreview(interrupted,previews)).preview;
    if(flags.deferResearch&&restored.projectRules!=='pending')throw Error('Interrupted preview belongs to full setup; resume without --defer-research');
    if(restored.projectRules==='pending'||(await loadManifest(root))?.projectRules==='pending')review=true;
@@ -74,6 +85,14 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(flags.deferResearch&&old)throw Error('Deferred research is available for initial setup only');
   if(old?.projectRules==='pending')review=true;
   const prepared=await prepareGeneration(profile,options);
+  const recovery=prepared.integration.requirements.find(requirement=>requirement.nextCommand);
+  const nativeSetup=recovery?.nextCommand?{nativeSetupCommand:recovery.nextCommand,nativeRequirements:prepared.integration.requirements}:{};
+  if(needsResearch&&!services.backend&&options.backend!=='host'&&recovery){
+   emit({...active,status:'waiting',requiresUserAction:true,waiting:'native workflow setup',next:recovery.nextCommand});
+   services.report?.({phase:'preflight',installStatus:'pending',pending:prepared.integration.requirements,nextCommand:recovery.nextCommand});
+   write('Blocked: '+recovery.reason+'\nInitialize the native workflow, then repeat the Rigup command:\n'+recovery.nextCommand+'\n');return 3;
+  }
+  if(needsResearch&&options.backend==='host'&&recovery)write('Native workflow must be initialized before apply:\n'+recovery.nextCommand+'\n');
   let plan:SetupPlan;
   if(flags.deferResearch){
    emit({stage:'generation',completed:0,task:'assemble project workflow',next:'preview'});
@@ -92,6 +111,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
      {versions:{prompt:'7',template:'2',document:'1',read:'6'},label:'single-document evidence contract',build:'the previous Rigup build'},
      {versions:{prompt:'8',template:'2',document:'1',read:'6'},label:'previous topic evidence contract',build:'the previous Rigup build'},
      {versions:{prompt:'9',template:'2',document:'1',read:'6'},label:'previous evidence and template contract',build:'the previous Rigup build'},
+     {versions:{prompt:'10',template:'3',document:'1',read:'6'},label:'v0.2.0 evidence and template contract',build:'v0.2.0'},
     ];
     const priorFingerprint=options.sdd==='openspec'?(await scanRepository(root,options,{legacyOpenSpecDiscovery:true})).fingerprint:input.fingerprint;
     const candidates=priorFingerprint===input.fingerprint?[input]:[input,{...input,fingerprint:priorFingerprint}];
@@ -104,7 +124,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    }
    if(!run)run={root,options,effectiveModel,mode:{dryRun:flags.dryRun,yes:!review&&flags.yes,review,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent};
    if(signature(run.options)!==signature(options))throw Error('durable research options changed; reconciliation required');
-   await saveDurable(runPath,JSON.stringify(run));let responseConsumed=false;
+   if(flags.researchTokens!==undefined)run.researchTokens=flags.researchTokens;
+   await saveDurable(runPath,JSON.stringify(run));researchResumeId=consent;let responseConsumed=false;
    const continuation=(requestPath:string)=>'rigup update '+quote(root)+' --continue '+consent+' --response '+quote(requestPath.replace(/(?:\.request)?\.json$/,'.response.json'));
    run.readSpent??={calls:0,bytes:0};const reader=await repositoryReader(root,options,{budget:run.readSpent,persist:()=>saveDurable(runPath,JSON.stringify(run)),expectedFingerprint:profile.fingerprint});
    const durableNative=!services.backend&&options.backend==='native';let activeNativeBase=run.spent;
@@ -118,7 +139,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
      if(accepted){await hostBackend({cacheRoot:requests,responsePath:flags.response}).run(original.context,reader);responseConsumed=true;}
     }
     const result=await hostBackend({cacheRoot:requests,requestPath:responseConsumed?undefined:flags.request,responsePath:responseConsumed?undefined:flags.response}).run(request,reader);if(result.status==='complete'&&flags.response)responseConsumed=true;return result;
-   }}:options.backend==='codex'?codexBackend({cacheRoot:join(base,'codex'),stateRoot:join(lock.stateRoot,'codex'),nativeEntryPaths:prepared.integration.bindings.flatMap(binding=>binding.projectSources??[]),signal:services.signal,onUsage:async usage=>{run.spent=usage;await saveDurable(runPath,JSON.stringify(run));}}):nativeBackend({apiKey:services.credentials?.apiKey??process.env[options.model?.apiKeyEnv??'ANTHROPIC_API_KEY'],model:options.model?.model??services.credentials?.model??process.env.ANTHROPIC_MODEL,signal:services.signal,onUsage:async usage=>{run.spent={calls:activeNativeBase.calls+usage.calls,tokens:activeNativeBase.tokens==='unknown'||usage.tokens==='unknown'?'unknown':activeNativeBase.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));}}));
+   }}:options.backend==='codex'?codexBackend({cacheRoot:join(base,'codex'),stateRoot:join(lock.stateRoot,'codex'),nativeEntryPaths:prepared.integration.bindings.flatMap(binding=>binding.projectSources??[]),signal:services.signal,tokenLimit:run.researchTokens,onDispatch:stage=>emit({...active,task:stage==='analyze'?'project evidence analysis':active.task,waiting:'Codex model response',next:'validate '+stage+' result'}),onUsage:async usage=>{run.spent=usage;await saveDurable(runPath,JSON.stringify(run));}}):nativeBackend({apiKey:services.credentials?.apiKey??process.env[options.model?.apiKeyEnv??'ANTHROPIC_API_KEY'],model:options.model?.model??services.credentials?.model??process.env.ANTHROPIC_MODEL,signal:services.signal,onUsage:async usage=>{run.spent={calls:activeNativeBase.calls+usage.calls,tokens:activeNativeBase.tokens==='unknown'||usage.tokens==='unknown'?'unknown':activeNativeBase.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));}}));
    const addUsage=async(usage:{calls:number|'unknown';tokens:number|'unknown'})=>{run.spent={calls:run.spent.calls+(typeof usage.calls==='number'?usage.calls:1),tokens:run.spent.tokens==='unknown'||usage.tokens==='unknown'?'unknown':run.spent.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));};
    const backend:AnalysisBackend=options.backend==='native'||options.backend==='codex'&&!!services.backend?{artifactContextVersion:rawBackend.artifactContextVersion,topicEvidence:rawBackend.topicEvidence,run:async(request,source)=>{
     if(run.spent.calls>=budget.maxCalls||run.spent.tokens==='unknown'||run.spent.tokens>=budget.maxTokens)throw new ResearchFailure('restored research budget exhausted or unknown');
@@ -132,14 +153,15 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    let newResearch=false;
    if(options.sdd&&!run.research){
     newResearch=true;write('Research: reading bounded project evidence\n');
+    if(options.backend!=='codex'||services.backend)emit({...active,task:'project evidence analysis',waiting:options.backend==='host'?'host research exchange':'provider response or evidence requests',next:'validate analysis result'});
     const result=await backend.run({kind:'analyze',runId:run.runId,root,fingerprint:profile.fingerprint,options,effectiveModel,versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},budget,previousInventoryDigest:inventorySignature(previousAssets),templateSourcesDigest:signature(prepared.integration.assets)},reader);
-    if(result.status==='pending-host'){emit({stage:'research',completed:0,status:'waiting',requiresUserAction:true,waiting:'host response',next:continuation(result.requestPath)});services.report?.({phase:'research',installStatus:'pending',pending:[result.requestId],requestPath:result.requestPath,nextCommand:continuation(result.requestPath)});write('Pending host research: '+result.requestPath+'\nResume: '+continuation(result.requestPath)+'\n');return 3;}
+    if(result.status==='pending-host'){emit({stage:'research',completed:0,status:'waiting',requiresUserAction:true,waiting:'host response',next:continuation(result.requestPath)});services.report?.({phase:'research',installStatus:'pending',pending:[result.requestId],requestPath:result.requestPath,nextCommand:continuation(result.requestPath),...nativeSetup});write('Pending host research: '+result.requestPath+'\nResume: '+continuation(result.requestPath)+'\n');return 3;}
     run.research=result.value;await saveCache(analysisPath,JSON.stringify(result.value));if(options.backend==='host')run.spent={calls:typeof result.value.usage.calls==='number'?result.value.usage.calls:1,tokens:result.value.usage.tokens};await saveDurable(runPath,JSON.stringify(run));
    }
    if(options.sdd)emit({stage:'research',completed:1,total:1,status:newResearch?'complete':'reused',next:'generation'});
    profile.research=run.research;emit({stage:'generation',completed:0,task:'artifact planning and fixed assets',next:'preview',waiting:options.backend==='codex'?'local Codex research':options.backend==='native'?'provider research':'local preparation / host response'});write('Generate: assembling selected capabilities\n');
    const generated=await generate(profile,options,backend,previousAssets,{cacheRoot:cache,runId:run.runId,spent:run.spent,onProgress:emit,reader,effectiveModel,prepared});
-   if(generated.status==='pending-host'){emit({...active,status:'waiting',requiresUserAction:true,waiting:'host response',next:continuation(generated.requestPath)});services.report?.({phase:'generation',installStatus:'pending',pending:[generated.requestId],requestPath:generated.requestPath,nextCommand:continuation(generated.requestPath)});write('Pending host generation: '+generated.requestPath+'\nResume: '+continuation(generated.requestPath)+'\n');return 3;}
+   if(generated.status==='pending-host'){emit({...active,status:'waiting',requiresUserAction:true,waiting:'host response',next:continuation(generated.requestPath)});services.report?.({phase:'generation',installStatus:'pending',pending:[generated.requestId],requestPath:generated.requestPath,nextCommand:continuation(generated.requestPath),...nativeSetup});write('Pending host generation: '+generated.requestPath+'\nResume: '+continuation(generated.requestPath)+'\n');return 3;}
    plan=generated.value;
   }
   const oldConfiguration=old?.assets.find(a=>a.logicalId==='rigup:configuration');
@@ -151,9 +173,10 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,next:'apply or explicit review',waiting:'ownership and virtual-tree checks'});
   plan.runChecks=flags.runChecks??[];
   const result=await preview(plan,resolutions,{cacheRoot:previews});
-  services.report?.({phase:'preview',installStatus:'not-installed',...result,pending:plan.requirements,conflicts:result.items.filter(i=>i.action==='conflict')});
+  services.report?.({phase:'preview',installStatus:'not-installed',...result,pending:plan.requirements,conflicts:result.items.filter(i=>i.action==='conflict'),...(recovery?.nextCommand?{nextCommand:recovery.nextCommand}:{})});
   write('Preview '+result.previewId+'\n');for(const item of result.items){write(item.action+' '+item.target+'\n');if(item.beforeMode!==item.afterMode){const format=(value:number|undefined)=>value===undefined?'absent':value.toString(8).padStart(4,'0');write('mode '+format(item.beforeMode)+' -> '+format(item.afterMode)+'\n');}if(item.before!==undefined)write('--- owned before (filtered, max 4000 chars)\n'+item.before+'\n');if(item.after!==undefined)write('+++ owned after (filtered, max 4000 chars)\n'+item.after+'\n');}for(const operation of result.operations)write('operation '+operation.id+' '+operation.version+' scope '+operation.declaredWrites.join(', ')+'\n');
   for(const blocker of result.blockers)write('Blocked: '+blocker+'\n');
+  for(const requirement of plan.requirements)if(requirement.nextCommand)write('Initialize the native workflow, then repeat the Rigup command:\n'+requirement.nextCommand+'\n');
   emit({stage:'preview',completed:result.items.length,total:result.items.length,status:result.executable?'complete':result.items.some(i=>i.action==='conflict')?'failed':'waiting',requiresUserAction:!result.executable,next:flags.dryRun?'dry-run preview finished; not installed':'apply'});
   if(!result.executable)return result.items.some(i=>i.action==='conflict')||!plan.requirements.length?1:3;
   if(flags.dryRun)return 0;
@@ -163,7 +186,15 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   for(const warning of installed.warnings)write('Pending/note: '+warning+'\n');
   if(installed.nextCommand)write('Project rules pending. Continue with '+installed.nextCommand+'\n');
   write('Install '+installed.status+'; written '+installed.written.length+'; checks '+installed.checks.map(c=>c.name+':'+c.status).join(', ')+'\n');return installed.exitCode;
- }catch(error){emit({...active,status:services.signal?.aborted?'waiting':'failed',requiresUserAction:!!services.signal?.aborted,waiting:services.signal?.aborted?'cancelled; writer exit reconciliation':'failure; inspect final report',next:'re-prepare with current inputs'});throw error;}finally{clearInterval(heartbeat);await lock.release();}
+ }catch(error){
+  if(error instanceof CodexTokenLimit&&researchResumeId){
+   const suggestedLimit=Math.max(budget.maxTokens,error.suggestedLimit);
+   const nextCommand='rigup update '+quote(root)+' --continue '+researchResumeId+' --research-tokens '+suggestedLimit;
+   emit({...active,status:'waiting',requiresUserAction:true,waiting:'research budget approval',next:nextCommand});
+   services.report?.({phase:active.stage,installStatus:'pending',error:error.message,reason:'research-token-budget',researchBudget:{spentTokens:error.spent,limit:error.limit,estimatedNextTokens:error.estimatedNext,suggestedLimit},nextCommand});
+   write(error.message+'\nReview the suggested cumulative limit and continue this same run:\n'+nextCommand+'\n');return 3;
+  }
+  emit({...active,status:services.signal?.aborted?'waiting':'failed',requiresUserAction:!!services.signal?.aborted,waiting:services.signal?.aborted?'cancelled; writer exit reconciliation':'failure; inspect final report',next:'re-prepare with current inputs'});throw error;}finally{clearInterval(heartbeat);await lock.release();}
 }
 
 export async function loadContinuation(root:string,id:string,services:LifecycleServices={}):Promise<{options:SetupOptions;flags:LifecycleFlags}>{

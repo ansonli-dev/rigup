@@ -15,7 +15,7 @@ rigup doctor
 
 省略路径时使用当前目录。交互终端保留已给的选项并补问缺少的设置，按 `b` 返回。`update --configure` 重新打开设置引导。`--json` 使用非交互模式，stdout 输出一个最终 JSON 对象，进度走 stderr。
 
-`--dry-run` 保存私有候选和预览。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。选用 Superpowers、OpenSpec 或 Spec Kit 前，按对应框架准备官方入口。入口或依赖缺失会报告待办。[验证范围](../compatibility/status.md) · [上游版本与入口](../compatibility/upstream-lock.json)
+`--dry-run` 保存私有候选和预览。选中研发流程时，生成完整规则的 dry-run 仍会请求模型。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。选用 Superpowers、OpenSpec 或 Spec Kit 前，按对应框架准备官方入口。缺少可识别的 OpenSpec 入口时，报告会给出在目标目录初始化所选宿主的命令。初始化后再运行 Rigup。[验证范围](../compatibility/status.md) · [上游版本与入口](../compatibility/upstream-lock.json)
 
 ## 项目配置
 
@@ -30,7 +30,7 @@ executionPolicy:
   mode: review
 researchBudget:
   maxCalls: 60
-  maxTokens: 100000
+  maxTokens: 1200000
 mcp:
   - id: customer-knowledge
     agents: [codex]
@@ -47,7 +47,7 @@ mcp:
 
 ## 先安装工作流，再生成规则
 
-已有原生研发流程入口时，可以先安装选定的技能、工具配置和现有检查。使用正常的预览和独立应用流程。应用结果和 doctor 会显示项目规则待生成。
+首次交互选择研发流程时，按 Enter 默认先安装工作流、稍后生成规则。也可以选择同时准备两部分。基础安装使用同样的预览和独立应用流程。应用结果和 doctor 会显示项目规则待生成。
 
 ```sh
 rigup init --defer-research --review
@@ -63,6 +63,7 @@ rigup update --apply RULES_PREVIEW_ID --sessions-ended
 - `--language` 和 `documentLanguage` 接受 `auto` 或语言标签，例如 `zh-CN`、`en`、`ja`。默认 `auto` 参照适用的项目指引。此设置用于新生成的项目规范和语义文档。已有文档保留原文，原生流程入口保留其名称和模板。
 - 从 `docs/rigup/development-rules.md` 按变更路径查找适用主题，再阅读 `development-rules/<topic>.md` 或原有指引。主题页写明规则、例外和验证方法，源码证据保存在私有运行记录。可通过 `projectConventions.documentRoutes.context` 指定输出目录。
 - 使用 `change-prepare` 将需求、适用规则和检查写入所选 SDD 的提案与任务。审批后使用 `change-deliver` 实现并验证。两者共享项目指引，按变更范围复用已有的测试、CI 和 hooks。
+- 两个技能的项目参考会列出已识别的专用检查及工作目录。遇到已识别的 Yarn、PM2、Playwright 或 PostgreSQL 检查，会显示准备条件和适用的终端命令。带测试库保护的 Jest 检查会复用已有的串行选项，或在命令未指定并发方式时加上 `--runInBand`。若沙箱无法运行检查，在有权限的终端核对环境后执行交接命令，将退出状态和脱敏测试摘要带回原交付任务。
 
 ## 研究后端与预算
 
@@ -74,7 +75,9 @@ rigup update --apply RULES_PREVIEW_ID --sessions-ended
 rigup init --agents codex --sdd openspec --backend host --review --json
 ```
 
-Codex 在请求前登记尝试，在响应后按实际用量核验预算，单次调用可能先超额再被拒绝。Native 将 token 预检和模型请求都计入请求数。Host 的实际用量由执行方另行对账。复用已验证结果可以节省调用，未知消费须先对账再重试。
+Codex 默认最多 60 次请求、累计 120 万 token。发出请求前，Rigup 用已准备的上下文估算下一次所需额度。收到响应后，仍按 Codex 报告的实际总用量（含缓存输入）核验。单次调用可能超出估算。额度不足时报告已用量、上限、估算和建议的累计额度。确认额度后执行报告中的 `--continue … --research-tokens N`，续用原有请求和用量记录。重试同一运行时沿用已指定的额度，明确提供新额度时才调整。未知消费须先对账再重试。
+
+Native 和 Host 默认 10 万 token。Native 将 token 预检和模型请求都计入请求数，Host 的实际用量由执行方另行对账。
 
 ## 应用与恢复
 
@@ -89,6 +92,8 @@ rigup update --resume --review --json
 Rigup 比较上次生成的基线、本地文件和新候选。非重叠改动可合并，冲突保留本地内容，等待用户处理后重新预览。混合配置按拥有的键、表或标记块更新，完整文件也核对权限位。需要显式退役时使用 `--retire logicalId,...`。
 
 中断后保留项目 `.rigup/` 和私有状态 `~/.local/state/rigup/`。普通候选与请求位于 `~/.cache/rigup/`。先核实 controller 和原生写入进程已退出，再在原项目路径用原配置执行 `--resume`。续跑可从持久记录恢复已批准的预览。输入或权限前置变化时先对账，再生成新预览。对未确认的副作用保留记录，等待身份和结果核实。
+
+升级前用生成预览的 Rigup 版本完成或核对中断的安装。研究续跑遇到中断安装时，会给出待处理的预览 ID。用该安装原有的审批完成恢复后，再继续研究。
 
 Git 项目应用集成后，`.rigup/.gitignore` 会排除本机安装回执、基线、软件和原生工具状态。项目配置和共享检查脚本仍可跟踪。
 

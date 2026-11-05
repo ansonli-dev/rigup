@@ -2,10 +2,11 @@ import type {SetupOptions} from './types.js';
 import {normalizeDocumentLanguage} from './config.js';
 import {promptChoice} from './prompt.js';
 export interface OnboardingIO {write(text:string):void;read(secret?:boolean):Promise<string|null>}
-export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{configure:boolean;knownBackend:boolean;deferResearch?:boolean;apiKeyEnv?:string;languageProvided?:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools'|'model',boolean>>;credentials?:{apiKey?:string;model?:string}}):Promise<{options:SetupOptions;credentials:{apiKey?:string;model?:string}}|null>{
+export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{configure:boolean;knownBackend:boolean;deferResearch?:boolean;offerSetupScope?:boolean;apiKeyEnv?:string;languageProvided?:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools'|'model',boolean>>;credentials?:{apiKey?:string;model?:string}}):Promise<{options:SetupOptions;credentials:{apiKey?:string;model?:string};deferResearch:boolean}|null>{
  const options=structuredClone(initial);let credentials={...settings.credentials};let stage=!options.agents.length||settings.configure||!settings.knownBackend||settings.provided?0:4;
  const provided=settings.configure?{}:{...settings.provided};let knownBackend=settings.knownBackend;
- const goBack=(previous:number)=>{stage=previous;for(const key of (['agents','sdd','tools','model'] as const).filter((_,i)=>i>=previous))delete provided[key];if(previous<=3)knownBackend=false;};
+ let deferResearch=!!settings.deferResearch,scopeChosen=false;
+ const goBack=(previous:number)=>{stage=previous;for(const key of (['agents','sdd','tools','model'] as const).filter((_,i)=>i>=previous))delete provided[key];if(previous<=3){knownBackend=false;scopeChosen=false;}};
  const list=async(title:string,choices:string[],defaults:string[]=[])=>{io.write(title+(defaults.length?' [Enter: '+defaults.join(', ')+']':'')+'; b 返回，Esc/EOF 取消\n');return promptChoice(io,choices,false,defaults);};
  while(stage<6){
   if(stage===0){if(provided.agents){stage++;continue;}const answer=await list('目标 agents（可多选）',['claude','codex','opencode','omp'],options.agents);if(answer===null)return null;if(answer==='back')return null;if(!Array.isArray(answer)||!answer.length)continue;
@@ -29,12 +30,19 @@ export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{con
    catch(error){io.write((error as Error).message+'\n');continue;}
    break;
   }
-  if(settings.deferResearch||!options.sdd||options.backend!=='native'){stage++;continue;}
+  if(settings.offerSetupScope&&options.sdd&&!scopeChosen){
+   const choices=['先安装工作流，稍后生成规则（本阶段不调用模型）','同时准备工作流和项目规则'];
+   const answer=await list('首次设置范围',choices,[choices[0]]);
+   if(answer===null)return null;if(answer==='back'){goBack(3);continue;}
+   if(!Array.isArray(answer)||answer.length!==1)continue;
+   deferResearch=answer[0]===choices[0];scopeChosen=true;
+  }
+  if(deferResearch||!options.sdd||options.backend!=='native'){stage++;continue;}
   let model=options.model?.model??credentials.model??process.env.ANTHROPIC_MODEL;
   if(!model){io.write('Anthropic model ID（非密钥；b 返回）\n');const value=await io.read();if(value===null||value==='\x1b')return null;if(value==='b'||value==='back'){goBack(3);continue;}if(!value.trim())continue;model=value.trim();}
   const apiKeyEnv=settings.apiKeyEnv??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';options.model={provider:'anthropic',model,apiKeyEnv};
   if(!credentials.apiKey&&!process.env[apiKeyEnv]){io.write('缺少 '+apiKeyEnv+'；输入隐藏密钥仅供本轮使用，不保存值（Esc/EOF 取消）\n');const secret=await io.read(true);if(secret===null||secret==='\x1b')return null;if(!secret)continue;credentials.apiKey=secret;}
   credentials.model=model;stage++;
  }
- return {options,credentials};
+ return {options,credentials,deferResearch:!!options.sdd&&deferResearch};
 }

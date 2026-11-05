@@ -47,7 +47,9 @@ cd /path/to/project
 rigup init
 ```
 
-The guide asks for missing choices, including the language of generated project documents. Pass `--language zh-CN` to choose Simplified Chinese, or use the default `auto` to follow the project's guidance. Local Codex uses your existing login for semantic research. This non-interactive preview makes zero model calls.
+The guide asks for missing choices, including the language of generated project documents. With a development workflow selected, the default first-run option installs the base workflow without model calls. Use `rigup update --review` to prepare project rules later with your existing Codex login. Pass `--language zh-CN` to choose Simplified Chinese, or use the default `auto` to follow the project's guidance.
+
+This non-interactive command previews a minimal setup without model calls.
 
 ```sh
 rigup init --agents codex --sdd none --tools none --dry-run --json

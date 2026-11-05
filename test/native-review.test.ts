@@ -15,10 +15,14 @@ async function fixture(fn:(root:string,cache:string,state:string,control:string)
 async function activeCodex(root:string,fn:()=>Promise<void>){const cwd=process.cwd(),prior=process.env.CODEX_THREAD_ID;process.chdir(root);process.env.CODEX_THREAD_ID='review-active-codex';try{await fn();}finally{process.chdir(cwd);if(prior===undefined)delete process.env.CODEX_THREAD_ID;else process.env.CODEX_THREAD_ID=prior;}}
 
 test('public lifecycle preserves unresolved Codex identity when ordinary cache is lost',()=>fixture(async(root,cache,state,control)=>{
+ for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
+  const dir=root+'/.agents/skills/'+name;await mkdir(dir,{recursive:true});
+  await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\n');
+ }
  await writeFile(root+'/source.js','export const source = 1;\n');await mkdir(control+'/bin');
  await writeFile(control+'/bin/codex','#!'+process.execPath+'\n'+`const fs=require('fs');if(process.argv.includes('--version')){console.log('codex-cli 0.166.0');process.exit(0);}process.stdin.resume();process.stdin.on('end',()=>{fs.appendFileSync(${JSON.stringify(control+'/calls')},'called\\n');setTimeout(()=>process.exit(1),30);});`,{mode:0o755});
  const old=process.env.PATH;process.env.PATH=control+'/bin:'+old;
- const options:SetupOptions={agents:['codex'],backend:'codex',sdd:'openspec',researchBudget:{maxCalls:1,maxTokens:1000}};
+ const options:SetupOptions={agents:['codex'],backend:'codex',sdd:'openspec',researchBudget:{maxCalls:1,maxTokens:10000}};
  try{
   await assert.rejects(()=>executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state}));
   const initial=await readFile(control+'/calls','utf8');assert.equal(initial,'called\n');
