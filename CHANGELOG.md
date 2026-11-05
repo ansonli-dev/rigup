@@ -1,27 +1,11 @@
 # Changelog
 
-Release downloads and notes are available through [GitHub Releases](https://github.com/ansonli-dev/rigup/releases).
+## 0.1.0 · 2026-11-05 · Development preview
 
-## 0.1.0 development preview
+- Ship portable `rigup` commands for macOS and Linux on ARM64 and x64, with an installer, SHA-256 checksums, and a compiled npm tarball.
+- Guide missing choices in project-root `rigup init`. Bind the selected host and SDD to their native entry points.
+- Use local Codex by default. Filter sensitive files, send evidence scoped to each generation stage, and retain usage across retries.
+- Preview and apply protected updates with three-way comparison, ownership tracking, and interrupted-operation recovery.
+- Install standalone skills, MCP runners, hooks, and CI checks. Initialize CodeGraph through protected staging and hand off OpenWiki generation to a separate session.
 
-- Package the `rigup` executable with pinned Node.js and locked production dependencies for macOS and Linux on ARM64 and x64. Publish versioned downloads, SHA-256 checksums, and a user-local installer through GitHub Releases.
-
-- Make project-root `rigup init` the primary usage, preserve explicit choices while guiding missing first-run options, and allow back navigation to revisit supplied choices. Verify the installed command through PATH.
-
-- Add the external validation handoff for Claude on another machine and separate native Windows/WSL2 verification, including commands, acceptance checks, budgets and recovery.
-
-- Fix shell quoting in review handoff commands and sensitive configuration comments, browser sessions, credential backups and private-key material in research evidence; invalidate old exports under read policy 6.
-- Reject recognized cookie/header/query credentials and curl short authentication flags while preserving Python interpreter options.
-- Stop test-owned native daemons through verified project identity before fixture removal.
-- Fix repeated binary skill updates, mode-only resource installation, permission-aware preview/recovery/doctor checks, and absolute profile paths.
-- Fix empty standalone GitLab pipelines; verify generated jobs with a real local GitLab server and Runner, alongside clean macOS/Linux distribution checks.
-
-- Add project analysis, evidence-backed artifact generation, and staged Codex research with cumulative budget and provenance records.
-- Add configuration adapters for Claude Code, Codex, OpenCode, and Oh My Pi, and native Superpowers, OpenSpec, and Spec Kit entry-point binding. Live compatibility remains scenario-specific.
-- Add protected three-way updates, concrete previews, independent apply, ownership tracking, and interrupted operation recovery.
-- Add standalone skills, MCP runners, Git hooks, GitLab snapshot checks, and custom skill/template integration.
-- Add pinned tool installation, protected CodeGraph initialization/recovery, and a separate OpenWiki initialization handoff.
-- Validate real DDD and frontend projects, including a complete Bulletproof React semantic workflow within its original budget; preserve failures and tested-source attribution.
-- Add bilingual entry points, contributor/security guidance, MIT licensing, package-consumer validation, and credential-free CI.
-
-Exact scope and outstanding environment prerequisites are recorded in [validation status](docs/compatibility/status.md).
+[Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.1.0) · [Validation scope](docs/compatibility/status.md)

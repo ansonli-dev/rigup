@@ -1,11 +1,7 @@
 # Third-party software
 
-Rigup's source is licensed under the [MIT License](LICENSE). Dependencies retain their own licenses and notices; installing Rigup does not relicense them.
+Rigup and its native launcher use the [MIT License](LICENSE). Dependencies keep their upstream licenses. See the [npm dependency lock](https://github.com/ansonli-dev/rigup/blob/main/package-lock.json).
 
-The runtime dependencies are `@anthropic-ai/sdk`, `jsonc-parser`, `node-diff3`, `smol-toml`, and `yaml`. The exact dependency tree is recorded in [package-lock.json](https://github.com/ansonli-dev/rigup/blob/main/package-lock.json); each installed package includes its upstream license. The npm tarball keeps them as dependencies. Portable GitHub Release archives include their unmodified production packages and upstream license files in `lib/app/node_modules`, rather than bundling them into Rigup's JavaScript.
+Portable archives carry the official Node.js and npm distribution with their notices in `lib/node/LICENSE` and the npm package tree. Production dependencies and their license files are under `lib/app/node_modules`.
 
-Superpowers, OpenSpec, Spec Kit, OpenWiki, CodeGraph, and the supported coding-agent clients are independent upstream projects. Rigup integrates their native interfaces; it does not redistribute their implementations as its own. Optional tool installation fetches the pinned upstream packages listed in [upstream-lock.json](docs/compatibility/upstream-lock.json), including their licenses. Review those projects' terms before using the integrations.
-
-Public E2E records reference [domain-driven-hexagon](https://github.com/Sairyss/domain-driven-hexagon) and [Bulletproof React](https://github.com/alan2207/bulletproof-react). Their source remains in disposable external checkouts and is not included in the Rigup package.
-
-Portable releases also include the official Node.js 24 runtime and npm distribution. Their complete license and third-party notices are retained in `lib/node/LICENSE` and in the included npm package tree. The native launcher is part of Rigup under MIT; operating-system libraries are not distributed by Rigup.
+Optional tools and native coding-agent integrations use their upstream distributions. Exact versions, sources, and package integrity are recorded in the [upstream lock](docs/compatibility/upstream-lock.json).

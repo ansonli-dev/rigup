@@ -1,25 +1,19 @@
 # Install Rigup
 
-Download a portable archive, installer, or compiled npm tarball from [GitHub Releases](https://github.com/ansonli-dev/rigup/releases). The versioned installer verifies the archive checksum before extraction and places `rigup` in `~/.local/bin` by default. It needs your user's write access and leaves your shell profiles alone.
+Use the [v0.1.0 release](https://github.com/ansonli-dev/rigup/releases/tag/v0.1.0) on macOS or Linux (ARM64 or x64). The portable archive includes Node.js. Keep Git and standard POSIX tools, including `ps`, on PATH. Linux needs glibc 2.35 or later. macOS launchers are ad-hoc signed. Windows users can run the Linux build inside WSL2. See the [platform checks](../compatibility/status.md) and [Windows handoff](external-validation-handoff.md).
 
 ```sh
-curl -fL --proto '=https' -o rigup-install.sh https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/install.sh
-sh rigup-install.sh
+curl -fL --proto '=https' -o rigup-install.sh https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/install.sh &&
+  sh rigup-install.sh
 export PATH="$HOME/.local/bin:$PATH"
-cd /path/to/project
-rigup init
+rigup --version
 ```
+
+The installer checks the archive checksum and links `rigup` into `~/.local/bin`. Then run `rigup init` from the project directory. Semantic research requires a configured backend. Installed MCP runners, hooks, and CI scripts use Node on the consuming environment's PATH. Supply Node.js 24 or add the retained bundle's `lib/node/bin` to that environment. See the [usage reference](usage.md).
 
 ## Manual download
 
-Choose the asset for your OS and architecture. On macOS `uname -m` returns `arm64` or `x86_64`. On Linux it returns `aarch64` or `x86_64`.
-
-- Apple Silicon uses `rigup-0.1.0-darwin-arm64.tar.gz`.
-- Intel Mac uses `rigup-0.1.0-darwin-x64.tar.gz`.
-- Linux ARM64 uses `rigup-0.1.0-linux-arm64.tar.gz`.
-- Linux x64 uses `rigup-0.1.0-linux-x64.tar.gz`.
-
-Save the archive and `SHA256SUMS` from the same release into one directory. In that directory, verify the chosen archive, extract it and add its directory to PATH. Adjust the filename and directory for your target.
+Choose `rigup-0.1.0-<target>.tar.gz` and `SHA256SUMS` from the same release. Use `darwin-arm64` for Apple Silicon, `darwin-x64` for Intel Mac, and `linux-arm64` or `linux-x64` for Linux. Check `uname -m` if unsure.
 
 ```sh
 archive=rigup-0.1.0-darwin-arm64.tar.gz
@@ -30,32 +24,20 @@ awk -v name="$archive" '$2 == name {print; found++} END {if (found != 1) exit 1}
   rigup --version
 ```
 
-Linux users can substitute `sha256sum -c` for `shasum -a 256 -c`. The checksum detects corruption and confirms the bytes against the release's published manifest. Verify the download source is the Rigup repository. Keep the entire directory together, including `lib`, `BUILD_INFO.json`, and the license files. If you prefer a single command in `~/.local/bin`, symlink to the extracted `rigup` executable using its absolute path.
-
-## Runtime and platforms
-
-- The portable CLI includes Node.js and locked production dependencies. It needs Git and POSIX utilities, including `ps` (provided by `procps` on minimal Debian/Ubuntu images). The installer also uses curl, tar, and `shasum` or `sha256sum`. Linux builds target glibc 2.35 and newer. The release matrix checks Ubuntu 22.04 and macOS 15. The macOS launcher is ad-hoc signed. Developer ID signing and notarization require separate credentials.
-- On Windows, use the matching Linux package inside a glibc-based WSL2 distribution. WSL2 has its own validation checklist. Native Windows has no executable in this release. See the [Windows handoff](external-validation-handoff.md).
-- Installed MCP runners, hooks, and CI scripts use the consuming process's Node on PATH. Provide Node.js 24+ in the agent or CI environment. A portable installation can supply it by adding its `lib/node/bin` directory to that environment, for example `export PATH="$HOME/.local/share/rigup/versions/v0.1.0/lib/node/bin:$PATH"`. Projects can also use their own compatible Node independently. Semantic research still requires a configured backend. See the [usage reference](usage.md).
-- License and provenance information accompanies each archive in `LICENSE`, `THIRD_PARTY_NOTICES.md`, `BUILD_INFO.json`, `lib/node/LICENSE`, and the production dependencies' own files. See the [distribution notices](../../THIRD_PARTY_NOTICES.md).
+On Linux, `sha256sum -c` also works. Keep the complete extracted directory with `lib`, `BUILD_INFO.json`, and its licenses. [Third-party notices](../../THIRD_PARTY_NOTICES.md)
 
 ## Upgrade, roll back, or remove
 
-Run the installer from the desired release to select that version. Set `RIGUP_INSTALL_DIR` and `RIGUP_BIN_DIR` to absolute paths to use a custom location. Use the same directories for upgrades and rollbacks. The installer keeps each version under `~/.local/share/rigup/versions/` and switches the managed `rigup` symlink only after verification. Re-running an older release's installer selects that version again. Check `rigup --version` after switching.
+Run the installer for the desired release. It switches the managed link and keeps other versions under `~/.local/share/rigup/versions/`. Use the same absolute `RIGUP_INSTALL_DIR` and `RIGUP_BIN_DIR` when switching versions in a custom location.
 
-If an installation stops, inspect `~/.local/share/rigup/.install-lock/owner` for its PID and recorded start time and compare them with `ps -p PID -o lstart=`. An active installer owns that lock. After confirming the owner has exited, remove the stale `owner` file and empty lock directory and retry. An occupied `rigup` path or a modified version directory needs inspection. Use an alternate `RIGUP_BIN_DIR` for an unrelated command, or recover the modified version before retrying.
+If installation stops at an occupied lock, compare the PID and start time in `.install-lock/owner` with `LC_ALL=C ps -p PID -o lstart=`. Remove the owner file and empty lock directory only after verifying that installer exited. An unrelated `rigup` command can use a separate bin directory. Inspect modified version directories before retrying.
 
-Pending native operations can refer to the version that created them. Before moving or removing a version, reconcile those operations using its original `rigup` executable. Follow the [protected recovery steps](usage.md) for affected projects. To uninstall the CLI, check `readlink "$HOME/.local/bin/rigup"` and remove the symlink if it points to your Rigup version directory. Remove specific version directories when their operations and runtime consumers are finished. Keep project configuration, manifests, and recovery records for continued use of installed assets.
+Before removing a version, resolve pending operations with the original executable and check that installed tools can still find Node. For the default install, inspect `readlink "$HOME/.local/bin/rigup"` and remove the link if it points to your Rigup installation. Remove unused version directories separately. Keep project manifests and recovery state. [Project recovery](usage.md#应用与恢复)
 
 ## Install with Node or build from source
 
-With Node.js 24+ and npm, install the compiled tarball directly from the public release.
-
 ```sh
 npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0.tgz
-rigup --version
 ```
 
-This route uses your Node runtime and resolves dependencies from the npm registry. Release downloads are anonymous. The GitHub Packages npm registry uses authentication. Rigup's public distribution uses Releases for both archive formats. See the [GitHub npm registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry).
-
-For development, use `npm ci`, `npm run build`, and `npm link` inside a source checkout. Keep the checkout and rebuild after changing source. See the [development guide](development.md).
+The compiled tarball uses your Node.js 24+ runtime and resolves dependencies from npm. Developers can also run `npm ci`, `npm run build`, and `npm link` from a source checkout. Keep the linked checkout available. [Development guide](development.md)
