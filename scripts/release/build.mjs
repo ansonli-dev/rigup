@@ -105,6 +105,7 @@ export async function buildRelease({outDir = resolve('release-out'), target = cu
   await mkdir(outDir, {recursive: true});
   const stem = 'rigup-' + pkg.version + '-' + target,
     asset = join(outDir, stem + '.tar.gz');
+  const npmAssetName = 'rigup-' + pkg.version + '.tgz';
   await absent(asset);
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'rigup-release-build-')));
   try {
@@ -161,7 +162,7 @@ export async function buildRelease({outDir = resolve('release-out'), target = cu
       target,
       source: {commit, dirty},
       runtime: {version: lock.version, ...lock.targets[target]},
-      npm: {name: packed.filename, sha256: sha256(npmBytes), integrity: packed.integrity},
+      npm: {name: npmAssetName, sha256: sha256(npmBytes), integrity: packed.integrity},
       sourceLockSha256: sha256(sourceLock),
       application: 'lib/app/dist/cli.js',
       runtimeExecutable: 'lib/node/bin/node',
@@ -180,7 +181,7 @@ export async function buildRelease({outDir = resolve('release-out'), target = cu
         '; Git and ps are external requirements. Installed MCP/hooks need Node on the consuming host/CI. Licenses are included here, lib/node/LICENSE, and each lib/app/node_modules package. See https://github.com/ansonli-dev/rigup/releases and lib/app/docs/guides/releases.md.\n',
     );
     await exec('tar', ['-czf', asset, '-C', workspace, stem], {timeout: 180_000, maxBuffer: 1_000_000});
-    const npmOutput = join(outDir, packed.filename);
+    const npmOutput = join(outDir, npmAssetName);
     try {
       const existing = await readFile(npmOutput);
       if (sha256(existing) !== info.npm.sha256) throw Error('Different npm package already in release output');

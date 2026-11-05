@@ -19,7 +19,7 @@ try {
   const consumer = join(workspace, 'consumer');
   await mkdir(consumer);
   await exec('npm', ['install', '--prefix', consumer, join(workspace, archive.filename), '--prefer-offline', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--userconfig', join(workspace, 'npmrc'), '--globalconfig', join(workspace, 'global-npmrc')], {timeout: 120_000, maxBuffer: 1_000_000});
-  await exec(process.execPath, [join(source, 'scripts/check-docs.mjs'), join(consumer, 'node_modules/rigup')], {timeout: 30_000});
+  await exec(process.execPath, [join(source, 'scripts/check-docs.mjs'), join(consumer, 'node_modules', archive.name)], {timeout: 30_000});
   const cli = join(consumer, 'node_modules', '.bin', 'rigup');
   const home = join(workspace, 'home');
   const project = join(workspace, 'project');

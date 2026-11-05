@@ -19,7 +19,7 @@ curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/
 已有 Node.js 24 和 npm 时，可以按包名全局安装。
 
 ```sh
-npm install -g rigup
+npm install -g @ansonli.dev/rigup
 ```
 
 ### 2. 初始化项目

@@ -40,8 +40,10 @@ Before removing a version, resolve pending operations with the original executab
 With Node.js 24 and npm, install from the public npm registry.
 
 ```sh
-npm install -g rigup
+npm install -g @ansonli.dev/rigup
 ```
+
+If the same npm prefix already has Rigup installed from the original v0.1.0 tarball, run `npm uninstall -g rigup` there before installing the scoped package.
 
 To use the compiled tarball from the v0.1.0 release directly, run the following command.
 

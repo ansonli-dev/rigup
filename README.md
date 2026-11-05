@@ -19,7 +19,7 @@ The installer selects the macOS or Linux build for ARM64 or x64, verifies its ch
 With Node.js 24 and npm, install the published package globally.
 
 ```sh
-npm install -g rigup
+npm install -g @ansonli.dev/rigup
 ```
 
 ### 2. Set up a project
