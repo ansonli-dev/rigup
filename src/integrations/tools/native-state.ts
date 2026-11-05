@@ -2,17 +2,21 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {lstat,readdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import type {SetupOperation} from '../../types.js';
+import type {NativeInitializationReceipt,SetupOperation} from '../../types.js';
 import {targetPath} from '../../installer/ownership.js';
-import {queryInstalledTool} from './installed-state.js';
+import {queryPinnedTool} from './installed-state.js';
+import {loadUpstreamLock} from '../upstream.js';
 import {signature} from '../../generator/cache.js';
 import type {OperationResult} from '../../installer/operations.js';
-import {initializationRecipe,emptyNativeScope,type NativeTool} from './initialization.js';
+import {assertEmptyNativeScope} from './initialization.js';
+import {assertToolOperationRecipe,initializationRecipe,isNativeTool,type NativeTool,type ToolPin} from './recipes.js';
 const exec=promisify(execFile);
 async function verifiedNativeOperation(operation:SetupOperation):Promise<boolean>{
- if(operation.kind!=='initialize'||operation.protection.kind!=='native-staging'||!['openwiki','codegraph'].includes(operation.integrationId))return false;
- const {loadUpstreamLock}=await import('../registry.js');const recipe=(await loadUpstreamLock()).find(r=>r.integrationId===operation.integrationId)!;
- return signature(initializationRecipe(operation.parameters.cwd,operation.integrationId as NativeTool,recipe.version,recipe.packageIntegrity,operation.prerequisiteIds))===signature(operation);
+ if(operation.kind!=='initialize'||operation.protection.kind!=='native-staging')return false;
+ const recipe=(await loadUpstreamLock()).find(r=>r.integrationId===operation.integrationId);
+ if(!recipe)return false;
+ try{assertToolOperationRecipe(operation.parameters.cwd,operation,recipe,operation.prerequisiteIds);return true;}
+ catch{return false;}
 }
 export function nativeEnvironment(operation:SetupOperation):NodeJS.ProcessEnv {
  if(operation.protection.kind!=='native-staging')throw Error('Native staging required');
@@ -21,9 +25,9 @@ export function nativeEnvironment(operation:SetupOperation):NodeJS.ProcessEnv {
  if(process.env.SystemRoot)env.SystemRoot=process.env.SystemRoot;return env;
 }
 export async function queryNativeInitialization(operation:SetupOperation):Promise<OperationResult>{
- if(!await verifiedNativeOperation(operation))return {status:'unknown',message:'Native query differs from the pinned adapter'};
+ if(!isNativeTool(operation.integrationId)||!await verifiedNativeOperation(operation))return {status:'unknown',message:'Native query differs from the pinned adapter'};
  const root=operation.parameters.cwd;
- const installed=await queryInstalledTool(root,{prefix:'.rigup/tools/'+operation.integrationId,id:operation.integrationId,...operation.query});
+ const installed=await queryPinnedTool(root,operation.integrationId,{version:operation.version,packageIntegrity:operation.query.integrity});
  if(installed.status!=='done')return installed;
  try {
   for(const target of operation.declaredWrites)await targetPath(root,target);
@@ -33,6 +37,12 @@ export async function queryNativeInitialization(operation:SetupOperation):Promis
   if(parsed.status!=='done'||!parsed.nativeReceipt)throw Error('Invalid native query response');return parsed;
  }catch{return {status:'unknown',message:'Native initialization is absent, incomplete, or changed; reconcile protected staging before retry'};}
 }
+export async function verifyToolInitializationReceipt(root:string,id:NativeTool,pin:ToolPin,receipt?:NativeInitializationReceipt):Promise<OperationResult|undefined> {
+ if(!receipt||receipt.version!==pin.version)return;
+ const state=await queryNativeInitialization(initializationRecipe(root,id,pin.version,pin.packageIntegrity));
+ if(state.status==='done'&&signature(state.nativeReceipt)===signature(receipt))return state;
+}
+
 export async function safeNativeTree(root:string,target:string):Promise<void>{
  const path=await targetPath(root,target);const stat=await lstat(path).catch(e=>{if(e.code==='ENOENT')return undefined;throw e;});if(!stat)return;
  if(!stat.isDirectory()&&!stat.isFile())throw Error('Unsafe native staging entry');
@@ -40,5 +50,5 @@ export async function safeNativeTree(root:string,target:string):Promise<void>{
 }
 export async function resumableNativeOperation(operation:SetupOperation):Promise<boolean>{
  if(!await verifiedNativeOperation(operation)||operation.protection.kind!=='native-staging')return false;
- try {await emptyNativeScope(operation.parameters.cwd,operation.protection.target);for(const scope of operation.declaredWrites)await safeNativeTree(operation.parameters.cwd,scope);return true;}catch{return false;}
+ try {await assertEmptyNativeScope(operation.parameters.cwd,operation.protection.target);for(const scope of operation.declaredWrites)await safeNativeTree(operation.parameters.cwd,scope);return true;}catch{return false;}
 }

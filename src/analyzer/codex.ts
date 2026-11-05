@@ -1,10 +1,10 @@
 import {join} from 'node:path';
-import {mkdir,readFile,lstat} from 'node:fs/promises';
+import {mkdir,readFile} from 'node:fs/promises';
 import {hostBackend} from './host.js';
 import {STAGE_EVIDENCE_POLICY} from './stage-context.js';
-import {validateResearchRequest,selectResearchOutput,ResearchFailure,type AnalysisBackend,type ResearchResult} from './backend.js';
+import {validateResearchRequest,selectResearchOutput,ResearchFailure,type AnalysisBackend,type ResearchRequest,type ResearchResult} from './backend.js';
 import {privateDirectory,readCache,signature} from '../generator/cache.js';
-import {saveDurable} from '../installer/state.js';
+import {InvalidDurableRecord,readDurableRecord,saveDurable} from '../private-record.js';
 import {isAlive,type ProcessIdentity} from '../installer/lock.js';
 import {CodexTimeoutError,codexAvailable,codexArguments,invokeCodex,type CodexInvocation,type CodexOutcome} from './codex-process.js';
 export interface CodexBackendOptions {cacheRoot:string;stateRoot?:string;signal?:AbortSignal;nativeEntryPaths?:readonly string[];onUsage?:(usage:{calls:number;tokens:number|'unknown'})=>Promise<void>;invoke?:(input:CodexInvocation)=>Promise<CodexOutcome>}
@@ -12,6 +12,10 @@ interface Attempt {status:'reserved'|'observed';tokens:number|'unknown';identity
 interface Ledger {attempts:Record<string,Attempt>}
 const codexAdapterVersion='7';
 function totals(ledger:Ledger):{calls:number;tokens:number|'unknown'} {const items=Object.values(ledger.attempts);return {calls:items.length,tokens:items.some(a=>a.tokens==='unknown')?'unknown':items.reduce((n,a)=>n+Number(a.tokens),0)};}
+function belowKnownUsage(used:ReturnType<typeof totals>,reported:ResearchRequest['spent']):boolean {
+ return !!reported&&(reported.calls>used.calls||
+  reported.tokens!=='unknown'&&used.tokens!=='unknown'&&reported.tokens>used.tokens);
+}
 function observed(outcome:CodexOutcome):number {
  const events=outcome.stdout.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
  for(const event of events){
@@ -35,8 +39,13 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
   const context={...request,spent:undefined,versions:{...request.versions,codex:'0.166.0',codexAdapter:codexAdapterVersion}};
   const durable=await privateDirectory(options.stateRoot??cache,request.root);
   const ledgerPath=join(durable,signature({root:request.root,run:request.runId})+'.usage.json');
-  let ledger=await readCache<Ledger>(ledgerPath);
-  if(!ledger){try{await lstat(ledgerPath);throw new ResearchFailure('Codex usage ledger is corrupt; reconciliation required');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}if(request.spent?.calls)throw new ResearchFailure('Codex budget ledger missing; reconcile known usage before retry');ledger={attempts:{}};}
+  let ledger:Ledger|undefined;
+  try{ledger=await readDurableRecord<Ledger>(ledgerPath,'Codex usage ledger');}
+  catch(error){if(error instanceof InvalidDurableRecord)throw new ResearchFailure(error.message);throw error;}
+  if(!ledger){
+   if(request.spent?.calls)throw new ResearchFailure('Codex budget ledger missing; reconcile known usage before retry');
+   ledger={attempts:{}};
+  }
   if(!ledger.attempts||typeof ledger.attempts!=='object'||Array.isArray(ledger.attempts)||Object.values(ledger.attempts).some(a=>!a||!['reserved','observed'].includes(a.status)||a.tokens!=='unknown'&&(!Number.isSafeInteger(a.tokens)||a.tokens<0)))throw new ResearchFailure('Codex usage ledger is corrupt; reconciliation required');
   const accounting=ledger;
   const account=async()=>{await saveDurable(ledgerPath,JSON.stringify(accounting));await options.onUsage?.(totals(accounting));};
@@ -44,19 +53,21 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
   const exported=await hostBackend(exchangeOptions).run(context,reader);
   if(exported.status==='complete'){
    const used=totals(ledger);
-   if(used.calls>request.budget.maxCalls||used.tokens==='unknown'||used.tokens>request.budget.maxTokens)throw new ResearchFailure('Codex cached result requires reconciled usage within its budget');
+   if(used.calls<1||used.calls>request.budget.maxCalls||used.tokens==='unknown'||used.tokens>request.budget.maxTokens||belowKnownUsage(used,request.spent))throw new ResearchFailure('Codex cached result requires reconciled usage within its budget');
    const dataSignature=signature(exported.value.data);
    const accepted=await readCache<{dataSignature:string;model:string}>(join(cache,signature(context)+'.result.json'));
    if(!accepted||accepted.dataSignature!==dataSignature)throw new ResearchFailure('Codex cached acceptance lacks verified provenance');
    await options.onUsage?.(totals(ledger));return {status:'complete',value:{...exported.value,model:accepted.model,unknowns:exported.value.unknowns.filter(s=>s!=='host token usage unknown'),usage:{calls:0,tokens:0}}};
   }
   const id=exported.requestId,attemptPath=join(durable,id+'.outcome.json');
-  let outcome=await readCache<CodexOutcome>(attemptPath);
+  let outcome=await readDurableRecord<CodexOutcome>(attemptPath,'Codex outcome',value=>
+   (value.code===null||Number.isInteger(value.code))&&typeof value.stdout==='string'&&typeof value.lastMessage==='string');
   const recoveredOutcome=!!outcome;
+  if(outcome&&!ledger.attempts[id])throw new ResearchFailure('Codex outcome lacks a durable usage reservation; reconciliation required');
   if(ledger.attempts[id]?.identity&&await isAlive(ledger.attempts[id].identity!))throw new ResearchFailure('Prior Codex attempt is still active; reconcile before retry');
   if(!outcome){
    if(ledger.attempts[id])throw new ResearchFailure('Unresolved Codex attempt; refusing to repeat it automatically',[],{calls:0,tokens:'unknown'});
-   const spent=totals(ledger);if(spent.calls>=request.budget.maxCalls||spent.tokens==='unknown'||spent.tokens>=request.budget.maxTokens||request.spent&&(request.spent.calls>spent.calls||request.spent.tokens!=='unknown'&&request.spent.tokens>spent.tokens))throw new ResearchFailure('Codex budget exhausted, unknown, or inconsistent with durable accounting',[],{calls:0,tokens:0});
+   const spent=totals(ledger);if(spent.calls>=request.budget.maxCalls||spent.tokens==='unknown'||spent.tokens>=request.budget.maxTokens||belowKnownUsage(spent,request.spent))throw new ResearchFailure('Codex budget exhausted, unknown, or inconsistent with durable accounting',[],{calls:0,tokens:0});
    if(!options.invoke)try{await codexAvailable();}catch(error){throw new ResearchFailure((error as Error).message,[],{calls:0,tokens:0});}
    const work=join(cache,id+'.work');await privateDirectory(work,request.root);
    const cwd=join(work,'workspace');await mkdir(cwd,{mode:0o700});
@@ -73,8 +84,13 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
    }
   }
   try {
-   const tokens=observed(outcome);ledger.attempts[id]={status:'observed',tokens};await account();
-   const used=totals(ledger);if(outcome.code!==0||used.calls>request.budget.maxCalls||used.tokens==='unknown'||used.tokens>request.budget.maxTokens)throw Error('Codex failed or exceeded its observed budget');
+   const tokens=observed(outcome),previous=ledger.attempts[id];
+   if(previous.status==='observed'&&previous.tokens!==tokens)throw new ResearchFailure('Codex outcome disagrees with observed usage; reconciliation required');
+   const attempt:Attempt={status:'observed',tokens};
+   const used=totals({attempts:{...ledger.attempts,[id]:attempt}});
+   if(belowKnownUsage(used,request.spent))throw new ResearchFailure('Codex outcome cannot reconcile known usage');
+   ledger.attempts[id]=attempt;await account();
+   if(outcome.code!==0||used.calls>request.budget.maxCalls||used.tokens==='unknown'||used.tokens>request.budget.maxTokens)throw Error('Codex failed or exceeded its observed budget');
    const data=selectResearchOutput(request,JSON.parse(outcome.lastMessage));const model='codex-cli 0.166.0 / default model (actual model ID not exposed)';
    const responsePath=join(cache,id+'.response.json');
    await saveDurable(responsePath,JSON.stringify({requestId:id,requestDigest:id,model,data}));

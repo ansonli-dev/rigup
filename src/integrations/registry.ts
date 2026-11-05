@@ -10,59 +10,12 @@ import {renderCustomerTemplate} from './custom-templates.js';
 import {openwiki,openwikiInitializationGuide} from './tools/openwiki.js';
 import {codegraph} from './tools/codegraph.js';
 import type {Ownership} from '../managed-input.js';
-import {superpowers} from './sdd/superpowers.js';
-import {openspec} from './sdd/openspec.js';
-import {specKit} from './sdd/spec-kit.js';
-import {readFile} from 'node:fs/promises';
+import {resolveSddBinding,resolveSkillSource,type SddBinding} from './sdd/binding.js';
 import {digest} from '../analyzer/evidence.js';
-export interface Recipe {packageIntegrity?:string;integrationId:string;version:string;kind:'agent'|'sdd'|'tool';sources:{url:string;revision:string;verifiedAt:string}[];evidenceStatus:{source:boolean;contract:boolean;live:boolean}}
-export function requireRecipeEvidence(recipe:Recipe,version=recipe.version):void {
- if(version !== recipe.version) throw new Error(recipe.integrationId+': version change requires new evidence');
- if(!recipe.evidenceStatus.source || !recipe.sources.length) throw new Error(recipe.integrationId+': unverified source evidence');
- if(!/^(?:[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?|[a-f0-9]{40})$/.test(recipe.version)) throw new Error(recipe.integrationId+': exact version required');
- for(const source of recipe.sources) {
-  if(!source.revision || !/^\d{4}-\d{2}-\d{2}$/.test(source.verifiedAt)) throw new Error('source evidence metadata missing');
-  const url=new URL(source.url);if(url.protocol !== 'https:' || url.username || url.password) throw new Error('source evidence URL invalid');
- }
-}
-export function selectUpdateVersion(recipe:Recipe,installedVersion?:string,upgrade?:string):string {if(upgrade) {requireRecipeEvidence(recipe,upgrade);return upgrade;}
- return installedVersion ?? recipe.version;}
-export function parseUpstreamLock(value:unknown):Recipe[]{
- if(!value || typeof value !== 'object') throw new Error('upstream lock: expected object');
- const doc=value as Record<string,unknown>;
- if(doc.schemaVersion !== 1 || !Array.isArray(doc.integrations)) throw new Error('upstream lock: schemaVersion/integrations invalid');
- const seen=new Set<string>();
- for(const raw of doc.integrations) {
-  if(!raw || typeof raw !== 'object' || typeof raw.integrationId !== 'string' || !['agent','sdd','tool'].includes(raw.kind) || typeof raw.version !== 'string') throw new Error('upstream lock: invalid recipe');
-  if(seen.has(raw.integrationId)) throw new Error('upstream lock: duplicate integration');seen.add(raw.integrationId);
-  if(!Array.isArray(raw.sources) || !raw.evidenceStatus || ['source','contract','live'].some(k=>typeof raw.evidenceStatus[k] !== 'boolean')) throw new Error('upstream lock: evidence levels required');
-  if(raw.integrationId === 'codegraph' && raw.repository !== 'https://github.com/colbymchenry/codegraph') throw new Error('CodeGraph repository does not match required upstream');
-  if(!/^(?:[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?|[a-f0-9]{40})$/.test(raw.version)) throw new Error('upstream lock: exact version required');
-  if(raw.evidenceStatus.source) requireRecipeEvidence(raw);
- }
- return doc.integrations as Recipe[];
-}
-export async function loadUpstreamLock():Promise<Recipe[]>{return parseUpstreamLock(JSON.parse(await readFile(new URL('../../docs/compatibility/upstream-lock.json',import.meta.url),'utf8')));}
-export interface SddBinding {status:'source-bound';id:string;agent:string;prepare:string[];deliver:string[];artifacts:string[];gates:string[];revise?:string;projectSources?:string[]}
-export function bindSdd(id:string,agent:string,available:string[]):SddBinding|{status:'pending';id:string;reason:string} {
- if(!['claude','codex','opencode','omp'].includes(agent)) throw new Error('unsupported host');
- if(id === 'superpowers' && agent === 'omp') return {status:'pending',id,reason:'OMP-specific Superpowers binding not verified; Pi support is not evidence for OMP'};
- const descriptor=id === 'superpowers' ? superpowers : id === 'openspec' ? openspec : id === 'spec-kit' ? specKit : undefined;
- if(!descriptor) throw new Error('unsupported SDD');
- const names=(list:string[])=>id === 'spec-kit' ? list.map(name=>agent === 'codex' ? 'speckit-'+name : 'speckit.'+name) : list.map(name=>available.includes(name)?name:available.includes(name.split(':').at(-1)!)?name.split(':').at(-1)!:name);
- const prepare=names(descriptor.prepare);const deliver=names(descriptor.deliver);
- for(const entry of [...prepare,...deliver]) if(!available.includes(entry)) throw new Error('missing native entry: '+entry);
- return {status:'source-bound',id,agent,prepare,deliver,artifacts:[...descriptor.artifacts],gates:[...descriptor.gates]};
-}
-export interface SkillSource {name:string;origin:'plugin'|'local'|'managed'|'unknown';identity:string;digest?:string;satisfies:boolean;version?:string;nativeName?:string;problem?:string}
-export function resolveSkillSource(name:string,sources:SkillSource[],selectedIdentity?:string):SkillSource {
- let matches=sources.filter(s=>s.name === name);
- if(selectedIdentity) matches=matches.filter(s=>s.identity === selectedIdentity);
- if(!matches.length) throw new Error('missing skill source: '+name);
- if(matches.some(s=>s.origin === 'unknown' || !s.satisfies)) throw new Error('skill source unknown or dependency needs verification'+(matches.some(s=>s.problem)?': '+matches.flatMap(s=>s.problem?[s.problem]:[]).join('; '):''));
- if(matches.length>1 && (!matches[0].digest || matches.some(s=>s.digest !== matches[0].digest))) throw new Error('skill source conflict: select an explicit identity');
- return matches.find(s=>s.origin === 'plugin') ?? matches[0];
-}
+import {loadUpstreamLock,requireRecipeEvidence} from './upstream.js';
+export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVersion,type Recipe} from './upstream.js';
+export {bindSdd,resolveSkillSource} from './sdd/binding.js';
+export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
 export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:{integrationId:string;reason:string}[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
 export async function prepareIntegrations(profile:import('../analyzer/repository.js').ProjectProfile,options:import('../types.js').SetupOptions):Promise<IntegrationPreparation>{
@@ -81,20 +34,10 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   requireKnown(options.sdd);
   for(const agent of options.agents) {
    try {
-    const available=profile.nativeEntries?.[agent]??[];const binding=bindSdd(options.sdd,agent,available);
-    if(binding.status==='pending'){requirements.push({integrationId:options.sdd,reason:binding.reason});continue;}
-    const resolveEntry=(name:string)=>{
-     const base=name.split(':').at(-1)!;
-     const candidates=(profile.skillSources?.[agent]??[]).filter(s=>s.name===name||s.name===base||s.name===options.sdd+':'+base);
-     return resolveSkillSource(base,candidates.map(s=>({...s,name:base,nativeName:s.name})));
-    };
-    const prepare=binding.prepare.map(resolveEntry),deliver=binding.deliver.map(resolveEntry);
-    const optional=options.sdd==='openspec'?[openspec.revise,openspec.sync].filter(name=>available.includes(name)).flatMap(name=>{
-     try{return [resolveEntry(name)];}catch{warnings.push(agent+': '+name+' needs source reconciliation');return [];}
-    }):[];
-    const revise=optional.find(source=>source.nativeName===openspec.revise)?.nativeName;
-    const projectSources=[...prepare,...deliver,...optional].map(source=>source.identity).filter(path=>profile.files.includes(path));
-    bindings.push({...binding,prepare:prepare.map(source=>source.nativeName!),deliver:deliver.map(source=>source.nativeName!),revise,projectSources});
+    const {binding,warnings:bindingWarnings}=resolveSddBinding(options.sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
+    if(binding.status==='pending') requirements.push({integrationId:options.sdd,reason:binding.reason});
+    else bindings.push(binding);
+    warnings.push(...bindingWarnings);
    }
    catch(error){requirements.push({integrationId:options.sdd,reason:(error as Error).message});}
   }
@@ -156,5 +99,7 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
    warnings.push(operation.integrationId+': '+reason);requirements.push({integrationId:operation.integrationId,reason});
   }
  }
+ // Software installations have no prerequisites. Put them together before native initialization.
+ operations.sort((a,b)=>Number(a.kind!=='install')-Number(b.kind!=='install'));
  return {assets,operations,warnings,requirements,bindings,skillBindings};
 }

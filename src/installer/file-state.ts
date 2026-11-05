@@ -15,3 +15,10 @@ export async function readFileState(root:string,target:string):Promise<FileState
  }finally{await handle.close();}
 }
 export function matchesFileState(actual:FileState,hash:string,mode?:number):boolean{return actual.digest===hash&&actual.mode===mode;}
+
+export async function* readFileStates(root:string,targets:readonly string[]){
+ const batchSize=8;
+ for(let start=0;start<targets.length;start+=batchSize){
+  yield* await Promise.all(targets.slice(start,start+batchSize).map(async target=>({target,state:await readFileState(root,target)})));
+ }
+}

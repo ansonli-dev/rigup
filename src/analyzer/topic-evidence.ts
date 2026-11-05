@@ -2,7 +2,6 @@ import type {Evidence} from '../types.js';
 import type {RepositoryReader} from './backend.js';
 import {dependencyLock} from './stage-context.js';
 
-export const MAX_TOPIC_EVIDENCE_BATCHES=2;
 const MAX_REQUESTS=8,MAX_LINES=48,MAX_MATCHES=6,MAX_BYTES=12_000;
 
 type Operation={read:{path:string;start:number;end:number}}|{search:{query:string;scope:string}};
@@ -22,12 +21,6 @@ export function topicEvidenceRequests(data:unknown):unknown[] {
  if(requests===undefined)return [];
  if(!Array.isArray(requests)||requests.length>MAX_REQUESTS)throw new Error('Expected at most eight topic evidence requests');
  return requests;
-}
-
-export function researchTopicIds(data:unknown):Set<string> {
- const topics=record(data).ruleTopics;
- return new Set((Array.isArray(topics)?topics:[]).slice(0,12).map(topic=>record(topic).id)
-  .filter((id):id is string=>typeof id==='string'&&id.length<=48&&/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)));
 }
 
 function operationFor(request:Record<string,unknown>,paths:Set<string>):Operation|undefined {

@@ -2,7 +2,7 @@ import type {SetupOptions} from './types.js';
 import {normalizeDocumentLanguage} from './config.js';
 import {promptChoice} from './prompt.js';
 export interface OnboardingIO {write(text:string):void;read(secret?:boolean):Promise<string|null>}
-export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{configure:boolean;knownBackend:boolean;apiKeyEnv?:string;languageProvided?:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools'|'model',boolean>>;credentials?:{apiKey?:string;model?:string}}):Promise<{options:SetupOptions;credentials:{apiKey?:string;model?:string}}|null>{
+export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{configure:boolean;knownBackend:boolean;deferResearch?:boolean;apiKeyEnv?:string;languageProvided?:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools'|'model',boolean>>;credentials?:{apiKey?:string;model?:string}}):Promise<{options:SetupOptions;credentials:{apiKey?:string;model?:string}}|null>{
  const options=structuredClone(initial);let credentials={...settings.credentials};let stage=!options.agents.length||settings.configure||!settings.knownBackend||settings.provided?0:4;
  const provided=settings.configure?{}:{...settings.provided};let knownBackend=settings.knownBackend;
  const goBack=(previous:number)=>{stage=previous;for(const key of (['agents','sdd','tools','model'] as const).filter((_,i)=>i>=previous))delete provided[key];if(previous<=3)knownBackend=false;};
@@ -29,7 +29,7 @@ export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{con
    catch(error){io.write((error as Error).message+'\n');continue;}
    break;
   }
-  if(!options.sdd||options.backend!=='native'){stage++;continue;}
+  if(settings.deferResearch||!options.sdd||options.backend!=='native'){stage++;continue;}
   let model=options.model?.model??credentials.model??process.env.ANTHROPIC_MODEL;
   if(!model){io.write('Anthropic model ID（非密钥；b 返回）\n');const value=await io.read();if(value===null||value==='\x1b')return null;if(value==='b'||value==='back'){goBack(3);continue;}if(!value.trim())continue;model=value.trim();}
   const apiKeyEnv=settings.apiKeyEnv??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';options.model={provider:'anthropic',model,apiKeyEnv};

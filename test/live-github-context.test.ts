@@ -12,13 +12,14 @@ import {STAGE_EVIDENCE_POLICY} from '../src/analyzer/stage-context.js';
 const exec=promisify(execFile);
 const sha=(value:Buffer|string)=>createHash('sha256').update(value).digest('hex');
 const cases=[
- {name:'Bulletproof React',slug:'frontend',flag:'RIGUP_LIVE_BULLETPROOF_CONTEXT',commit:'9506629ed003a561c6627735480cce4994244bb4',repository:'alan2207/bulletproof-react',trackedFiles:535,
+ {name:'Bulletproof React',slug:'frontend',flag:'RIGUP_LIVE_BULLETPROOF_CONTEXT',commit:'9506629ed003a561c6627735480cce4994244bb4',repository:'alan2207/bulletproof-react',trackedFiles:535,previousAnalysisChars:352101,
   scope:['AGENTS.md','README.md','package.json','docs','apps/react-vite','.agents','openspec','.husky'],lock:'apps/react-vite/yarn.lock',language:'zh-CN',report:'bulletproof-semantic-e2e.json'},
- {name:'Domain-Driven Hexagon',slug:'ddd',flag:'RIGUP_LIVE_DDD_CONTEXT',commit:'5c2d15a7e2d69e83dfddf28468ee9f30e02c30de',repository:'Sairyss/domain-driven-hexagon',trackedFiles:123,
+ {name:'Domain-Driven Hexagon',slug:'ddd',flag:'RIGUP_LIVE_DDD_CONTEXT',commit:'5c2d15a7e2d69e83dfddf28468ee9f30e02c30de',repository:'Sairyss/domain-driven-hexagon',trackedFiles:123,previousAnalysisChars:527394,
   scope:undefined,lock:undefined,language:'auto',report:'ddd-semantic-e2e.json'},
 ];
 for(const fixture of cases)test(`live ${fixture.name} completes semantic setup within its unchanged budget`,{skip:process.env[fixture.flag]!=='1',timeout:1800000},async()=>{
  const {slug,commit,trackedFiles,lock}=fixture;
+ const deferResearch=process.env.RIGUP_E2E_DEFER_RESEARCH==='1';
  const options={agents:['codex'],backend:'codex',sdd:'openspec',documentLanguage:fixture.language,executionPolicy:{mode:'review'},tools:[{id:'openwiki',install:true,initialize:false,agents:['codex']},{id:'codegraph',install:true,initialize:true,agents:['codex']}],researchBudget:{maxCalls:12,maxTokens:1200000},readBudget:{maxFiles:4000,maxBytes:24000000},...(fixture.scope?{scope:fixture.scope}:{})};
  const workspace=await realpath(process.env.RIGUP_E2E_WORKSPACE??await mkdtemp('/private/tmp/rigup-context-e2e-'));
  assert.ok(workspace.startsWith('/private/tmp/rigup-context-e2e-'),'use a dedicated disposable workspace');
@@ -30,6 +31,8 @@ for(const fixture of cases)test(`live ${fixture.name} completes semantic setup w
  let record:any;try{record=JSON.parse(await readFile(recordPath,'utf8'));}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  record??={caseId:'github-project/'+slug+'/context-budget',status:'running',startedAt:new Date().toISOString(),workspace,root,commit,options,steps:[],limitations:['Actual default Codex model; its served model ID is not exposed.','Application/native-host checks are recorded separately from this semantic CLI flow.','Formal human semantic approval is not implied by execution success.']};
  assert.deepEqual(record.options,options,'resuming the same case cannot increase its budget or alter scope');
+ assert.equal(record.deferredResearch??deferResearch,deferResearch,'resuming cannot switch setup mode');
+ record.deferredResearch=deferResearch;
  const persist=()=>writeFile(recordPath,JSON.stringify(record,null,2)+'\n',{mode:0o600});
  const budgetDir=home+'/.local/state/rigup/codex';
  const ledgers=async()=>{let files:string[]=[];try{files=await readdir(budgetDir);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}return Object.fromEntries(await Promise.all(files.filter(f=>f.endsWith('.usage.json')).sort().map(async f=>[f,JSON.parse(await readFile(join(budgetDir,f),'utf8'))])));};
@@ -62,11 +65,44 @@ for(const fixture of cases)test(`live ${fixture.name} completes semantic setup w
   assert.equal(marker.root,root);assert.equal(marker.commit,commit);assert.deepEqual(marker.options,options);assert.deepEqual(JSON.parse(await readFile(root+'/.rigup/config.yaml','utf8')),options);
   await persist();
   let manifest:any;try{manifest=JSON.parse(await readFile(root+'/.rigup/manifest.json','utf8'));}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
-  if(!manifest){
-   const prepared=await run('01-semantic-preview',['init',root,'--resume','--json']);assert.equal(prepared.code,3,JSON.stringify(prepared.data));assert.equal(prepared.data.phase,'handoff');assert.equal(prepared.data.executable,true);assert.ok(prepared.data.operations.every((o:any)=>o.id!=='initialize:openwiki'));
-   const applied=await run('02-independent-apply',['update',root,'--apply',prepared.data.previewId,'--sessions-ended','--resume','--json']);assert.equal(applied.code,0,JSON.stringify(applied.data));
+  record.setupStartedAt??=new Date().toISOString();
+  if(deferResearch&&!manifest){
+   const foundation=await run('00-foundation-preview',['init',root,'--defer-research','--resume','--json']);
+   assert.equal(foundation.code,3,JSON.stringify(foundation.data));
+   assert.equal(foundation.data.phase,'handoff');
+   assert.equal(foundation.data.projectRules,'pending');
+   assert.equal(foundation.data.executable,true);
+   assert.deepEqual(await ledgers(),{});
+   const applied=await run('00-foundation-apply',['update',root,'--apply',foundation.data.previewId,'--sessions-ended','--resume','--json']);
+   assert.equal(applied.code,0,JSON.stringify(applied.data));
+   assert.equal(applied.data.projectRules,'pending');
+   assert.match(applied.data.nextCommand,/rigup update .*--review/);
    manifest=JSON.parse(await readFile(root+'/.rigup/manifest.json','utf8'));
+   assert.equal(manifest.projectRules,'pending');
+   assert.equal(manifest.options.sdd,'openspec');
+   for(const skill of ['change-prepare','change-deliver']){
+    await access(root+'/.agents/skills/'+skill+'/SKILL.md');
+    const reference=await readFile(root+'/.agents/skills/'+skill+'/references/project.md','utf8');
+    assert.match(reference,/Project rules are pending/);
+    assert.match(reference,slug==='ddd'?/npm run test:e2e/:/npm run test-e2e/);
+   }
+   assert.deepEqual(Object.keys(manifest.initializedTools),['codegraph']);
+   assert.deepEqual(await ledgers(),{});
+   record.firstUsableAt=record.steps.find((step:any)=>step.label==='00-foundation-apply').finishedAt;
+   await persist();
   }
+  if(!manifest||manifest.projectRules==='pending'){
+   const prepared=await run('01-semantic-preview',[manifest?'update':'init',root,'--resume','--json']);assert.equal(prepared.code,3,JSON.stringify(prepared.data));assert.equal(prepared.data.phase,'handoff');assert.equal(prepared.data.executable,true);assert.ok(prepared.data.operations.every((o:any)=>o.id!=='initialize:openwiki'));
+   assert.equal(prepared.data.projectRules,'ready');
+   if(deferResearch)assert.deepEqual(prepared.data.operations,[],'foundation tools are reused');
+   const applied=await run('02-independent-apply',['update',root,'--apply',prepared.data.previewId,'--sessions-ended','--resume','--json']);assert.equal(applied.code,0,JSON.stringify(applied.data));
+   assert.equal(applied.data.projectRules,'ready');
+   manifest=JSON.parse(await readFile(root+'/.rigup/manifest.json','utf8'));
+   record.fullRulesReadyAt=record.steps.find((step:any)=>step.label==='02-independent-apply').finishedAt;
+   record.firstUsableAt??=record.fullRulesReadyAt;
+   await persist();
+  }
+  assert.equal(manifest.projectRules,'ready');
   assert.equal(manifest.options.sdd,'openspec');assert.equal(manifest.options.backend,'codex');assert.deepEqual(manifest.options.researchBudget,{maxCalls:12,maxTokens:1200000});assert.deepEqual(Object.keys(manifest.initializedTools),['codegraph']);await assert.rejects(access(root+'/openwiki'));await assert.rejects(access(root+'/.rigup/native/openwiki'));
   assert.equal(manifest.options.documentLanguage,fixture.language);
   for(const path of ['.rigup/manifest.json','.rigup/baseline/local','.rigup/native/codegraph/local','.rigup/tools/codegraph/local'])await exec('git',['-C',root,'check-ignore','--quiet','--',path]);
@@ -131,7 +167,12 @@ for(const fixture of cases)test(`live ${fixture.name} completes semantic setup w
   assert.ok(returnedTopicEvidence>0,'default Codex requests and receives targeted topic evidence');
   assert.ok(reviewedTopicEvidence>0,'independent acceptance receives returned evidence for its topics');
   const analysis=measurements.find(m=>m.kind==='analyze')!;
-  for(const item of measurements.filter(m=>m.kind!=='analyze')){assert.ok(item.evidenceChars<=analysis.evidenceChars*0.65,'later-stage evidence must materially shrink');assert.ok(item.evidenceFiles<analysis.evidenceFiles);}
+  assert.ok(analysis.evidenceChars<fixture.previousAnalysisChars,'initial sample must shrink against the fixed pre-change run');
+  assert.ok(analysis.evidenceFiles<analysis.inventoryFiles);
+  for(const item of measurements.filter(m=>m.kind!=='analyze')){
+   assert.ok(item.evidenceChars<=fixture.previousAnalysisChars*0.65,'later-stage evidence remains bounded against the original full inventory');
+   assert.ok(item.evidenceFiles<analysis.inventoryFiles);
+  }
   const jobs=manifest.assets.filter((a:any)=>a.source.kind==='semantic');if(jobs.length){assert.ok(measurements.some(m=>m.expectedOutput==='content'));assert.ok(measurements.some(m=>m.expectedOutput==='acceptance'));}
   record.requests=measurements;record.returnedTopicEvidence=returnedTopicEvidence;record.usage=before;record.actualModelCalls=counts.calls;record.actualObservedTokens=counts.tokens;record.semanticAssets=jobs.map((a:any)=>a.target);record.sourceProtection={trackedFiles,changes:originalChanges,nativeEntriesUnchanged:Object.keys(marker.nativeHashes).length};record.unchangedUpdate={written:0,newModelCalls:0};record.localNoteProtected=true;record.openWikiNativeStateCreated=false;record.status='passed';delete record.reason;
  }catch(error){record.status='failed';record.reason=(error as Error).message;record.usage=await ledgers();throw error;}

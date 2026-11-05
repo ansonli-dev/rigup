@@ -1,6 +1,6 @@
 import {realpath,access,constants} from 'node:fs/promises';
-import {join,resolve} from 'node:path';
-import type {CheckKind,SetupOptions,SetupOperation} from '../types.js';
+import {join} from 'node:path';
+import type {CheckKind,SetupOptions} from '../types.js';
 import type {InstallReport} from './apply.js';
 import {loadManifest,trustedBaseline} from './baseline.js';
 import {ownedContent} from './ownership.js';
@@ -8,12 +8,12 @@ import {readTarget} from './preview.js';
 import {readFileState} from './file-state.js';
 import {scanRepository} from '../analyzer/repository.js';
 import {runProjectChecks} from '../integrations/tools/quality.js';
-import {loadUpstreamLock} from '../integrations/registry.js';
-import {queryOperation,assertNoUnknownWriters} from './operations.js';
+import {loadUpstreamLock} from '../integrations/upstream.js';
+import {assertNoUnknownWriters} from './operations.js';
 import {acquireLock} from './lock.js';
 import {agents} from '../integrations/agents/index.js';
-import {initializationRecipe} from '../integrations/tools/initialization.js';
-import {signature} from '../generator/cache.js';
+import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js';
+import {verifyToolInitializationReceipt} from '../integrations/tools/native-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 export interface DoctorOptions {runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
 export interface Diagnostic {category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
@@ -23,6 +23,10 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
  let manifest:Awaited<ReturnType<typeof loadManifest>>;try{manifest=await loadManifest(root);}catch{add('config','manifest','failed','Damaged ownership metadata; no repair or initialization performed');return {...report,status:'failed',exitCode:1};}
  if(!manifest){add('config','manifest','pending','No installation manifest; no setup performed');return report;}
  add('config','manifest','configured','Manifest schema readable');const selected:SetupOptions=manifest.options??{agents:[],backend:'native'};
+ if(manifest.projectRules){
+  report.projectRules=manifest.projectRules;
+  if(manifest.projectRules==='pending')add('config','project-rules','pending','Foundation installed. Run rigup update --review to prepare project rules.');
+ }
  if(!manifest.options)add('config','selection','pending','Installed selection unavailable; cannot infer capabilities');
  for(const asset of manifest.assets){
   const baseline=await trustedBaseline(root,asset);if(baseline===undefined){add('config',asset.logicalId,'failed','Trusted generated baseline unavailable');continue;}
@@ -38,15 +42,13 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
  const envRefs=new Set([...(selected.customer?.envRefs??[]),...(selected.mcp??[]).flatMap(m=>[...(m.envRefs??[]),...(m.command?.envRefs??[])]),...(selected.quality?.gitlab?.openwiki?.envRefs??[])]);
  for(const ref of envRefs)add('environment','env:'+ref,process.env[ref]?'available':'pending',process.env[ref]?'Environment reference is available; value omitted':'Missing credential/environment reference; value never stored');
  const recipes=await loadUpstreamLock();for(const tool of selected.tools??[]){
-  const recipe=recipes.find(r=>r.integrationId===tool.id)!;const name=tool.id==='openwiki'?'openwiki':'@colbymchenry/codegraph';const prefix='.rigup/tools/'+tool.id;
-  const probe:SetupOperation={id:'probe:'+tool.id,integrationId:tool.id,kind:'install',version:recipe.version,parameters:{executable:'npm',args:['--prefix',resolve(root,prefix)],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],timeoutMs:1,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',name,version:recipe.version,integrity:recipe.packageIntegrity,packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json'}};
-  const result=await queryOperation(probe);const receipt=manifest.installedTools?.[tool.id];const verified=result.status==='done'&&receipt?.packageLockDigest===result.receipt?.packageLockDigest;
+  const recipe=recipes.find(r=>r.integrationId===tool.id)!;
+  const verified=await verifyToolInstallReceipt(root,tool.id,recipe,manifest.installedTools?.[tool.id]);
   add('tools',tool.id+':binary',verified?'available':'pending',verified?'Pinned package, dependency tree, launcher and receipt verified':'Project installation unavailable/unreceipted; no install or global change performed');
   const nativeReceipt=manifest.initializedTools?.[tool.id];
-  const native=nativeReceipt?await queryOperation(initializationRecipe(root,tool.id,recipe.version,recipe.packageIntegrity)):undefined;
-  const initialized=native?.status==='done'&&signature(native.nativeReceipt)===signature(nativeReceipt);
-  const initializationReason=initialized?native!.message:tool.id==='openwiki'?(nativeReceipt?'Existing native ownership/state needs reconciliation. ':'')+openwikiInitializationGuide:'Native initialization unavailable or ownership/state changed; no initialization or repair executed';
-  add('tools',tool.id+':initialization',initialized?'initialized':'pending',initializationReason);
+  const native=await verifyToolInitializationReceipt(root,tool.id,recipe,nativeReceipt);
+  const initializationReason=native?native.message:tool.id==='openwiki'?(nativeReceipt?'Existing native ownership/state needs reconciliation. ':'')+openwikiInitializationGuide:'Native initialization unavailable or ownership/state changed; no initialization or repair executed';
+  add('tools',tool.id+':initialization',native?'initialized':'pending',initializationReason);
  }
  if(options.runChecks?.length){const lock=await acquireLock(root,{stateRoot:options.stateRoot});try{await assertNoUnknownWriters(root,lock.stateRoot);report.checks=await runProjectChecks(await scanRepository(root,selected),options.runChecks,options.signal);}finally{await lock.release();}}
  for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??'Actual selected command result; separate from installation status');

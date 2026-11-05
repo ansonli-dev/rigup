@@ -1,11 +1,11 @@
-import {queryInstalledTool} from './installed-state.js';
+import {verifyToolInstallReceipt,type ToolInstallReceipt} from './installed-state.js';
+import {softwareInstallRecipe,toolPackage,type NativeTool} from './recipes.js';
 import {lstat,readdir,realpath} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import type {SetupOperation} from '../../types.js';
-export async function prepareSoftwareInstall(root:string,id:'openwiki'|'codegraph',version:string,integrity?:string,receipt?:{version:string;packageLockDigest:string}):Promise<SetupOperation|{pending:string}|{reused:true;version:string}>{
+export async function prepareSoftwareInstall(root:string,id:NativeTool,version:string,integrity?:string,receipt?:ToolInstallReceipt):Promise<SetupOperation|{pending:string}|{reused:true;version:string}>{
  root=await realpath(root);
- const prefix='.rigup/tools/'+id;
- const name=id === 'codegraph' ? '@colbymchenry/codegraph' : 'openwiki';
+ const {prefix}=toolPackage(id);
  let current=root;
  for(const part of prefix.split('/')) {
   current=resolve(current,part);
@@ -13,14 +13,9 @@ export async function prepareSoftwareInstall(root:string,id:'openwiki'|'codegrap
   catch(error){if((error as NodeJS.ErrnoException).code === 'ENOENT') break;throw error;}
  }
  try {if((await readdir(resolve(root,prefix))).length) {
-   if(receipt && receipt.version === version && integrity) {
-    try {
-     const installed=await queryInstalledTool(root,{prefix,id,name,version,integrity,lockDigest:receipt.packageLockDigest});
-     if(installed.status==='done')return {reused:true,version};
-    }catch {/* Failed reconciliation leaves the existing scope untouched. */}
-   }
+   if(integrity&&await verifyToolInstallReceipt(root,id,{version,packageIntegrity:integrity},receipt))return {reused:true,version};
    return {pending:'existing non-empty tool scope requires reconciliation; no automatic overwrite'};
   }}
  catch(error){if((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;}
- return {id:'install:'+id,integrationId:id,kind:'install',parameters:{executable:'npm',args:['install','--prefix',resolve(root,prefix),'--cache',resolve(root,prefix,'.npm-cache'),'--ignore-scripts','--save-exact','--no-audit','--no-fund','--userconfig',resolve(root,prefix,'.npmrc.user'),'--globalconfig',resolve(root,prefix,'.npmrc.global'),'--registry','https://registry.npmjs.org/',name+'@'+version],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],version,timeoutMs:300000,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity}};
+ return softwareInstallRecipe(root,id,version,integrity);
 }

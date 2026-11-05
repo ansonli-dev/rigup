@@ -45,6 +45,19 @@ mcp:
 - MCP 的 `envRefs` 由 runner 启动时解析。配置里保存变量名，凭据由宿主环境提供。安装后重载 agent，再检查实际连接。
 - `customSkills` 接受本地 `source` 目录，可用 `position` 绑定 `prepare`、`deliver` 或 `release`。`templates` 通过 `source`、`target` 和 `values` 为允许的文档或 skill 资源做标量替换。`change-release` 需要真实的客户部署适配器。
 
+## 先安装工作流，再生成规则
+
+已有原生研发流程入口时，可以先安装选定的技能、工具配置和现有检查。使用正常的预览和独立应用流程。应用结果和 doctor 会显示项目规则待生成。
+
+```sh
+rigup init --defer-research --review
+rigup update --apply PREVIEW_ID --sessions-ended
+rigup update --review
+rigup update --apply RULES_PREVIEW_ID --sessions-ended
+```
+
+第一阶段无需模型请求，技能在重载后可配合项目原有指引使用。第二阶段按已保存的选择生成并独立验收规则，应用后重载宿主。中断时使用原设置执行 `rigup update --review --resume`。现有完整设置入口仍可一次准备两部分。
+
 ## 项目研发流程
 
 - `--language` 和 `documentLanguage` 接受 `auto` 或语言标签，例如 `zh-CN`、`en`、`ja`。默认 `auto` 参照适用的项目指引。此设置用于新生成的项目规范和语义文档。已有文档保留原文，原生流程入口保留其名称和模板。

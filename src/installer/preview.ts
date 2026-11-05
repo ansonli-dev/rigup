@@ -3,36 +3,35 @@ import {parse as parseJsonc} from 'jsonc-parser';
 import {parse as parseToml} from 'smol-toml';
 import {filterContent} from '../analyzer/read-policy.js';
 import {scanRepository} from '../analyzer/repository.js';
+import type {NativeDiscoveryOptions} from '../analyzer/native-sources.js';
 import {projectInput} from '../managed-input.js';
-import {lstat,readdir,realpath} from 'node:fs/promises';
+import {realpath} from 'node:fs/promises';
 import {join,posix,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import type {SetupPlan,ManagedAsset} from '../types.js';
 import type {Ownership} from '../managed-input.js';
 import type {PreparedAsset} from '../integrations/registry.js';
-import {loadUpstreamLock} from '../integrations/registry.js';
-import {prepareSoftwareInstall} from '../integrations/tools/software.js';
-import {initializationRecipe,emptyNativeScope,type NativeTool} from '../integrations/tools/initialization.js';
-import {queryInstalledTool} from '../integrations/tools/installed-state.js';
+import {loadUpstreamLock} from '../integrations/upstream.js';
+import {assertEmptyToolScopes} from '../integrations/tools/initialization.js';
+import {assertToolOperationRecipe,isNativeTool} from '../integrations/tools/recipes.js';
+import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js';
+import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {digest} from '../analyzer/evidence.js';
-import {readFileState,absentDigest} from './file-state.js';
+import {readFileState,readFileStates,absentDigest} from './file-state.js';
 export {absentDigest} from './file-state.js';
 import {privateDirectory,signature,readCache,saveCache} from '../generator/cache.js';
 import {markdownLinks,validateTemplateContent} from '../generator/document-policy.js';
 import {loadManifest,trustedBaseline,type Manifest} from './baseline.js';
 import {mergeManaged,type MergeResult} from './merge.js';
-import {targetPath,ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
+import {ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
-export interface Preview {previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
+export interface Preview {projectRules?:SetupPlan['projectRules'];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number}
-export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[];operationPreconditions:{id:string;state:'missing'|'empty'}[]}
+export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;nativeDiscoveryVersion?:1;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
 export async function readTarget(root:string,target:string):Promise<Buffer|undefined>{return (await readFileState(root,target)).bytes;}
-export async function operationPrecondition(root:string,target:string):Promise<'missing'|'empty'>{
- const path=await targetPath(root,target);try {const st=await lstat(path);if(!st.isDirectory()||(await readdir(path)).length)throw new Error('external operation requires a new empty scope');return 'empty';}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return 'missing';throw e;}
-}
 export async function loadPreview(previewId:string,cacheRoot=defaultPreviewCache()):Promise<PreviewData>{
  if(!/^[a-f0-9]{64}$/.test(previewId))throw new Error('preview id invalid');
  const value=await readCache<{digest:string;data:PreviewData}>(join(cacheRoot,previewId+'.json'));
@@ -47,7 +46,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const inputAssets=[...plan.assets];const baselineRecords:PreviewData['baselines']=[];const nextAssets:ManagedAsset[]=[];
  const fileMap=new Map<string,{raw?:Buffer;text?:string;encoding:'utf8'|'base64';observedMode?:number;mode?:number}>();
  const allTargets=[...new Set([...inputAssets.map(a=>a.target),...old.map(a=>a.target)])];
- for(const target of allTargets){const actual=await readFileState(root,target),raw=actual.bytes;const encoding=inputAssets.find(a=>a.target===target)?.encoding??old.find(a=>a.target===target)?.encoding??'utf8';fileMap.set(target,{raw,text:raw?.toString(encoding==='base64'?'base64':'utf8'),encoding,observedMode:actual.mode,mode:actual.mode});}
+ for await(const {target,state} of readFileStates(root,allTargets)){const raw=state.bytes;const encoding=inputAssets.find(a=>a.target===target)?.encoding??old.find(a=>a.target===target)?.encoding??'utf8';fileMap.set(target,{raw,text:raw?.toString(encoding==='base64'?'base64':'utf8'),encoding,observedMode:state.mode,mode:state.mode});}
  const usedResolutions=new Set<PreviewResolution>();
  const entries:{candidate?:PreparedAsset;old?:ManagedAsset;action:'update'|'remove'|'retain'|'pending'}[]=[];
  for(const asset of inputAssets){
@@ -114,24 +113,22 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   items.push({logicalId:asset.logicalId,target:asset.target,ownership:asset.ownership,action:result.action,reason:result.reason,observedDigest,beforeMode:file.observedMode,afterMode:file.mode,...(!['noop','keep'].includes(result.action)?{before:display(local),after:display(result.action==='remove'?undefined:result.content??entry.candidate?.content)}:{})});
  }
  if(usedResolutions.size!==resolutions.length)throw new Error('resolution target/selector does not match planned item');
- const operationPreconditions:PreviewData['operationPreconditions']=[];
  const lock=await loadUpstreamLock();
  for(const op of plan.operations){
+  if(op.kind==='initialize'&&op.integrationId==='openwiki'){
+   blockers.push(op.id+': '+openwikiInitializationGuide);
+   continue;
+  }
   try{
-   const recipe=lock.find(r=>r.integrationId===op.integrationId);if(!recipe||!['install','initialize'].includes(op.kind)||!['openwiki','codegraph'].includes(op.integrationId))throw new Error('external operation has no verified adapter');
-   if(plan.operations.filter(o=>o.id===op.id).length!==1||op.prerequisiteIds.some(id=>!plan.operations.slice(0,plan.operations.indexOf(op)).some(o=>o.id===id)))throw new Error('missing or reordered operation prerequisite');
-   if(op.kind==='install'){
-    const expected=await prepareSoftwareInstall(root,op.integrationId as NativeTool,recipe.version,recipe.packageIntegrity);
-    if('pending' in expected||'reused' in expected||signature(expected)!==signature(op))throw new Error('operation differs from verified recipe');
-   }else{
-    const prerequisites=plan.operations.filter(o=>o.kind==='install'&&o.integrationId===op.integrationId).map(o=>o.id);
-    const expected=initializationRecipe(root,op.integrationId as NativeTool,recipe.version,recipe.packageIntegrity,prerequisites);
-    if(signature(expected)!==signature(op))throw new Error('initialization differs from verified recipe');
-    if(!prerequisites.length){const receipt=oldManifest?.installedTools?.[op.integrationId];const installed=await queryInstalledTool(root,{prefix:'.rigup/tools/'+op.integrationId,id:op.integrationId,...op.query,lockDigest:receipt?.packageLockDigest});if(!receipt||installed.status!=='done')throw new Error('initialization requires receipted software');}
-    for(const scope of op.declaredWrites)await emptyNativeScope(root,scope);
-   }
-   if(op.declaredWrites.some(scope=>allTargets.some(target=>target===scope||target.startsWith(scope+'/')||scope.startsWith(target+'/'))))throw new Error('external operation overlaps candidate');
-   operationPreconditions.push({id:op.id,state:await operationPrecondition(root,op.protection.target)});
+   const id=op.integrationId;
+   const recipe=lock.find(r=>r.integrationId===id);
+   if(!recipe||!isNativeTool(id))throw Error('External operation has no verified adapter');
+   if(plan.operations.filter(o=>o.id===op.id).length!==1||op.prerequisiteIds.some(id=>!plan.operations.slice(0,plan.operations.indexOf(op)).some(o=>o.id===id)))throw Error('Missing or reordered operation prerequisite');
+   const prerequisites=op.kind==='initialize'?plan.operations.filter(o=>o.kind==='install'&&o.integrationId===id).map(o=>o.id):[];
+   assertToolOperationRecipe(root,op,recipe,prerequisites);
+   if(op.kind==='initialize'&&!prerequisites.length&&!await verifyToolInstallReceipt(root,id,recipe,oldManifest?.installedTools?.[id]))throw Error('Initialization requires receipted software');
+   if(op.declaredWrites.some(scope=>allTargets.some(target=>target===scope||target.startsWith(scope+'/')||scope.startsWith(target+'/'))))throw Error('External operation overlaps candidate');
+   await assertEmptyToolScopes(root,op);
   }catch{blockers.push(op.id+': external operation protection or recipe validation failed');}
  }
  // Validate selected owned content in the final virtual tree, including preserved local edits.
@@ -166,19 +163,20 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   }catch{blockers.push('.gitlab-ci.yml: required CI include/job binding invalid or unavailable; preserve local content and re-prepare');}
  }
  const previewId=digest(randomUUID()+signature({plan,items,resolutions}));
- const publicPreview:Preview={previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
+ const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
- const data:PreviewData={schemaVersion:1,modePolicyVersion:1,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan),files,assets:nextAssets,baselines:baselineRecords,operationPreconditions};
+ const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan),files,assets:nextAssets,baselines:baselineRecords};
  const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
  return publicPreview;
 }
 
-export async function installationInput(root:string,plan:SetupPlan):Promise<string>{
+export async function installationInput(root:string,plan:SetupPlan,discovery:NativeDiscoveryOptions={}):Promise<string>{
  const scopes=plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites);
- const profile=await scanRepository(root,plan.options,{},scopes);const old=(await loadManifest(root))?.assets??[];const values:string[]=[];
- for(const path of profile.files) {
-  let raw=(await readTarget(root,path))!.toString('utf8');
+ const profile=await scanRepository(root,plan.options,discovery,scopes);const old=(await loadManifest(root))?.assets??[];const values:string[]=[];
+ for await(const {target:path,state} of readFileStates(root,profile.files)) {
+  if(!state.bytes)throw Error('source input changed while preparing installation');
+  const raw=state.bytes.toString('utf8');
   const selectors=[...old,...plan.assets].filter(a=>a.target===path).map(a=>a.ownership);
   const unique=[...new Map(selectors.map(s=>[signature(s),s])).values()];
   const present=unique.filter(s=>ownedContent(raw,s)!==undefined);

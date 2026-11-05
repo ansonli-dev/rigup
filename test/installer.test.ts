@@ -1,6 +1,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {project,setNativeEntries} from './helpers.js';import {mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
-import {scanRepository} from '../src/analyzer/repository.js';import {preview} from '../src/installer/preview.js';import {apply} from '../src/installer/apply.js';import {loadManifest} from '../src/installer/baseline.js';
+import {project,setNativeEntries} from './helpers.js';import {mkdir,writeFile,readFile,readdir,rm,symlink} from 'node:fs/promises';
+import {scanRepository} from '../src/analyzer/repository.js';import {preview} from '../src/installer/preview.js';import {apply,restoreInterruptedPreview} from '../src/installer/apply.js';
+import {signature} from '../src/generator/cache.js';import {loadManifest} from '../src/installer/baseline.js';
 import type {SetupPlan} from '../src/types.js';
 async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>fn(root,cache,state))));}
 async function plan(root:string,content='new'):Promise<SetupPlan>{const options={agents:[],backend:'host' as const};return {root,fingerprint:(await scanRepository(root,options)).fingerprint,options,assets:[{logicalId:'guide',target:'guide.md',content,ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],operations:[],dispositions:[],warnings:[],requirements:[],versions:{}};}
@@ -64,6 +65,119 @@ test('sigkill_plus_lost_cache_keeps_partial_unowned_files_protected',()=>fixture
  await assert.rejects(()=>exec(process.execPath,['--import','tsx','--input-type=module','-e',script]));await rm(cache,{recursive:true,force:true});await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache,stateRoot:state,recover:true}),/missing|corrupt/);assert.equal(await readFile(root+'/guide.md','utf8'),'new');await mkdir(cache,{mode:0o700});const fresh=await preview(await plan(root,'different'),[],{cacheRoot:cache});assert.equal(fresh.executable,false);assert.ok((await readdir(state)).some(p=>p.endsWith('.apply.json')));
 }));
 import {prepareSoftwareInstall} from '../src/integrations/tools/software.js';import {loadUpstreamLock} from '../src/integrations/registry.js';
+import {pendingOperations,queryOperation} from '../src/installer/operations.js';
+test('independent installs overlap, retain the lock on failure and reconcile both receipts',()=>fixture(async(root,cache,state)=>{
+ const candidate=await plan(root);
+ const recipes=await loadUpstreamLock();
+ for(const id of ['openwiki','codegraph'] as const){
+  const recipe=recipes.find(r=>r.integrationId===id)!;
+  const op=await prepareSoftwareInstall(root,id,recipe.version,recipe.packageIntegrity);
+  if('pending' in op||'reused' in op)throw Error('fixture');
+  candidate.operations.push(op);
+ }
+ const approved=await preview(candidate,[],{cacheRoot:cache});
+ const otherStarted=Promise.withResolvers<void>();
+ const resumeOther=Promise.withResolvers<void>();
+ const launches:string[]=[];
+ const deps={cacheRoot:cache,stateRoot:state,operation:{launch:async(op:SetupPlan['operations'][number])=>{
+  launches.push(op.id);
+  if(launches.length===2)otherStarted.resolve();
+  if(op.integrationId==='codegraph')await resumeOther.promise;
+  const {name,version,integrity,packageJson,packageLock}=op.query;
+  const directory=root+'/'+packageJson.slice(0,-'/package.json'.length);
+  const bin=root+'/'+op.protection.target+'/node_modules/.bin';
+  await mkdir(directory,{recursive:true});await mkdir(bin,{recursive:true});
+  await writeFile(directory+'/package.json',JSON.stringify({name,version,bin:{[op.integrationId]:'cli.js'}}));
+  await writeFile(directory+'/cli.js','#!/usr/bin/env node\n',{mode:0o755});
+  await symlink('../'+name+'/cli.js',bin+'/'+op.integrationId);
+  await writeFile(root+'/'+packageLock,JSON.stringify({packages:{'':{dependencies:{[name]:version}},['node_modules/'+name]:{version,integrity}}}));
+  if(op.integrationId==='openwiki')throw Error('lost install result');
+  return queryOperation(op);
+ }}};
+ const running=apply(approved.previewId,deps);
+ const rejected=assert.rejects(running,/lost install result/);
+ try{
+  assert.equal(await Promise.race([otherStarted.promise.then(()=>true),rejected.then(()=>false)]),true,'CodeGraph launches even while the OpenWiki result is unresolved');
+  const records=await pendingOperations(root,state);
+  assert.deepEqual(records.map(r=>r.operation.id).sort(),['install:codegraph','install:openwiki']);
+  assert.ok(records.every(r=>r.stage==='dispatching'));
+  await assert.rejects(()=>apply(approved.previewId,deps),/locked/);
+  assert.equal(await loadManifest(root),undefined);
+ }finally{resumeOther.resolve();await rejected;}
+ assert.equal(await loadManifest(root),undefined);
+ const result=await apply(approved.previewId,deps);
+ assert.equal(result.status,'complete');
+ assert.deepEqual(launches.sort(),['install:codegraph','install:openwiki']);
+ assert.deepEqual(Object.keys((await loadManifest(root))!.installedTools!).sort(),['codegraph','openwiki']);
+}));
 test('external_scope_changed_after_preview_stops_before_dispatch_or_text_writes',()=>fixture(async(root,cache,state)=>{
  const p=await plan(root);const recipe=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!;const op=await prepareSoftwareInstall(root,'openwiki',recipe.version,recipe.packageIntegrity);if('pending' in op||'reused' in op)throw Error('fixture');p.operations=[op];const view=await preview(p,[],{cacheRoot:cache});assert.equal(view.executable,true);await mkdir(root+'/.rigup/tools/openwiki',{recursive:true});await writeFile(root+'/.rigup/tools/openwiki/customer.txt','preserve');let dispatched=0;const r=await apply(view.previewId,{cacheRoot:cache,stateRoot:state,operation:{launch:async()=>{dispatched++;return {status:'done',message:'should not dispatch'};}}});assert.equal(r.exitCode,3);assert.equal(dispatched,0);assert.equal(await loadManifest(root),undefined);assert.ok(!(await readdir(root)).includes('guide.md'));
 }));
+
+test('damaged apply record blocks restore and a new apply without writing project files',()=>fixture(async(root,cache,state)=>{
+ const candidate=await plan(root);
+ const approved=await preview(candidate,[],{cacheRoot:cache});
+ const record=state+'/'+signature(root)+'.apply.json';
+ for(const invalid of ['{"status":','null','{}']){
+  await writeFile(record,invalid,{mode:0o600});
+  await assert.rejects(()=>restoreInterruptedPreview(root,candidate.options,cache,state),/apply record.*reconciliation/i);
+  await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,stateRoot:state,recover:true}),/apply record.*reconciliation/i);
+  assert.deepEqual(await readdir(root),[]);
+  assert.equal(await readFile(record,'utf8'),invalid);
+ }
+}));
+
+test('resume rejects a file mode in the transaction that differs from the approved preview',()=>fixture(async(root,cache,state)=>{
+ const candidate=await plan(root);
+ const approved=await preview(candidate,[],{cacheRoot:cache});
+ const lock={root,stateRoot:state,id:'fixture',release:async()=>{}};
+ const interrupted=await apply(approved.previewId,{cacheRoot:cache,lock,signal:AbortSignal.abort()});
+ assert.equal(interrupted.exitCode,130);
+ const record=state+'/'+signature(root)+'.apply.json';
+ const tx=JSON.parse(await readFile(record,'utf8'));
+ tx.files['guide.md'].afterMode=0o777;
+ await writeFile(record,JSON.stringify(tx));
+ await assert.rejects(()=>restoreInterruptedPreview(root,candidate.options,cache,state),/apply record.*preview/i);
+ await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,lock,recover:true}),/apply record.*preview/i);
+ assert.deepEqual(await readdir(root),[]);
+}));
+
+test('a damaged completed apply report is rejected instead of being replayed',()=>fixture(async(root,cache,state)=>{
+ const approved=await preview(await plan(root),[],{cacheRoot:cache});
+ const lock={root,stateRoot:state,id:'fixture',release:async()=>{}};
+ assert.equal((await apply(approved.previewId,{cacheRoot:cache,lock})).status,'complete');
+ const record=state+'/'+signature(root)+'.apply.json';
+ const tx=JSON.parse(await readFile(record,'utf8'));
+ tx.report={};
+ await writeFile(record,JSON.stringify(tx));
+ await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,lock}),/apply record.*reconciliation/i);
+ assert.equal(await readFile(root+'/guide.md','utf8'),'new');
+}));
+
+test('existing OpenSpec previews retain their discovery scope across an upgrade',()=>fixture(async(root,cache,state)=>project(async home=>{
+ const previousHome=process.env.CODEX_HOME;
+ process.env.CODEX_HOME=home;
+ try{
+  const candidate=await plan(root);
+  candidate.options={agents:['codex'],backend:'host',sdd:'openspec'};
+  candidate.fingerprint=(await scanRepository(root,candidate.options)).fingerprint;
+  const approved=await preview(candidate,[],{cacheRoot:cache});
+  const cached=cache+'/'+approved.previewId+'.json';
+  const legacy=JSON.parse(await readFile(cached,'utf8'));
+  delete legacy.data.nativeDiscoveryVersion;
+  legacy.digest=signature(legacy.data);
+  const lock={root,stateRoot:state,id:'fixture',release:async()=>{}};
+  const external=home+'/skills/openspec-update-change';
+  await mkdir(external,{recursive:true});
+  await writeFile(external+'/SKILL.md','---\nname: openspec-update-change\ndescription: Fixture revision\n---\n');
+  await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,lock}),/source input changed/);
+  await writeFile(cached,JSON.stringify(legacy));
+  const interrupted=await apply(approved.previewId,{cacheRoot:cache,lock,signal:AbortSignal.abort()});
+  assert.equal(interrupted.exitCode,130);
+  assert.equal(await restoreInterruptedPreview(root,candidate.options,cache,state),approved.previewId);
+  assert.equal((await apply(approved.previewId,{cacheRoot:cache,lock,recover:true})).status,'complete');
+  assert.equal(await readFile(root+'/guide.md','utf8'),'new');
+ }finally{
+  if(previousHome===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previousHome;
+ }
+})));

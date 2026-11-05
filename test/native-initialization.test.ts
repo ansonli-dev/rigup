@@ -26,6 +26,9 @@ test('scaffolding installs OpenWiki and stages only CodeGraph initialization',()
   ['install:openwiki',[]],
   ['install:codegraph',[]],['initialize:codegraph',['install:codegraph']],
  ]);
+ const reversed={...options,tools:[...options.tools!].reverse()};
+ const otherOrder=await prepareIntegrations(await scanRepository(root,reversed),reversed);
+ assert.deepEqual(otherOrder.operations.map(o=>o.id),['install:codegraph','install:openwiki','initialize:codegraph']);
  assert.deepEqual(prepared.requirements,[]);
  for(const op of prepared.operations.filter(o=>o.kind==='initialize')){
   assert.equal(op.protection.kind,'native-staging');
@@ -61,6 +64,14 @@ test('preview authorizes staged CodeGraph initialization without OpenWiki genera
  const plan=await nativePlan(root);const p=await preview(plan,[],{cacheRoot:cache});
  assert.equal(p.executable,true,p.blockers.join('\n'));
  assert.equal(p.operations.filter(o=>o.kind==='initialize').length,1);
+})));
+test('preview refuses a canonical OpenWiki initialization even with a pinned install prerequisite',()=>project(async root=>project(async cache=>{
+ const plan=await nativePlan(root);
+ const recipe=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!;
+ plan.operations.push(initializationRecipe(root,'openwiki',recipe.version,recipe.packageIntegrity,['install:openwiki']));
+ const approved=await preview(plan,[],{cacheRoot:cache});
+ assert.equal(approved.executable,false);
+ assert.ok(approved.blockers.some(reason=>/initialize:openwiki.*separate/i.test(reason)));
 })));
 test('preview refuses missing or reordered initialization dependencies',()=>project(async root=>project(async cache=>{
  const plan=await nativePlan(root);plan.operations=plan.operations.filter(o=>o.kind!=='install');

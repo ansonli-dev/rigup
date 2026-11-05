@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,mkdir,rm,symlink,access} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {scanRepository} from '../src/analyzer/repository.js';
-import {readEvidence} from '../src/analyzer/evidence.js';
+import {repositoryReader,scanRepository} from '../src/analyzer/repository.js';
+import {digest,readEvidence} from '../src/analyzer/evidence.js';
+import {validateResearch} from '../src/analyzer/backend.js';
 import {project} from './helpers.js';
 const options={agents:[],backend:'host'} as const;
 test('empty_and_non_git_are_valid_profiles',()=>project(async root=>{
@@ -22,6 +23,23 @@ test('monorepo_commands_keep_cwd_and_never_execute',()=>project(async root=>{
  const p=await scanRepository(root,{agents:[],backend:'host'});
  assert.equal(p.commands.test[0].cwd,'packages/a');assert.deepEqual(p.commands.test[0].args,['run','test']);
  await assert.rejects(access(join(root,'packages/a/marker')));
+}));
+test('specialized_package_checks_are_catalogued_separately_from_automatic_checks',()=>project(async root=>{
+ await mkdir(join(root,'packages/api'),{recursive:true});
+ await writeFile(join(root,'package.json'),JSON.stringify({scripts:{'test:e2e':'touch marker',typecheck:'tsc --noEmit','deps:validate':'node validate.js','test:dev':'vitest'}}));
+ await writeFile(join(root,'packages/api/package.json'),JSON.stringify({scripts:{'test-e2e':'touch marker','check-types':'tsc --noEmit','test:e2e':null,typecheck:'   '}}));
+ const profile=await scanRepository(root,{agents:[],backend:'host'});
+ assert.ok(profile.specializedChecks?.length,'expected specialized scripts in the check catalog');
+ assert.deepEqual(profile.specializedChecks.map(({command,source})=>[...command.args,command.cwd,source]),[
+  ['run','test:e2e','.','package.json'],
+  ['run','typecheck','.','package.json'],
+  ['run','deps:validate','.','package.json'],
+  ['run','test-e2e','packages/api','packages/api/package.json'],
+  ['run','check-types','packages/api','packages/api/package.json'],
+ ]);
+ assert.deepEqual(Object.values(profile.commands).flat(),[]);
+ await assert.rejects(access(join(root,'marker')));
+ await assert.rejects(access(join(root,'packages/api/marker')));
 }));
 test('symlink_escape_and_secret_files_are_denied',()=>project(async root=>{
  await symlink(tmpdir(),join(root,'escape'));await writeFile(join(root,'.env'),'TOKEN=secret');
@@ -68,6 +86,21 @@ test('reader_and_search_share_cumulative_budget_and_scope',()=>project(async roo
  assert.equal((await reader.read('selected/a.ts',1,1)).content,'four');
  await assert.rejects(reader.search('four'),/budget/);
  await assert.rejects(reader.read('outside.ts',1,1),/inventory/);
+}));
+test('verification reads a source once per pass and rereads it at the next checkpoint',()=>project(async root=>{
+ const path='source.ts';
+ await writeFile(join(root,path),'first\nsecond');
+ const budget={calls:0,bytes:0};
+ const reader=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:2,maxBytes:24}},{budget});
+ const research={observations:[],citations:[
+  {path,startLine:1,endLine:1,digest:digest('first')},
+  {path,startLine:2,endLine:2,digest:digest('second')}
+ ]};
+ await validateResearch(research,reader);
+ assert.deepEqual(budget,{calls:1,bytes:12});
+ await writeFile(join(root,path),'first\nedited');
+ await assert.rejects(validateResearch(research,reader),/digest mismatch/);
+ assert.deepEqual(budget,{calls:2,bytes:24});
 }));
 test('different counterexample queries share one budgeted corpus scan',()=>project(async root=>{
  const {repositoryReader}=await import('../src/analyzer/repository.js');

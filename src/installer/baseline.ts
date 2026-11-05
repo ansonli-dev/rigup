@@ -1,12 +1,13 @@
 import {readFile} from 'node:fs/promises';
-import type {ManagedAsset,SetupOptions} from '../types.js';
+import type {ManagedAsset,ProjectRulesStatus,SetupOptions} from '../types.js';
 import {targetPath,validateOwnership} from './ownership.js';
 import {digest} from '../analyzer/evidence.js';
-export interface Manifest {schemaVersion:1;installId:string;assets:ManagedAsset[];options?:SetupOptions;versions?:Record<string,string>;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>}
+export interface Manifest {schemaVersion:1;installId:string;assets:ManagedAsset[];projectRules?:ProjectRulesStatus;options?:SetupOptions;versions?:Record<string,string>;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>}
 export async function loadManifest(root:string):Promise<Manifest|undefined>{
  let text:string;try{text=await readFile(await targetPath(root,'.rigup/manifest.json'),'utf8');}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return;throw e;}
  let manifest:Manifest;try{manifest=JSON.parse(text);}catch{throw new Error('manifest invalid JSON; manual reconciliation required');}
  if(manifest.schemaVersion!==1||typeof manifest.installId!=='string'||!Array.isArray(manifest.assets))throw new Error('manifest invalid schema');
+ if(manifest.projectRules!==undefined&&!['pending','ready'].includes(manifest.projectRules))throw Error('manifest invalid project rules status');
  const seen=new Set<string>();for(const a of manifest.assets){if(!a||typeof a.logicalId!=='string'||seen.has(a.logicalId)||typeof a.target!=='string'||typeof a.digest!=='string')throw new Error('manifest invalid asset');seen.add(a.logicalId);validateOwnership(a.ownership);await targetPath(root,a.target);}
  return manifest;
 }

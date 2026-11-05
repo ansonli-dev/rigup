@@ -1,16 +1,11 @@
-import {privateDirectory,readCache,saveCache,signature} from '../generator/cache.js';
+import {privateDirectory,readCache,saveCache,signature,stable} from '../generator/cache.js';
 import {mkdir,realpath,readFile,writeFile,lstat,rename} from 'node:fs/promises';
 import {join,resolve,relative,isAbsolute,parse,dirname} from 'node:path';
-import {randomUUID,createHash} from 'node:crypto';
+import {randomUUID} from 'node:crypto';
 import {validateResearchRequest,validateResearch,selectResearchOutput,type AnalysisBackend} from './backend.js';
 import {READ_POLICY_VERSION} from './read-policy.js';
 import {PROMPT_VERSION,researchPrompt,topicEvidencePrompt} from './prompts.js';
 import {stageContext,stageEvidence,dependencyLock,STAGE_EVIDENCE_POLICY} from './stage-context.js';
-function stable(value:unknown):string {
- if(Array.isArray(value)) return '['+value.map(stable).join(',')+']';
- if(value && typeof value === 'object') return '{'+Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).filter(([,v])=>v !== undefined).map(([k,v])=>JSON.stringify(k)+':'+stable(v)).join(',')+'}';
- return JSON.stringify(value);
-}
 function inside(root:string,path:string):boolean {const rel=relative(root,path);return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));}
 export function hostBackend(options:{cacheRoot:string;responsePath?:string;requestPath?:string;omitDependencyLocks?:boolean;stageEvidence?:boolean;nativeEntryPaths?:readonly string[]}):AnalysisBackend {
  return {run:async(request,reader)=>{
@@ -31,7 +26,8 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   const paths=await reader.list();
   const task=options.stageEvidence?stageContext(request,paths,options.nativeEntryPaths):undefined;
   const taskEvidence=task?await stageEvidence(reader,task.slices):undefined;
-  const selected=task?new Set(task.slices.map(slice=>slice.path)):undefined;
+  const analysisCitations=task?.stage==='analyze'?taskEvidence?.map(item=>item.evidence):undefined;
+  const selected=taskEvidence?new Set(taskEvidence.map(item=>item.evidence.path)):undefined;
   const protectedEvidence=options.omitDependencyLocks||options.stageEvidence;
   const omittedEvidence=protectedEvidence?paths.filter(path=>dependencyLock(path)||selected&&!selected.has(path)).map(path=>({path,reason:dependencyLock(path)?'Dependency lockfile body omitted from model context. Package manifests retain declared dependency ranges; exact locked/transitive versions are not supplied and must not be inferred.':'Body not selected for the current '+task!.stage+' task. Inventory is navigation, not evidence of unprovided contents.'})):[];
   const omitted=new Set(omittedEvidence.map(item=>item.path));const evidencePaths=paths.filter(path=>!omitted.has(path));
@@ -39,7 +35,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   const topicPlanning=task?.stage==='plan'&&!!(request.input as {topicEvidence?:unknown}|undefined)?.topicEvidence;
   const instructions=researchPrompt+(task?'\nStage evidence policy: paths are a full inventory, NOT proof that their contents were read. Only supplied evidence bodies and exact visible ranges are available for new verification. Prior research is bounded comparison context. Do not claim knowledge of omitted bodies or uncited lines, or infer absence from selection. Preserve all supplied counterexamples, unresolved authority and unknowns. If a needed source is unavailable, state the limitation rather than inventing it. Native instructions and gates remain authoritative at their original paths.':'')+
    (task?.stage==='analyze'||topicPlanning?'\n'+topicEvidencePrompt:'');
-  const requestDigest=createHash('sha256').update(stable(context)).digest('hex');
+  const requestDigest=signature(context);
   const requestId=requestDigest;
   const requestPath=join(cache,requestId+'.request.json');
   const acceptedPath=join(cache,requestId+'.accepted.json');
@@ -60,7 +56,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
     if((await lstat(acceptedPath)).isSymbolicLink()||(await lstat(requestPath)).isSymbolicLink())throw new Error('accepted/request path symlink denied');
     const accepted=JSON.parse(await readFile(acceptedPath,'utf8'));const exported=JSON.parse(await readFile(requestPath,'utf8'));
     if(accepted.requestDigest!==requestDigest||stable(exported.context)!==stable(context)||exported.instructions!==instructions)throw new Error('cached host acceptance context changed');
-    await verifyDelivery(exported);await validateResearch(accepted.result.data,reader);return {status:'complete',value:accepted.result};
+    await verifyDelivery(exported);await validateResearch(accepted.result.data,reader,analysisCitations);return {status:'complete',value:accepted.result};
    }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
   }
   if(options.responsePath) {
@@ -71,7 +67,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
    const exported=JSON.parse(await readFile(requestPath,'utf8'));
    if(exported.requestDigest !== requestDigest || exported.requestId !== requestId || stable(exported.context) !== stable(context) || exported.instructions !== instructions) throw new Error('request context or instructions changed');
    const data=selectResearchOutput(request,response.data);
-   await verifyDelivery(exported);await validateResearch(data,reader);
+   await verifyDelivery(exported);await validateResearch(data,reader,analysisCitations);
    if(typeof response.model !== 'string' || !response.model) throw new Error('response model: required');
    const unknowns=(data as {unknowns?:unknown}).unknowns;
    if(!Array.isArray(unknowns)||unknowns.some((x:unknown)=>typeof x !== 'string')) throw new Error('unknowns: required');
@@ -81,7 +77,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
    return {status:'complete',value:result};
   }
   const {kind,artifact,expectedOutput,input,spent,inputDigest,evidenceSelection,...runContext}=context;
-  const runDigest=createHash('sha256').update(stable({runId:request.runId,root})).digest('hex');
+  const runDigest=signature({runId:request.runId,root});
   const budgetPath=join(cache,runDigest+'.budget.json');
   let state:{context:string;requests:string[];tokens:'unknown'}={context:stable(runContext),requests:[],tokens:'unknown'};
   try {

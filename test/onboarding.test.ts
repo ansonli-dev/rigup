@@ -37,3 +37,11 @@ test('guided semantic setup accepts a custom document language and skips a suppl
  const selected=await onboard({...initial,documentLanguage:'ja'},{write:()=>{},read:async()=>assert.fail('the supplied language must be used')},settings);
  assert.equal(selected?.options.documentLanguage,'ja');
 });
+
+test('deferred native setup keeps the backend selection without prompting for model credentials',async()=>{
+ const result=await onboard({agents:['codex'],backend:'native',sdd:'openspec'},
+  {write:()=>{},read:async()=>assert.fail('foundation setup requested model credentials')},
+  {configure:false,knownBackend:true,deferResearch:true});
+ assert.equal(result?.options.backend,'native');
+ assert.equal(result?.options.sdd,'openspec');
+});

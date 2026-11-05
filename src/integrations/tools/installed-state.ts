@@ -2,7 +2,16 @@ import {readFile,lstat,realpath} from 'node:fs/promises';
 import {join,isAbsolute,posix} from 'node:path';
 import {targetPath} from '../../installer/ownership.js';
 import {digest} from '../../analyzer/evidence.js';
-export interface InstalledToolState {status:'done'|'unknown';message:string;receipt?:{version:string;packageLockDigest:string}}
+import {toolPackage,type NativeTool,type ToolPin} from './recipes.js';
+export interface ToolInstallReceipt {version:string;packageLockDigest:string}
+export interface InstalledToolState {status:'done'|'unknown';message:string;receipt?:ToolInstallReceipt}
+export function queryPinnedTool(root:string,id:NativeTool,pin:ToolPin,lockDigest?:string):Promise<InstalledToolState> {
+ return queryInstalledTool(root,{...toolPackage(id),version:pin.version,integrity:pin.packageIntegrity,lockDigest});
+}
+export async function verifyToolInstallReceipt(root:string,id:NativeTool,pin:ToolPin,receipt?:ToolInstallReceipt):Promise<boolean> {
+ if(!receipt||receipt.version!==pin.version||!/^[a-f0-9]{64}$/.test(receipt.packageLockDigest))return false;
+ return (await queryPinnedTool(root,id,pin,receipt.packageLockDigest)).status==='done';
+}
 export async function queryInstalledTool(root:string,input:{prefix:string;id:string;name:string;version:string;integrity?:string;lockDigest?:string}):Promise<InstalledToolState>{
  try {
   const q={packageJson:input.prefix+'/node_modules/'+input.name+'/package.json',packageLock:input.prefix+'/package-lock.json',name:input.name,version:input.version,integrity:input.integrity};
