@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Use Node.js 24+, npm, Git, a POSIX shell, and `ps` (the `procps` package in minimal Debian containers). The default test suite requires child-process execution, local pipes, temporary directories, and Git repositories; a sandbox that denies these operations is not a supported test environment. Linux and macOS are the CI targets. Windows has not been validated; use a Linux environment for now.
+Use Node.js 24+, npm, Git, a POSIX shell, and `ps` (the `procps` package in minimal Debian containers). The default test suite requires child-process execution, local pipes, temporary directories, and Git repositories; a sandbox that denies these operations is not a supported test environment. Linux and macOS are the CI targets. Native Windows and WSL2 have not been validated for this project. Follow the [external validation handoff](external-validation-handoff.md) to test them separately; WSL2 success does not establish native Windows support.
 
 ```sh
 npm ci
@@ -62,6 +62,8 @@ RIGUP_LIVE=1 RIGUP_LIVE_GATE=1 RIGUP_OPENSPEC_BIN=/absolute/path/to/openspec \
 ```
 
 The default-Codex semantic lifecycle probe is `test/live-codex-backend.test.ts`, gated by `RIGUP_LIVE_CODEX_BACKEND=1` and `RIGUP_OPENSPEC_BIN`. The real GitHub frontend workflow is `test/live-github-context.test.ts`; inspect its explicit source pins, workspace and budget before opting in. Existing results are linked from [validation status](../compatibility/status.md); an unchanged model adapter does not need another paid run solely for documentation changes.
+
+For Claude on another machine, Windows preparation, actual report assertions, manual native gates and failure recovery, follow the [external validation handoff](external-validation-handoff.md). It distinguishes Claude OAuth from the Rigup research backend and does not require Codex for the Claude canary.
 
 ## Local GitLab validation
 

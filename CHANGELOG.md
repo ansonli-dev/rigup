@@ -4,6 +4,8 @@ Changes to the source distribution are recorded here. There is no npm registry r
 
 ## Unreleased — 0.1.0 development preview
 
+- Add the external validation handoff for Claude on another machine and separate native Windows/WSL2 verification, including commands, acceptance checks, budgets and recovery.
+
 - Fix shell quoting in review handoff commands and sensitive configuration comments, browser sessions, credential backups and private-key material in research evidence; invalidate old exports under read policy 6.
 - Reject recognized cookie/header/query credentials and curl short authentication flags while preserving Python interpreter options.
 - Stop test-owned native daemons through verified project identity before fixture removal.

@@ -60,7 +60,7 @@ npm ci
 npm run check
 ```
 
-The check runs contract tests, type checking, build, documentation links, and an isolated package-consumer smoke test. It does not call paid models. See [development and opt-in integration tests](docs/guides/development.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), and the [changelog](CHANGELOG.md).
+The check runs contract tests, type checking, build, documentation links, and an isolated package-consumer smoke test. It does not call paid models. For Claude on another machine and native Windows/WSL2 testing, use the [external validation handoff](docs/guides/external-validation-handoff.md) (中文). See [development and opt-in integration tests](docs/guides/development.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), and the [changelog](CHANGELOG.md).
 
 ## License
 

@@ -149,6 +149,8 @@ doctor 默认只读，不初始化或修复业务。只有显式 `--run-checks` 
 
 ## 验证与待办
 
+换机继续 Claude、Windows 原生/WSL2 或其他外部条件验证时，使用[交接清单](external-validation-handoff.md)。其中给出了实际测试名、结构化报告断言和失败恢复；默认 live 测试的 skip 不代表对应场景通过。
+
 ```sh
 npm test
 npm run typecheck
@@ -170,4 +172,6 @@ RIGUP_LIVE_CODEX_BACKEND=1 RIGUP_OPENSPEC_BIN=/path/to/openspec node --import ts
 
 第一组验证官方固定版本安装、CodeGraph 受保护初始化/恢复、OpenWiki 独立交接及 Codex MCP 连接，不调用模型。第二组使用本机默认 Codex 模型验证研究到安装与无变化复用；不运行模型切换。
 
-另已对锁定提交的 Domain-Driven Hexagon 和 Bulletproof React 运行真实 GitHub 项目 E2E。DDD 主线通过。前端各轮历史结果保留；按阶段优化并补齐权威范围后，仍在同一 12 请求 / 1200000 token 预算内通过，累计 **6 请求 / 499754 token**，包含修复前全部消费和原 run 内重新生成/验收。最终 plan/content/acceptance 使用 28/27/27 个来源，后三阶段正文合计减少 **51.33%**；应用构建、21 项单测、3 项浏览器用例及真实 Codex MCP 查询通过，续验后业务/原生文件再次核对未改。见 [首次项目记录](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-05-github-projects/README.md)、[锁文件优化](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-05-context-budget/README.md) 和 [最终阶段优化复验](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-05-stage-context/README.md)。
+另已对锁定提交的 Domain-Driven Hexagon 和 Bulletproof React 运行真实 GitHub 项目 E2E。DDD 主线通过。前端各轮历史结果保留；阶段优化首轮累计 **6 请求 / 499754 token**（plan/content/acceptance 28/27/27 个来源，后三阶段正文减少 **51.33%**）。安全修复后的真实复验仅使用原剩余额度，合计 **10 请求 / 855212 token**，仍在同一 12 请求 / 1200000 token 预算内，后三阶段正文减少 **60.97%**；应用构建、21 项单测、3 项浏览器用例及真实 Codex MCP 查询通过，续验后业务/原生文件再次核对未改。见 [首次项目记录](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-05-github-projects/README.md)、[锁文件优化](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-05-context-budget/README.md) 和 [最终阶段优化复验](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-05-stage-context/README.md)。
+
+安全修复后复验的准确源码/读取策略、原账本未改证明和应用检查见[最终证据](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-05-open-source/README.md)。这些历史消费不能通过换机或重跑来清零。

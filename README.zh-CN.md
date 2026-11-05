@@ -48,6 +48,7 @@ OpenWiki 只安装软件、登记 MCP 并给出独立初始化指引；长时间
 
 - [使用手册](docs/guides/usage.md)：配置、预算、后端、更新保护、工具与退出码。
 - [开发与测试](docs/guides/development.md)：可重复的本地检查与真实集成测试入口。
+- [外部验证交接清单](docs/guides/external-validation-handoff.md)：换机跑 Claude、Windows 原生与 WSL2 的准备、命令、验收和恢复。
 - [验证状态与外部条件](docs/compatibility/status.md)：已测范围和继续验证所需条件。
 - [贡献指南](CONTRIBUTING.md)、[安全报告](SECURITY.md)、[变更记录](CHANGELOG.md)。
 

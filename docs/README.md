@@ -6,6 +6,7 @@ Start with the [English README](../README.md) or [中文说明](../README.zh-CN.
 
 - [Usage reference](guides/usage.md): configuration, backends, research budgets, protected updates, recovery, integrations, and exit codes. This detailed reference is currently in Chinese.
 - [Current validation status](compatibility/status.md): tested scope and external prerequisites.
+- [External validation handoff](guides/external-validation-handoff.md) (中文): Claude on another machine, native Windows/WSL2, pass criteria, budgets and recovery.
 - [Development and testing](guides/development.md): repeatable checks, opt-in integration tests, architecture map, and release checklist.
 - [Contributing](../CONTRIBUTING.md), [security reporting](../SECURITY.md), [changelog](../CHANGELOG.md), and [third-party notices](../THIRD_PARTY_NOTICES.md).
 
