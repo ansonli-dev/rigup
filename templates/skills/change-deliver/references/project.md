@@ -8,6 +8,6 @@ Read the source for each applicable rule and the commands in the nearest project
 
 For a specialized check, open its linked manifest and the test configuration or runbook it uses. Confirm any required local services, setup commands, readiness checks and environment variable names from those sources. Use the documented local setup and approved environment, wait for readiness, and stop the services you started after checking. Record environment variable names or configuration references and keep their values private.
 
-If a sandbox restriction or missing prerequisite prevents verification, hand off the exact command and working directory, the observed error or missing setup, and the next step to rerun in an authorized environment. Record whether the check failed or could not start.
+If a sandbox restriction or missing prerequisite prevents verification, use the terminal command in the check entry when present. Hand off one copyable command with its working directory and any test arguments, the observed error, and the affected workflow task identifiers. Ask for the exit status and relevant test summary with secret values removed. Leave those tasks open until the returned evidence covers them. Resume verification for the affected tasks when the evidence arrives.
 
 Keep failed and unrun checks visible when handing off. A successful check provides evidence for the scope it exercised.

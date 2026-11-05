@@ -1,5 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {createServer} from 'node:net';
+import {DatabaseSync} from 'node:sqlite';
 import {mkdir,writeFile,readFile,symlink,lstat} from 'node:fs/promises';
 import {project} from './helpers.js';
 import {scanRepository} from '../src/analyzer/repository.js';
@@ -107,6 +110,37 @@ test('native state query never executes substituted adapter commands',()=>projec
  op.parameters.args=['-e',`require('fs').writeFileSync(${JSON.stringify(root+'/substituted-command-ran')},'bad')`,'ignored','initialize'];
  await queryOperation(op);
  await assert.rejects(()=>readFile(root+'/substituted-command-ran'),{code:'ENOENT'});
+}));
+test('a live CodeGraph daemon socket preserves verified initialization', {skip:process.platform==='win32'},()=>project(async root=>{
+ const index=root+'/.codegraph',control=root+'/.rigup/native/codegraph',socket=index+'/daemon.sock';
+ await mkdir(index);await mkdir(control,{recursive:true});
+ const info=await lstat(index),receipt={target:'.codegraph',version:'1.6.2',identity:info.dev+':'+info.ino};
+ const marker=control+'/promotion.json';
+ const record={root,id:'codegraph',...receipt};
+ await writeFile(marker,JSON.stringify(record));
+ const db=new DatabaseSync(index+'/codegraph.db');
+ db.exec(`CREATE TABLE project_metadata(key TEXT, value TEXT);
+   INSERT INTO project_metadata VALUES ('index_state', 'complete'), ('indexed_with_version', '1.6.2');
+   CREATE TABLE files(id INTEGER);
+   CREATE TABLE nodes(id INTEGER);`);
+ db.close();
+ const {parameters:{executable,args}}=initializationRecipe(root,'codegraph',receipt.version);
+ args[3]='query';
+ const query=()=>JSON.parse(execFileSync(executable,args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}));
+ assert.deepEqual(query().nativeReceipt,receipt);
+
+ const server=createServer();
+ await new Promise<void>((resolve,reject)=>server.once('error',reject).listen(socket,resolve));
+ try {
+  assert.deepEqual(query().nativeReceipt,receipt);
+  await writeFile(marker,JSON.stringify({...record,identity:'replaced'}));
+  assert.throws(query,/Native promotion ownership does not match/);
+ }finally{
+  await new Promise<void>(resolve=>server.close(()=>resolve()));
+ }
+ await writeFile(marker,JSON.stringify(record));
+ await symlink('codegraph.db',socket);
+ assert.throws(query,/Unsafe native state entry/);
 }));
 test('durable apply resumes without research credentials after its preview cache is deleted',()=>project(async root=>project(async cache=>project(async state=>{
  const selected:SetupOptions={agents:['codex'],backend:'native',sdd:'openspec'};

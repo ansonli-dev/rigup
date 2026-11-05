@@ -2,7 +2,8 @@ import {prepareQuality} from './tools/quality.js';
 import {prepareCustomer} from './gitlab/customer.js';
 import {prepareSoftwareInstall} from './tools/software.js';
 import {prepareNativeInitialization} from './tools/initialization.js';
-import type {SetupOperation} from '../types.js';
+import type {SetupOperation,SetupRequirement} from '../types.js';
+import {quoteShell} from '../shell-command.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
 import {collectCustomSkill} from './custom-skills.js';
@@ -17,7 +18,7 @@ export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVer
 export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
-export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:{integrationId:string;reason:string}[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
+export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
 export async function prepareIntegrations(profile:import('../analyzer/repository.js').ProjectProfile,options:import('../types.js').SetupOptions):Promise<IntegrationPreparation>{
  const lock=await loadUpstreamLock();const assets:PreparedAsset[]=[];const operations:SetupOperation[]=[];const warnings:string[]=[];const requirements:IntegrationPreparation['requirements']=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
  const requireKnown=(id:string)=>{const recipe=lock.find(r=>r.integrationId === id);if(!recipe) throw new Error('unsupported integration: '+id);requireRecipeEvidence(recipe);return recipe;};
@@ -31,7 +32,7 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   }
  };
  if(options.sdd) {
-  requireKnown(options.sdd);
+  const recipe=requireKnown(options.sdd);
   for(const agent of options.agents) {
    try {
     const {binding,warnings:bindingWarnings}=resolveSddBinding(options.sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
@@ -39,7 +40,12 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
     else bindings.push(binding);
     warnings.push(...bindingWarnings);
    }
-   catch(error){requirements.push({integrationId:options.sdd,reason:(error as Error).message});}
+   catch(error){
+    const reason=(error as Error).message;
+    const nextCommand=options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')&&['codex','claude','opencode'].includes(agent)
+     ?'cd '+quoteShell(profile.root)+' && npx --yes @fission-ai/openspec@'+recipe.version+' init --tools '+agent+' --profile core --no-copilot-cloud':undefined;
+    requirements.push({integrationId:options.sdd,reason,...(nextCommand?{nextCommand}:{})});
+   }
   }
  }
  for(const input of options.mcp ?? []) {

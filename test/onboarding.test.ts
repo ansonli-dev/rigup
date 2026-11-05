@@ -45,3 +45,11 @@ test('deferred native setup keeps the backend selection without prompting for mo
  assert.equal(result?.options.backend,'native');
  assert.equal(result?.options.sdd,'openspec');
 });
+
+test('first-run menu offers foundation setup before requesting native credentials',async()=>{
+ let prompt='';const inputs=[''];
+ const result=await onboard({agents:['codex'],backend:'native',sdd:'openspec'},
+  {write:s=>prompt+=s,read:async()=>inputs.shift()??assert.fail('foundation prompted again')},
+  {configure:false,knownBackend:true,offerSetupScope:true});
+ assert.match(prompt,/先安装工作流/);assert.equal(result?.deferResearch,true);assert.equal(result?.options.model,undefined);
+});

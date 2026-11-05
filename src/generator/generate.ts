@@ -4,6 +4,7 @@ import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import type {ProjectProfile} from '../analyzer/repository.js';
 import {repositoryReader} from '../analyzer/repository.js';
+import {researchBudget} from '../analyzer/budget.js';
 import {validateResearch,type AnalysisBackend,type ResearchResult} from '../analyzer/backend.js';
 import type {ManagedAsset,SetupOptions,SetupPlan,StepResult,AssetDisposition} from '../types.js';
 import {validateInventory} from '../types.js';
@@ -75,7 +76,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   state.artifactContextVersion=backend.artifactContextVersion;await persist();
  }
  const reader=dependencies.reader??await repositoryReader(profile.root,options,{expectedFingerprint:profile.fingerprint});
- const budget=dependencies.budget??options.researchBudget??{maxCalls:60,maxTokens:100000};
+ const budget=dependencies.budget??researchBudget(options);
  const completed=()=>state.plan?.jobs.filter(j=>{const c=state.candidates[j.logicalId];return c?.accepted&&c.digest===candidateDigest(c.content,c.pages);}).length??0;
  const run=async(expectedOutput:'plan'|'content'|'acceptance',input:unknown,artifact?:string):Promise<StepResult<ResearchResult>>=>{
   dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:artifact??'artifact-plan',completed:completed(),total:state.plan?.jobs.length,waiting:options.backend==='host'?'host research response':'provider '+expectedOutput,next:expectedOutput==='acceptance'?'save accepted candidate':'validate candidate',status:'running'});

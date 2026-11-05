@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {onboard} from './onboarding.js';
 import {terminalReader,promptChoice} from './prompt.js';
 import {loadOptions,validateOptions} from './config.js';
+import {researchBudget} from './analyzer/budget.js';
 import type {SetupOptions} from './types.js';
 import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
@@ -15,11 +16,11 @@ import {sessionHandoffRequired} from './installer/session.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
 export interface CliIO {cwd:string;isTTY:boolean;write(text:string):void;writeError?(text:string):void;read?(secret?:boolean):Promise<string|null>;services?:LifecycleServices}
 const errorMessage=(error:unknown)=>error instanceof SyntaxError?'input/cache: invalid JSON syntax; inspect the local file without exporting its contents':error instanceof Error?error.message:'operation failed';
-const help='rigup                         Open the interactive project menu (TTY)\nrigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none] [--tools openwiki,codegraph|none] [--defer-research]\nrigup update [path] [--configure] [--dry-run|--review] [--apply previewId] [--request private-path|--response path] [--sessions-ended] [--resume]\nrigup doctor [path] [--run-checks build,lint,test,environment,eval]\nOptions: --backend codex|native|host --profile path --language auto|language-tag --model modelId --api-key-env NAME --json\nAdvanced: --retire logicalId,... --continue runId\nOmit path to use the current directory. Missing setup choices are prompted in a TTY; --json never prompts.\n';
+const help='rigup                         Open the interactive project menu (TTY)\nrigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none] [--tools openwiki,codegraph|none] [--defer-research]\nrigup update [path] [--configure] [--dry-run|--review] [--apply previewId] [--request private-path|--response path] [--sessions-ended] [--resume]\nrigup doctor [path] [--run-checks build,lint,test,environment,eval]\nOptions: --backend codex|native|host --profile path --language auto|language-tag --model modelId --api-key-env NAME --json\nAdvanced: --retire logicalId,... --continue runId --research-tokens N\nOmit path to use the current directory. Missing setup choices are prompted in a TTY; --json never prompts.\n';
 async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  const services:LifecycleServices={...io.services};
  const flags:LifecycleFlags={};const overrides:Partial<SetupOptions>={};const positional:string[]=[];let applyId:string|undefined;
- const boolean=new Set(['--dry-run','--configure','--review','--sessions-ended','--resume','--defer-research']);const valued=new Set(['--agents','--sdd','--tools','--backend','--profile','--language','--response','--request','--apply','--model','--api-key-env','--continue','--retire','--run-checks']);const values:Record<string,string>={};
+ const boolean=new Set(['--dry-run','--configure','--review','--sessions-ended','--resume','--defer-research']);const valued=new Set(['--agents','--sdd','--tools','--backend','--profile','--language','--response','--request','--apply','--model','--api-key-env','--continue','--retire','--run-checks','--research-tokens']);const values:Record<string,string>={};
  for(let i=0;i<argv.length;i++){
   const arg=argv[i];if(boolean.has(arg)){values[arg]='true';continue;}if(valued.has(arg)){if(!argv[i+1]||argv[i+1].startsWith('--')){io.write(arg+': value required\n');return 2;}values[arg]=argv[++i];continue;}
   if(arg==='--help'){io.write(help);return 0;}
@@ -45,7 +46,7 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  }
  if(command==='init'&&manifest)command='update';
  io.write(command+': '+root+'\n');
- if(command==='doctor'){try{const runChecks=values['--run-checks']?.split(',');if(runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing check kinds required\n');return 2;}const report=await doctor(root,{runChecks:runChecks as import('./types.js').CheckKind[],stateRoot:io.services?.stateRoot,signal:io.services?.signal});io.services?.report?.({phase:'doctor',installStatus:'not-applicable',...report});for(const d of report.diagnostics)io.write(d.category+' '+d.id+': '+d.state+' — '+d.reason+'\n');for(const c of report.checks)io.write('check '+c.name+': '+c.status+' '+(c.startedAt??'')+' '+(c.commit??'')+'\n');return report.exitCode;}catch(e){io.write(errorMessage(e)+'\n');return 1;}}
+ if(command==='doctor'){if(values['--research-tokens']){io.write('--research-tokens applies to Codex research only\n');return 2;}try{const runChecks=values['--run-checks']?.split(',');if(runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing check kinds required\n');return 2;}const report=await doctor(root,{runChecks:runChecks as import('./types.js').CheckKind[],stateRoot:io.services?.stateRoot,signal:io.services?.signal});io.services?.report?.({phase:'doctor',installStatus:'not-applicable',...report});for(const d of report.diagnostics)io.write(d.category+' '+d.id+': '+d.state+' — '+d.reason+'\n');for(const c of report.checks)io.write('check '+c.name+': '+c.status+' '+(c.startedAt??'')+' '+(c.commit??'')+'\n');return report.exitCode;}catch(e){io.write(errorMessage(e)+'\n');return 1;}}
  if(values['--agents'])overrides.agents=values['--agents'].split(',') as SetupOptions['agents'];
  if(values['--sdd']&&values['--sdd']!=='none')overrides.sdd=values['--sdd'] as SetupOptions['sdd'];
  if(values['--backend'])overrides.backend=values['--backend'] as SetupOptions['backend'];
@@ -53,6 +54,11 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  if(values['--language'])overrides.documentLanguage=values['--language'];
  flags.dryRun=!!values['--dry-run'];flags.yes=!io.isTTY&&!values['--dry-run']&&!values['--review'];flags.review=!!values['--review'];flags.response=values['--response'];flags.request=values['--request'];flags.configure=!!values['--configure'];if(flags.request){const privateRoot=resolve(io.services?.cacheRoot??join(homedir(),'.cache','rigup'),'host');const rel=relative(privateRoot,resolve(flags.request));if(!isAbsolute(flags.request)||!rel||rel.startsWith('..')||isAbsolute(rel)){io.write('request: use an absolute file path inside '+privateRoot+'\n');return 2;}}if(flags.request&&flags.response){io.write('request/response: choose one\n');return 2;}flags.sessionsEnded=!!values['--sessions-ended'];flags.resume=!!values['--resume'];flags.retireIds=values['--retire']?.split(',');flags.runChecks=values['--run-checks']?.split(',') as import('./types.js').CheckKind[];if(flags.runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing kinds required\n');return 2;}applyId=values['--apply'];
  if([flags.dryRun,flags.yes,flags.review].filter(Boolean).length>1){io.write('execution mode: choose one\n');return 2;}
+ if(values['--research-tokens']){
+  const tokens=Number(values['--research-tokens']);
+  if(!/^[1-9][0-9]*$/.test(values['--research-tokens'])||!Number.isSafeInteger(tokens)||applyId||command==='doctor'||flags.deferResearch){io.write('--research-tokens: a positive cumulative limit is required for a Codex research run\n');return 2;}
+  flags.researchTokens=tokens;
+ }
  if(applyId){
   if(overrides.documentLanguage){io.write('--language: prepare a new preview to change the document language\n');return 2;}
   if(await sessionHandoffRequired(root,flags.sessionsEnded)){io.write('End affected sessions and use --sessions-ended from an independent terminal\n');return 3;}
@@ -70,14 +76,17 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
   if((flags.request||flags.response)&&options.backend!=='host')throw new Error('request/response: select the host backend');
   if(!flags.dryRun&&(flags.deferResearch||manifest?.projectRules==='pending'||options.executionPolicy?.mode==='review')){flags.review=true;flags.yes=false;}
   validateOptions(options as unknown as Record<string,unknown>);
-  if(io.isTTY&&io.read&&!values['--continue']){const setup=await onboard(options,{write:io.write,read:io.read},{configure:!!flags.configure,deferResearch:flags.deferResearch,knownBackend:!!approvedOptions||hasProjectConfig||!!overrides.backend||!!options.profile||!!values['--model']||!!values['--api-key-env'],languageProvided:!!values['--language'],provided:!hasProjectConfig&&!manifest&&!options.profile?{agents:!!values['--agents'],sdd:!!values['--sdd'],tools:!!values['--tools'],model:!!values['--model']||!!values['--api-key-env']}:undefined,apiKeyEnv:values['--api-key-env'],credentials:services.credentials});if(!setup)return 130;options=setup.options;services.credentials=setup.credentials;}
+  const offerSetupScope=command==='init'&&!manifest&&!flags.deferResearch&&!flags.dryRun&&!flags.resume&&!flags.researchTokens&&!flags.request&&!flags.response;
+  if(io.isTTY&&io.read&&!values['--continue']){const setup=await onboard(options,{write:io.write,read:io.read},{configure:!!flags.configure,deferResearch:flags.deferResearch,offerSetupScope,knownBackend:!!approvedOptions||hasProjectConfig||!!overrides.backend||!!options.profile||!!values['--model']||!!values['--api-key-env'],languageProvided:!!values['--language'],provided:!hasProjectConfig&&!manifest&&!options.profile?{agents:!!values['--agents'],sdd:!!values['--sdd'],tools:!!values['--tools'],model:!!values['--model']||!!values['--api-key-env']}:undefined,apiKeyEnv:values['--api-key-env'],credentials:services.credentials});if(!setup)return 130;options=setup.options;services.credentials=setup.credentials;if(setup.deferResearch){flags.deferResearch=true;if(!flags.dryRun){flags.review=true;flags.yes=false;}}}
   while(!flags.dryRun&&!flags.yes&&!flags.review&&io.isTTY&&io.read){
-   io.write('本轮范围：agents='+options.agents.join(',')+'; SDD='+(options.sdd??'none')+'; tools='+(options.tools??[]).map(t=>t.id+(t.install?':pinned install':':registration')).join(',')+'; backend='+options.backend+'; 研究上限 '+(options.researchBudget?.maxCalls??60)+' requests / '+(options.researchBudget?.maxTokens??100000)+' tokens。仅预览内受保护写入；b 返回修改。\n');
+   const budget=researchBudget(options);
+   io.write('本轮范围：agents='+options.agents.join(',')+'; SDD='+(options.sdd??'none')+'; tools='+(options.tools??[]).map(t=>t.id+(t.install?':pinned install':':registration')).join(',')+'; backend='+options.backend+'; 研究上限 '+budget.maxCalls+' requests / '+(flags.researchTokens??budget.maxTokens)+' tokens。仅预览内受保护写入；b 返回修改。\n');
    const mode=await promptChoice({write:io.write,read:io.read},['continuous','review','dry-run'],false,[options.executionPolicy?.mode??'continuous']);if(mode===null)return 130;
-   if(mode==='back'){const setup=await onboard(options,{write:io.write,read:io.read},{configure:true,knownBackend:true,languageProvided:!!values['--language'],credentials:services.credentials});if(!setup)return 130;options=setup.options;services.credentials=setup.credentials;continue;}
+   if(mode==='back'){const setup=await onboard(options,{write:io.write,read:io.read},{configure:true,knownBackend:true,offerSetupScope,languageProvided:!!values['--language'],credentials:services.credentials});if(!setup)return 130;options=setup.options;services.credentials=setup.credentials;if(setup.deferResearch){flags.deferResearch=true;flags.review=true;}continue;}
    if(!Array.isArray(mode)||mode.length!==1)return 2;flags.yes=mode[0]==='continuous';flags.review=mode[0]==='review';flags.dryRun=mode[0]==='dry-run';
   }
   if(flags.deferResearch&&!options.sdd)throw Error('--defer-research requires a selected development workflow');
+  if(flags.researchTokens&&(!options.sdd||options.backend!=='codex'))throw Error('--research-tokens requires the Codex backend and a development workflow');
   if(flags.configure)options.executionPolicy={mode:flags.review?'review':'continuous'};
   validateOptions(options as unknown as Record<string,unknown>);
  }catch(e){io.write(errorMessage(e)+'\n');return 2;}

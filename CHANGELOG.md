@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 · 2026-11-06 · Development preview
+
+- Default to a model-free foundation in the interactive first run. Show the pinned OpenSpec initialization command when required native entries are missing.
+- Estimate the next Codex request before sending it. Preserve explicit token limits and recorded usage when continuing a research run.
+- Give delivery agents runnable browser and PostgreSQL check commands with environment prerequisites. Isolate PM2 and run recognized Jest checks serially when they share a test database.
+- Verify an existing CodeGraph index while its native daemon is serving it.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.2.1) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.2.1)
+
 ## 0.2.0 · 2026-11-06 · Development preview
 
 - Organize project development rules by topic. Use a bounded source survey and request additional evidence by topic when needed.
