@@ -1,6 +1,6 @@
 # Rigup
 
-[![CI](https://github.com/ansonli-dev/rigup/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ansonli-dev/rigup/actions/workflows/ci.yml) · [v0.1.0 开发预览版](https://github.com/ansonli-dev/rigup/releases/tag/v0.1.0) · [English](README.md)
+[![CI](https://github.com/ansonli-dev/rigup/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ansonli-dev/rigup/actions/workflows/ci.yml) · [npm](https://www.npmjs.com/package/@ansonli.dev/rigup) · [便携版下载](https://github.com/ansonli-dev/rigup/releases) · [English](README.md)
 
 Rigup 为已有仓库接入 coding agent 的研发流程。它根据源码证据准备项目指引，接入选定的工具，并在应用前提供具体变更供审阅。
 
@@ -10,17 +10,20 @@ Rigup 为已有仓库接入 coding agent 的研发流程。它根据源码证据
 
 ### 1. 安装
 
+已有 Node.js 24 或更新版本时，可以通过 npm 安装。
+
+```sh
+npm install -g @ansonli.dev/rigup
+rigup --version
+```
+
+macOS 和 Linux 也可以通过安装器下载内置 Node.js 的便携版。安装器会将 `rigup` 链接到 `~/.local/bin`。
+
 ```sh
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
 ```
 
-安装器会选择 macOS 或 Linux 的 ARM64、x64 归档，校验后把命令链接到 `~/.local/bin`。便携包内置 Node.js。如果找不到 `rigup`，执行 `export PATH="$HOME/.local/bin:$PATH"`。宿主需要 Git 和 `ps`，Linux（含 WSL2）需要 glibc 2.35 或更高版本。[手动下载与平台说明](docs/guides/releases.md)
-
-已有 Node.js 24 和 npm 时，可以按包名全局安装。
-
-```sh
-npm install -g @ansonli.dev/rigup
-```
+宿主需要 Git 和 `ps`，Linux（含 WSL2）需要 glibc 2.35 或更新版本。[安装、升级与固定版本](docs/guides/releases.md)
 
 ### 2. 初始化项目
 

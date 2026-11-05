@@ -1,6 +1,6 @@
 # Rigup
 
-[![CI](https://github.com/ansonli-dev/rigup/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ansonli-dev/rigup/actions/workflows/ci.yml) · [v0.1.0 development preview](https://github.com/ansonli-dev/rigup/releases/tag/v0.1.0) · [简体中文](README.zh-CN.md)
+[![CI](https://github.com/ansonli-dev/rigup/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ansonli-dev/rigup/actions/workflows/ci.yml) · [npm](https://www.npmjs.com/package/@ansonli.dev/rigup) · [Portable releases](https://github.com/ansonli-dev/rigup/releases) · [简体中文](README.zh-CN.md)
 
 Rigup sets up coding-agent workflows for an existing repository. It prepares project guidance from source evidence, connects the tools you select, and lets you review changes before applying them.
 
@@ -10,17 +10,20 @@ Rigup sets up coding-agent workflows for an existing repository. It prepares pro
 
 ### 1. Install
 
+With Node.js 24 or later, install from npm.
+
+```sh
+npm install -g @ansonli.dev/rigup
+rigup --version
+```
+
+The macOS and Linux installer downloads a bundle with Node.js and links `rigup` into `~/.local/bin`.
+
 ```sh
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
 ```
 
-The installer selects the macOS or Linux build for ARM64 or x64, verifies its checksum, and links the command into `~/.local/bin`. The portable build includes Node.js. If `rigup` is missing from PATH, run `export PATH="$HOME/.local/bin:$PATH"`. Use Git and `ps` on the host. Linux needs glibc 2.35 or newer, including when using WSL2. [Manual downloads and platform checks](docs/guides/releases.md)
-
-With Node.js 24 and npm, install the published package globally.
-
-```sh
-npm install -g @ansonli.dev/rigup
-```
+Use Git and `ps` on the host. Linux needs glibc 2.35 or newer, including when using WSL2. [Install, upgrade, and pin a version](docs/guides/releases.md)
 
 ### 2. Set up a project
 

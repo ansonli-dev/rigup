@@ -1,5 +1,24 @@
 # Install Rigup
 
+## npm
+
+With Node.js 24 or later, install or upgrade from the public registry. [npm package](https://www.npmjs.com/package/@ansonli.dev/rigup)
+
+```sh
+npm install -g @ansonli.dev/rigup
+rigup --version
+```
+
+To pin or roll back the CLI, install a specific version such as `npm install -g @ansonli.dev/rigup@0.1.0`. To remove the CLI, run `npm uninstall -g @ansonli.dev/rigup`.
+
+If the original v0.1.0 GitHub `.tgz` is installed in the same npm prefix, run `npm uninstall -g rigup` there before installing the scoped package. The GitHub archive is also available as a direct download for Node.js users.
+
+```sh
+npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0.tgz
+```
+
+## Portable installer
+
 Use the [v0.1.0 release](https://github.com/ansonli-dev/rigup/releases/tag/v0.1.0) on macOS or Linux (ARM64 or x64). The portable archive includes Node.js. Keep Git and standard POSIX tools, including `ps`, on PATH. Linux needs glibc 2.35 or later. macOS launchers are ad-hoc signed. Windows users can run the Linux build inside WSL2. See the [platform checks](../compatibility/status.md) and [Windows handoff](external-validation-handoff.md).
 
 ```sh
@@ -27,7 +46,7 @@ awk -v name="$archive" '$2 == name {print; found++} END {if (found != 1) exit 1}
 
 On Linux, `sha256sum -c` also works. Keep the complete extracted directory with `lib`, `BUILD_INFO.json`, and its licenses. [Third-party notices](../../THIRD_PARTY_NOTICES.md)
 
-## Upgrade, roll back, or remove
+## Manage a portable install
 
 Run the installer for the desired release. It switches the managed link and keeps other versions under `~/.local/share/rigup/versions/`. Use the same absolute `RIGUP_INSTALL_DIR` and `RIGUP_BIN_DIR` when switching versions in a custom location.
 
@@ -35,20 +54,6 @@ If installation stops at an occupied lock, compare the PID and start time in `.i
 
 Before removing a version, resolve pending operations with the original executable and check that installed tools can still find Node. For the default install, inspect `readlink "$HOME/.local/bin/rigup"` and remove the link if it points to your Rigup installation. Remove unused version directories separately. Keep project manifests and recovery state. [Project recovery](usage.md#应用与恢复)
 
-## Install with Node or build from source
+## Build from source
 
-With Node.js 24 and npm, install from the public npm registry.
-
-```sh
-npm install -g @ansonli.dev/rigup
-```
-
-If the same npm prefix already has Rigup installed from the original v0.1.0 tarball, run `npm uninstall -g rigup` there before installing the scoped package.
-
-To use the compiled tarball from the v0.1.0 release directly, run the following command.
-
-```sh
-npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0.tgz
-```
-
-The compiled tarball uses your Node.js 24+ runtime and resolves dependencies from npm. Developers can also run `npm ci`, `npm run build`, and `npm link` from a source checkout. Keep the linked checkout available. [Development guide](development.md)
+Run `npm ci`, `npm run build`, and `npm link` from a source checkout with Node.js 24 or later. Keep the linked checkout available. [Development guide](development.md)

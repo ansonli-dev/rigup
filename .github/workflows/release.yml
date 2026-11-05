@@ -71,6 +71,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+    outputs:
+      npm-integrity: ${{ steps.release.outputs.npm-integrity }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -84,6 +86,41 @@ jobs:
           pattern: rigup-*
           path: release-out/artifacts
       - name: Verify and publish assets
+        id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/release/publish.mjs publish release-out/artifacts release-out/publish
+        run: |
+          node scripts/release/publish.mjs publish release-out/artifacts release-out/publish
+          npm_integrity=$(node -p 'require("./release-out/publish/release-manifest.json").targets[0].metadata.npm.integrity')
+          printf 'npm-integrity=%s\n' "$npm_integrity" >> "$GITHUB_OUTPUT"
+
+  publish-npm:
+    name: Publish verified npm package
+    needs: publish
+    if: github.event_name == 'push' && github.ref_type == 'tag' && github.repository == 'ansonli-dev/rigup'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    environment: npm
+    concurrency:
+      group: release-npm
+      queue: max
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: '24.22.2'
+          registry-url: 'https://registry.npmjs.org/'
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rigup-linux-x64
+          path: release-out/npm
+      - name: Publish with npm Trusted Publishing
+        env:
+          NPM_INTEGRITY: ${{ needs.publish.outputs.npm-integrity }}
+        run: node scripts/release/publish-npm.mjs release-out/npm "$NPM_INTEGRITY"

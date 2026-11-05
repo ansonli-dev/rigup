@@ -58,18 +58,42 @@ The probe checks real include resolution, snapshot reports, failed checks, wiki 
 Build natively with curl and tar available. The example targets Apple Silicon. Use a fresh output directory and the corresponding archive name for another target.
 
 ```sh
+version=$(node -p 'require("./package.json").version')
 npm run release:build -- --out-dir release-out
-npm run release:check -- release-out/rigup-0.1.0-darwin-arm64.tar.gz
+npm run release:check -- "release-out/rigup-$version-darwin-arm64.tar.gz"
 ```
 
 `node scripts/release/check-native.mjs ARCHIVE` checks the pinned tool setup using the public npm registry. It makes zero model calls.
 
-1. Run the default checks and secret scan, inspect `npm pack --dry-run --json`, and update the changelog and support claims.
-2. Verify CI on the release commit. Manually dispatch **Release** for a build-only check on all four targets.
-3. For publication, push a new `v<version>` tag matching `package.json`. The tag workflow verifies the archives, receipts, and uploads before publishing the prerelease.
-4. Download a published archive anonymously, verify its checksum, and run the extracted command. Advance the root `install.sh` URL to the verified release and check the public one-line command.
-5. If publication stops at a draft, inspect it and rerun the failed publisher with the original build artifacts. Use a new version for changes to a published release.
+1. Update the version and lockfile with `npm version patch --no-git-tag-version` for a patch release. Update the changelog, run the default checks and secret scan, and inspect `npm pack --dry-run --json`.
+2. Verify CI on the release commit. A manual **Release** dispatch builds and smoke-tests all four targets without publishing.
+3. Set up npm Trusted Publishing before the first automated release. From the verified release commit on `main`, push a new tag matching `package.json`. [First-release setup](#npm-trusted-publishing)
 
-## npm registry
+   ```sh
+   version=$(node -p 'require("./package.json").version')
+   git tag -a "v$version" -m "Rigup v$version"
+   git push origin "refs/tags/v$version"
+   ```
 
-Pack the reviewed source, inspect the file list, and test the archive in an isolated npm prefix. Sign in with `npm login --auth-type=web` and complete the registry's authentication prompts. Publish the exact archive to the public registry with `npm publish ./ansonli.dev-rigup-0.1.0.tgz --ignore-scripts --access public --tag latest`, using the version you checked. The `latest` tag lets users install with `npm install -g @ansonli.dev/rigup`. Confirm the registry integrity and a clean global install before advertising a new version. [npm scoped publishing](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/)
+4. **Release** verifies the four native builds, publishes the GitHub prerelease, and publishes the same verified `.tgz` to npm. Plain versions use `latest`. SemVer prereleases such as `0.2.0-rc.1` use `next`.
+5. Compare `npm view "@ansonli.dev/rigup@$version" dist.integrity` with the npm integrity in `release-manifest.json`. Install that version in a clean npm prefix and run `rigup --version`. Download and verify a portable archive, then advance the root `install.sh` URL and check the one-line installer.
+
+### npm Trusted Publishing
+
+In GitHub **Settings → Environments**, create the `npm` environment with **Selected branches and tags**. Add a tag rule for `v*` so only release tags can use its publishing identity. Restrict creation and changes to release tags to maintainers if other contributors have write access. [GitHub environment settings](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+
+A package maintainer sets up the GitHub Actions publisher under **Settings → Trusted publishing** on the npm package page. [Package settings entry point](https://www.npmjs.com/package/@ansonli.dev/rigup)
+
+- **Organization or user** `ansonli-dev`
+- **Repository** `rigup`
+- **Workflow filename** `release.yml`
+- **Environment name** `npm`
+- **Allowed actions** enable direct publishing with `npm publish`
+
+Create the binding when the first release tag is ready. npm expires a new binding if it has no successful publish within two days. The workflow uses short-lived OIDC credentials and npm provenance. [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/)
+
+### Recover a release
+
+Inspect the GitHub draft or the failed npm job, correct the cause, and rerun the failed jobs for the same tag with `gh run rerun RUN_ID --failed` before the build artifacts expire. The publisher resumes a matching draft. The npm job accepts an existing version only when the published integrity matches the verified archive. Allow registry scanning to finish if the version was just accepted but is still unavailable publicly.
+
+For npm authentication errors, check the four binding fields, direct publish access, and expiry. Replace an expired binding before rerunning. If the source or published bytes need to change, prepare a new version and tag.
