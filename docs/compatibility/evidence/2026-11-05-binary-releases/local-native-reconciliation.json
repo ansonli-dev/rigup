@@ -1,0 +1,10 @@
+{
+  "queryRecovered": true,
+  "daemon": {
+    "root": "/private/var/folders/kc/rb4cjj8s4cd781z554s1qcch0000gp/T/rigup-portable-native-gteGnC/project",
+    "pid": null,
+    "outcome": "no-daemon"
+  },
+  "previousInstallNotRepeated": true,
+  "modelCalls": 0
+}

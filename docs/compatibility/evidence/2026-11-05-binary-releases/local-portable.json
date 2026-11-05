@@ -1,0 +1,32 @@
+{
+  "status": "passed",
+  "target": "darwin-arm64",
+  "version": "0.1.0",
+  "source": {
+    "commit": "3cbd3b8b8cc372d79a81b2454a9f72dcc267bc0c",
+    "dirty": true
+  },
+  "runtime": {
+    "version": "24.22.2",
+    "archive": "node-v24.22.2-darwin-arm64.tar.gz",
+    "sha256": "aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a"
+  },
+  "archiveSha256": "a8404fb1baacf4b15328912777e97a6b013cacb7f687c45ea4ed222f028483fe",
+  "systemNodeOrNpmOnCliPath": false,
+  "relocated": true,
+  "throughPathSymlink": true,
+  "lifecycle": [
+    "help",
+    "version",
+    "preview",
+    "session handoff",
+    "independent apply",
+    "no-op",
+    "doctor"
+  ],
+  "originalBusinessPreserved": true,
+  "standaloneRunnerWithoutRigupApplication": true,
+  "consumerNodeExplicitlyProvided": true,
+  "doctorExit": 3,
+  "modelCalls": 0
+}

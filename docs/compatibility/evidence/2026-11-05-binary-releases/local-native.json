@@ -1,0 +1,78 @@
+{
+  "status": "passed",
+  "target": "darwin-arm64",
+  "version": "0.1.0",
+  "source": {
+    "commit": "3cbd3b8b8cc372d79a81b2454a9f72dcc267bc0c",
+    "dirty": true
+  },
+  "runtime": {
+    "version": "24.22.2",
+    "archive": "node-v24.22.2-darwin-arm64.tar.gz",
+    "sha256": "aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a"
+  },
+  "systemNodeOrNpmOnCliPath": false,
+  "pinnedSoftwareInstalled": [
+    "openwiki@0.7.3",
+    "codegraph@1.6.2"
+  ],
+  "codegraphInitialized": true,
+  "businessQuery": true,
+  "noOpReinitialized": false,
+  "openwikiScaffoldInitialization": false,
+  "openwikiHandoff": true,
+  "daemonCleanup": {
+    "outcome": "no-daemon-record"
+  },
+  "reports": [
+    {
+      "args": [
+        "init",
+        "--agents",
+        "codex",
+        "--sdd",
+        "none",
+        "--tools",
+        "openwiki,codegraph",
+        "--review",
+        "--json"
+      ],
+      "exitCode": 3,
+      "phase": "handoff",
+      "installStatus": "pending"
+    },
+    {
+      "args": [
+        "update",
+        "--apply",
+        "6341f5c73ad06f6560af5807565ab855b2b1c1340ad43768b7cc7b27f2d98127",
+        "--sessions-ended",
+        "--json"
+      ],
+      "exitCode": 0,
+      "phase": "apply",
+      "installStatus": "complete"
+    },
+    {
+      "args": [
+        "update",
+        "--dry-run",
+        "--json"
+      ],
+      "exitCode": 0,
+      "phase": "preview",
+      "installStatus": "not-installed"
+    },
+    {
+      "args": [
+        "update",
+        "--sessions-ended",
+        "--json"
+      ],
+      "exitCode": 0,
+      "phase": "apply",
+      "installStatus": "complete"
+    }
+  ],
+  "modelCalls": 0
+}
