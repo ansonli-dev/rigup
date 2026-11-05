@@ -16,10 +16,10 @@ curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/
 
 安装器会选择 macOS 或 Linux 的 ARM64、x64 归档，校验后把命令链接到 `~/.local/bin`。便携包内置 Node.js。如果找不到 `rigup`，执行 `export PATH="$HOME/.local/bin:$PATH"`。宿主需要 Git 和 `ps`，Linux（含 WSL2）需要 glibc 2.35 或更高版本。[手动下载与平台说明](docs/guides/releases.md)
 
-已有 Node.js 24 和 npm 时，也可以直接安装 Release 的编译包。
+已有 Node.js 24 和 npm 时，可以按包名全局安装。
 
 ```sh
-npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0.tgz
+npm install -g rigup
 ```
 
 ### 2. 初始化项目

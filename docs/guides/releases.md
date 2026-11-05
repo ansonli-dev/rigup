@@ -37,6 +37,14 @@ Before removing a version, resolve pending operations with the original executab
 
 ## Install with Node or build from source
 
+With Node.js 24 and npm, install from the public npm registry.
+
+```sh
+npm install -g rigup
+```
+
+To use the compiled tarball from the v0.1.0 release directly, run the following command.
+
 ```sh
 npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0.tgz
 ```

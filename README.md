@@ -16,10 +16,10 @@ curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/
 
 The installer selects the macOS or Linux build for ARM64 or x64, verifies its checksum, and links the command into `~/.local/bin`. The portable build includes Node.js. If `rigup` is missing from PATH, run `export PATH="$HOME/.local/bin:$PATH"`. Use Git and `ps` on the host. Linux needs glibc 2.35 or newer, including when using WSL2. [Manual downloads and platform checks](docs/guides/releases.md)
 
-With Node.js 24 and npm, you can install the compiled release tarball directly.
+With Node.js 24 and npm, install the published package globally.
 
 ```sh
-npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.1.0/rigup-0.1.0.tgz
+npm install -g rigup
 ```
 
 ### 2. Set up a project

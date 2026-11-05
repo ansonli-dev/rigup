@@ -69,3 +69,7 @@ npm run release:check -- release-out/rigup-0.1.0-darwin-arm64.tar.gz
 3. For publication, push a new `v<version>` tag matching `package.json`. The tag workflow verifies the archives, receipts, and uploads before publishing the prerelease.
 4. Download a published archive anonymously, verify its checksum, and run the extracted command. Advance the root `install.sh` URL to the verified release and check the public one-line command.
 5. If publication stops at a draft, inspect it and rerun the failed publisher with the original build artifacts. Use a new version for changes to a published release.
+
+## npm registry
+
+Pack the reviewed source, inspect the file list, and test the archive in an isolated npm prefix. Sign in with `npm login --auth-type=web` and complete the registry's authentication prompts. Publish the exact archive to the public registry with `npm publish ./rigup-0.1.0.tgz --ignore-scripts --access public --tag latest`, using the version you checked. The `latest` tag lets users install with `npm install -g rigup`. Confirm the registry integrity and a clean global install before advertising a new version. [npm publishing](https://docs.npmjs.com/creating-and-publishing-unscoped-public-packages/)
