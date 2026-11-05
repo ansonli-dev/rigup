@@ -1,6 +1,7 @@
 import type {ArtifactJob} from './artifacts.js';
 import {relativeTarget} from './artifacts.js';
 export const DOCUMENT_POLICY_VERSION='1';
+export const markdownLinks=(text:string)=>text.matchAll(/(?<!\\)(?:\\\\)*\[[^\]]*\]\(([^)]+)\)/g);
 export function validateDocumentJob(job:ArtifactJob,allowedRoots:string[],emptyProject=false):void{
  if(!job.consumer.trim()) throw new Error('consumer required');
  if(!job.reason.trim()) throw new Error('generation reason required');

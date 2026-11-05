@@ -159,6 +159,11 @@ test('convention_requires_replayable_counterexample_search',async()=>{
  const ev=(path:string)=>({path,startLine:1,endLine:1,digest:path});
  const observation={statement:'Pattern',classification:'convention',scope:['src'],supportingEvidence:[ev('src/a.ts'),ev('src/b.ts')],counterEvidence:[],coverage:{independentSupports:2,counterexampleSearched:true},guidanceDisposition:'follow-existing'};
  await assert.rejects(validateResearch({observations:[observation]},sources),/query/);
+ let searches=0;
+ const counted={...sources,search:async()=>{searches++;return [];}};
+ const valid={observations:[{...observation,coverage:{...observation.coverage,counterexampleQueries:['alternative(']}}]};
+ await validateResearch(valid,counted);await validateResearch(valid,counted);
+ assert.equal(searches,1);
 });
 test('host_new_instance_does_not_reset_run_request_budget',async()=>{
  const {hostBackend}=await import('../src/analyzer/host.js');const fs=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');

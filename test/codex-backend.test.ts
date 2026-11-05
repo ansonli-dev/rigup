@@ -65,7 +65,19 @@ test('Codex planning prompt uses stage-selected evidence instead of repeating th
  const prompts:string[]=[];const backend=await createBackend({cacheRoot:cache,invoke:async(input:any)=>{prompts.push(input.prompt);return result();}});
  await backend.run(request,reader);await backend.run({...request,kind:'artifact-plan',expectedOutput:'plan',input:{profile:{files:await reader.list(),research:{data:{observations:[],guidance:[],unknowns:[]}}},previousInventory:[]}},reader);assert.equal(prompts.length,2);
  assert.match(prompts[0],/createOrder/);assert.doesNotMatch(prompts[1],/export function createOrder/);const body=JSON.parse(prompts[1].slice(prompts[1].indexOf('{')));
- assert.equal(body.context.evidencePolicy,'stage-evidence-v2');assert.ok(body.paths.includes('source.js'));assert.equal(body.evidence.length,0);assert.equal(body.context.input.profile.files,undefined);
+ assert.equal(body.context.evidencePolicy,'stage-evidence-v3');assert.ok(body.paths.includes('source.js'));assert.equal(body.evidence.length,0);assert.equal(body.context.input.profile.files,undefined);
+}));
+test('Codex rulebook output keeps only the candidate and its unknowns without replaying planning evidence',()=>fixture(async(_root,cache,request,reader)=>{
+ const rulebook={title:'Scoped conventions',rules:[]};
+ const payload={rulebook,unknowns:['Scope checked'],observations:[{supportingEvidence:[{path:'unused.ts',startLine:1,endLine:1,digest:'uncited'}]}]};
+ const backend=await createBackend({cacheRoot:cache,invoke:async()=>result(payload)});
+ const job={logicalId:'project-development-rules',target:'docs/rigup/development-rules.md',ruleSources:[],sourceRefs:[]};
+ const content={...request,kind:'artifact-content' as const,expectedOutput:'content' as const,artifact:job.logicalId,input:{job}};
+ for(let i=0;i<2;i++){
+  const value=await backend.run(content,reader);assert.equal(value.status,'complete');
+  assert.deepEqual(value.value.data,{rulebook,unknowns:['Scope checked'],observations:[]});
+  assert.equal(value.value.usage.calls,i===0?1:0);
+ }
 }));
 test('failed Codex attempts are charged before dispatch and never silently repeated',()=>fixture(async(root,cache,request,reader)=>{
  let calls=0;const usage:any[]=[];const backend=await createBackend({cacheRoot:cache,onUsage:async(u:any)=>{usage.push(u);},invoke:async()=>{calls++;throw Error('private transport failure');}});

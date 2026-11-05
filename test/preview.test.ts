@@ -31,6 +31,12 @@ test('resolution_binds_exact_full_target_digest_and_selector',()=>fixture(async(
 test('kept_local_content_cannot_break_required_bindings',()=>fixture(async(root,cache)=>{
  const base='[guide](guide.md)\n';await manifest(root,{},base);await writeFile(root+'/owned.md','[guide](missing.md)\n');await writeFile(root+'/guide.md','guide');const p=plan(root,'owned.md',base);p.dispositions=[{logicalId:'a',action:'update',reason:'refresh'}];const r=await preview(p,[],{cacheRoot:cache});assert.equal(r.executable,false);assert.ok(r.blockers.some((s:string)=>/link|navigation/.test(s)));
 }));
+test('protected preview treats escaped rule text as prose',()=>fixture(async(root,cache)=>{
+ const result=await preview(plan(root,'owned.md','Use the literal \\[A-Z\\](42) in the filter.'),[],{cacheRoot:cache});
+ assert.equal(result.executable,true);
+ const missing=await preview(plan(root,'owned.md','Escaped slash \\\\[missing](missing.md)'),[],{cacheRoot:cache});
+ assert.equal(missing.executable,false);
+}));
 test('preview_denies_symlinked_target',()=>fixture(async(root,cache)=>{
  await symlink(cache,root+'/linked');await assert.rejects(()=>preview(plan(root,'linked/file.md'),[],{cacheRoot:cache}),/symlink/);
 }));

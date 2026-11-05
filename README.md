@@ -47,7 +47,7 @@ cd /path/to/project
 rigup init
 ```
 
-The guide asks for missing agent, workflow, and tool choices. Local Codex is the default research backend and uses your existing Codex login for semantic research. Pass a choice such as `--agents codex` to preselect it. This non-interactive preview uses local defaults and makes zero model calls.
+The guide asks for missing choices, including the language of generated project documents. Pass `--language zh-CN` to choose Simplified Chinese, or use the default `auto` to follow the project's guidance. Local Codex uses your existing login for semantic research. This non-interactive preview makes zero model calls.
 
 ```sh
 rigup init --agents codex --sdd none --tools none --dry-run --json
@@ -56,6 +56,12 @@ rigup init --agents codex --sdd none --tools none --dry-run --json
 ### 3. Review and use the installed workflow
 
 In review mode, inspect the preview and end any affected agent sessions. Run the reported `nextCommand` from a separate terminal, then reopen the agent. Where a native workflow is configured, start with the installed `change-prepare` and `change-deliver` skills. `rigup doctor` reports setup and reload status. [Apply and recovery](docs/guides/usage.md#应用与恢复)
+
+## Project development rules
+
+With a development workflow selected, Rigup links original guidance and identifies undocumented conventions in code. When evidence supports them, `docs/rigup/development-rules.md` records when each rule applies, what to do, how to verify it, and which source lines support it.
+
+The two installed skills carry applicable rules into native proposals and task execution. They point agents to existing tests and hook definitions so each change can reuse the checks that cover it. [Project workflow and language](docs/guides/usage.md#项目研发流程)
 
 ## How it works
 

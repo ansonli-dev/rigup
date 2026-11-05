@@ -2,7 +2,7 @@ import {privateDirectory,readCache,saveCache,signature} from '../generator/cache
 import {mkdir,realpath,readFile,writeFile,lstat,rename} from 'node:fs/promises';
 import {join,resolve,relative,isAbsolute,parse,dirname} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
-import {validateResearchRequest,validateResearch,type AnalysisBackend} from './backend.js';
+import {validateResearchRequest,validateResearch,selectResearchOutput,type AnalysisBackend} from './backend.js';
 import {READ_POLICY_VERSION} from './read-policy.js';
 import {PROMPT_VERSION,researchPrompt} from './prompts.js';
 import {stageContext,stageEvidence,dependencyLock,STAGE_EVIDENCE_POLICY} from './stage-context.js';
@@ -12,7 +12,7 @@ function stable(value:unknown):string {
  return JSON.stringify(value);
 }
 function inside(root:string,path:string):boolean {const rel=relative(root,path);return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));}
-export function hostBackend(options:{cacheRoot:string;responsePath?:string;requestPath?:string;omitDependencyLocks?:boolean;stageEvidence?:boolean}):AnalysisBackend {
+export function hostBackend(options:{cacheRoot:string;responsePath?:string;requestPath?:string;omitDependencyLocks?:boolean;stageEvidence?:boolean;nativeEntryPaths?:readonly string[]}):AnalysisBackend {
  return {run:async(request,reader)=>{
   validateResearchRequest(request);if(options.requestPath&&options.responsePath)throw new Error('request and response are mutually exclusive');
   if(request.budget.maxCalls<1 || request.budget.maxTokens<1) throw new Error('host budget exhausted');
@@ -29,7 +29,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   if(((await lstat(cache)).mode & 0o077) !== 0) throw new Error('private cache permissions required');
   if(cache !== requestedCache || inside(root,cache)) throw new Error('host cache symlink or project path denied');
   const paths=await reader.list();
-  const task=options.stageEvidence?stageContext(request,paths):undefined;
+  const task=options.stageEvidence?stageContext(request,paths,options.nativeEntryPaths):undefined;
   const taskEvidence=task?await stageEvidence(reader,task.slices):undefined;
   const selected=task?new Set(task.slices.map(slice=>slice.path)):undefined;
   const protectedEvidence=options.omitDependencyLocks||options.stageEvidence;
@@ -68,11 +68,12 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
    if((await lstat(requestPath)).isSymbolicLink()) throw new Error('request path symlink denied');
    const exported=JSON.parse(await readFile(requestPath,'utf8'));
    if(exported.requestDigest !== requestDigest || exported.requestId !== requestId || stable(exported.context) !== stable(context) || exported.instructions !== instructions) throw new Error('request context or instructions changed');
-   await verifyDelivery(exported);await validateResearch(response.data,reader);
+   const data=selectResearchOutput(request,response.data);
+   await verifyDelivery(exported);await validateResearch(data,reader);
    if(typeof response.model !== 'string' || !response.model) throw new Error('response model: required');
-   const unknowns=response.data.unknowns;
+   const unknowns=(data as {unknowns?:unknown}).unknowns;
    if(!Array.isArray(unknowns)||unknowns.some((x:unknown)=>typeof x !== 'string')) throw new Error('unknowns: required');
-   const result={data:response.data,model:response.model,unknowns:[...unknowns,'host token usage unknown'],usage:{calls:'unknown' as const,tokens:'unknown' as const}};
+   const result={data,model:response.model,unknowns:[...unknowns,'host token usage unknown'],usage:{calls:'unknown' as const,tokens:'unknown' as const}};
    try {await writeFile(acceptedPath,JSON.stringify({requestDigest,result}),{flag:'wx',mode:0o600});}
    catch(error){if((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;if((await lstat(acceptedPath)).isSymbolicLink()) throw new Error('accepted path symlink denied');const prior=JSON.parse(await readFile(acceptedPath,'utf8'));if(prior.requestDigest !== requestDigest || stable(prior.result) !== stable(result)) throw new Error('response already consumed with different result');}
    return {status:'complete',value:result};

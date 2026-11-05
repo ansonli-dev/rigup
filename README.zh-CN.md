@@ -47,7 +47,7 @@ cd /path/to/project
 rigup init
 ```
 
-引导会补问缺少的 agent、研发流程和工具。语义研究默认使用本机已登录的 Codex。可以传 `--agents codex` 预选 agent。下例用本地默认配置做非交互预览，模型调用为零。
+引导会补问缺少的设置，包括生成项目文档的语言。可以传 `--language zh-CN` 选简体中文，默认 `auto` 沿用项目指引的语言。语义研究默认使用本机已登录的 Codex。下例做非交互预览，模型调用为零。
 
 ```sh
 rigup init --agents codex --sdd none --tools none --dry-run --json
@@ -56,6 +56,12 @@ rigup init --agents codex --sdd none --tools none --dry-run --json
 ### 3. 应用并重载
 
 在审阅模式中，先检查预览并结束受影响的 agent 会话，再从独立终端执行报告里的 `nextCommand`。重开 agent 后，已接入原生研发流程的项目可以使用 `change-prepare` 和 `change-deliver`。用 `rigup doctor` 检查安装与重载状态。[应用与恢复](docs/guides/usage.md#应用与恢复)
+
+## 项目开发规范
+
+选用研发流程后，Rigup 引用已有指引，并从代码中识别尚未记录的惯例。证据充分时，`docs/rigup/development-rules.md` 会写明每条规则的适用范围、触发时机、操作、验证方式和源码依据。
+
+两个流程 skill 将适用规则带入原生提案和任务执行，并指出已有的测试和 hook 定义，方便 agent 复用覆盖本次改动的检查。[研发流程与语言](docs/guides/usage.md#项目研发流程)
 
 ## 工作原理
 

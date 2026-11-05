@@ -16,7 +16,7 @@ test('model_prompt_back_can_change_an_explicit_native_backend',async()=>{
 });
 
 test('selecting_an_agent_keeps_explicit_research_model_and_rebinds_explicit_tools',async()=>{
- const answers=['1'];
+ const answers=['1',''];
  const result=await onboard({agents:['codex'],backend:'native',sdd:'openspec',model:{provider:'anthropic',model:'fixture-model',apiKeyEnv:'RIGUP_FIXTURE_KEY'},tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}]},{write:()=>{},read:async()=>answers.shift()??null},{configure:false,knownBackend:true,credentials:{apiKey:'fixture-only-value'},provided:{sdd:true,tools:true,model:true}});
  assert.ok(result);assert.deepEqual(result.options.agents,['claude']);assert.equal(result.options.sdd,'openspec');assert.equal(result.options.model?.model,'fixture-model');assert.deepEqual(result.options.tools?.[0].agents,['claude']);assert.equal(answers.length,0);
 });
@@ -26,4 +26,14 @@ test('returning_to_agents_keeps_explicit_tool_registration_on_the_new_agent',asy
  const answers=['','b','1','4',''];
  const result=await onboard({agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}]},{write:()=>{},read:async()=>answers.shift()??null},{configure:false,knownBackend:true,provided:{tools:true}});
  assert.ok(result);assert.deepEqual(result.options.agents,['claude']);assert.deepEqual(result.options.tools?.[0].agents,['claude']);assert.equal(answers.length,0);
+});
+
+test('guided semantic setup accepts a custom document language and skips a supplied language',async()=>{
+ const initial={agents:['codex' as const],backend:'codex' as const,sdd:'openspec' as const};
+ const settings={configure:false,knownBackend:true,provided:{agents:true,sdd:true,tools:true}};
+ const answers=['bad language','zh-cn'];
+ const result=await onboard(initial,{write:()=>{},read:async()=>answers.shift()??null},settings);
+ assert.equal(result?.options.documentLanguage,'zh-CN');
+ const selected=await onboard({...initial,documentLanguage:'ja'},{write:()=>{},read:async()=>assert.fail('the supplied language must be used')},settings);
+ assert.equal(selected?.options.documentLanguage,'ja');
 });

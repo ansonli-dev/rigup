@@ -81,6 +81,24 @@ test('existing_guidance_is_bound_into_agent_prepare_deliver_and_review',()=>fixt
  for(const name of ['change-prepare','change-deliver'])assert.match(r.value.assets.find(a=>a.target.endsWith(name+'/references/project.md'))!.content,/docs\/rules\.md/);
  assert.match(r.value.assets.find(a=>a.target==='AGENTS.md')!.content,/docs\/rules\.md/);
 }));
+test('explicit rules from existing documentation are linked without regenerating the rule',()=>fixture(async(root,cache)=>{
+ await mkdir(root+'/docs');await writeFile(root+'/docs/policy.md','# Project policy\nUse the service boundary for writes.\n');
+ const backend:AnalysisBackend={run:async(request,reader)=>{
+  assert.equal(request.expectedOutput,'plan');
+  const source=(await reader.read('docs/policy.md',2,2)).evidence;
+  return {status:'complete',value:{model:'fixture',usage:{calls:1,tokens:10},unknowns:[],data:{
+   artifacts:[],dispositions:[],unknowns:[],observations:[{topic:'Service writes',statement:'Use the service boundary for writes.',classification:'explicit-rule',
+    scope:['.'],supportingEvidence:[source],counterEvidence:[],guidanceDisposition:'follow-existing'}],
+  }}};
+ }};
+ const result=await generate(await scanRepository(root,opts),opts,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.ok(!result.value.assets.some(asset=>asset.source.kind==='semantic'));
+ for(const asset of result.value.assets.filter(a=>a.target==='AGENTS.md'||a.target.endsWith('references/project.md'))){
+  assert.match(asset.content,/docs\/policy\.md#L2-L2/);
+  assert.doesNotMatch(asset.content,/Use the service boundary for writes/);
+ }
+}));
 test('raw_config_is_not_semantic_input_but_effective_options_are',()=>fixture(async(root,cache)=>{
  await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml','backend: host\n');const first=await scanRepository(root,opts);await writeFile(root+'/.rigup/config.yaml','# comment\nbackend: host\n');assert.equal((await scanRepository(root,opts)).fingerprint,first.fingerprint);
 }));
@@ -122,6 +140,58 @@ test('guidance_preserves_pattern_scope_examples_and_exceptions',()=>fixture(asyn
  // Initial research is passed through to the per-artifact researcher, never turned into a check operation.
  const f=fake();const backend:AnalysisBackend={run:async(r,reader)=>{if(r.expectedOutput==='plan')assert.deepEqual((r.input as any).profile.research.data,research);return f.backend.run(r,reader);}};
  const p=await scanRepository(root,opts);p.research={data:research,model:'prior',unknowns:['worker unexamined'],usage:{calls:1,tokens:1}};const result=await generate(p,opts,backend,[],{cacheRoot:cache});if(result.status!=='complete')throw Error('pending');assert.deepEqual(result.value.operations,[]);
+}));
+test('project development rules turn verified conventions into instructions for both change skills',()=>fixture(async(root,cache)=>{
+ await mkdir(root+'/src/orders',{recursive:true});
+ await writeFile(root+'/src/orders/create.ts','export const create = () => orderClient.post();\n');
+ await writeFile(root+'/src/orders/list.ts','export const list = () => orderClient.get();\n');
+ await mkdir(root+'/docs');await writeFile(root+'/docs/conventions.md','# 原项目规则\n订单请求沿用共享错误处理。\n');
+ const selected={...opts,documentLanguage:'zh-CN'};
+ const requests:ResearchRequest[]=[];
+ let invalid=false;
+ const backend:AnalysisBackend={run:async(request,reader)=>{
+  requests.push(request);
+  const files=['src/orders/create.ts','src/orders/list.ts'];
+  const evidence=await Promise.all(files.map(async file=>(await reader.read(file,1,1)).evidence));
+  const convention={topic:'订单 API 边界',statement:'在订单模块通过共享客户端调用 API。',classification:'convention',scope:['src/orders'],supportingEvidence:evidence,counterEvidence:[],exceptions:['仅限订单代码。\n在其他模块先确认。'],guidanceDisposition:'follow-existing',coverage:{independentSupports:2,counterexampleSearched:true,counterexampleQueries:['fetch(']}};
+  const observations=request.expectedOutput==='plan'?[convention,
+   {...convention,topic:'未经确认的例子',classification:'local-pattern',guidanceDisposition:'reference-only'},
+   {...convention,topic:'全局规则缺少权威',classification:'explicit-rule',scope:['.']},
+   {...convention,topic:'待决边界',classification:'local-pattern',supportingEvidence:[evidence[0]],counterEvidence:[evidence[1]],guidanceDisposition:'needs-decision'}]:[];
+  const sourceRef=(await reader.read('docs/conventions.md',2,2)).evidence;
+  const guidance=[{topic:'错误处理',sourceRef,scope:['src/orders'],coverageStatus:'reusable',consumers:['prepare','deliver'],gaps:[]}];
+  const data={observations,unknowns:[],...(request.expectedOutput==='plan'?{artifacts:[],dispositions:[],guidance}:
+   request.expectedOutput==='content'?{rulebook:{title:'项目开发规范',existing:'已有规范',inferred:'代码惯例',when:'适用时机',verify:'验证方式',exceptions:'例外',rules:[{sourceId:invalid?'unknown':'R1',trigger:'新增订单请求时',instruction:'调用共享的 orderClient。参照[原项目规则](../conventions.md)。',verification:'检查订单代码通过 orderClient 发起请求。保留标记 [A-Z](42)。'}]}}:
+   {accepted:true,reason:'规则和范围均有源码依据'})};
+  return {status:'complete',value:{data,model:'fixture',unknowns:[],usage:{calls:1,tokens:10}}};
+ }};
+ const profile=await scanRepository(root,selected);
+ const result=await generate(profile,selected,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.deepEqual(requests.map(r=>r.expectedOutput),['plan','content','acceptance']);
+ assert.ok(requests.every(r=>(r.options as typeof selected).documentLanguage==='zh-CN'));
+ const rulebook=result.value.assets.find(asset=>asset.target==='docs/rigup/development-rules.md');
+ assert.ok(rulebook);
+ assert.match(rulebook.content,/项目开发规范[\s\S]*代码惯例[\s\S]*新增订单请求时[\s\S]*调用共享的 orderClient[\s\S]*验证方式/);
+ assert.match(rulebook.content,/src\/orders\/create\.ts/);
+ assert.match(rulebook.content,/\[原项目规则\]\(\.\.\/conventions\.md#L2-L2\)/);
+ assert.match(rulebook.content,/仅限订单代码。 在其他模块先确认。/);
+ assert.doesNotMatch(rulebook.content,/未经确认的例子|全局规则缺少权威|待决边界/);
+ for(const name of ['change-prepare','change-deliver']){
+  const context=result.value.assets.find(asset=>asset.target.endsWith(name+'/references/project.md'))!.content;
+  assert.match(context,/Before editing|Before planning|Before changes/);
+  assert.match(context,/待决边界 \(needs-decision\).*src\/orders\/list\.ts#L1-L1/);
+ }
+ assert.match(result.value.assets.find(asset=>asset.target==='AGENTS.md')!.content,/development-rules\.md/);
+ const inventory=result.value.assets.map(asset=>({...asset,digest:digest(asset.content)}));
+ await generate(profile,selected,backend,inventory,{cacheRoot:cache});
+ assert.equal(requests.length,3);
+ const moved=await generate(profile,{...selected,projectConventions:{documentRoutes:{context:'docs/team'}}},backend,inventory,{cacheRoot:cache});
+ if(moved.status!=='complete')throw Error('pending');
+ assert.notEqual(moved.value.assets.find(asset=>asset.target==='docs/team/development-rules.md')?.logicalId,rulebook.logicalId);
+ assert.equal(moved.value.dispositions.find(disposition=>disposition.logicalId===rulebook.logicalId)?.action,'retire');
+ invalid=true;
+ await assert.rejects(generate(profile,selected,backend,[],{cacheRoot:cache+'/invalid'}),/rule source|rulebook/);
 }));
 test('no_sdd_only_installs_explicitly_selected_custom_flow',()=>fixture(async(root,cache)=>{
  const f=fake();const result=await generate(await scanRepository(root,{agents:['codex'],backend:'host'}),{agents:['codex'],backend:'host'},f.backend,[],{cacheRoot:cache});if(result.status!=='complete')throw Error('pending');assert.deepEqual(result.value.assets,[]);assert.equal(f.requests.length,0);

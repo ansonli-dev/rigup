@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import {ResearchFailure,validateResearchRequest,validateResearch,type AnalysisBackend} from './backend.js';
+import {ResearchFailure,validateResearchRequest,validateResearch,selectResearchOutput,type AnalysisBackend} from './backend.js';
 import {researchPrompt} from './prompts.js';
 const tools:Anthropic.Tool[]=[
  {name:'list',description:'List allowed source paths',input_schema:{type:'object',properties:{},additionalProperties:false}},
@@ -33,7 +33,7 @@ export function nativeBackend(options:{apiKey?:string;model?:string;fetch?:typeo
    if(tokens+spent.tokens>request.budget.maxTokens) throw new ResearchFailure('research token budget exhausted; incomplete research');
    if(response.stop_reason === 'end_turn') {
     const text=response.content.filter(b=>b.type === 'text').map(b=>b.text).join('');
-    let data:unknown;try {data=JSON.parse(text);}catch{throw new ResearchFailure('provider returned invalid research JSON');}
+    let data:unknown;try {data=selectResearchOutput(request,JSON.parse(text));}catch{throw new ResearchFailure('provider returned invalid research JSON');}
     await validateResearch(data,reader);
     const unknowns=(data as {unknowns?:unknown}).unknowns;
     if(!Array.isArray(unknowns)||unknowns.some(x=>typeof x !== 'string')) throw new Error('unknowns: string array required');

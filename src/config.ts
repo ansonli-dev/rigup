@@ -18,10 +18,19 @@ async function readConfig(path: string, required = false): Promise<Record<string
   return value as Record<string, unknown>;
 }
 
+export function normalizeDocumentLanguage(value: unknown): string {
+  if (value === 'auto') return value;
+  if (typeof value === 'string' && /^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$/i.test(value) && value.length <= 64) {
+    try { return Intl.getCanonicalLocales(value)[0]; } catch { /* Report the field below. */ }
+  }
+  throw new Error('documentLanguage: use auto or a BCP 47 language tag such as zh-CN or en');
+}
+
 export function validateOptions(value: Record<string, unknown>): void {
   for (const key of Object.keys(value)) {
-    if (!['agents','backend','quality','customer','executionPolicy','profile','templates','mcp','readBudget','researchBudget','scope','model','sdd','tools','customSkills','projectConventions'].includes(key)) throw new Error(key + ': unknown field');
+    if (!['agents','backend','documentLanguage','quality','customer','executionPolicy','profile','templates','mcp','readBudget','researchBudget','scope','model','sdd','tools','customSkills','projectConventions'].includes(key)) throw new Error(key + ': unknown field');
   }
+  if (value.documentLanguage !== undefined) normalizeDocumentLanguage(value.documentLanguage);
   if(value.executionPolicy!==undefined){const p=value.executionPolicy as Record<string,unknown>;if(!p||typeof p!=='object'||Object.keys(p).some(k=>k!=='mode')||!['continuous','review'].includes(String(p.mode)))throw new Error('executionPolicy.mode: continuous or review required');}
   const kinds=['build','lint','test','environment','eval'];
   if(value.quality!==undefined){
@@ -149,6 +158,7 @@ export async function loadOptions(root: string, overrides: Partial<SetupOptions>
   const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath), true) : {};
   validateOptions(profile);
   const options={...{agents: ['codex'], backend:'codex'}, ...profile, ...project, ...overrides} as SetupOptions;
+  if (options.documentLanguage !== undefined) options.documentLanguage = normalizeDocumentLanguage(options.documentLanguage);
   const layers=[profile,project,overrides];const backendLayer=layers.findLastIndex(layer=>layer.backend!==undefined),modelLayer=layers.findLastIndex(layer=>layer.model!==undefined);
   if(options.model&&modelLayer>backendLayer)options.backend='native';
   else if(options.backend==='codex'&&options.model)delete options.model;

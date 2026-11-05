@@ -4,16 +4,32 @@ export interface RepositoryReader {list():Promise<string[]>;read(path:string,sta
 export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;effectiveModel?:import('../types.js').SetupOptions['model'];versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;expectedOutput?:'plan'|'content'|'acceptance';input?:unknown;previousInventoryDigest:string;templateSourcesDigest:string}
 export interface ResearchResult {data:unknown;model:string;unknowns:string[];usage:{calls:number|'unknown';tokens:number|'unknown'}}
 export interface AnalysisBackend {/** Revision of content/acceptance evidence; does not reset run accounting or the unchanged plan. */artifactContextVersion?:string;run(request:ResearchRequest,reader:RepositoryReader):Promise<StepResult<ResearchResult>>}
+const searched=new WeakMap<RepositoryReader,Set<string>>();
+
+export function selectResearchOutput(request:ResearchRequest,data:unknown):unknown {
+ if(!data||typeof data!=='object'||Array.isArray(data))return data;
+ const job=(request.input as {job?:{ruleSources?:unknown}}|undefined)?.job;
+ if(!Array.isArray(job?.ruleSources))return data;
+ const {rulebook,accepted,reason,unknowns}=data as Record<string,unknown>;
+ if(request.expectedOutput==='content')return {rulebook,unknowns,observations:[]};
+ if(request.expectedOutput==='acceptance')return {accepted,reason,unknowns,observations:[]};
+ return data;
+}
+
 export async function validateResearch(data:unknown,reader:RepositoryReader):Promise<void>{
  if(!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('research: expected object');
+ const verified=new Set<string>();
  async function walk(value:unknown):Promise<void>{
   if(!value || typeof value !== 'object') return;
   if(Array.isArray(value)) {for(const item of value) await walk(item);return;}
   const obj=value as Record<string,unknown>;
   if('digest' in obj || ('startLine' in obj && 'path' in obj)) {
    if(typeof obj.path !== 'string' || !Number.isInteger(obj.startLine) || !Number.isInteger(obj.endLine) || typeof obj.digest !== 'string') throw new Error('evidence: invalid structure');
+   const key=JSON.stringify([obj.path,obj.startLine,obj.endLine,obj.digest]);
+   if(verified.has(key))return;
    const real=await reader.read(obj.path,Number(obj.startLine),Number(obj.endLine));
    if(real.evidence.digest !== obj.digest) throw new Error('evidence: digest mismatch');
+   verified.add(key);
    return;
   }
   for(const value of Object.values(obj)) await walk(value);
@@ -40,7 +56,10 @@ export async function validateResearch(data:unknown,reader:RepositoryReader):Pro
   if(item.classification === 'convention' && (!Number.isInteger(item.coverage?.independentSupports) || item.coverage.independentSupports < 2 || item.coverage?.counterexampleSearched !== true || new Set(item.supportingEvidence.map((e:Evidence)=>e.digest)).size < 2)) throw new Error('convention: independent support and counterexample search required');
   if(item.classification === 'convention') {
    if(!Array.isArray(item.coverage?.counterexampleQueries) || !item.coverage.counterexampleQueries.length || item.coverage.counterexampleQueries.some((q:unknown)=>typeof q !== 'string' || !q.trim())) throw new Error('convention: counterexample query evidence required');
-   for(const query of item.coverage.counterexampleQueries) await reader.search(query);
+   const completed=searched.get(reader)??new Set<string>();searched.set(reader,completed);
+   for(const query of item.coverage.counterexampleQueries)if(!completed.has(query)){
+    await reader.search(query);completed.add(query);
+   }
   }
   if(item.counterEvidence.length && !item.exceptions?.length && item.guidanceDisposition !== 'needs-decision') throw new Error('unexplained counterexample requires decision');
   if(item.classification === 'suggestion' && !['reference-only','needs-decision'].includes(item.guidanceDisposition)) throw new Error('suggestion: cannot become a rule');

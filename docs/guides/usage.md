@@ -1,18 +1,19 @@
 # Rigup 使用手册
 
-从 Release 安装 `rigup`，然后在目标项目根目录执行 `rigup init`。也可以直接运行 `rigup` 打开项目菜单。便携包、校验和回退见[安装指南](releases.md)。
+安装后，在目标项目根目录执行 `rigup init`。也可以直接运行 `rigup` 打开项目菜单。[安装指南](releases.md)
 
 ## 命令与引导
 
 ```sh
 rigup init
 rigup init --agents codex
+rigup init --agents codex --sdd openspec --language zh-CN
 rigup init /path/to/project --agents codex --sdd none --tools none --dry-run --json
 rigup update --configure
 rigup doctor
 ```
 
-省略路径时使用当前目录。交互终端保留已给的选项，补问缺少的 agent、SDD、工具、研究后端和执行方式，按 `b` 返回。`update --configure` 重新打开设置引导。`--json` 使用非交互模式，stdout 输出一个最终 JSON 对象，进度走 stderr。
+省略路径时使用当前目录。交互终端保留已给的选项并补问缺少的设置，按 `b` 返回。`update --configure` 重新打开设置引导。`--json` 使用非交互模式，stdout 输出一个最终 JSON 对象，进度走 stderr。
 
 `--dry-run` 保存私有候选和预览。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。选用 Superpowers、OpenSpec 或 Spec Kit 前，按对应框架准备官方入口。入口或依赖缺失会报告待办。[验证范围](../compatibility/status.md) · [上游版本与入口](../compatibility/upstream-lock.json)
 
@@ -24,6 +25,7 @@ rigup doctor
 agents: [codex]
 backend: codex
 sdd: openspec
+documentLanguage: zh-CN
 executionPolicy:
   mode: review
 researchBudget:
@@ -42,6 +44,12 @@ mcp:
 - 用 `scope` 限定项目内相对路径，用 `readBudget.maxFiles` 和 `readBudget.maxBytes` 限制读取。`researchBudget` 约束本轮各阶段的累计用量。
 - MCP 的 `envRefs` 由 runner 启动时解析。配置里保存变量名，凭据由宿主环境提供。安装后重载 agent，再检查实际连接。
 - `customSkills` 接受本地 `source` 目录，可用 `position` 绑定 `prepare`、`deliver` 或 `release`。`templates` 通过 `source`、`target` 和 `values` 为允许的文档或 skill 资源做标量替换。`change-release` 需要真实的客户部署适配器。
+
+## 项目研发流程
+
+- `--language` 和 `documentLanguage` 接受 `auto` 或语言标签，例如 `zh-CN`、`en`、`ja`。默认 `auto` 参照适用的项目指引。此设置用于新生成的项目规范和语义文档。已有文档保留原文，原生流程入口保留其名称和模板。
+- 证据支持的开发规范写入 `docs/rigup/development-rules.md`，也可通过 `projectConventions.documentRoutes.context` 指定目录。原有指引以带行号的链接引用。代码惯例按已验证的模块限定范围。
+- 使用 `change-prepare` 将需求、适用规则和检查写入所选 SDD 的提案与任务。审批后使用 `change-deliver` 实现并验证。两者共享项目指引，按变更范围复用已有的测试、CI 和 hooks。
 
 ## 研究后端与预算
 
@@ -68,6 +76,10 @@ rigup update --resume --review --json
 Rigup 比较上次生成的基线、本地文件和新候选。非重叠改动可合并，冲突保留本地内容，等待用户处理后重新预览。混合配置按拥有的键、表或标记块更新，完整文件也核对权限位。需要显式退役时使用 `--retire logicalId,...`。
 
 中断后保留项目 `.rigup/` 和私有状态 `~/.local/state/rigup/`。普通候选与请求位于 `~/.cache/rigup/`。先核实 controller 和原生写入进程已退出，再在原项目路径用原配置执行 `--resume`。续跑可从持久记录恢复已批准的预览。输入或权限前置变化时先对账，再生成新预览。对未确认的副作用保留记录，等待身份和结果核实。
+
+Git 项目应用集成后，`.rigup/.gitignore` 会排除本机安装回执、基线、软件和原生工具状态。项目配置和共享检查脚本仍可跟踪。
+
+升级前，先用原版本续跑或对账未完成的语义研究。准备新预览时，会使用新版本的证据格式和独立的预算记录。
 
 ## OpenWiki 和 CodeGraph
 

@@ -5,6 +5,10 @@ import {processIdentity,isAlive,type ProcessIdentity} from '../installer/lock.js
 const exec=promisify(execFile);
 export interface CodexInvocation {cwd:string;args:string[];prompt:string;output:string;signal?:AbortSignal;onStart(identity:ProcessIdentity):Promise<void>}
 export interface CodexOutcome {code:number|null;stdout:string;lastMessage:string}
+const attemptTimeoutMs=300_000;
+export class CodexTimeoutError extends Error {
+ constructor(){super('Codex exceeded the '+attemptTimeoutMs/1000+' second response limit');}
+}
 export async function codexAvailable():Promise<string>{
  try {const result=await exec('codex',['--version'],{timeout:10000,maxBuffer:4096});if(result.stdout.trim()!=='codex-cli 0.166.0')throw Error('unsupported version');return result.stdout.trim();}
  catch{throw Error('Local Codex 0.166.0 is unavailable; install/sign in to Codex or explicitly select another backend');}
@@ -23,7 +27,7 @@ export async function invokeCodex(input:CodexInvocation):Promise<CodexOutcome>{
  const cancel=()=>{stop();force??=setTimeout(()=>{if(child.pid)try{process.kill(-child.pid,'SIGKILL');}catch{}},3000);};
  child.stdout.on('data',chunk=>{if(stdout.length+chunk.length>4_000_000){overflow=true;cancel();}else stdout+=chunk;});
  child.stderr.resume(); // Raw provider/agent output never enters user-facing errors.
- const timeout=setTimeout(()=>{timedOut=true;cancel();},180000);input.signal?.addEventListener('abort',cancel,{once:true});
+ const timeout=setTimeout(()=>{timedOut=true;cancel();},attemptTimeoutMs);input.signal?.addEventListener('abort',cancel,{once:true});
  try{
   if(!child.pid)throw Error('Codex process unavailable');
   const identity=await processIdentity(child.pid);
@@ -31,7 +35,8 @@ export async function invokeCodex(input:CodexInvocation):Promise<CodexOutcome>{
   if(input.signal?.aborted)cancel();else child.stdin.end(input.prompt);
   const code=await ended;
   if(await isAlive(identity))throw Error('Codex process exit unconfirmed');
-  if(input.signal?.aborted||overflow||timedOut)throw Error('Codex cancelled or response exceeded its limit');
+  if(timedOut)throw new CodexTimeoutError();
+  if(input.signal?.aborted||overflow)throw Error('Codex cancelled or response exceeded its limit');
   const stat=await lstat(input.output);if(stat.isSymbolicLink()||!stat.isFile()||stat.size>2_000_000)throw Error('Invalid Codex output file');
   return {code,stdout,lastMessage:await readFile(input.output,'utf8')};
  }finally{child.stdin.end();if(!finished){cancel();await ended;}clearTimeout(timeout);if(force)clearTimeout(force);input.signal?.removeEventListener('abort',cancel);}

@@ -2,18 +2,18 @@ import {posix} from 'node:path';
 import type {Evidence} from '../types.js';
 import type {ResearchRequest,RepositoryReader} from './backend.js';
 import {digest} from './evidence.js';
+import {markdownLinks} from '../generator/document-policy.js';
 
-export const STAGE_EVIDENCE_POLICY='stage-evidence-v2';
-const locks=new Set(['package-lock.json','npm-shrinkwrap.json','yarn.lock','pnpm-lock.yaml','bun.lock','bun.lockb']);
+export const STAGE_EVIDENCE_POLICY='stage-evidence-v3';
+const locks=new Set(['package-lock.json','npm-shrinkwrap.json','yarn.lock','pnpm-lock.yaml','bun.lock','bun.lockb','Cargo.lock','composer.lock','Gemfile.lock','go.sum','Pipfile.lock','poetry.lock','uv.lock']);
 export const dependencyLock=(path:string)=>locks.has(posix.basename(path));
-export interface EvidenceSlice {path:string;startLine:number;endLine?:number;digest?:string}
+export interface EvidenceSlice {path:string;startLine:number;endLine?:number;digest?:string;chunkLines?:number}
 export interface StageContext {stage:string;input:unknown;slices:EvidenceSlice[];unavailable:string[]}
 const record=(value:unknown):Record<string,any>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,any>:{};
 const array=(value:unknown):any[]=>Array.isArray(value)?value:[];
 const strings=(value:unknown):string[]=>array(value).filter((v:unknown)=>typeof v==='string');
 const overlaps=(a:string,b:string)=>a==='.'||b==='.'||a===b||a.startsWith(b+'/')||b.startsWith(a+'/');
 const within=(path:string,root:string)=>root==='.'||path===root||path.startsWith(root+'/');
-const native=(path:string)=>/^\.(?:agents|codex|claude|opencode|omp)\/(?:skills\/.+\/SKILL\.md|commands\/.+\.md)$/.test(path);
 const instruction=(path:string)=>/^(?:AGENTS|CLAUDE|GEMINI)\.md$/.test(posix.basename(path));
 const manifest=(path:string)=>/^(?:package\.json|pyproject\.toml|Cargo\.toml|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|Gemfile)$/.test(posix.basename(path));
 function references(value:unknown):Evidence[]{
@@ -32,9 +32,10 @@ function references(value:unknown):Evidence[]{
 }
 
 /** Select evidence by verified references and task paths, never by a prose score. */
-export function stageContext(request:ResearchRequest,paths:string[]):StageContext {
+export function stageContext(request:ResearchRequest,paths:string[],nativeEntryPaths:readonly string[]=[]):StageContext {
  if(request.kind==='analyze'?request.expectedOutput!==undefined:request.kind==='artifact-plan'?request.expectedOutput!=='plan':!['content','acceptance'].includes(request.expectedOutput??''))throw Error('Stage output does not match request kind');
  const stage=request.expectedOutput??'analyze',input=record(request.input),allowed=new Set(paths),unavailable=new Set<string>(),slices=new Map<string,EvidenceSlice>();
+ const nativeEntries=new Set(nativeEntryPaths);
  const add=(slice:EvidenceSlice)=>{
   if(!allowed.has(slice.path))throw Error('Stage evidence path outside reader inventory: '+slice.path);
   if(dependencyLock(slice.path)){unavailable.add(slice.path+': dependency lock body omitted; locked/transitive versions are not supplied');return;}
@@ -50,13 +51,13 @@ export function stageContext(request:ResearchRequest,paths:string[]):StageContex
  };
  let projected:unknown=request.input;
  if(stage==='analyze'){
-  for(const path of paths)if(!dependencyLock(path))add({path,startLine:1});
+  for(const path of paths)if(!dependencyLock(path))add({path,startLine:1,chunkLines:64});
  }else if(stage==='plan'){
   const profile=record(input.profile),research=record(profile.research);
   const data=record(research.data),analysis={guidance:data.guidance,observations:data.observations,unknowns:data.unknowns};
   projected={allowedRoots:input.allowedRoots,profile:{commands:profile.commands,research:{data:analysis,unknowns:research.unknowns},unknowns:profile.unknowns},previousInventory:input.previousInventory,inventoryPolicy:input.inventoryPolicy};
   refs(analysis);
-  for(const path of paths)if(instruction(path)||native(path)||manifest(path))add({path,startLine:1});
+  for(const path of paths)if(instruction(path)||nativeEntries.has(path)||manifest(path))add({path,startLine:1});
   if(!research.data)unavailable.add('Prior analysis unavailable; do not infer unprovided project conventions');
  }else {
   const job=record(input.job),research=record(input.research);
@@ -66,21 +67,23 @@ export function stageContext(request:ResearchRequest,paths:string[]):StageContex
   const visit=(id:string)=>{if(connected.has(id))return;const current=jobs.get(id);if(!current){unavailable.add(id+': related artifact metadata unavailable');return;}connected.set(id,current);for(const related of strings(current.relatedArtifacts))visit(related);};
   visit(job.logicalId);
   const anchors=new Set<string>();
+  const ruleRefs=new Set(job.ruleSources?references([job.sourceRefs,research.guidance]).map(ref=>ref.path):[]);
   for(const current of connected.values()){
    for(const ref of references(current.sourceRefs))anchors.add(ref.path);
    for(const path of strings(current.seedPaths))anchors.add(path);
    refs(current.sourceRefs);for(const path of strings(current.seedPaths))seed(path);
   }
-  if(stage==='acceptance'&&typeof input.candidate==='string')for(const link of input.candidate.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)){
+  if(stage==='acceptance'&&typeof input.candidate==='string')for(const link of markdownLinks(input.candidate)){
    let raw=link[1].split('#')[0];if(!raw||/^(?:https?:|mailto:)/.test(raw))continue;
    try{raw=decodeURIComponent(raw);}catch{unavailable.add(raw+': invalid candidate link');continue;}
    const target=posix.normalize(posix.join(posix.dirname(job.target),raw));
    if(raw.startsWith('/')||!allowed.has(target)){unavailable.add(raw+': candidate link outside supplied source inventory');continue;}
+   if(ruleRefs.has(target)){anchors.add(target);continue;}
    anchors.add(target);add({path:target,startLine:1});
   }
   const taskLocations=[...anchors,...[...connected.values()].map(j=>j.target).filter((target:unknown)=>typeof target==='string')];
   const applies=(path:string)=>taskLocations.some(anchor=>within(anchor,posix.dirname(path)));
-  const guard=(path:string)=>native(path)||instruction(path)&&applies(path);
+  const guard=(path:string)=>nativeEntries.has(path)||instruction(path)&&applies(path);
   const relevant=(value:unknown)=>references(value).some(e=>[...anchors].some(anchor=>overlaps(e.path,anchor)));
   const scopes=(value:unknown)=>strings(value).filter(s=>s.trim()).map(s=>posix.normalize(s).replace(/\/+$/,'')||'/');
   const scopeApplies=(value:unknown)=>scopes(value).some(scope=>taskLocations.some(anchor=>overlaps(scope,anchor)));
@@ -113,10 +116,13 @@ export async function stageEvidence(reader:RepositoryReader,slices:EvidenceSlice
   let full=files.get(slice.path);if(!full){full=await reader.read(slice.path,1);files.set(slice.path,full);}
   const end=slice.endLine??full.evidence.endLine;
   if(slice.startLine<1||end<slice.startLine||end>full.evidence.endLine)throw Error('Stage evidence range outside source');
-  const content=full.content.split('\n').slice(slice.startLine-1,end).join('\n');
-  const evidence={path:slice.path,startLine:slice.startLine,endLine:end,digest:digest(content)};
-  if(slice.digest&&slice.digest!==evidence.digest)throw Error('Stage evidence digest does not match visible source');
-  snippets.set(JSON.stringify(evidence),{content,evidence});
+  const lines=full.content.split('\n'),chunk=slice.chunkLines??end-slice.startLine+1;
+  for(let start=slice.startLine;start<=end;start+=chunk){
+   const last=Math.min(start+chunk-1,end),content=lines.slice(start-1,last).join('\n');
+   const evidence={path:slice.path,startLine:start,endLine:last,digest:digest(content)};
+   if(slice.digest&&slice.digest!==evidence.digest)throw Error('Stage evidence digest does not match visible source');
+   snippets.set(JSON.stringify(evidence),{content,evidence});
+  }
  }
  return [...snippets.values()];
 }

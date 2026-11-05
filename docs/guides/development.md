@@ -35,7 +35,7 @@ The following scenarios send model requests. Select one and review its fixture, 
 
 - `test/live-codex-backend.test.ts` uses `RIGUP_LIVE_CODEX_BACKEND=1` and `RIGUP_OPENSPEC_BIN` for the default Codex lifecycle.
 - `test/live-compatibility.test.ts` uses `RIGUP_LIVE=1`, `RIGUP_LIVE_GATE=1` and `RIGUP_OPENSPEC_BIN` with `--test-name-pattern='live Codex OpenSpec'` for the delivery gate.
-- `test/live-github-context.test.ts` uses `RIGUP_LIVE_BULLETPROOF_CONTEXT=1` for the pinned frontend scenario. Its budget and any required environment are defined in the test.
+- `test/live-github-context.test.ts` uses `RIGUP_LIVE_BULLETPROOF_CONTEXT=1` and `RIGUP_LIVE_DDD_CONTEXT=1` for pinned React and DDD repositories. The cases verify scoped evidence, installed development rules, protected updates and the model budget against the packaged CLI.
 
 For Claude or Windows use the [handoff checklist](external-validation-handoff.md). For other clients, select the corresponding named test and verify its structured report. See the [tested scope](../compatibility/status.md).
 

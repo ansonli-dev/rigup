@@ -2,12 +2,12 @@ import {join} from 'node:path';
 import {mkdir,readFile,lstat} from 'node:fs/promises';
 import {hostBackend} from './host.js';
 import {STAGE_EVIDENCE_POLICY} from './stage-context.js';
-import {validateResearchRequest,ResearchFailure,type AnalysisBackend,type ResearchResult} from './backend.js';
+import {validateResearchRequest,selectResearchOutput,ResearchFailure,type AnalysisBackend,type ResearchResult} from './backend.js';
 import {privateDirectory,readCache,signature} from '../generator/cache.js';
 import {saveDurable} from '../installer/state.js';
 import {isAlive,type ProcessIdentity} from '../installer/lock.js';
-import {codexAvailable,codexArguments,invokeCodex,type CodexInvocation,type CodexOutcome} from './codex-process.js';
-export interface CodexBackendOptions {cacheRoot:string;stateRoot?:string;signal?:AbortSignal;onUsage?:(usage:{calls:number;tokens:number|'unknown'})=>Promise<void>;invoke?:(input:CodexInvocation)=>Promise<CodexOutcome>}
+import {CodexTimeoutError,codexAvailable,codexArguments,invokeCodex,type CodexInvocation,type CodexOutcome} from './codex-process.js';
+export interface CodexBackendOptions {cacheRoot:string;stateRoot?:string;signal?:AbortSignal;nativeEntryPaths?:readonly string[];onUsage?:(usage:{calls:number;tokens:number|'unknown'})=>Promise<void>;invoke?:(input:CodexInvocation)=>Promise<CodexOutcome>}
 interface Attempt {status:'reserved'|'observed';tokens:number|'unknown';identity?:ProcessIdentity}
 interface Ledger {attempts:Record<string,Attempt>}
 const codexAdapterVersion='4';
@@ -40,7 +40,8 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
   if(!ledger.attempts||typeof ledger.attempts!=='object'||Array.isArray(ledger.attempts)||Object.values(ledger.attempts).some(a=>!a||!['reserved','observed'].includes(a.status)||a.tokens!=='unknown'&&(!Number.isSafeInteger(a.tokens)||a.tokens<0)))throw new ResearchFailure('Codex usage ledger is corrupt; reconciliation required');
   const accounting=ledger;
   const account=async()=>{await saveDurable(ledgerPath,JSON.stringify(accounting));await options.onUsage?.(totals(accounting));};
-  const exported=await hostBackend({cacheRoot:exchange,stageEvidence:true}).run(context,reader);
+  const exchangeOptions={cacheRoot:exchange,stageEvidence:true,nativeEntryPaths:options.nativeEntryPaths};
+  const exported=await hostBackend(exchangeOptions).run(context,reader);
   if(exported.status==='complete'){
    const dataSignature=signature(exported.value.data);
    const accepted=await readCache<{dataSignature:string;model:string}>(join(cache,signature(context)+'.result.json'));
@@ -64,19 +65,27 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
    try {
     outcome=await (options.invoke??invokeCodex)({cwd,output,args:codexArguments(cwd,output),prompt,signal:options.signal,onStart:async identity=>{ledger.attempts[id].identity=identity;await account();}});
     await saveDurable(attemptPath,JSON.stringify(outcome));
-   }catch{throw new ResearchFailure('Codex attempt failed; its reserved usage remains unknown and is not reset',[],{calls:1,tokens:'unknown'});}
+   }catch(error){
+    const message=error instanceof CodexTimeoutError?error.message:'Codex attempt failed';
+    throw new ResearchFailure(message+'. Reserved usage remains unknown and requires reconciliation.',[],{calls:1,tokens:'unknown'});
+   }
   }
   try {
    const tokens=observed(outcome);ledger.attempts[id]={status:'observed',tokens};await account();
    const used=totals(ledger);if(outcome.code!==0||used.tokens==='unknown'||used.tokens>request.budget.maxTokens)throw Error('Codex failed or exceeded its observed budget');
-   const data=JSON.parse(outcome.lastMessage);const model='codex-cli 0.166.0 / default model (actual model ID not exposed)';
+   const data=selectResearchOutput(request,JSON.parse(outcome.lastMessage));const model='codex-cli 0.166.0 / default model (actual model ID not exposed)';
    const responsePath=join(cache,id+'.response.json');
    await saveDurable(responsePath,JSON.stringify({requestId:id,requestDigest:id,model,data}));
    await saveDurable(join(cache,signature(context)+'.result.json'),JSON.stringify({dataSignature:signature(data),model}));
-   const accepted=await hostBackend({cacheRoot:exchange,responsePath,stageEvidence:true}).run(context,reader);
+   const accepted=await hostBackend({...exchangeOptions,responsePath}).run(context,reader);
    if(accepted.status!=='complete')throw Error('Codex response not accepted');
    const value:ResearchResult={data,model,unknowns:accepted.value.unknowns.filter(s=>s!=='host token usage unknown'),usage:recoveredOutcome?{calls:0,tokens:0}:{calls:1,tokens}};
    return {status:'complete',value};
-  }catch(error){if(error instanceof ResearchFailure)throw error;throw new ResearchFailure('Codex result rejected: '+((error as Error).message.includes('tool')?'unexpected tool activity':(error as Error).message.includes('usage')?'usage unavailable':'invalid evidence, output, or observed budget'),[],{calls:1,tokens:ledger.attempts[id]?.tokens??'unknown'});}
+  }catch(error){
+   if(error instanceof ResearchFailure)throw error;
+   const message=(error as Error).message;
+   const reason=message.includes('reader budget')?'repository read budget exhausted':message.includes('tool')?'unexpected tool activity':message.includes('usage')?'usage unavailable':'invalid evidence, output, or observed budget';
+   throw new ResearchFailure('Codex result rejected: '+reason,[],{calls:1,tokens:ledger.attempts[id]?.tokens??'unknown'});
+  }
  }};
 }

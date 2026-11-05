@@ -19,7 +19,7 @@ import {digest} from '../analyzer/evidence.js';
 import {readFileState,absentDigest} from './file-state.js';
 export {absentDigest} from './file-state.js';
 import {privateDirectory,signature,readCache,saveCache} from '../generator/cache.js';
-import {validateTemplateContent} from '../generator/document-policy.js';
+import {markdownLinks,validateTemplateContent} from '../generator/document-policy.js';
 import {loadManifest,trustedBaseline,type Manifest} from './baseline.js';
 import {mergeManaged,type MergeResult} from './merge.js';
 import {targetPath,ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
@@ -144,12 +144,12 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   if(entry.candidate?.source.kind==='customer-mcp'&&asset.target.endsWith('.mjs')&&text!==entry.candidate.content)blockers.push(asset.target+': fixed MCP runner changed; resolve before apply');
   if(asset.target.endsWith('.md')) {
    try{validateTemplateContent(text);}catch{blockers.push(asset.target+': local content conflicts with mandatory workflow gate; regenerate or resolve');}
-   for(const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)){
+   for(const match of markdownLinks(text)){
     const raw=match[1].split('#')[0];if(!raw||/^(?:https?:|mailto:)/.test(raw))continue;
     try {const target=posix.normalize(posix.join(posix.dirname(asset.target),decodeURIComponent(raw)));if(raw.startsWith('/')||target.startsWith('../')||!await available(target))throw new Error('missing');}
     catch{blockers.push(asset.target+': navigation link unavailable: '+raw);}
    }
-   if(entry.candidate?.source.kind==='fixed-template')for(const match of entry.candidate.content.matchAll(/\[[^\]]*\]\(([^)]+)\)/g))if(!text.includes(match[0]))blockers.push(asset.target+': required consumer binding removed; regenerate or resolve');
+   if(entry.candidate?.source.kind==='fixed-template')for(const match of markdownLinks(entry.candidate.content))if(!text.includes(match[0]))blockers.push(asset.target+': required consumer binding removed; regenerate or resolve');
   }else if(asset.ownership.kind==='json-key'||asset.ownership.kind==='toml-table'){
    // A locally changed executable binding cannot inherit semantic acceptance of N.
    if(entry.candidate&&signature(asset.ownership.kind==='json-key'?parseJsonc(text):parseToml(text))!==signature(asset.ownership.kind==='json-key'?parseJsonc(entry.candidate.content):parseToml(entry.candidate.content)))blockers.push(asset.target+': selected machine binding differs from accepted configuration');

@@ -89,7 +89,7 @@ test('apply_id_cannot_redirect_cli_to_a_different_project_root',()=>project(asyn
 
 
 test('first_run_with_only_a_backend_still_guides_missing_agents_and_sdd',()=>project(async root=>project(async cache=>project(async state=>{
- const {readFile}=await import('node:fs/promises');const answers=['1','2','3','3'];const reports:Record<string,any>[]=[];let output='';
+ const {readFile}=await import('node:fs/promises');const answers=['1','2','3','','3'];const reports:Record<string,any>[]=[];let output='';
  const code=await runCli(['init','--backend','host'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null,services:{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}});
  assert.equal(code,3,output);assert.equal(answers.length,0);const paused=reports.find(r=>r.requestPath);assert.ok(paused,'interactive selections must reach actual host research');
  const request=JSON.parse(await readFile(paused.requestPath,'utf8'));assert.deepEqual(request.context.options.agents,['claude']);assert.equal(request.context.options.sdd,'openspec');assert.equal(request.context.options.backend,'host');assert.equal(request.context.root,root);assert.deepEqual(await readdir(root),[]);
@@ -97,9 +97,9 @@ test('first_run_with_only_a_backend_still_guides_missing_agents_and_sdd',()=>pro
 
 test('interactive_agent_selection_preserves_explicit_sdd_and_tool_arguments',()=>project(async root=>project(async cache=>project(async state=>{
  const {readFile}=await import('node:fs/promises');const answers=['1'];const reports:Record<string,any>[]=[];let output='';
- const code=await runCli(['init','--sdd','openspec','--tools','none','--backend','host','--dry-run'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null,services:{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}});
+ const code=await runCli(['init','--sdd','openspec','--tools','none','--backend','host','--language','zh-cn','--dry-run'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null,services:{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}});
  assert.equal(code,3,output);assert.equal(answers.length,0);const paused=reports.find(r=>r.requestPath);assert.ok(paused);
- const request=JSON.parse(await readFile(paused.requestPath,'utf8'));assert.deepEqual(request.context.options.agents,['claude']);assert.equal(request.context.options.sdd,'openspec');assert.equal(request.context.options.tools,undefined);assert.deepEqual(await readdir(root),[]);
+ const request=JSON.parse(await readFile(paused.requestPath,'utf8'));assert.deepEqual(request.context.options.agents,['claude']);assert.equal(request.context.options.sdd,'openspec');assert.equal(request.context.options.tools,undefined);assert.equal(request.context.options.documentLanguage,'zh-CN');assert.deepEqual(await readdir(root),[]);
 }))));
 
 test('explicit_first_run_selections_do_not_need_reentering_in_a_terminal',()=>project(async root=>project(async cache=>project(async state=>{

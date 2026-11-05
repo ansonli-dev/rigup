@@ -43,7 +43,7 @@ export function parseUpstreamLock(value:unknown):Recipe[]{
  return doc.integrations as Recipe[];
 }
 export async function loadUpstreamLock():Promise<Recipe[]>{return parseUpstreamLock(JSON.parse(await readFile(new URL('../../docs/compatibility/upstream-lock.json',import.meta.url),'utf8')));}
-export interface SddBinding {status:'source-bound';id:string;agent:string;prepare:string[];deliver:string[];artifacts:string[];gates:string[]}
+export interface SddBinding {status:'source-bound';id:string;agent:string;prepare:string[];deliver:string[];artifacts:string[];gates:string[];revise?:string;projectSources?:string[]}
 export function bindSdd(id:string,agent:string,available:string[]):SddBinding|{status:'pending';id:string;reason:string} {
  if(!['claude','codex','opencode','omp'].includes(agent)) throw new Error('unsupported host');
  if(id === 'superpowers' && agent === 'omp') return {status:'pending',id,reason:'OMP-specific Superpowers binding not verified; Pi support is not evidence for OMP'};
@@ -80,7 +80,22 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
  if(options.sdd) {
   requireKnown(options.sdd);
   for(const agent of options.agents) {
-   try {const available=profile.nativeEntries?.[agent]??[];const binding=bindSdd(options.sdd,agent,available);if(binding.status==='pending')requirements.push({integrationId:options.sdd,reason:binding.reason});else{const resolve=(name:string)=>{const base=name.split(':').at(-1)!;const candidates=(profile.skillSources?.[agent]??[]).filter(s=>s.name===name||s.name===base||s.name===options.sdd+':'+base);const source=resolveSkillSource(base,candidates.map(s=>({...s,name:base,nativeName:s.name})));return source.nativeName!;};bindings.push({...binding,prepare:binding.prepare.map(resolve),deliver:binding.deliver.map(resolve)});}}
+   try {
+    const available=profile.nativeEntries?.[agent]??[];const binding=bindSdd(options.sdd,agent,available);
+    if(binding.status==='pending'){requirements.push({integrationId:options.sdd,reason:binding.reason});continue;}
+    const resolveEntry=(name:string)=>{
+     const base=name.split(':').at(-1)!;
+     const candidates=(profile.skillSources?.[agent]??[]).filter(s=>s.name===name||s.name===base||s.name===options.sdd+':'+base);
+     return resolveSkillSource(base,candidates.map(s=>({...s,name:base,nativeName:s.name})));
+    };
+    const prepare=binding.prepare.map(resolveEntry),deliver=binding.deliver.map(resolveEntry);
+    const optional=options.sdd==='openspec'?[openspec.revise,openspec.sync].filter(name=>available.includes(name)).flatMap(name=>{
+     try{return [resolveEntry(name)];}catch{warnings.push(agent+': '+name+' needs source reconciliation');return [];}
+    }):[];
+    const revise=optional.find(source=>source.nativeName===openspec.revise)?.nativeName;
+    const projectSources=[...prepare,...deliver,...optional].map(source=>source.identity).filter(path=>profile.files.includes(path));
+    bindings.push({...binding,prepare:prepare.map(source=>source.nativeName!),deliver:deliver.map(source=>source.nativeName!),revise,projectSources});
+   }
    catch(error){requirements.push({integrationId:options.sdd,reason:(error as Error).message});}
   }
  }
@@ -129,6 +144,11 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
  if(options.projectConventions?.tracker) warnings.push('Tracker convention recorded; executable tracker adapter is pending');
  const quality=await prepareQuality(profile,options);push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
+ if(profile.git.available&&(assets.length||bindings.length)){
+  const ownership={kind:'block' as const,start:'# rigup:start',end:'# rigup:end'};
+  const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/',ownership.end,''].join('\n');
+  push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
+ }
  for(let i=operations.length-1;i>=0;i--) {
   const operation=operations[i];
   if(operation.declaredWrites.some(scope=>assets.some(asset=>scope === '.' || asset.target === scope || asset.target.startsWith(scope+'/')))) {

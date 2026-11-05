@@ -9,6 +9,7 @@ export interface SetupOptions {
   projectConventions?: {tracker?:{system:'gitlab'|'github'|'local'|'other';reference?:string;description?:string};documentRoutes?:Record<string,string>;labelMapping?:Record<string,string>};
   model?: {provider:'anthropic';model:string;apiKeyEnv:string};
   backend: 'codex' | 'native' | 'host';
+  documentLanguage?: string;
   executionPolicy?:{mode:'continuous'|'review'};
   profile?: string;
   scope?: string[];

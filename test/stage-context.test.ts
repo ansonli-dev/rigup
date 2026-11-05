@@ -4,6 +4,7 @@ import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {project} from './helpers.js';
 import {repositoryReader,scanRepository} from '../src/analyzer/repository.js';
 import {hostBackend} from '../src/analyzer/host.js';
+import {STAGE_EVIDENCE_POLICY} from '../src/analyzer/stage-context.js';
 import {signature} from '../src/generator/cache.js';
 import type {ResearchRequest,RepositoryReader} from '../src/analyzer/backend.js';
 
@@ -20,6 +21,10 @@ async function fixture(fn:(f:any)=>Promise<void>){await project(async root=>proj
   'src/z/unrelated.ts':'UNRELATED_PROJECT_BODY\n',
   'src/z/linked.ts':'LINKED_ACCEPTANCE_SOURCE\n',
   '.agents/skills/openspec-apply-change/SKILL.md':'Preserve native blocked states and human approval gates.\n',
+  '.agents/skills/openspec-explore/SKILL.md':'EXPLORE_ONLY_UNRELATED_BODY\n',
+  '.agents/skills/local-proposal/SKILL.md':'EXACT_RESOLVED_NATIVE_ENTRY\n',
+  '.claude/skills/openspec-propose/SKILL.md':'UNSELECTED_HOST_NATIVE_BODY\n',
+  'docs/long.md':Array.from({length:130},(_,i)=>'Project guidance line '+(i+1)).join('\n'),
   'yarn.lock':'LOCK_BODY_MUST_STAY_OMITTED\n',
   'docs/yarn.lock.md':'Handwritten lock explanation.\n',
  };
@@ -35,21 +40,32 @@ async function fixture(fn:(f:any)=>Promise<void>){await project(async root=>proj
  await fn({root,cache,reader,request,phase,research,job,ref,profile});
 }));}
 async function exported(f:any,request:ResearchRequest,cache=f.cache){
- const result=await hostBackend({cacheRoot:cache,stageEvidence:true}).run(request,f.reader);assert.equal(result.status,'pending-host');if(result.status!=='pending-host')throw Error('expected pending export');
+ const result=await hostBackend({cacheRoot:cache,stageEvidence:true,nativeEntryPaths:['.agents/skills/local-proposal/SKILL.md','.agents/skills/openspec-apply-change/SKILL.md']}).run(request,f.reader);assert.equal(result.status,'pending-host');if(result.status!=='pending-host')throw Error('expected pending export');
  return {result,body:JSON.parse(await readFile(result.requestPath,'utf8'))};
 }
 const evidencePaths=(body:any)=>[...new Set<string>(body.evidence.map((e:any)=>e.evidence.path))];
 
 test('stage analysis retains its bounded non-lock scan and full inventory',()=>fixture(async f=>{
- const {body}=await exported(f,f.request);assert.equal(body.context.evidencePolicy,'stage-evidence-v2');
+ const {body}=await exported(f,f.request);assert.equal(body.context.evidencePolicy,STAGE_EVIDENCE_POLICY);
  assert.ok(body.paths.includes('yarn.lock'));assert.ok(evidencePaths(body).includes('src/z/unrelated.ts'));assert.ok(evidencePaths(body).includes('docs/yarn.lock.md'));
  assert.doesNotMatch(JSON.stringify(body.evidence),/LOCK_BODY_MUST_STAY_OMITTED/);
+}));
+test('analysis exposes verified slices of long sources for later citation',()=>fixture(async f=>{
+ const {body}=await exported(f,f.request);
+ const chunks=body.evidence.filter((item:any)=>item.evidence.path==='docs/long.md');
+ assert.ok(chunks.length>1);
+ for(const item of chunks)assert.deepEqual(item,await f.reader.read(item.evidence.path,item.evidence.startLine,item.evidence.endLine));
+ assert.equal(chunks[0].evidence.startLine,1);
+ assert.equal(chunks.at(-1).evidence.endLine,130);
+ for(let index=1;index<chunks.length;index++)assert.equal(chunks[index].evidence.startLine,chunks[index-1].evidence.endLine+1);
 }));
 test('planning sends cited ranges and guardrails without unrelated project bodies or duplicate inventory',()=>fixture(async f=>{
  const {body}=await exported(f,f.phase('plan'));assert.ok(!evidencePaths(body).includes('src/z/linked.ts'));assert.ok(!evidencePaths(body).includes('docs/yarn.lock.md'));
  assert.doesNotMatch(JSON.stringify(body.evidence),/NOT_NEEDED_FIRST_LINE|NOT_NEEDED_LAST_LINE|OUTSIDE_NEEDED_RANGE/);
  assert.ok(body.evidence.some((e:any)=>e.evidence.path==='docs/api.md'&&e.evidence.startLine===2&&e.evidence.endLine===3));
  assert.ok(evidencePaths(body).includes('.agents/skills/openspec-apply-change/SKILL.md'));assert.ok(evidencePaths(body).includes('AGENTS.md'));
+ assert.match(JSON.stringify(body.evidence),/EXACT_RESOLVED_NATIVE_ENTRY/);
+ assert.doesNotMatch(JSON.stringify(body.evidence),/EXPLORE_ONLY_UNRELATED_BODY|UNSELECTED_HOST_NATIVE_BODY/);
  assert.equal(body.context.input.profile.files,undefined);assert.match(JSON.stringify(body.context.input.previousInventory),/COMPARISON_ONLY/);assert.equal(body.paths.length,f.profile.files.length);
 }));
 test('planning projects the analysis contract without replaying unrelated backend payload fields',()=>fixture(async f=>{
@@ -60,6 +76,7 @@ test('content keeps current-topic counterexamples conflicts and native gates whi
  const {body}=await exported(f,f.phase('content'));const paths=evidencePaths(body);
  for(const path of ['src/a/helper.ts','src/a/update.ts','src/b/counter.ts','docs/conflict.md','AGENTS.md','.agents/skills/openspec-apply-change/SKILL.md'])assert.ok(paths.includes(path),path);
  assert.ok(!paths.includes('src/z/unrelated.ts'));assert.ok(!paths.includes('docs/other.md'));assert.doesNotMatch(JSON.stringify(body.context.input),/UNRELATED|"topic":"Other"/);
+ assert.doesNotMatch(JSON.stringify(body.evidence),/EXPLORE_ONLY_UNRELATED_BODY/);
  assert.ok(body.context.input.research.observations.some((o:any)=>o.counterEvidence.length));assert.ok(body.context.input.research.guidance.some((g:any)=>g.coverageStatus==='conflicting'));
  assert.ok(body.context.input.research.unknowns.includes('Global uncertainty must remain visible.'));assert.ok(body.omittedEvidence.some((o:any)=>o.path==='src/z/unrelated.ts'));
 }));
@@ -71,6 +88,13 @@ test('related artifact cycles retain only the connected jobs and their evidence'
 test('acceptance adds candidate-linked sources beyond seeds but never follows outside the inventory',()=>fixture(async f=>{
  const {body}=await exported(f,f.phase('acceptance',{input:{job:f.job,research:{...f.research,artifacts:[f.job]},candidate:'[Checked](../../src/z/linked.ts) [outside](../../../../outside.md)'}}));
  assert.ok(evidencePaths(body).includes('src/z/linked.ts'));assert.ok(!evidencePaths(body).some(p=>p.includes('outside.md')));assert.ok(body.context.evidenceSelection.unavailable.some((s:string)=>s.includes('outside.md')));
+}));
+test('rulebook acceptance keeps exact source ranges even when the candidate links to them',()=>fixture(async f=>{
+ const update=await f.ref('src/a/update.ts',2,2);
+ const job={...f.job,sourceRefs:[update],ruleSources:[{supportingEvidence:[update]}],seedPaths:[]};
+ const {body}=await exported(f,f.phase('acceptance',{input:{job,research:{...f.research,artifacts:[job]},candidate:'[Source](../../src/a/update.ts#L2-L2)'}}));
+ assert.ok(body.evidence.some((e:any)=>e.evidence.path===update.path&&e.evidence.digest===update.digest));
+ assert.doesNotMatch(JSON.stringify(body.evidence),/OUTSIDE_NEEDED_RANGE/);
 }));
 test('missing seeds and omitted lock evidence are explicit and do not trigger a full-project fallback',()=>fixture(async f=>{
  const lock=await f.ref('yarn.lock'),job={...f.job,sourceRefs:[...f.job.sourceRefs,lock],seedPaths:['src/missing.ts','yarn.lock']};const readPaths:string[]=[];const original=f.reader;f.reader={...original,read:async(...args:Parameters<RepositoryReader['read']>)=>{readPaths.push(args[0]);return original.read(...args);}};
