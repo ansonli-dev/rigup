@@ -7,32 +7,55 @@ import {repositoryReader} from '../analyzer/repository.js';
 import {validateResearch,type AnalysisBackend,type ResearchResult} from '../analyzer/backend.js';
 import type {ManagedAsset,SetupOptions,SetupPlan,StepResult,AssetDisposition} from '../types.js';
 import {validateInventory} from '../types.js';
-import {prepareIntegrations,type PreparedAsset} from '../integrations/registry.js';
+import {prepareIntegrations,type IntegrationPreparation,type PreparedAsset} from '../integrations/registry.js';
 import {digest} from '../analyzer/evidence.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
 import {filterContent} from '../analyzer/read-policy.js';
 import {trustedBaseline} from '../installer/baseline.js';
 import {PROMPT_VERSION} from '../analyzer/prompts.js';
 import {stageEvidence} from '../analyzer/stage-context.js';
-import {collectTopicEvidence,MAX_TOPIC_EVIDENCE_BATCHES,researchTopicIds,topicEvidenceRequests,type TopicEvidenceBatch} from '../analyzer/topic-evidence.js';
-import {validateArtifactList,type ArtifactJob,type ArtifactPage} from './artifacts.js';
+import {documentDraftPolicy,validateArtifactList,type ArtifactContent,type ArtifactJob,type ArtifactPage} from './artifacts.js';
 import {validateDocumentJob,validateDocumentTarget,validateDocumentContent,validateTemplateContent,DOCUMENT_POLICY_VERSION} from './document-policy.js';
-import {readWorkflowTemplates,renderFixed,validateNavigation,TEMPLATE_VERSION,type GuidanceBinding} from './render.js';
-import {isProjectRulesId,prepareProjectRules,PROJECT_RULES_CONSUMER,renderProjectRules,reviseRulebook} from './project-rules.js';
+import {readWorkflowTemplates,renderFixed,validateNavigation,TEMPLATE_VERSION} from './render.js';
+import {isProjectRulesId,isProjectRulesJob,planWithProjectRules,prepareProjectRules,projectRuleDraftPolicy,PROJECT_RULES_CONSUMER,type GuidanceBinding,type RuleEvidenceState,type RuleRepair} from './project-rules.js';
 import {signature,privateDirectory,readCache,saveCache} from './cache.js';
-export interface GenerationDependencies {effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
-interface Candidate {job:ArtifactJob;content:string;pages?:ArtifactPage[];rulebook?:unknown;digest:string;accepted:boolean}
-interface RuleRepair {draft:unknown;ruleIds:string[]}
-interface State {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;topicEvidence?:{limit:number;batches:TopicEvidenceBatch[]};plan?:{jobs:ArtifactJob[];referenceIndex?:ArtifactPage;dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;ruleRepairs?:Record<string,RuleRepair>;spent:{calls:number;tokens:number|'unknown'}}
+export interface GenerationDependencies {prepared?:GenerationPreparation;effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
+interface Candidate extends ArtifactContent {job:ArtifactJob;digest:string;accepted:boolean}
+interface State extends RuleEvidenceState {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];referenceIndex?:ArtifactPage;dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;ruleRepairs?:Record<string,RuleRepair>;spent:{calls:number;tokens:number|'unknown'}}
 const candidateDigest=(content:string,pages?:ArtifactPage[])=>pages?signature({content,pages}):digest(content);
 export function inventorySignature(assets:ManagedAsset[]):string {return signature(assets.map(a=>({logicalId:a.logicalId,target:a.target,ownership:a.ownership,digest:a.digest})).sort((a,b)=>a.logicalId.localeCompare(b.logicalId)));}
-export async function generate(profile:ProjectProfile,options:SetupOptions,backend:AnalysisBackend,previousAssets:ManagedAsset[]=[],dependencies:GenerationDependencies={}):Promise<StepResult<SetupPlan>> {
- const integration=await prepareIntegrations(profile,options);
+type GenerationPreparation={integration:IntegrationPreparation;fixedTemplates:Awaited<ReturnType<typeof readWorkflowTemplates>>};
+export async function prepareGeneration(profile:ProjectProfile,options:SetupOptions):Promise<GenerationPreparation>{
+ const [integration,fixedTemplates]=await Promise.all([prepareIntegrations(profile,options),readWorkflowTemplates()]);
  for(const asset of integration.assets)if(asset.source.kind==='customer-template')validateTemplateContent(asset.content);
+ return {integration,fixedTemplates};
+}
+
+function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,assets:PreparedAsset[],dispositions:AssetDisposition[],projectRules?:SetupPlan['projectRules']):SetupPlan{
+ validateNavigation(assets,profile.files);
+ const seen=new Set<string>();
+ for(const asset of assets){
+  const key=asset.target+signature(asset.ownership);
+  if(seen.has(key))throw new Error('duplicate candidate target');
+  seen.add(key);
+ }
+ return {root:profile.root,fingerprint:profile.fingerprint,options,assets,operations:integration.operations,dispositions,
+  warnings:[...profile.unknowns,...integration.warnings],requirements:integration.requirements,
+  versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},
+  ...(projectRules?{projectRules}:{})};
+}
+
+export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation):Promise<SetupPlan>{
+ const {integration,fixedTemplates}=prepared;
+ const assets=await renderFixed(profile,options,integration,[],[],fixedTemplates,true);
+ return setupPlan(profile,options,integration,assets,[],'pending');
+}
+
+export async function generate(profile:ProjectProfile,options:SetupOptions,backend:AnalysisBackend,previousAssets:ManagedAsset[]=[],dependencies:GenerationDependencies={}):Promise<StepResult<SetupPlan>> {
+ const {integration,fixedTemplates}=dependencies.prepared??await prepareGeneration(profile,options);
  const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
  const allowedRoots=[options.projectConventions?.documentRoutes?.context??'docs/rigup'];
  const templateSourcesDigest=signature(integration.assets);
- const fixedTemplates=await readWorkflowTemplates();
  const baseKey=signature({fixedTemplates,root:profile.root,fingerprint:profile.fingerprint,options,effectiveModel:dependencies.effectiveModel,versions,templateSourcesDigest,research:profile.research,nativeEntries:profile.nativeEntries});
  const cache=await privateDirectory(dependencies.cacheRoot??join(homedir(),'.cache','rigup','generation'),profile.root);
  const path=join(cache,baseKey+'.json');const save=dependencies.save??saveCache;
@@ -48,7 +71,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   // A wider authority contract requires fresh content and independent acceptance.
   // Keep the unchanged plan, run identity, consumption and bounded retry history.
   if(state.plan&&state.resultInventory===inv){state.inputInventory=inv;state.artifactRefreshInventory=inv;}
-  state.candidates={};state.ruleRepairs={};for(const job of state.plan?.jobs??[]){job.status='pending';if(job.ruleSources)delete state.repairReasons[job.logicalId];}
+  state.candidates={};state.ruleRepairs={};for(const job of state.plan?.jobs??[]){job.status='pending';if(isProjectRulesJob(job))delete state.repairReasons[job.logicalId];}
   state.artifactContextVersion=backend.artifactContextVersion;await persist();
  }
  const reader=dependencies.reader??await repositoryReader(profile.root,options,{expectedFingerprint:profile.fingerprint});
@@ -79,39 +102,17 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
     }
     return {...asset,authority:'previous-generated-output-only',baselineContent,baselineStatus:baselineContent===undefined?'unavailable-or-over-budget':'filtered-trusted-baseline'};
    }));
-   const previousRuleTopics=fixedInventory.flatMap(asset=>{
-    const id=isProjectRulesId(asset.logicalId)?asset.logicalId.split(':topic:')[1]:undefined;
-    return id?[{id,target:asset.target}]:[];
+   const planned=await planWithProjectRules({
+    allowedRoots,profile:{files:profile.files,commands:profile.commands,research:profile.research,unknowns:profile.unknowns},previousInventory,
+    inventoryPolicy:'Previous generated baselines are comparison context, never evidence of project policy. Reconcile their claims against current source evidence; do not preserve invalidated rules. Local edits remain protected by three-way preview.',
+   },{
+    previousAssets:fixedInventory,run:input=>run('plan',input),
+    evidence:backend.topicEvidence?{analysis:profile.research?.data,reader,callsLeft:budget.maxCalls-state.spent.calls,state,persist}:undefined,
    });
-   const inventoryPolicy='Previous generated baselines are comparison context, never evidence of project policy. Reconcile their claims against current source evidence; do not preserve invalidated rules. Local edits remain protected by three-way preview.'+
-    (previousRuleTopics.length?' Reuse previousRuleTopics IDs for the same concerns, even when the titles or document route change.':'');
-   const planInput={allowedRoots,profile:{files:profile.files,commands:profile.commands,research:profile.research,unknowns:profile.unknowns},previousInventory,inventoryPolicy,...(previousRuleTopics.length?{previousRuleTopics}:{})};
-   const topics=backend.topicEvidence?researchTopicIds(profile.research?.data):new Set<string>();
-   if(backend.topicEvidence&&!state.topicEvidence){
-    const requests=topicEvidenceRequests(profile.research?.data);
-    const batches=requests.length?[await collectTopicEvidence('analysis',requests,topics,reader)]:[];
-    // Save the allowance before dispatch so a resumed paid request keeps the same identity.
-    const extraCalls=Math.max(0,budget.maxCalls-state.spent.calls-3);
-    state.topicEvidence={limit:Math.min(MAX_TOPIC_EVIDENCE_BATCHES,batches.length+(topics.size?extraCalls:0)),batches};
-    await persist();
-   }
-   const followup=backend.topicEvidence?state.topicEvidence:undefined;
-   let data:Record<string,unknown>;
-   for(;;){
-    const remainingBatches=followup?followup.limit-followup.batches.length:0;
-    const response=await run('plan',{...planInput,...(followup?{topicEvidence:{remainingBatches,batches:followup.batches}}:{})});
-    if(response.status==='pending-host')return response;
-    data=response.value.data as Record<string,unknown>;
-    const requests=followup?topicEvidenceRequests(data):[];
-    if(!requests.length)break;
-    if(!followup||remainingBatches<1)throw new Error('Topic evidence request allowance exhausted; a final artifact plan is required');
-    followup.batches.push(await collectTopicEvidence('plan',requests,topics,reader));
-    await persist();
-   }
+   if(planned.status==='pending-host')return planned;
+   const data=planned.value;
    const jobs=validateArtifactList(data.artifacts,[]);
-   const rulesTarget=allowedRoots[0]+'/development-rules.md';
-   if(jobs.some(job=>isProjectRulesId(job.logicalId)||job.target===rulesTarget||job.target.startsWith(rulesTarget.slice(0,-3)+'/')))throw Error('Development rules targets are reserved for verified project rules');
-   const {job:rules,referenceIndex,guidance}=prepareProjectRules(data,profile.files,rulesTarget);
+   const {job:rules,referenceIndex,guidance}=prepareProjectRules(data,profile.files,allowedRoots[0],jobs);
    if(rules)jobs.unshift(rules);
    for(const job of jobs)validateDocumentJob(job,allowedRoots,profile.files.length===0);
    if(referenceIndex){validateDocumentTarget(referenceIndex.target,allowedRoots);validateTemplateContent(referenceIndex.content);}
@@ -129,53 +130,41 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   {logicalId:job.logicalId,target:job.target,content},...pages,
  ].map(page=>semanticAsset(page,job.consumer));
  for(const job of state.plan.jobs) {
-  const batches=job.ruleSources?state.topicEvidence?.batches:undefined;
-  const topicContext=batches?.length?{topicEvidence:batches}:{};
   let candidate:Candidate|undefined=state.candidates[job.logicalId];
   if(candidate && (candidate.digest!==candidateDigest(candidate.content,candidate.pages)||signature({...candidate.job,status:'pending'})!==signature({...job,status:'pending'}))) {delete state.candidates[job.logicalId];candidate=undefined;}
   const reused=!!candidate?.accepted;
   if(!candidate?.accepted) {
    let accepted=false;
-   const maxAttempts=job.ruleSources?3:2;
+   const policy=projectRuleDraftPolicy(job,state)??documentDraftPolicy;
+   const {maxAttempts,context}=policy;
    for(let attempt=state.attempts[job.logicalId]??0;attempt<maxAttempts&&!accepted;attempt++) {
     state.attempts[job.logicalId]=attempt;if(attempt)dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:job.logicalId,completed:completed(),total:state.plan.jobs.length,status:'retry',attempt,retryLimit:maxAttempts-1,next:'bounded candidate repair'});
     if(!candidate) {
      const repair=state.ruleRepairs[job.logicalId];
-     const rulebookRepair=repair?{ruleIds:repair.ruleIds,priorRules:(repair.draft as {rules:{sourceId:string}[]}).rules.filter(rule=>repair.ruleIds.includes(rule.sourceId))}:undefined;
-     const response=await run('content',{job,research:state.plan.research,...topicContext,attempt,repairReason:state.repairReasons[job.logicalId],rulebookRepair},job.logicalId);
+     const response=await run('content',{job,research:state.plan.research,...context,attempt,repairReason:state.repairReasons[job.logicalId],...policy.repairInput(repair)},job.logicalId);
      if(response.status==='pending-host')return response;
-     const data=response.value.data as {content?:unknown;rulebook?:unknown};
-     let value:string,pages:ArtifactPage[]|undefined,rulebook:unknown;
+     let draft:ArtifactContent;
      try{
-      if(job.ruleSources){
-       rulebook=repair?reviseRulebook(repair.draft,data.rulebook,repair.ruleIds):data.rulebook;
-       const rendered=renderProjectRules(job,rulebook);value=rendered.index;pages=rendered.pages;
-      }
-      else if(typeof data.content==='string')value=data.content;
-      else throw new Error('required artifact content missing');
-      for(const document of [value,...(pages??[]).map(page=>page.content)])validateDocumentContent(job,document);
-      validateNavigation(candidateAssets(job,value,pages),[...profile.files,...state.plan.jobs.map(j=>j.target),...semantic.map(a=>a.target),...integration.assets.map(a=>a.target)]);
+      draft=policy.content(response.value.data,repair);
+      for(const document of [draft.content,...(draft.pages??[]).map(page=>page.content)])validateDocumentContent(job,document);
+      validateNavigation(candidateAssets(job,draft.content,draft.pages),[...profile.files,...state.plan.jobs.map(j=>j.target),...semantic.map(a=>a.target),...integration.assets.map(a=>a.target)]);
      }
      catch(error){state.attempts[job.logicalId]=attempt+1;state.repairReasons[job.logicalId]=(error as Error).message.slice(0,500);await persist();if(attempt+1<maxAttempts)continue;throw error;}
-     candidate={job:{...job},content:value,pages,rulebook,digest:candidateDigest(value,pages),accepted:false};
+     candidate={job:{...job},...draft,digest:candidateDigest(draft.content,draft.pages),accepted:false};
      state.candidates[job.logicalId]=candidate;await persist();
     }
-    const check=await run('acceptance',{job,candidate:candidate.content,candidatePages:candidate.pages,research:state.plan.research,...topicContext},job.logicalId);
+    const check=await run('acceptance',{job,candidate:candidate.content,candidatePages:candidate.pages,research:state.plan.research,...context},job.logicalId);
     if(check.status==='pending-host')return check;
-    const verdict=check.value.data as {accepted?:unknown;reason?:unknown;rejectedRuleIds?:unknown};
-    const ids=verdict.rejectedRuleIds;
-    accepted=verdict.accepted===true&&typeof verdict.reason==='string'&&!!verdict.reason.trim()&&(ids===undefined||Array.isArray(ids)&&ids.length===0);
+    const verdict=policy.acceptance(check.value.data,candidate);
+    accepted=verdict.accepted;
+    delete state.ruleRepairs[job.logicalId];
     if(accepted) {
      // Persist accepted bytes and digest atomically before marking this job done.
-     delete state.ruleRepairs[job.logicalId];
      candidate={...candidate,accepted:true};state.candidates[job.logicalId]=candidate;await persist();
     } else {
-     delete state.ruleRepairs[job.logicalId];
-     if(candidate.rulebook&&Array.isArray(ids)&&ids.length&&ids.every(id=>job.ruleSources?.some(rule=>rule.id===id))){
-      state.ruleRepairs[job.logicalId]={draft:candidate.rulebook,ruleIds:[...new Set<string>(ids)]};
-     }
+     if(verdict.repair)state.ruleRepairs[job.logicalId]=verdict.repair;
      delete state.candidates[job.logicalId];candidate=undefined;
-     state.repairReasons[job.logicalId]=(typeof verdict.reason==='string'?verdict.reason:'Independent acceptance did not return a reason').slice(0,2000);
+     state.repairReasons[job.logicalId]=verdict.reason;
      state.attempts[job.logicalId]=attempt+1;await persist();
     }
    }
@@ -188,8 +177,6 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  if(guidanceRefs.some(ref=>semantic.some(asset=>asset.target===ref.path)))throw new Error('reused source must remain unowned');
  await stageEvidence(reader,guidanceRefs);
  const assets=await renderFixed(profile,options,integration,semantic,state.plan.guidance,fixedTemplates);
- validateNavigation(assets,profile.files);
- const seen=new Set<string>();for(const a of assets){const key=a.target+signature(a.ownership);if(seen.has(key))throw new Error('duplicate candidate target');seen.add(key);}
  const effectiveDispositions=state.resultInventory===inv||state.artifactRefreshInventory===inv ? previousAssets.map(a=>{
   const current=assets.find(asset=>asset.logicalId===a.logicalId);
   const refreshed=state.artifactRefreshInventory===inv&&current?.source.kind==='semantic'&&current.target===a.target&&signature(current.ownership)===signature(a.ownership)&&digest(current.content)!==a.digest;
@@ -207,6 +194,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  });
  // After installation the inventory changes from the input to these accepted candidates.
  const retained=previousAssets.filter(a=>dispositions.some(d=>d.logicalId===a.logicalId&&d.action==='retain')&&!assets.some(n=>n.logicalId===a.logicalId));
+ const plan=setupPlan(profile,options,integration,assets,dispositions,options.sdd?'ready':undefined);
  state.resultInventory=inventorySignature([...assets.map(a=>({...a,digest:digest(a.encoding==='base64'?Buffer.from(a.content,'base64'):a.content)})),...retained]);await persist();
- return {status:'complete',value:{root:profile.root,fingerprint:profile.fingerprint,options,assets,operations:integration.operations,dispositions,warnings:[...profile.unknowns,...integration.warnings],requirements:integration.requirements,versions}};
+ return {status:'complete',value:plan};
 }

@@ -79,20 +79,26 @@ test('topic follow-ups return verified snippets to planning and resume from the 
  await writeFile(root+'/yarn.lock','readOrder() cannot be evidence from a lockfile\n');
  const options={...opts,researchBudget:{maxCalls:5,maxTokens:100000}};
  const profile=await scanRepository(root,options);
- profile.research={model:'fixture',usage:{calls:1,tokens:10},unknowns:[],data:{observations:[],unknowns:[],ruleTopics:[{id:'orders',title:'Orders'}],topicEvidenceRequests:[
+ profile.research={model:'fixture',usage:{calls:1,tokens:10},unknowns:[],data:{observations:[],unknowns:[],ruleTopics:[{id:'orders',title:'Orders'},{id:'con',title:'Reserved topic'},{id:'duplicate',title:'First'},{id:'duplicate',title:'Second'}],topicEvidenceRequests:[
   {topicId:'orders',read:{path:'src/orders.ts',start:2,end:2}},
   {topicId:'orders',read:{path:'yarn.lock',start:1,end:1}},
   {topicId:'orders',read:{path:'../outside',start:1,end:1}},
+  {topicId:'con',read:{path:'src/orders.ts',start:1,end:1}},
+  {topicId:'duplicate',read:{path:'src/orders.ts',start:1,end:1}},
  ]}};
  const base=await repositoryReader(root,options);let scans=0,waiting=true;
- const reader={...base,search:async(query:string)=>{scans++;return base.search(query);}};
+ const reads:unknown[][]=[];
+ const reader={...base,
+  read:async(...args:Parameters<typeof base.read>)=>{reads.push(args);return base.read(...args);},
+  search:async(query:string)=>{scans++;return base.search(query);},
+ };
  const requests:ResearchRequest[]=[];
  const backend:AnalysisBackend={topicEvidence:true,run:async request=>{
   requests.push(request);assert.equal(request.expectedOutput,'plan');
   const followup=(request.input as any).topicEvidence;
   assert.ok(followup,'planning receives private follow-up results');
   const first=followup.batches[0];assert.equal(first.from,'analysis');
-  assert.deepEqual(first.results.map((r:any)=>r.status),['complete','unavailable','unavailable']);
+  assert.deepEqual(first.results.map((r:any)=>r.status),['complete','unavailable','unavailable','unavailable','unavailable']);
   assert.deepEqual(first.results[0].refs.map((ref:any)=>[ref.path,ref.startLine,ref.endLine]),[['src/orders.ts',2,2]]);
   let data:unknown;
   if(followup.batches.length===1){
@@ -110,6 +116,7 @@ test('topic follow-ups return verified snippets to planning and resume from the 
  assert.equal((await generate(profile,options,backend,[],dependencies)).status,'pending-host');
  assert.equal((await generate(profile,options,backend,[],dependencies)).status,'complete');
  assert.equal(requests.length,3);assert.equal(scans,1);
+ assert.deepEqual(reads,[['src/orders.ts',2,2]],'reserved and duplicate topic IDs cannot authorize source reads');
  assert.deepEqual(requests[1].input,requests[2].input);
  assert.ok(requests.every(request=>request.runId==='topic-run'&&request.budget.maxCalls===5));
 }));
@@ -197,7 +204,7 @@ test('one original range can govern differently scoped topics',()=>{
  const ref={path:'docs/policy.md',startLine:1,endLine:1,digest:digest('Run the module tests.')};
  const ruleTopics=[{id:'server',title:'Server'},{id:'client',title:'Client'}];
  const observations=ruleTopics.map(({id})=>({topicId:id,topic:'Test command',statement:'Run the module tests.',classification:'explicit-rule',scope:[id],supportingEvidence:[ref],counterEvidence:[],guidanceDisposition:'reference-only'}));
- const result=prepareProjectRules({observations,ruleTopics},[ref.path,'server/index.ts','client/index.ts'],'docs/rigup/development-rules.md');
+ const result=prepareProjectRules({observations,ruleTopics},[ref.path,'server/index.ts','client/index.ts'],'docs/rigup');
  assert.equal(result.guidance.length,2);
  assert.match(result.referenceIndex?.content??'',/Server[\s\S]*policy\.md\).*server[\s\S]*Client[\s\S]*policy\.md\).*client/);
 });
@@ -213,7 +220,7 @@ test('topic selection bounds rule counts and keeps ordinary source settings out 
   {...observation,topicId:'topic-0',topic:'Injected heading',statement:'A scoped instruction.',scope:[injected]},
   ...ruleTopics.flatMap(({id})=>Array.from({length:5},(_,i)=>({...observation,topicId:id,topic:id+' rule '+i,statement:'Follow this setting.'}))),
  ];
- const {job}=prepareProjectRules({observations,ruleTopics},[config.path,injected+'/index.ts',...bootstraps.map(ref=>ref.path)],'docs/rigup/development-rules.md');
+ const {job}=prepareProjectRules({observations,ruleTopics},[config.path,injected+'/index.ts',...bootstraps.map(ref=>ref.path)],'docs/rigup');
  assert.equal(job?.ruleSources?.length,18);assert.equal(job?.ruleTopics?.length,12);
  assert.ok(job?.ruleTopics?.every(topic=>topic.ruleIds.length>=1&&topic.ruleIds.length<=4));
  assert.ok(job?.ruleSources?.every(source=>!['Unenforced parity','Undeclared','Injected heading'].includes(source.topic)));
@@ -386,7 +393,20 @@ test('no_sdd_only_installs_explicitly_selected_custom_flow',()=>fixture(async(ro
 }));
 import {saveCache} from '../src/generator/cache.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
-import {renderFixed} from '../src/generator/render.js';
+import {renderFixed,validateNavigation} from '../src/generator/render.js';
+test('workflow contexts show the invocable specialized check with its working directory and source',()=>fixture(async(root)=>{
+ await mkdir(root+'/apps/react-vite',{recursive:true});
+ await writeFile(root+'/apps/react-vite/package.json',JSON.stringify({scripts:{'test-e2e':'TOKEN=do-not-expose npm run local-browser'}}));
+ const profile=await scanRepository(root,opts);
+ const assets=await renderFixed(profile,opts,await prepareIntegrations(profile,opts),[],[]);
+ for(const name of ['prepare','deliver']){
+  const context=assets.find(a=>a.target.endsWith('change-'+name+'/references/project.md'))!.content;
+  assert.match(context,/## Specialized checks/);
+  assert.match(context,/`npm run test-e2e` from `apps\/react-vite` · \[apps\/react-vite\/package\.json\]\(\.\.\/\.\.\/\.\.\/\.\.\/apps\/react-vite\/package\.json\)/);
+  assert.doesNotMatch(context,/local-browser|do-not-expose|npm run test:e2e/);
+ }
+ validateNavigation(assets,profile.files);
+}));
 test('multi_agent_sdd_context_uses_each_hosts_native_command_names',()=>fixture(async(root)=>{
  const selected={agents:['claude','codex'] as ('claude'|'codex')[],backend:'host' as const,sdd:'spec-kit' as const};
  const profile=await scanRepository(root,selected);

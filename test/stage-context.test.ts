@@ -50,6 +50,48 @@ test('stage analysis retains its bounded non-lock scan and full inventory',()=>f
  assert.ok(body.paths.includes('yarn.lock'));assert.ok(evidencePaths(body).includes('src/z/unrelated.ts'));assert.ok(evidencePaths(body).includes('docs/yarn.lock.md'));
  assert.doesNotMatch(JSON.stringify(body.evidence),/LOCK_BODY_MUST_STAY_OMITTED/);
 }));
+test('stage analysis rejects genuine citations to evidence it did not export',()=>fixture(async f=>{
+ const {body,result}=await exported(f,f.request);
+ const responsePath=f.cache+'/response.json';
+ const respond=async(sourceRef:unknown)=>{
+  const data={observations:[],unknowns:[],guidance:[{topic:'Project policy',sourceRef,scope:['.'],coverageStatus:'reusable',consumers:['reviewer'],gaps:[]}]};
+  await writeFile(responsePath,JSON.stringify({requestId:result.requestId,requestDigest:body.requestDigest,model:'fixture',data}),{mode:0o600});
+  return hostBackend({cacheRoot:f.cache,stageEvidence:true,responsePath,nativeEntryPaths:['.agents/skills/local-proposal/SKILL.md','.agents/skills/openspec-apply-change/SKILL.md']}).run(f.request,f.reader);
+ };
+ const omitted=await f.ref('yarn.lock');
+ await assert.rejects(()=>respond(omitted),/evidence: citation was not exported/);
+ assert.equal((await respond(body.evidence[0].evidence)).status,'complete');
+}));
+test('analysis bounds exported bodies while covering distinct source roles',()=>fixture(async f=>{
+ const additions:Record<string,string>={
+  '.github/workflows/test.yml':'name: checks\n',
+  'apps/web/src/auth/authorize.ts':'export const allowsUpdate = (isOwner: boolean) => isOwner;\n',
+  'apps/web/src/tests/authorize.test.ts':'test("owner can update", () => checkOwner());\n',
+  'docs/assets/diagram.svg':'<svg>'+ 'x'.repeat(220_000)+'</svg>\n',
+  'src/z/oversized.ts':'x'.repeat(220_000),
+ };
+ for(let i=0;i<90;i++)additions[`apps/web/src/aaa-busy/ui-${i}.ts`]='export const view = true;\n'.repeat(120);
+ for(const [path,content] of Object.entries(additions)){
+  await mkdir(f.root+'/'+path.slice(0,path.lastIndexOf('/')),{recursive:true});await writeFile(f.root+'/'+path,content);
+ }
+ f.reader=await repositoryReader(f.root,f.request.options);
+ const profile=await scanRepository(f.root,f.request.options);
+ const request={...f.request,fingerprint:profile.fingerprint};
+ const {body,result}=await exported(f,request);
+ assert.deepEqual(body.paths,profile.files);
+ assert.ok(body.evidence.reduce((size:number,item:any)=>size+Buffer.byteLength(item.content),0)<=190_000,'analysis body bytes are bounded');
+ const shown=evidencePaths(body);
+ for(const path of ['AGENTS.md','package.json','.github/workflows/test.yml','.agents/skills/local-proposal/SKILL.md','apps/web/src/aaa-busy/ui-0.ts','apps/web/src/auth/authorize.ts','apps/web/src/tests/authorize.test.ts','src/a/update.ts'])assert.ok(shown.includes(path),path);
+ for(const path of ['docs/assets/diagram.svg','src/z/oversized.ts','yarn.lock']){
+  assert.ok(!shown.includes(path),path);assert.ok(body.omittedEvidence.some((item:any)=>item.path===path),path);
+ }
+ await writeFile(f.root+'/docs/assets/diagram.svg','<svg>new diagram</svg>\n');
+ f.reader=await repositoryReader(f.root,request.options);
+ const changed=await scanRepository(f.root,request.options);
+ const next=await exported(f,{...request,fingerprint:changed.fingerprint},f.cache+'/changed');
+ assert.notEqual(result.requestId,next.result.requestId);
+ assert.deepEqual(body.evidence,next.body.evidence);
+}));
 test('analysis exposes verified slices of long sources for later citation',()=>fixture(async f=>{
  const {body}=await exported(f,f.request);
  const chunks=body.evidence.filter((item:any)=>item.evidence.path==='docs/long.md');

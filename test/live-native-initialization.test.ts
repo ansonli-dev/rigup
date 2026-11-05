@@ -10,7 +10,7 @@ import {prepareIntegrations} from '../src/integrations/registry.js';
 import {preview} from '../src/installer/preview.js';
 import {apply} from '../src/installer/apply.js';
 import {loadManifest} from '../src/installer/baseline.js';
-import {saveDurable} from '../src/installer/state.js';
+import {saveDurable} from '../src/private-record.js';
 import {pendingOperations,executeOperation,assertNoUnknownWriters} from '../src/installer/operations.js';
 import {initializationRecipe} from '../src/integrations/tools/initialization.js';
 import {loadUpstreamLock} from '../src/integrations/registry.js';

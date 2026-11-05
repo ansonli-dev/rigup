@@ -1,7 +1,14 @@
 import {validateOptions} from '../config.js';
 import type {Evidence,StepResult} from '../types.js';
+import type {EvidenceRead,ReadEvidence} from './evidence.js';
 export interface SearchSelection {paths:ReadonlySet<string>;limit:number}
-export interface RepositoryReader {list():Promise<string[]>;read(path:string,start:number,end?:number):Promise<{content:string;evidence:Evidence}>;search(query:string,selection?:SearchSelection):Promise<{content:string;evidence:Evidence}[]>}
+export interface RepositoryReader {
+ list():Promise<string[]>;
+ read:ReadEvidence;
+ /** A fresh reader that can share file loads within a single verification. */
+ evidencePass?():ReadEvidence;
+ search(query:string,selection?:SearchSelection):Promise<EvidenceRead[]>;
+}
 export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;effectiveModel?:import('../types.js').SetupOptions['model'];versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;expectedOutput?:'plan'|'content'|'acceptance';input?:unknown;previousInventoryDigest:string;templateSourcesDigest:string}
 export interface ResearchResult {data:unknown;model:string;unknowns:string[];usage:{calls:number|'unknown';tokens:number|'unknown'}}
 export interface AnalysisBackend {
@@ -16,26 +23,42 @@ const searched=new WeakMap<RepositoryReader,Set<string>>();
 
 export function selectResearchOutput(request:ResearchRequest,data:unknown):unknown {
  if(!data||typeof data!=='object'||Array.isArray(data))return data;
+ const output=data as Record<string,unknown>;
+ if(request.expectedOutput==='plan'&&Array.isArray(output.observations)){
+  const observations=output.observations.map(observation=>{
+   const supports=observation?.coverage?.independentSupports;
+   if(observation?.classification!=='convention'||!Array.isArray(supports)||!Array.isArray(observation.supportingEvidence))return observation;
+   const citedPaths=new Set(observation.supportingEvidence.map((e:Evidence)=>e?.path));
+   if(!supports.every(path=>typeof path==='string'&&citedPaths.has(path)))return observation;
+   return {...observation,coverage:{...observation.coverage,independentSupports:new Set(supports).size}};
+  });
+  return {...output,observations};
+ }
  const job=(request.input as {job?:{ruleSources?:unknown}}|undefined)?.job;
  if(!Array.isArray(job?.ruleSources))return data;
- const {rulebook,accepted,reason,unknowns,rejectedRuleIds}=data as Record<string,unknown>;
+ const {rulebook,accepted,reason,unknowns,rejectedRuleIds}=output;
  if(request.expectedOutput==='content')return {rulebook,unknowns,observations:[]};
  if(request.expectedOutput==='acceptance')return {accepted,reason,unknowns,observations:[],...(rejectedRuleIds!==undefined?{rejectedRuleIds}:{})};
  return data;
 }
 
-export async function validateResearch(data:unknown,reader:RepositoryReader):Promise<void>{
+const citationKey=(path:unknown,startLine:unknown,endLine:unknown,digest:unknown)=>JSON.stringify([path,startLine,endLine,digest]);
+
+export async function validateResearch(data:unknown,reader:RepositoryReader,exportedEvidence?:readonly Evidence[]):Promise<void>{
  if(!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('research: expected object');
  const verified=new Set<string>();
+ const exported=exportedEvidence&&new Set(exportedEvidence.map(e=>citationKey(e.path,e.startLine,e.endLine,e.digest)));
+ const read=reader.evidencePass?.()??reader.read.bind(reader);
  async function walk(value:unknown):Promise<void>{
   if(!value || typeof value !== 'object') return;
   if(Array.isArray(value)) {for(const item of value) await walk(item);return;}
   const obj=value as Record<string,unknown>;
   if('digest' in obj || ('startLine' in obj && 'path' in obj)) {
    if(typeof obj.path !== 'string' || !Number.isInteger(obj.startLine) || !Number.isInteger(obj.endLine) || typeof obj.digest !== 'string') throw new Error('evidence: invalid structure');
-   const key=JSON.stringify([obj.path,obj.startLine,obj.endLine,obj.digest]);
+   const key=citationKey(obj.path,obj.startLine,obj.endLine,obj.digest);
    if(verified.has(key))return;
-   const real=await reader.read(obj.path,Number(obj.startLine),Number(obj.endLine));
+   if(exported&&!exported.has(key))throw new Error('evidence: citation was not exported for this analysis');
+   const real=await read(obj.path,Number(obj.startLine),Number(obj.endLine));
    if(real.evidence.digest !== obj.digest) throw new Error('evidence: digest mismatch');
    verified.add(key);
    return;

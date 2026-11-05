@@ -1,13 +1,39 @@
 import {posix} from 'node:path';
-import type {Evidence} from '../types.js';
+import type {Evidence,ManagedAsset,StepResult} from '../types.js';
+import type {RepositoryReader,ResearchResult} from '../analyzer/backend.js';
 import {digest} from '../analyzer/evidence.js';
-import {relativeTarget,type ArtifactJob,type ArtifactPage,type ProjectRuleSource,type ProjectRuleTopic} from './artifacts.js';
+import {collectTopicEvidence,topicEvidenceRequests,type TopicEvidenceBatch} from '../analyzer/topic-evidence.js';
+import {artifactVerdict,relativeTarget,type ArtifactDraftPolicy,type ArtifactJob,type ArtifactPage} from './artifacts.js';
 import {markdownLinks} from './document-policy.js';
-import type {GuidanceBinding} from './render.js';
 
-export const PROJECT_RULES_ID='project-development-rules';
+const PROJECT_RULES_ID='project-development-rules';
+const RULES_FILE='development-rules.md';
+const MAX_RULE_TOPICS=12,MAX_TOPIC_EVIDENCE_BATCHES=2;
 export const isProjectRulesId=(id:string)=>id===PROJECT_RULES_ID||id.startsWith(PROJECT_RULES_ID+':');
 export const PROJECT_RULES_CONSUMER='change-prepare/change-deliver';
+export const isProjectRulesIndex=(asset:Pick<ManagedAsset,'logicalId'|'target'>)=>isProjectRulesId(asset.logicalId)&&asset.target.endsWith('/'+RULES_FILE);
+
+export interface GuidanceBinding {topic:string;topicId?:string;sourceRef?:Evidence;scope:string[];coverageStatus:string;consumers:string[];gaps:string[]}
+export interface RuleRepair {draft:unknown;ruleIds:string[]}
+export interface RuleEvidenceState {topicEvidence?:{limit:number;batches:TopicEvidenceBatch[]}}
+export interface ProjectRuleSource {
+ id:string;
+ topic:string;
+ statement:string;
+ authority:'explicit-rule'|'convention';
+ scope:string[];
+ supportingEvidence:Evidence[];
+ counterEvidence:Evidence[];
+ exceptions:string[];
+}
+export interface ProjectRuleTopic {
+ id:string;
+ title:string;
+ target?:string;
+ scope:string[];
+ ruleIds:string[];
+ guidance:{source:Evidence;scope:string[]}[];
+}
 
 interface RuleObservation {
  topic?:string;
@@ -38,7 +64,72 @@ export function verifiedScopes(scope:unknown[],files:string[]):string[] {
   .filter(path=>!/[\x00-\x1f\x7f]/.test(path)&&(path==='.'||relativeTarget(path)&&files.some(file=>within(file,path))));
 }
 
-export function prepareProjectRules(data:Record<string,unknown>,files:string[],target:string):{job?:ArtifactJob;referenceIndex?:ArtifactPage;guidance:GuidanceBinding[]} {
+function parseRuleTopics(value:unknown,provisional=false):Map<string,ProjectRuleTopic> {
+ const declarations=value??[];
+ const topics=new Map<string,ProjectRuleTopic>();
+ const declaredIds=new Set<string>();
+ if(!provisional&&(!Array.isArray(declarations)||declarations.length>MAX_RULE_TOPICS))throw new Error('ruleTopics: expected at most twelve project topics');
+ for(const declaration of Array.isArray(declarations)?declarations.slice(0,MAX_RULE_TOPICS):[]){
+  try{
+   const {id,title}=object(declaration);
+   if(typeof id!=='string'||id.length>48||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)||
+    /^(?:aux|con|nul|prn|com[0-9]|lpt[0-9])$/.test(id))throw new Error('ruleTopics: expected unique, portable topic IDs');
+   if(declaredIds.has(id)){
+    topics.delete(id);
+    throw new Error('ruleTopics: expected unique, portable topic IDs');
+   }
+   declaredIds.add(id);
+   topics.set(id,{id,title:text(title),scope:[],ruleIds:[],guidance:[]});
+  }catch(error){
+   // Planning can correct malformed provisional declarations. They cannot authorize reads.
+   if(!provisional)throw error;
+  }
+ }
+ return topics;
+}
+
+export async function planWithProjectRules(input:Record<string,unknown>&{inventoryPolicy:string},options:{
+ previousAssets:Pick<ManagedAsset,'logicalId'|'target'>[];
+ run:(input:unknown)=>Promise<StepResult<ResearchResult>>;
+ evidence?:{analysis:unknown;reader:RepositoryReader;callsLeft:number;state:RuleEvidenceState;persist:()=>Promise<void>};
+}):Promise<StepResult<Record<string,unknown>>> {
+ const {previousAssets,run,evidence}=options;
+ const previousRuleTopics=previousAssets.flatMap(asset=>{
+  const id=isProjectRulesId(asset.logicalId)?asset.logicalId.split(':topic:')[1]:undefined;
+  return id?[{id,target:asset.target}]:[];
+ });
+ const planInput={...input,...(previousRuleTopics.length?{
+  inventoryPolicy:input.inventoryPolicy+' Reuse previousRuleTopics IDs for the same concerns, even when the titles or document route change.',
+  previousRuleTopics,
+ }:{})};
+ const analysis=evidence?.analysis as Record<string,unknown>|undefined;
+ const topics=new Set(parseRuleTopics(analysis?.ruleTopics,true).keys());
+ if(evidence&&!evidence.state.topicEvidence){
+  const requests=topicEvidenceRequests(analysis);
+  const batches=requests.length?[await collectTopicEvidence('analysis',requests,topics,evidence.reader)]:[];
+  // Reserve the final plan, content and acceptance calls. Save before dispatch to preserve the request identity on resume.
+  const extraCalls=Math.max(0,evidence.callsLeft-3);
+  evidence.state.topicEvidence={limit:Math.min(MAX_TOPIC_EVIDENCE_BATCHES,batches.length+(topics.size?extraCalls:0)),batches};
+  await evidence.persist();
+ }
+ const followup=evidence?.state.topicEvidence;
+ for(;;){
+  const remainingBatches=followup?followup.limit-followup.batches.length:0;
+  const response=await run({...planInput,...(followup?{topicEvidence:{remainingBatches,batches:followup.batches}}:{})});
+  if(response.status==='pending-host')return response;
+  const data=response.value.data as Record<string,unknown>;
+  const requests=followup?topicEvidenceRequests(data):[];
+  if(!requests.length)return {status:'complete',value:data};
+  if(!evidence||!followup||remainingBatches<1)throw new Error('Topic evidence request allowance exhausted; a final artifact plan is required');
+  followup.batches.push(await collectTopicEvidence('plan',requests,topics,evidence.reader));
+  await evidence.persist();
+ }
+}
+
+export function prepareProjectRules(data:Record<string,unknown>,files:string[],root:string,otherJobs:ArtifactJob[]=[]):{job?:ArtifactJob;referenceIndex?:ArtifactPage;guidance:GuidanceBinding[]} {
+ const target=root+'/'+RULES_FILE;
+ const topicDirectory=target.slice(0,-3)+'/';
+ if(otherJobs.some(job=>isProjectRulesId(job.logicalId)||job.target===target||job.target.startsWith(topicDirectory)))throw new Error('Development rules targets are reserved for verified project rules');
  const observations=data.observations as RuleObservation[];
  const guidance=[...(data.guidance??[]) as GuidanceBinding[]];
  const covered=new Set(guidance.filter(source=>isOriginalGuidance(source)&&source.coverageStatus==='reusable').map(source=>claimKey(source.topicId,source.topic)));
@@ -46,18 +137,12 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],t
   ...guidance.filter(needsDecision).map(source=>claimKey(source.topicId,source.topic)),
   ...observations.filter(item=>item.guidanceDisposition==='needs-decision').map(item=>claimKey(item.topicId,item.topic)),
  ]);
- const topics=new Map<string,ProjectRuleTopic>();
- const declarations=data.ruleTopics??[];
- if(!Array.isArray(declarations)||declarations.length>12)throw new Error('ruleTopics: expected at most twelve project topics');
- for(const declaration of declarations){
-  const {id,title}=object(declaration);
-  if(typeof id!=='string'||id.length>48||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)||/^(?:aux|con|nul|prn|com[0-9]|lpt[0-9])$/.test(id)||topics.has(id))throw new Error('ruleTopics: expected unique, portable topic IDs');
-  topics.set(id,{id,title:text(title),scope:[],ruleIds:[],guidance:[]});
- }
+ const topics=parseRuleTopics(data.ruleTopics);
+ const hasDeclaredTopics=topics.size>0;
  const topicFor=(id?:string)=>{
   const declared=id&&topics.get(id);
   if(declared)return declared;
-  if(declarations.length)return;
+  if(hasDeclaredTopics)return;
   const general='project-conventions';
   if(!topics.has(general))topics.set(general,{id:general,title:'',scope:[],ruleIds:[],guidance:[]});
   return topics.get(general)!;
@@ -104,7 +189,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],t
   const group=topicFor(observation.topicId);
   if(!group)continue;
   const rank=groupCounts.get(group.id)??0;
-  if(rank>=(declarations.length?4:8))continue;
+  if(rank>=(hasDeclaredTopics?4:8))continue;
   groupCounts.set(group.id,rank+1);
   selected.push({group,rank,rule:{topic,statement:observation.statement,authority:classification,scope:scopes,supportingEvidence,counterEvidence,exceptions}});
  }
@@ -114,14 +199,14 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],t
   const id='R'+(index+1);
   group.ruleIds.push(id);
   group.scope.push(...rule.scope);
-  group.target=target.slice(0,-3)+'/'+group.id+'.md';
+  group.target=topicDirectory+group.id+'.md';
   return {...rule,id};
  });
- if(!ruleSources.length&&!declarations.length)return {guidance};
+ if(!ruleSources.length&&!hasDeclaredTopics)return {guidance};
  for(const binding of guidance.filter(isOriginalGuidance)){
   topicFor(binding.topicId)?.guidance.push({source:binding.sourceRef,scope:verifiedScopes(binding.scope,files)});
  }
- const logicalId=target==='docs/rigup/development-rules.md'?PROJECT_RULES_ID:PROJECT_RULES_ID+':'+digest(target);
+ const logicalId=root==='docs/rigup'?PROJECT_RULES_ID:PROJECT_RULES_ID+':'+digest(target);
  const ruleTopics=[...topics.values()].filter(topic=>topic.ruleIds.length||topic.guidance.length);
  if(!ruleSources.length){
   if(!ruleTopics.some(topic=>topic.guidance.length)||guidance.some(binding=>binding.sourceRef?.path===target))return {guidance};
@@ -186,7 +271,7 @@ function renderRuleIndex(target:string,topics:ProjectRuleTopic[],title?:string):
  return lines.join('\n')+'\n';
 }
 
-export function reviseRulebook(previous:unknown,replacement:unknown,ruleIds:string[]):unknown {
+function reviseRulebook(previous:unknown,replacement:unknown,ruleIds:string[]):unknown {
  const draft=object(previous),changes=object(replacement);
  if(!Array.isArray(draft.rules)||!Array.isArray(changes.rules)||changes.rules.length!==ruleIds.length)throw new Error('rulebook: provide one replacement per rejected rule');
  const revisions=new Map<string,Record<string,unknown>>();
@@ -198,7 +283,7 @@ export function reviseRulebook(previous:unknown,replacement:unknown,ruleIds:stri
  return {...draft,rules:draft.rules.map(rule=>revisions.get(rule.sourceId)??rule)};
 }
 
-export function renderProjectRules(job:ArtifactJob,value:unknown):{index:string;pages:ArtifactPage[]} {
+function renderProjectRules(job:ArtifactJob,value:unknown):{index:string;pages:ArtifactPage[]} {
  const book=object(value);
  const sources=job.ruleSources??[];
  if(!Array.isArray(book.rules)||book.rules.length!==sources.length)throw new Error('rulebook: one instruction for each selected rule source required');
@@ -239,4 +324,34 @@ export function renderProjectRules(job:ArtifactJob,value:unknown):{index:string;
  }
  if(!pages.length)throw new Error('rulebook: expected topic pages');
  return {index,pages};
+}
+
+export function isProjectRulesJob(job:ArtifactJob):job is ArtifactJob&{ruleSources:ProjectRuleSource[]} {
+ return !!job.ruleSources;
+}
+
+export function projectRuleDraftPolicy(job:ArtifactJob,evidence:RuleEvidenceState):ArtifactDraftPolicy|undefined {
+ if(!isProjectRulesJob(job))return;
+ const batches=evidence.topicEvidence?.batches;
+ return {
+  maxAttempts:3,
+  context:batches?.length?{topicEvidence:batches}:{},
+  repairInput(repair){
+   if(!repair)return {rulebookRepair:undefined};
+   const draft=repair.draft as {rules:{sourceId:string}[]};
+   return {rulebookRepair:{ruleIds:repair.ruleIds,priorRules:draft.rules.filter(rule=>repair.ruleIds.includes(rule.sourceId))}};
+  },
+  content(data,repair){
+   const output=(data as {rulebook?:unknown}).rulebook;
+   const rulebook=repair?reviseRulebook(repair.draft,output,repair.ruleIds):output;
+   const {index,pages}=renderProjectRules(job,rulebook);
+   return {content:index,pages,rulebook};
+  },
+  acceptance(data,candidate){
+   const {accepted,reason,rejectedRuleIds:ids}=artifactVerdict(data);
+   const repair=candidate.rulebook&&Array.isArray(ids)&&ids.length&&ids.every(id=>job.ruleSources.some(rule=>rule.id===id))
+    ?{draft:candidate.rulebook,ruleIds:[...new Set<string>(ids)]}:undefined;
+   return {accepted,reason,repair};
+  },
+ };
 }

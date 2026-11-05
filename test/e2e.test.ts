@@ -66,6 +66,31 @@ test('resume after upgrading refuses to silently replace a v0.1.1 research ledge
  assert.equal(code,1);assert.match(JSON.parse(output).error,/v0\.1\.1 evidence contract/);assert.equal(calls,0);
  assert.equal(await readFile(state+'/runs/'+consent+'.json','utf8'),stored);assert.deepEqual(await readdir(state+'/runs'),[consent+'.json']);
 }));
+test('resume finds the saved OpenSpec research after optional external entries become visible',()=>fixture(async(root,cache,state)=>project(async home=>{
+ const previousHome=process.env.CODEX_HOME;
+ process.env.CODEX_HOME=home;
+ try{
+  let output='',calls=0;
+  const backend={run:async()=>{calls++;throw Error('simulated interrupted dispatch');}};
+  const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}};
+  const args=['init','--agents','codex','--sdd','openspec','--dry-run','--json'];
+  assert.equal(await runCli(args,io),1);
+  assert.equal(calls,1);
+  const records=await readdir(state+'/runs');
+  const oldRecord=await readFile(state+'/runs/'+records[0],'utf8');
+  const external=home+'/skills/openspec-update-change';
+  await mkdir(external,{recursive:true});
+  await writeFile(external+'/SKILL.md','---\nname: openspec-update-change\ndescription: Fixture revision\n---\n');
+  output='';
+  assert.equal(await runCli([...args,'--resume'],io),1);
+  assert.match(JSON.parse(output).error,/previous OpenSpec discovery/i);
+  assert.equal(calls,1);
+  assert.deepEqual(await readdir(state+'/runs'),records);
+  assert.equal(await readFile(state+'/runs/'+records[0],'utf8'),oldRecord);
+ }finally{
+  if(previousHome===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previousHome;
+ }
+})));
 test('failed_native_research_retains_spent_budget_before_retry',()=>fixture(async(root,cache,state)=>{
  const {ResearchFailure}=await import('../src/analyzer/backend.js');await writeFile(root+'/source.txt','source');await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({agents:['codex'],sdd:'openspec',backend:'native',researchBudget:{maxCalls:2,maxTokens:100}}));
  let requests=0;const backend={run:async(r:any)=>{if(r.spent?.calls>=2)throw new ResearchFailure('restored research budget exhausted');requests++;throw new ResearchFailure('provider returned invalid research JSON',undefined,{calls:2,tokens:20});}};
@@ -81,4 +106,42 @@ test('deselected_capability_requires_explicit_retirement_before_old_wiring_can_r
 test('model_cli_overrides_update_individual_fields_without_discarding_existing_key_reference',()=>fixture(async(root,cache,state)=>{
  await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({agents:['codex'],sdd:'openspec',backend:'native',model:{provider:'anthropic',model:'existing-model',apiKeyEnv:'EXISTING_KEY'}}));
  for(const [args,model,ref]of [[['--api-key-env','NEW_KEY'],'existing-model','NEW_KEY'],[['--model','new-model'],'new-model','EXISTING_KEY']]as const){const requests:any[]=[];const code=await runCli(['init','--dry-run',...args],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{requests.push(r);return{status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};}}}});assert.equal(code,3);assert.equal(requests[0].options.model.model,model);assert.equal(requests[0].options.model.apiKeyEnv,ref);}
+}));
+test('deferred setup installs the selected workflow before a separately reviewed rules update',()=>fixture(async(root,cache,state)=>{
+ for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
+  const directory=root+'/.agents/skills/'+name;await mkdir(directory,{recursive:true});
+  await writeFile(directory+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\n');
+ }
+ await mkdir(root+'/openspec');await writeFile(root+'/policy.md','Project policy.\n');
+ await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml','agents: [codex]\nbackend: host\n');
+ const requests:string[]=[];
+ const backend:import('../src/analyzer/backend.js').AnalysisBackend={run:async(request,reader)=>{
+  assert.equal((request.options as {backend:string}).backend,'codex');
+  requests.push(request.expectedOutput??request.kind);
+  const data={observations:[],unknowns:[],artifacts:[],dispositions:[],...(request.expectedOutput==='plan'?{
+   ruleTopics:[{id:'workflow',title:'Project workflow'}],
+   guidance:[{topicId:'workflow',topic:'Policy',sourceRef:(await reader.read('policy.md',1,1)).evidence,scope:['.'],coverageStatus:'reusable',consumers:['change-prepare','change-deliver'],gaps:[]}],
+  }:{})};
+  return {status:'complete',value:{data,model:'fixture',unknowns:[],usage:{calls:1,tokens:5}}};
+ }};
+ const cli=async(...args:string[])=>{
+  let output='';const code=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}});
+  return {code,...JSON.parse(output)};
+ };
+ const base=await cli('init','--agents','codex','--sdd','openspec','--backend','codex','--defer-research');
+ assert.equal(base.code,3);assert.equal(base.phase,'handoff');assert.equal(base.projectRules,'pending');assert.deepEqual(requests,[]);
+ await assert.rejects(()=>readFile(root+'/.agents/skills/change-prepare/SKILL.md'),{code:'ENOENT'});
+ const installed=await cli('update','--apply',base.previewId,'--sessions-ended');
+ assert.equal(installed.code,0);assert.equal(installed.projectRules,'pending');assert.match(installed.nextCommand,/rigup update .*--review/);
+ const reference=root+'/.agents/skills/change-prepare/references/project.md';
+ assert.match(await readFile(reference,'utf8'),/Project rules are pending/);
+ assert.equal((await cli('doctor')).projectRules,'pending');
+ assert.equal((await cli('update','--defer-research')).code,2);
+ const rules=await cli('update');
+ assert.equal(rules.code,3);assert.equal(rules.phase,'handoff');assert.equal(rules.projectRules,'ready');assert.deepEqual(requests,['analyze','plan']);
+ assert.match(await readFile(reference,'utf8'),/Project rules are pending/);
+ const applied=await cli('update','--apply',rules.previewId,'--sessions-ended');
+ assert.equal(applied.code,0);assert.equal(applied.projectRules,'ready');
+ assert.match(await readFile(reference,'utf8'),/development-rules\.md/);
+ assert.match(await readFile(root+'/docs/rigup/development-rules.md','utf8'),/policy\.md/);
 }));

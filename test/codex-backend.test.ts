@@ -68,6 +68,22 @@ test('Codex planning prompt uses stage-selected evidence instead of repeating th
  assert.match(prompts[0],/createOrder/);assert.doesNotMatch(prompts[1],/export function createOrder/);const body=JSON.parse(prompts[1].slice(prompts[1].indexOf('{')));
  assert.equal(body.context.evidencePolicy,STAGE_EVIDENCE_POLICY);assert.ok(body.paths.includes('source.js'));assert.equal(body.evidence.length,0);assert.equal(body.context.input.profile.files,undefined);
 }));
+test('Codex counts named convention supports only when each path is independently cited',()=>fixture(async(root,cache,request)=>{
+ await writeFile(root+'/alternate.js','export function createInvoice(id) { return {id}; }\n');
+ const reader=await repositoryReader(root,request.options as Awaited<ReturnType<typeof loadOptions>>);
+ const evidence=await Promise.all(['source.js','alternate.js'].map(async path=>(await reader.read(path,1)).evidence));
+ const observation={classification:'convention',statement:'Return the input identifier.',scope:['.'],supportingEvidence:evidence,counterEvidence:[],coverage:{independentSupports:evidence.map(e=>e.path),counterexampleSearched:true,counterexampleQueries:['export function create']}};
+ const plan={...request,kind:'artifact-plan' as const,expectedOutput:'plan' as const};
+ for(const invalid of [false,true]){
+  const candidate=structuredClone(observation);if(invalid)candidate.coverage.independentSupports[1]='uncited.js';
+  const backend=await createBackend({cacheRoot:cache+'/'+invalid,invoke:async()=>result({observations:[candidate],unknowns:[]})});
+  if(invalid)await assert.rejects(()=>backend.run(plan,reader),/invalid evidence/);
+  else{
+   const accepted=await backend.run(plan,reader);assert.equal(accepted.status,'complete');
+   assert.deepEqual((accepted.value.data as {observations:typeof observation[]}).observations[0].coverage.independentSupports,2);
+  }
+ }
+}));
 test('Codex rulebook output keeps only the candidate and its unknowns without replaying planning evidence',()=>fixture(async(_root,cache,request,reader)=>{
  const rulebook={title:'Scoped conventions',rules:[]};
  const payload={rulebook,unknowns:['Scope checked'],observations:[{supportingEvidence:[{path:'unused.ts',startLine:1,endLine:1,digest:'uncited'}]}]};
@@ -150,4 +166,30 @@ test('Codex process is stopped if its durable process identity cannot be recorde
   for(let i=0;i<50;i++){try{pid=Number(await readFile(control+'/pid','utf8'));break;}catch{await new Promise(done=>setTimeout(done,10));}}
   if(pid){await new Promise(done=>setTimeout(done,50));assert.throws(()=>process.kill(pid!,0),{code:'ESRCH'});}
  }finally{process.env.PATH=old;if(pid)try{process.kill(-pid,'SIGKILL');}catch{}}
+}));
+
+test('Codex recovery requires a well-formed saved outcome and its existing reservation',()=>fixture(async(_root,cache,request,reader)=>{
+ let calls=0;
+ const settings={cacheRoot:cache+'/ordinary',stateRoot:cache+'/durable',invoke:async()=>{calls++;return result();}};
+ const backend=await createBackend(settings);
+ await backend.run(request,reader);
+ const files=await readdir(settings.stateRoot);
+ const ledger=settings.stateRoot+'/'+files.find(path=>path.endsWith('.usage.json'))!;
+ const outcome=settings.stateRoot+'/'+files.find(path=>path.endsWith('.outcome.json'))!;
+ const previousLedger=await readFile(ledger,'utf8');
+ const previousOutcome=await readFile(outcome,'utf8');
+
+ const empty='{"attempts":{}}';
+ await writeFile(ledger,empty);
+ await assert.rejects(()=>backend.run(request,reader),/reconcil.*usage/i);
+ await rm(settings.cacheRoot,{recursive:true});
+ await assert.rejects(()=>backend.run(request,reader),/outcome.*reservation/i);
+ assert.equal(await readFile(ledger,'utf8'),empty);
+
+ await writeFile(ledger,previousLedger);
+ const {lastMessage,...malformed}=JSON.parse(previousOutcome);
+ await writeFile(outcome,JSON.stringify(malformed));
+ await assert.rejects(()=>backend.run(request,reader),/outcome.*corrupt/i);
+ assert.equal(await readFile(ledger,'utf8'),previousLedger);
+ assert.equal(calls,1);
 }));

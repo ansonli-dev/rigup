@@ -1,23 +1,6 @@
 import {posix} from 'node:path';
 import type {Evidence} from '../types.js';
-export interface ProjectRuleSource {
- id:string;
- topic:string;
- statement:string;
- authority:'explicit-rule'|'convention';
- scope:string[];
- supportingEvidence:Evidence[];
- counterEvidence:Evidence[];
- exceptions:string[];
-}
-export interface ProjectRuleTopic {
- id:string;
- title:string;
- target?:string;
- scope:string[];
- ruleIds:string[];
- guidance:{source:Evidence;scope:string[]}[];
-}
+import type {ProjectRuleSource,ProjectRuleTopic,RuleRepair} from './project-rules.js';
 export interface ArtifactPage {logicalId:string;target:string;content:string}
 export interface ArtifactJob {logicalId:string;target:string;purpose:string;consumer:string;required:boolean;reason:string;sourceRefs:Evidence[];seedPaths:string[];relatedArtifacts:string[];acceptance:string[];status:'pending'|'done';ruleSources?:ProjectRuleSource[];ruleTopics?:ProjectRuleTopic[]}
 export function relativeTarget(target:string):boolean {return !!target && !target.startsWith('/') && !target.includes('\\') && !target.split('/').includes('..') && posix.normalize(target) === target && target !== '.';}
@@ -41,3 +24,34 @@ export function validateArtifactList(input:unknown,required:string[]):ArtifactJo
  for(const job of jobs) if(job.relatedArtifacts.some(id=>!ids.has(id))) throw new Error('related artifact missing');
  return jobs;
 }
+
+export interface ArtifactContent {content:string;pages?:ArtifactPage[];rulebook?:unknown}
+export interface ArtifactVerdict {accepted:boolean;reason:string;repair?:RuleRepair}
+export interface ArtifactDraftPolicy {
+ maxAttempts:number;
+ context:Record<string,unknown>;
+ repairInput(repair?:RuleRepair):Record<string,unknown>;
+ content(data:unknown,repair?:RuleRepair):ArtifactContent;
+ acceptance(data:unknown,candidate:ArtifactContent):ArtifactVerdict;
+}
+
+export function artifactVerdict(data:unknown):ArtifactVerdict&{rejectedRuleIds?:unknown} {
+ const {accepted,reason,rejectedRuleIds}=data as {accepted?:unknown;reason?:unknown;rejectedRuleIds?:unknown};
+ return {
+  accepted:accepted===true&&typeof reason==='string'&&!!reason.trim()&&(rejectedRuleIds===undefined||Array.isArray(rejectedRuleIds)&&rejectedRuleIds.length===0),
+  reason:(typeof reason==='string'?reason:'Independent acceptance did not return a reason').slice(0,2000),
+  rejectedRuleIds,
+ };
+}
+
+export const documentDraftPolicy:ArtifactDraftPolicy={
+ maxAttempts:2,
+ context:{},
+ repairInput:()=>({rulebookRepair:undefined}),
+ content(data){
+  const {content}=data as {content?:unknown};
+  if(typeof content!=='string')throw new Error('required artifact content missing');
+  return {content};
+ },
+ acceptance:artifactVerdict,
+};

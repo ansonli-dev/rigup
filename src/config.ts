@@ -151,10 +151,10 @@ export function validateOptions(value: Record<string, unknown>): void {
   if (value.profile !== undefined && typeof value.profile !== 'string') throw new Error('profile: expected path');
 }
 
-export async function loadOptions(root: string, overrides: Partial<SetupOptions>): Promise<SetupOptions> {
-  const project = await readConfig(join(root,'.rigup','config.yaml'));
+export async function loadOptions(root: string, overrides: Partial<SetupOptions>, approvedOptions?: SetupOptions): Promise<SetupOptions> {
+  const project = approvedOptions ? {...approvedOptions} : await readConfig(join(root,'.rigup','config.yaml'));
   validateOptions(project); validateOptions(overrides);
-  const profilePath = overrides.profile ?? project.profile;
+  const profilePath = approvedOptions ? undefined : overrides.profile ?? project.profile;
   const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath), true) : {};
   validateOptions(profile);
   const options={...{agents: ['codex'], backend:'codex'}, ...profile, ...project, ...overrides} as SetupOptions;
