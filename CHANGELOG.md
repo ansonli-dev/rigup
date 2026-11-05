@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 · 2026-11-05 · Development preview
+
+- Publish the verified release tarball to npm from GitHub Actions using Trusted Publishing.
+- Read `rigup --version` from the installed package so it follows the release version.
+- Document npm installation, upgrades, and release recovery.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.1.1) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.1.1)
+
 ## 0.1.0 · 2026-11-05 · Development preview
 
 - Publish the CLI as `@ansonli.dev/rigup` on the public npm registry.

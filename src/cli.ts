@@ -22,7 +22,13 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  const boolean=new Set(['--dry-run','--configure','--review','--sessions-ended','--resume']);const valued=new Set(['--agents','--sdd','--tools','--backend','--profile','--response','--request','--apply','--model','--api-key-env','--continue','--retire','--run-checks']);const values:Record<string,string>={};
  for(let i=0;i<argv.length;i++){
   const arg=argv[i];if(boolean.has(arg)){values[arg]='true';continue;}if(valued.has(arg)){if(!argv[i+1]||argv[i+1].startsWith('--')){io.write(arg+': value required\n');return 2;}values[arg]=argv[++i];continue;}
-  if(arg==='--help'){io.write(help);return 0;}if(arg==='--version'){io.write('0.1.0\n');return 0;}if(arg.startsWith('-')){io.write('Unknown option\n');return 2;}positional.push(arg);
+  if(arg==='--help'){io.write(help);return 0;}
+  if (arg === '--version') {
+   const {version} = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+   io.write(`${version}\n`);
+   return 0;
+  }
+  if(arg.startsWith('-')){io.write('Unknown option\n');return 2;}positional.push(arg);
  }
  if(positional.length>2||positional[0]&&!['init','update','doctor'].includes(positional[0])){io.write(help);return 2;}
  if(!positional.length&&!io.isTTY){io.write(help+'Choose a lifecycle command\n');return 2;}
