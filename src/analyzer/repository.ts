@@ -83,7 +83,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
      for(const kind of Object.keys(profile.commands))if(typeof scripts?.[kind]==='string')profile.commands[kind].push({executable:'npm',args:['run',kind],cwd,envRefs:[]});
      for(const script of specializedScripts){
       if(typeof scripts?.[script]!=='string'||!scripts[script].trim())continue;
-      const command=profile.commands[script]?.at(-1)??{executable:'npm',args:['run',script],cwd,envRefs:[]};
+      const command={executable:'npm',args:['run',script],cwd,envRefs:[]};
       profile.specializedChecks.push({command,source:path,...checkPrerequisites(scripts[script],manifest,cwd)});
      }
     }catch{profile.unknowns.push(path+': unsupported package manifest');}

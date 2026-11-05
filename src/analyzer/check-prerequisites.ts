@@ -13,7 +13,8 @@ export function checkPrerequisites(script:string,manifest:{scripts?:Record<strin
  if(/(?:^|[;&|]\s*|pm2\s+start\s+["'])\s*yarn(?:\s|$)/.test(script))tools.push('yarn');
  if(/(?:^|[;&|]\s*)\s*pm2\s+start(?:\s|$)/.test(script))tools.push('pm2');
  if(/(?:^|[;&|]\s*|yarn\s+)\s*playwright\s+test(?:\s|$)/.test(script))tools.push('playwright');
- const config=/(?:^|[;&|]\s*)\s*jest\b[^;&|]*\s--config(?:=|\s+)([\w./-]+\.json)(?=\s|$)/.exec(script)?.[1];
+ const singleJest=/^[ \t]*jest[ \t]+[\w./= \t-]+$/.test(script);
+ const config=singleJest?/[ \t]--config(?:=|[ \t]+)([\w./-]+\.json)(?=[ \t]|$)/.exec(script)?.[1]:undefined;
  const postgres=config&&!config.startsWith('/')&&!config.split('/').includes('..')&&['pg','postgres','slonik','nestjs-slonik'].some(name=>Object.hasOwn(manifest.dependencies??{},name)||Object.hasOwn(manifest.devDependencies??{},name))
   ?{config:posix.join(cwd,config),
     ...(/^NODE_ENV=test\s+/.test(String(manifest.scripts?.['migration:up:tests']??''))?{migration:'migration:up:tests' as const}:{}),

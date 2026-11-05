@@ -410,7 +410,8 @@ test('workflow contexts show the invocable specialized check with its working di
 test('specialized checks describe package-manager, process and database prerequisites from project sources',()=>fixture(async(root)=>{
  await mkdir(root+'/apps/web',{recursive:true});await mkdir(root+'/tests/setup',{recursive:true});
  await writeFile(root+'/apps/web/package.json',JSON.stringify({scripts:{'test-e2e':'pm2 start "yarn run-mock-server" --name server && yarn playwright test'}}));
- await writeFile(root+'/package.json',JSON.stringify({scripts:{test:'jest --config .jestrc.json','test:e2e':'jest -i --config jest-e2e.json','migration:up:tests':'NODE_ENV=test ts-node migrate up'},dependencies:{slonik:'^31'}}));
+ const manifest={scripts:{test:'jest --config .jestrc.json','test:e2e':'jest -i --config jest-e2e.json','migration:up:tests':'NODE_ENV=test ts-node migrate up'},dependencies:{slonik:'^31'}};
+ await writeFile(root+'/package.json',JSON.stringify(manifest));
  for(const file of ['.jestrc.json','jest-e2e.json'])await writeFile(root+'/'+file,JSON.stringify({globalSetup:'<rootDir>/tests/setup/jestGlobalSetup.ts'}));
  await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"if (!databaseConfig.database.includes('test')) throw Error('Wrong database');\n");
  const profile=await scanRepository(root,opts);
@@ -422,12 +423,16 @@ test('specialized checks describe package-manager, process and database prerequi
  assert.match(reference,/dedicated PostgreSQL test database/);assert.match(reference,/database name.*`test`/);
  assert.match(reference,/`npm run migration:up:tests && npm run test:e2e`/);assert.match(reference,/jest-e2e\.json/);
  assert.match(reference,/`npm run migration:up:tests && npm run test -- --runInBand`/);
- assert.deepEqual(profile.commands.test[0].args,['run','test','--','--runInBand']);
+ assert.deepEqual(profile.commands.test[0].args,['run','test']);
  validateNavigation(assets,profile.files);
  await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"/*\nif (!database.includes('test')) throw Error('comment');\n*/\nif (database.includes('test')) throw Error('Wrong database');\n");
  const unrelated=(await scanRepository(root,opts)).specializedChecks;
  assert.equal(unrelated.find(check=>check.command.args.includes('test:e2e'))?.postgres,undefined);
  assert.ok(!unrelated.some(check=>check.command.args.includes('test')));
+ await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"if (!database.includes('test')) throw Error('Wrong database');\n");
+ manifest.scripts.test+=' && node summary.js';
+ await writeFile(root+'/package.json',JSON.stringify(manifest));
+ assert.ok(!(await scanRepository(root,opts)).specializedChecks.some(check=>check.command.args.includes('test')));
 }));
 test('multi_agent_sdd_context_uses_each_hosts_native_command_names',()=>fixture(async(root)=>{
  const selected={agents:['claude','codex'] as ('claude'|'codex')[],backend:'host' as const,sdd:'spec-kit' as const};

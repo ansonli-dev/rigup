@@ -67,7 +67,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
     for(const [kind,commands] of Object.entries(profile.commands)) for(const command of commands) lines.push(`- Existing ${kind} in ${inline(command.cwd)} runs ${inline(JSON.stringify([command.executable,...command.args]))}.`);
    }
    if(profile.specializedChecks.length){
-    lines.push('','## Specialized checks','','Working directories are relative to the repository root. Select the checks relevant to the change and verify their prerequisites in project sources.');
+    lines.push('','## Specialized checks','','Working directories are relative to the repository root. Select the checks relevant to the change and verify their prerequisites in project sources. Use the specialized invocation when it covers an existing check.');
     for(const {command,source,tools,postgres} of profile.specializedChecks){
      const run=[command.executable,...command.args].join(' ');
      const fromRoot=command.cwd==='.'?'':'cd '+quoteShell('./'+command.cwd)+' && ';

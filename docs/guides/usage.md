@@ -63,7 +63,7 @@ rigup update --apply RULES_PREVIEW_ID --sessions-ended
 - `--language` 和 `documentLanguage` 接受 `auto` 或语言标签，例如 `zh-CN`、`en`、`ja`。默认 `auto` 参照适用的项目指引。此设置用于新生成的项目规范和语义文档。已有文档保留原文，原生流程入口保留其名称和模板。
 - 从 `docs/rigup/development-rules.md` 按变更路径查找适用主题，再阅读 `development-rules/<topic>.md` 或原有指引。主题页写明规则、例外和验证方法，源码证据保存在私有运行记录。可通过 `projectConventions.documentRoutes.context` 指定输出目录。
 - 使用 `change-prepare` 将需求、适用规则和检查写入所选 SDD 的提案与任务。审批后使用 `change-deliver` 实现并验证。两者共享项目指引，按变更范围复用已有的测试、CI 和 hooks。
-- 两个技能的项目参考会列出已识别的专用检查及工作目录。遇到已识别的 Yarn、PM2、Playwright 或 PostgreSQL 检查，会显示准备条件和适用的终端命令。带测试库保护的 Jest 检查会复用已有的串行选项，或在命令未指定并发方式时加上 `--runInBand`。若沙箱无法运行检查，在有权限的终端核对环境后执行交接命令，将退出状态和脱敏测试摘要带回原交付任务。
+- 两个技能的项目参考会列出已识别的专用检查及工作目录。遇到已识别的 Yarn、PM2、Playwright 或 PostgreSQL 检查，会显示准备条件和适用的终端命令。对于带测试库保护的单条 Jest 命令，指引会复用已有的串行选项，或在命令未指定并发方式时加上 `--runInBand`。若沙箱无法运行检查，在有权限的终端核对环境后执行交接命令，将退出状态和脱敏测试摘要带回原交付任务。
 
 ## 研究后端与预算
 
