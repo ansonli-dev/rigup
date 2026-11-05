@@ -72,6 +72,20 @@ test('planning projects the analysis contract without replaying unrelated backen
  const request=f.phase('plan');const input=request.input as any;input.profile.research.rawContext='WHOLE_PROJECT_DUMP';input.profile.research.data.rawContext='WHOLE_PROJECT_DUMP';
  const {body}=await exported(f,request);assert.doesNotMatch(JSON.stringify(body.context.input),/WHOLE_PROJECT_DUMP/);assert.ok(body.context.input.profile.research.data.observations.length);
 }));
+test('a plan follow-up keeps both bounded topic batches and the native gates',()=>fixture(async f=>{
+ const request=f.phase('plan');const input=request.input as any;
+ const ref=await f.ref('src/a/update.ts',1,1);
+ const earlier=await f.ref('src/z/linked.ts',1,1);
+ const batch={from:'plan',results:[{topicId:'api',status:'complete',refs:[ref]}]};
+ input.topicEvidence={remainingBatches:0,batches:[{from:'analysis',results:[{topicId:'links',status:'complete',refs:[earlier]}]},batch]};
+ const {body}=await exported(f,request);
+ assert.deepEqual(body.context.input.topicEvidence,input.topicEvidence);
+ assert.ok(body.context.input.profile.research.data.observations.length);
+ assert.deepEqual(body.evidence.filter((item:any)=>item.evidence.path==='src/a/update.ts'),[await f.reader.read(ref.path,1,1)]);
+ assert.deepEqual(body.evidence.filter((item:any)=>item.evidence.path===earlier.path),[await f.reader.read(earlier.path,1,1)]);
+ assert.ok(!evidencePaths(body).includes('docs/api.md'));assert.ok(!evidencePaths(body).includes('src/z/unrelated.ts'));
+ assert.ok(evidencePaths(body).includes('.agents/skills/openspec-apply-change/SKILL.md'));
+}));
 test('content keeps current-topic counterexamples conflicts and native gates while excluding unrelated research',()=>fixture(async f=>{
  const {body}=await exported(f,f.phase('content'));const paths=evidencePaths(body);
  for(const path of ['src/a/helper.ts','src/a/update.ts','src/b/counter.ts','docs/conflict.md','AGENTS.md','.agents/skills/openspec-apply-change/SKILL.md'])assert.ok(paths.includes(path),path);
@@ -105,6 +119,25 @@ test('topic collection acceptance keeps rendered pages and resolves their links 
  assert.ok(body.evidence.some((e:any)=>e.evidence.path===update.path&&e.evidence.digest===update.digest));
  assert.doesNotMatch(JSON.stringify(body.evidence),/OUTSIDE_NEEDED_RANGE|UNRELATED_PROJECT_BODY/);
  assert.deepEqual(body.context.evidenceSelection.unavailable,[]);
+}));
+test('rule acceptance sees scoped follow-up results even if the final plan omitted them',()=>fixture(async f=>{
+ const ref=await f.ref('src/a/update.ts',2,2),counter=await f.ref('src/b/counter.ts',1,1),unrelated=await f.ref('src/z/unrelated.ts',1,1);
+ const job={...f.job,sourceRefs:[ref],ruleSources:[{supportingEvidence:[ref]}],ruleTopics:[{id:'api',ruleIds:['R1']}],seedPaths:[]};
+ const topicEvidence=[{from:'analysis',results:[{topicId:'api',refs:[counter]},{topicId:'unrelated',refs:[unrelated]}]}];
+ const {body}=await exported(f,f.phase('acceptance',{input:{job,research:{guidance:[],observations:[],unknowns:[]},candidate:'API rules.',topicEvidence}}));
+ assert.deepEqual(body.context.input.topicEvidence[0].results,[{topicId:'api',refs:[counter]}]);
+ assert.ok(body.evidence.some((item:any)=>item.evidence.digest===counter.digest));
+ assert.ok(!evidencePaths(body).includes(unrelated.path));
+}));
+test('selective repair exports the rejected rules and their evidence',()=>fixture(async f=>{
+ const active=await f.ref('src/a/update.ts',2,2),other=await f.ref('src/z/unrelated.ts',1,1),decision=await f.ref('src/b/counter.ts',1,1);
+ const job={...f.job,sourceRefs:[active,other],ruleSources:[{id:'R1',supportingEvidence:[active]},{id:'R2',supportingEvidence:[other]}],ruleTopics:[{id:'api',ruleIds:['R1']},{id:'other',ruleIds:['R2']}],seedPaths:[]};
+ const rulebookRepair={ruleIds:['R1'],priorRules:[{sourceId:'R1',instruction:'Original'}]};
+ const observation={topicId:'api',topic:'A different scope claim',classification:'local-pattern',guidanceDisposition:'needs-decision',scope:['src/a'],supportingEvidence:[decision]};
+ const {body}=await exported(f,f.phase('content',{input:{job,research:{observations:[observation]},rulebookRepair}}));
+ assert.deepEqual(body.context.input.rulebookRepair,rulebookRepair);
+ assert.deepEqual(body.context.input.job.ruleSources.map((rule:any)=>rule.id),['R1']);
+ assert.ok(evidencePaths(body).includes(active.path));assert.ok(evidencePaths(body).includes(decision.path));assert.ok(!evidencePaths(body).includes(other.path));
 }));
 test('missing seeds and omitted lock evidence are explicit and do not trigger a full-project fallback',()=>fixture(async f=>{
  const lock=await f.ref('yarn.lock'),job={...f.job,sourceRefs:[...f.job.sourceRefs,lock],seedPaths:['src/missing.ts','yarn.lock']};const readPaths:string[]=[];const original=f.reader;f.reader={...original,read:async(...args:Parameters<RepositoryReader['read']>)=>{readPaths.push(args[0]);return original.read(...args);}};

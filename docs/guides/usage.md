@@ -48,12 +48,12 @@ mcp:
 ## 项目研发流程
 
 - `--language` 和 `documentLanguage` 接受 `auto` 或语言标签，例如 `zh-CN`、`en`、`ja`。默认 `auto` 参照适用的项目指引。此设置用于新生成的项目规范和语义文档。已有文档保留原文，原生流程入口保留其名称和模板。
-- 从 `docs/rigup/development-rules.md` 按变更路径查找适用主题，再阅读 `development-rules/<topic>.md` 或原有指引。主题根据项目证据选择，原有指引以带行号的链接引用。可通过 `projectConventions.documentRoutes.context` 指定输出目录。
+- 从 `docs/rigup/development-rules.md` 按变更路径查找适用主题，再阅读 `development-rules/<topic>.md` 或原有指引。主题页写明规则、例外和验证方法，源码证据保存在私有运行记录。可通过 `projectConventions.documentRoutes.context` 指定输出目录。
 - 使用 `change-prepare` 将需求、适用规则和检查写入所选 SDD 的提案与任务。审批后使用 `change-deliver` 实现并验证。两者共享项目指引，按变更范围复用已有的测试、CI 和 hooks。
 
 ## 研究后端与预算
 
-- `codex` 使用本机已登录的 Codex CLI。研究在隔离工作目录运行，输入来自过滤后的证据。Plan、content 和 acceptance 按当前任务选取正文，锁文件只参与指纹校验。源码、配置或锁文件变化会使相关结果失效。
+- `codex` 使用本机已登录的 Codex CLI。研究在隔离工作目录运行。Codex 可按主题请求限定行段或字面搜索，Rigup 在读取预算内返回选中的片段，每轮最多两批补证。规划、写作和验收按各自任务选取证据，锁文件只参与指纹校验。源码、配置或锁文件变化会使相关结果失效。
 - `native` 通过 Anthropic API 研究。用 `--model` 或 `model.model` 选择模型，默认密钥变量为 `ANTHROPIC_API_KEY`，可用 `model.apiKeyEnv` 指定。`--model` 和 `--api-key-env` 会选择 native，与 `--backend codex` 互斥。Claude Code 登录与此 API 认证分开。
 - `host` 导出私有研究请求。读取报告的 `requestPath` 和该轮输出要求，将实际结果包入 `requestId`、`requestDigest`、`model`、`data` 后保存到指定响应路径，再执行 `nextCommand`。续跑会验证证据、输入指纹和当前设置。`--request` 的目标须在私有 host 缓存内，且与 `--response` 互斥。
 

@@ -80,6 +80,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    if(await savedRun(previous))throw new Error('Saved research uses the v0.1.1 evidence contract. Resume or reconcile it with v0.1.1, or explicitly start a new preview without --resume.');
    const flatRules=signature({...input,versions:{prompt:'7',template:'2',document:'1',read:'6'}});
    if(await savedRun(flatRules))throw new Error('Saved research uses the single-document evidence contract. Resume it with the previous Rigup build, or explicitly start a new preview without --resume.');
+   const annotatedRules=signature({...input,versions:{prompt:'8',template:'2',document:'1',read:'6'}});
+   if(await savedRun(annotatedRules))throw new Error('Saved research uses the previous topic evidence contract. Resume it with the previous Rigup build, or explicitly start a new preview without --resume.');
   }
   if(!run)run={root,options,effectiveModel,mode:{dryRun:flags.dryRun,yes:flags.yes,review:flags.review,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent};
   if(signature(run.options)!==signature(options))throw Error('durable research options changed; reconciliation required');
@@ -99,7 +101,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const result=await hostBackend({cacheRoot:requests,requestPath:responseConsumed?undefined:flags.request,responsePath:responseConsumed?undefined:flags.response}).run(request,reader);if(result.status==='complete'&&flags.response)responseConsumed=true;return result;
   }}:options.backend==='codex'?codexBackend({cacheRoot:join(base,'codex'),stateRoot:join(lock.stateRoot,'codex'),nativeEntryPaths:prepared.bindings.flatMap(binding=>binding.projectSources??[]),signal:services.signal,onUsage:async usage=>{run.spent=usage;await saveDurable(runPath,JSON.stringify(run));}}):nativeBackend({apiKey:services.credentials?.apiKey??process.env[options.model?.apiKeyEnv??'ANTHROPIC_API_KEY'],model:options.model?.model??services.credentials?.model??process.env.ANTHROPIC_MODEL,signal:services.signal,onUsage:async usage=>{run.spent={calls:activeNativeBase.calls+usage.calls,tokens:activeNativeBase.tokens==='unknown'||usage.tokens==='unknown'?'unknown':activeNativeBase.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));}}));
   const addUsage=async(usage:{calls:number|'unknown';tokens:number|'unknown'})=>{run.spent={calls:run.spent.calls+(typeof usage.calls==='number'?usage.calls:1),tokens:run.spent.tokens==='unknown'||usage.tokens==='unknown'?'unknown':run.spent.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));};
-  const backend:AnalysisBackend=options.backend==='native'||options.backend==='codex'&&!!services.backend?{artifactContextVersion:rawBackend.artifactContextVersion,run:async(request,source)=>{
+  const backend:AnalysisBackend=options.backend==='native'||options.backend==='codex'&&!!services.backend?{artifactContextVersion:rawBackend.artifactContextVersion,topicEvidence:rawBackend.topicEvidence,run:async(request,source)=>{
    if(run.spent.calls>=budget.maxCalls||run.spent.tokens==='unknown'||run.spent.tokens>=budget.maxTokens)throw new ResearchFailure('restored research budget exhausted or unknown');
    activeNativeBase=run.spent;
    try{const result=await rawBackend.run({...request,spent:run.spent},source);if(result.status==='complete'&&!durableNative)await addUsage(result.value.usage);return result;}

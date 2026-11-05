@@ -6,6 +6,7 @@ import {scanRepository,repositoryReader} from '../src/analyzer/repository.js';
 import {loadOptions} from '../src/config.js';
 import type {ResearchRequest} from '../src/analyzer/backend.js';
 import {hostBackend} from '../src/analyzer/host.js';
+import {STAGE_EVIDENCE_POLICY} from '../src/analyzer/stage-context.js';
 import {signature} from '../src/generator/cache.js';
 async function fixture(fn:(root:string,cache:string,request:ResearchRequest,reader:Awaited<ReturnType<typeof repositoryReader>>)=>Promise<void>){await project(async root=>project(async cache=>{
  await writeFile(root+'/source.js','export function createOrder(id) { return {id}; }\n');
@@ -65,7 +66,7 @@ test('Codex planning prompt uses stage-selected evidence instead of repeating th
  const prompts:string[]=[];const backend=await createBackend({cacheRoot:cache,invoke:async(input:any)=>{prompts.push(input.prompt);return result();}});
  await backend.run(request,reader);await backend.run({...request,kind:'artifact-plan',expectedOutput:'plan',input:{profile:{files:await reader.list(),research:{data:{observations:[],guidance:[],unknowns:[]}}},previousInventory:[]}},reader);assert.equal(prompts.length,2);
  assert.match(prompts[0],/createOrder/);assert.doesNotMatch(prompts[1],/export function createOrder/);const body=JSON.parse(prompts[1].slice(prompts[1].indexOf('{')));
- assert.equal(body.context.evidencePolicy,'stage-evidence-v3');assert.ok(body.paths.includes('source.js'));assert.equal(body.evidence.length,0);assert.equal(body.context.input.profile.files,undefined);
+ assert.equal(body.context.evidencePolicy,STAGE_EVIDENCE_POLICY);assert.ok(body.paths.includes('source.js'));assert.equal(body.evidence.length,0);assert.equal(body.context.input.profile.files,undefined);
 }));
 test('Codex rulebook output keeps only the candidate and its unknowns without replaying planning evidence',()=>fixture(async(_root,cache,request,reader)=>{
  const rulebook={title:'Scoped conventions',rules:[]};

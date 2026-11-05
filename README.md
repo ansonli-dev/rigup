@@ -59,7 +59,7 @@ In review mode, inspect the preview and end any affected agent sessions. Run the
 
 ## Project development rules
 
-With a development workflow selected, Rigup builds a scoped index at `docs/rigup/development-rules.md`. It links original guidance and opens topic pages under `development-rules/` for verified conventions and checks. Each rule gives its trigger, instruction, verification, and source lines.
+With a development workflow selected, Codex chooses topics and can request targeted reads and searches before settling the rules. Rigup builds a scoped index at `docs/rigup/development-rules.md` that links original guidance and pages under `development-rules/`. Each page covers the rules, exceptions and checks for its topic. Source excerpts and review notes stay in private run records.
 
 The two installed skills carry applicable rules into native proposals and task execution. They point agents to existing tests and hook definitions so each change can reuse the checks that cover it. [Project workflow and language](docs/guides/usage.md#项目研发流程)
 

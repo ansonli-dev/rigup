@@ -10,7 +10,7 @@ import {CodexTimeoutError,codexAvailable,codexArguments,invokeCodex,type CodexIn
 export interface CodexBackendOptions {cacheRoot:string;stateRoot?:string;signal?:AbortSignal;nativeEntryPaths?:readonly string[];onUsage?:(usage:{calls:number;tokens:number|'unknown'})=>Promise<void>;invoke?:(input:CodexInvocation)=>Promise<CodexOutcome>}
 interface Attempt {status:'reserved'|'observed';tokens:number|'unknown';identity?:ProcessIdentity}
 interface Ledger {attempts:Record<string,Attempt>}
-const codexAdapterVersion='4';
+const codexAdapterVersion='7';
 function totals(ledger:Ledger):{calls:number;tokens:number|'unknown'} {const items=Object.values(ledger.attempts);return {calls:items.length,tokens:items.some(a=>a.tokens==='unknown')?'unknown':items.reduce((n,a)=>n+Number(a.tokens),0)};}
 function observed(outcome:CodexOutcome):number {
  const events=outcome.stdout.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
@@ -23,7 +23,7 @@ function observed(outcome:CodexOutcome):number {
  return usage.input_tokens+usage.output_tokens;
 }
 export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
- return {artifactContextVersion:STAGE_EVIDENCE_POLICY,run:async(request,reader)=>{
+ return {artifactContextVersion:STAGE_EVIDENCE_POLICY+'/topic-prose',topicEvidence:true,durableBudget:true,run:async(request,reader)=>{
   validateResearchRequest(request);
   if(options.signal?.aborted)throw new ResearchFailure('Codex cancelled before dispatch',[],{calls:0,tokens:0});
   if(request.budget.maxCalls<1||request.budget.maxTokens<1)throw new ResearchFailure('Codex budget exhausted',[],{calls:0,tokens:0});
@@ -43,6 +43,8 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
   const exchangeOptions={cacheRoot:exchange,stageEvidence:true,nativeEntryPaths:options.nativeEntryPaths};
   const exported=await hostBackend(exchangeOptions).run(context,reader);
   if(exported.status==='complete'){
+   const used=totals(ledger);
+   if(used.calls>request.budget.maxCalls||used.tokens==='unknown'||used.tokens>request.budget.maxTokens)throw new ResearchFailure('Codex cached result requires reconciled usage within its budget');
    const dataSignature=signature(exported.value.data);
    const accepted=await readCache<{dataSignature:string;model:string}>(join(cache,signature(context)+'.result.json'));
    if(!accepted||accepted.dataSignature!==dataSignature)throw new ResearchFailure('Codex cached acceptance lacks verified provenance');
@@ -72,7 +74,7 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
   }
   try {
    const tokens=observed(outcome);ledger.attempts[id]={status:'observed',tokens};await account();
-   const used=totals(ledger);if(outcome.code!==0||used.tokens==='unknown'||used.tokens>request.budget.maxTokens)throw Error('Codex failed or exceeded its observed budget');
+   const used=totals(ledger);if(outcome.code!==0||used.calls>request.budget.maxCalls||used.tokens==='unknown'||used.tokens>request.budget.maxTokens)throw Error('Codex failed or exceeded its observed budget');
    const data=selectResearchOutput(request,JSON.parse(outcome.lastMessage));const model='codex-cli 0.166.0 / default model (actual model ID not exposed)';
    const responsePath=join(cache,id+'.response.json');
    await saveDurable(responsePath,JSON.stringify({requestId:id,requestDigest:id,model,data}));

@@ -2,7 +2,7 @@ import {posix} from 'node:path';
 import type {Evidence} from '../types.js';
 import {digest} from '../analyzer/evidence.js';
 import {relativeTarget,type ArtifactJob,type ArtifactPage,type ProjectRuleSource,type ProjectRuleTopic} from './artifacts.js';
-import {validateTemplateContent} from './document-policy.js';
+import {markdownLinks} from './document-policy.js';
 import type {GuidanceBinding} from './render.js';
 
 export const PROJECT_RULES_ID='project-development-rules';
@@ -23,21 +23,25 @@ interface RuleObservation {
 
 const within=(path:string,scope:string)=>scope==='.'||path===scope||path.startsWith(scope+'/');
 const configuration=(path:string)=>path.startsWith('.husky/')||/^(?:Makefile|Dockerfile|\.dependency-cruiser\.js|\.(?:eslint|prettier)rc(?:\.[^.]+)?)$|\.(?:config\.[^.]+|jsonc?|ya?ml|toml|ini|xml)$/i.test(posix.basename(path));
+const documentation=(path:string)=>/\.(?:md|mdx|rst|adoc|txt)$/i.test(path);
 const singleLine=(value:unknown)=>typeof value==='string'?value.replace(/[\x00-\x20\x7f]+/g,' ').trim():'';
 const needsDecision=(binding:GuidanceBinding)=>['needs-decision','conflicting','unavailable'].includes(binding.coverageStatus);
 const claimKey=(id:string|undefined,topic:unknown)=>JSON.stringify([id,singleLine(topic)]);
 const evidenceKey=({path,startLine,endLine,digest}:Evidence)=>JSON.stringify([path,startLine,endLine,digest]);
 
-function decisionNotes(values:unknown[]):string[] {
- return values.map(singleLine).filter(note=>{
-  try{validateTemplateContent(note);return !!note;}catch{return false;}
- });
+export function isOriginalGuidance(binding:GuidanceBinding):binding is GuidanceBinding&{sourceRef:Evidence} {
+ return !!binding.sourceRef&&documentation(binding.sourceRef.path)&&(binding.coverageStatus==='reusable'||binding.coverageStatus==='partial');
+}
+
+export function verifiedScopes(scope:unknown[],files:string[]):string[] {
+ return scope.map(path=>typeof path==='string'?path.replace(/\/+$/,''):'')
+  .filter(path=>!/[\x00-\x1f\x7f]/.test(path)&&(path==='.'||relativeTarget(path)&&files.some(file=>within(file,path))));
 }
 
 export function prepareProjectRules(data:Record<string,unknown>,files:string[],target:string):{job?:ArtifactJob;referenceIndex?:ArtifactPage;guidance:GuidanceBinding[]} {
  const observations=data.observations as RuleObservation[];
- const guidance=((data.guidance??[]) as GuidanceBinding[]).map(binding=>needsDecision(binding)?{...binding,gaps:decisionNotes(binding.gaps)}:binding);
- const covered=new Set(guidance.filter(source=>source.coverageStatus==='reusable').map(source=>claimKey(source.topicId,source.topic)));
+ const guidance=[...(data.guidance??[]) as GuidanceBinding[]];
+ const covered=new Set(guidance.filter(source=>isOriginalGuidance(source)&&source.coverageStatus==='reusable').map(source=>claimKey(source.topicId,source.topic)));
  const unresolved=new Set([
   ...guidance.filter(needsDecision).map(source=>claimKey(source.topicId,source.topic)),
   ...observations.filter(item=>item.guidanceDisposition==='needs-decision').map(item=>claimKey(item.topicId,item.topic)),
@@ -65,11 +69,10 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],t
   const topic=singleLine(observation.topic);
   if(!topic||topic.length>1000)continue;
   const key=claimKey(observation.topicId,topic),legacyKey=claimKey(undefined,topic);
-  const scopes=scope.map(path=>typeof path==='string'?path.replace(/\/+$/,''):'')
-   .filter(path=>path==='.'||relativeTarget(path)&&files.some(file=>within(file,path)));
+  const scopes=verifiedScopes(scope,files);
   const sameScope=(binding:GuidanceBinding)=>claimKey(binding.topicId,binding.topic)===key&&binding.scope.length===scopes.length&&scopes.every(path=>binding.scope.includes(path));
   const bind=(status:string,refs:Evidence[])=>{
-   const gaps=status==='needs-decision'?decisionNotes([observation.statement]):[];
+   const gaps=status==='needs-decision'?[singleLine(observation.statement)].filter(Boolean):[];
    for(const ref of refs){
     const refKey=evidenceKey(ref);
     const present=guidance.some(binding=>binding.sourceRef&&binding.coverageStatus===status&&sameScope(binding)&&evidenceKey(binding.sourceRef)===refKey);
@@ -88,7 +91,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],t
    bind('needs-decision',[...supportingEvidence,...counterEvidence]);
    continue;
   }
-  const documented=classification==='explicit-rule'?supportingEvidence.filter(ref=>/\.(?:md|mdx|rst|adoc|txt)$/i.test(ref.path)):[];
+  const documented=classification==='explicit-rule'?supportingEvidence.filter(ref=>documentation(ref.path)):[];
   bind('reusable',documented.filter(ref=>!guidance.some(binding=>sameScope(binding)&&binding.sourceRef?.path===ref.path)));
   if(documented.length||observation.guidanceDisposition!=='follow-existing')continue;
   if(classification==='convention'){
@@ -115,15 +118,14 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],t
   return {...rule,id};
  });
  if(!ruleSources.length&&!declarations.length)return {guidance};
- for(const binding of guidance)if(binding.sourceRef&&(binding.coverageStatus==='reusable'||binding.coverageStatus==='partial')){
-  topicFor(binding.topicId)?.guidance.push({source:binding.sourceRef,scope:binding.scope});
+ for(const binding of guidance.filter(isOriginalGuidance)){
+  topicFor(binding.topicId)?.guidance.push({source:binding.sourceRef,scope:verifiedScopes(binding.scope,files)});
  }
  const logicalId=target==='docs/rigup/development-rules.md'?PROJECT_RULES_ID:PROJECT_RULES_ID+':'+digest(target);
- const issueTopics=new Set(guidance.filter(needsDecision).map(binding=>binding.topicId));
- const ruleTopics=[...topics.values()].filter(topic=>topic.ruleIds.length||topic.guidance.length||issueTopics.has(topic.id));
+ const ruleTopics=[...topics.values()].filter(topic=>topic.ruleIds.length||topic.guidance.length);
  if(!ruleSources.length){
   if(!ruleTopics.some(topic=>topic.guidance.length)||guidance.some(binding=>binding.sourceRef?.path===target))return {guidance};
-  return {guidance,referenceIndex:{logicalId,target,content:renderRuleIndex(target,ruleTopics,guidance)}};
+  return {guidance,referenceIndex:{logicalId,target,content:renderRuleIndex(target,ruleTopics)}};
  }
  const evidence=new Map<string,Evidence>();
  for(const rule of ruleSources)for(const ref of [...rule.supportingEvidence,...rule.counterEvidence])evidence.set(evidenceKey(ref),ref);
@@ -135,7 +137,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],t
   sourceRefs:[...evidence.values()],seedPaths:[],relatedArtifacts:[],ruleSources,ruleTopics,status:'pending',
   acceptance:['The index leads to applicable topics and original guidance. Each topic contains the rules selected for it.',
    'Every rule instructs future changes and gives a concrete verification step.',
-   'Each instruction distinguishes supporting evidence, authority, scope, counterexamples, and exceptions. The index flags unresolved guidance in selected topics without adopting it.',
+   'Each instruction preserves the verified authority, scope and applicable exceptions. Evidence and unresolved research remain in the private plan.',
    'The selected document language is used and native approval and verification gates remain authoritative.'],
  }};
 }
@@ -155,13 +157,16 @@ function text(value:unknown):string {
  return value.trim();
 }
 
-function localLink(from:string,to:string,label:string,anchor=''):string {
+function localLink(from:string,to:string,label:string):string {
  const link=posix.relative(posix.dirname(from),to).split('/').map(part=>encodeURIComponent(part).replaceAll('(','%28').replaceAll(')','%29')).join('/');
- return '['+escapeText(label.replace(/[\[\]]/g,''))+']('+link+anchor+')';
+ return '['+escapeText(singleLine(label).replace(/[\[\]]/g,''))+']('+link+')';
 }
 
-function evidenceLink(target:string,ref:Evidence,label=ref.path+':'+ref.startLine+'–'+ref.endLine):string {
- return localLink(target,ref.path,label,'#L'+ref.startLine+'-L'+ref.endLine);
+function publicText(value:unknown):string {
+ const line=text(value);
+ const investigation=/(?:所引|所查).{0,16}(?:示例|证据|源码)|\b(?:cited|inspected) (?:examples?|snippets?|evidence|source ranges?)\b|\bthe evidence (?:shows|suggests|indicates)\b/i;
+ if(/#L\d+\b/.test(line)||investigation.test(line)||!markdownLinks(line).next().done)throw new Error('rulebook: keep evidence references and research notes out of topic text');
+ return line;
 }
 
 function scopeLabel(scope:string[]):string {
@@ -169,27 +174,31 @@ function scopeLabel(scope:string[]):string {
  return paths.length?' · '+paths.map(escapeText).join(', '):'';
 }
 
-function renderRuleIndex(target:string,topics:ProjectRuleTopic[],guidance:GuidanceBinding[],title?:string,decisions?:string):string {
+function renderRuleIndex(target:string,topics:ProjectRuleTopic[],title?:string):string {
  const lines=title?['# '+escapeText(title),'']:[];
- const decisionLabel=decisions?'**'+escapeText(decisions)+'** ':'`needs-decision` ';
  for(const topic of topics){
-  const name=text(topic.title||title);
+  const name=publicText(topic.title||title);
   lines.push('- '+(topic.target?localLink(target,topic.target,name)+scopeLabel(topic.scope):'**'+escapeText(name)+'**'));
-  for(const {source,scope} of topic.guidance)lines.push('  - '+evidenceLink(target,source)+scopeLabel(scope));
-  const bindings=guidance.filter(binding=>binding.topicId===topic.id&&needsDecision(binding));
-  const claims=new Set(bindings.map(binding=>singleLine(binding.topic)).filter(Boolean));
-  for(const claim of claims){
-   const related=bindings.filter(binding=>singleLine(binding.topic)===claim);
-   lines.push('  - '+decisionLabel+escapeText(claim)+scopeLabel(related.flatMap(binding=>binding.scope)));
-   for(const gap of new Set(related.flatMap(binding=>binding.gaps.map(singleLine)).filter(Boolean)))lines.push('    - '+escapeText(gap));
-   const refs=new Set(related.flatMap(binding=>binding.sourceRef?[evidenceLink(target,binding.sourceRef)]:[]));
-   if(refs.size)lines.push('    - '+[...refs].join(' · '));
-  }
+  const links=new Map<string,string[]>();
+  for(const {source,scope} of topic.guidance)links.set(source.path,[...(links.get(source.path)??[]),...scope]);
+  for(const [path,scope] of links)lines.push('  - '+localLink(target,path,path)+scopeLabel(scope));
  }
  return lines.join('\n')+'\n';
 }
 
-export function renderProjectRules(job:ArtifactJob,value:unknown,guidance:GuidanceBinding[]):{index:string;pages:ArtifactPage[]} {
+export function reviseRulebook(previous:unknown,replacement:unknown,ruleIds:string[]):unknown {
+ const draft=object(previous),changes=object(replacement);
+ if(!Array.isArray(draft.rules)||!Array.isArray(changes.rules)||changes.rules.length!==ruleIds.length)throw new Error('rulebook: provide one replacement per rejected rule');
+ const revisions=new Map<string,Record<string,unknown>>();
+ for(const value of changes.rules){
+  const rule=object(value),id=rule.sourceId;
+  if(typeof id!=='string'||!ruleIds.includes(id)||revisions.has(id))throw new Error('rulebook: replace only the rejected rule IDs');
+  revisions.set(id,rule);
+ }
+ return {...draft,rules:draft.rules.map(rule=>revisions.get(rule.sourceId)??rule)};
+}
+
+export function renderProjectRules(job:ArtifactJob,value:unknown):{index:string;pages:ArtifactPage[]} {
  const book=object(value);
  const sources=job.ruleSources??[];
  if(!Array.isArray(book.rules)||book.rules.length!==sources.length)throw new Error('rulebook: one instruction for each selected rule source required');
@@ -199,47 +208,30 @@ export function renderProjectRules(job:ArtifactJob,value:unknown,guidance:Guidan
   if(typeof id!=='string'||!sources.some(source=>source.id===id)||rules.has(id))throw new Error('rulebook: invalid or duplicate rule source');
   rules.set(id,rule);
  }
- const originalDocs=guidance.flatMap(binding=>binding.sourceRef&&(binding.coverageStatus==='reusable'||binding.coverageStatus==='partial')?[binding.sourceRef]:[]);
- const sentence=(target:string,topic:ProjectRuleTopic,value:unknown)=>text(value).replace(/`([^`]+)`|\*\*([^*]+)\*\*|\[([^\]]+)\]\(([^)]+)\)|[\\`*_\[\]<>]/g,(match,code?:string,strong?:string,label?:string,destination?:string)=>{
-  if(code&&!code.includes(']('))return '`'+code+'`';
+ const sentence=(value:unknown)=>publicText(value).replace(/`([^`]+)`|\*\*([^*]+)\*\*|[\\`*_\[\]<>]/g,(match,code?:string,strong?:string)=>{
+  if(code)return '`'+code+'`';
   if(strong)return '**'+escapeText(strong)+'**';
-  if(destination){
-   const [path,anchor]=destination.split('#');
-   const direct=originalDocs.some(ref=>ref.path===path)?path:posix.normalize(posix.join(posix.dirname(target),path));
-   const refs=originalDocs.filter(ref=>ref.path===direct);
-   if(refs.length){
-    const localRefs=topic.guidance.filter(item=>item.source.path===direct).map(item=>item.source);
-    const preferred=localRefs.length?localRefs:refs;
-    const ref=anchor?refs.find(ref=>anchor==='L'+ref.startLine+'-L'+ref.endLine||ref.startLine===ref.endLine&&anchor==='L'+ref.startLine):
-     preferred.every(ref=>ref.startLine===preferred[0].startLine&&ref.endLine===preferred[0].endLine)?preferred[0]:undefined;
-    return ref?evidenceLink(target,ref,label):localLink(target,direct,label!);
-   }
-  }
   return escapeText(match);
  });
- const plain=(value:unknown)=>escapeText(text(value));
- const title=text(book.title),topics=job.ruleTopics??[];
- const index=renderRuleIndex(job.target,topics,guidance,title,text(book.decisions));
+ const plain=(value:unknown)=>escapeText(publicText(value));
+ const title=publicText(book.title),topics=job.ruleTopics??[];
+ const index=renderRuleIndex(job.target,topics,title);
  const pages:ArtifactPage[]=[];
  const when=plain(book.when),verify=plain(book.verify),exceptions=plain(book.exceptions);
- const support=plain(book.support),counter=plain(book.counter);
  for(const topic of topics){
   const target=topic.target;
   if(!target)continue;
   const lines=['# '+plain(topic.title||title),''];
-  for(const {source,scope} of topic.guidance)lines.push('- '+evidenceLink(target,source)+scopeLabel(scope));
-  if(topic.guidance.length)lines.push('');
   for(const [authority,heading] of [['explicit-rule',book.existing],['convention',book.inferred]] as const){
    const group=sources.filter(source=>source.authority===authority&&topic.ruleIds.includes(source.id));
    if(!group.length)continue;
    lines.push('## '+plain(heading),'');
    for(const source of group){
     const rule=rules.get(source.id)!;
-    lines.push('### '+plain(source.topic),'',source.scope.map(plain).join(', '),'',
-     '- **'+when+'** '+sentence(target,topic,rule.trigger),'- '+sentence(target,topic,rule.instruction),'- **'+verify+'** '+sentence(target,topic,rule.verification));
-    for(const exception of source.exceptions)lines.push('- **'+exceptions+'** '+plain(exception));
-    lines.push('- **'+support+'** '+source.supportingEvidence.map(ref=>evidenceLink(target,ref)).join(' · '));
-    if(source.counterEvidence.length)lines.push('- **'+counter+'** '+source.counterEvidence.map(ref=>evidenceLink(target,ref)).join(' · '));
+    if(!Array.isArray(rule.exceptions)||rule.exceptions.length!==source.exceptions.length)throw new Error('rulebook: provide a behavioral limit or null for each private exception');
+    lines.push('### '+plain(source.topic),'',source.scope.map(escapeText).join(', '),'',
+     '- **'+when+'** '+sentence(rule.trigger),'- '+sentence(rule.instruction),'- **'+verify+'** '+sentence(rule.verification));
+    for(const exception of rule.exceptions)if(exception!==null)lines.push('- **'+exceptions+'** '+sentence(exception));
     lines.push('');
    }
   }

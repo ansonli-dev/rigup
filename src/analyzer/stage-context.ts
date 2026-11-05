@@ -4,7 +4,7 @@ import type {ResearchRequest,RepositoryReader} from './backend.js';
 import {digest} from './evidence.js';
 import {markdownLinks} from '../generator/document-policy.js';
 
-export const STAGE_EVIDENCE_POLICY='stage-evidence-v3';
+export const STAGE_EVIDENCE_POLICY='stage-evidence-v4';
 const locks=new Set(['package-lock.json','npm-shrinkwrap.json','yarn.lock','pnpm-lock.yaml','bun.lock','bun.lockb','Cargo.lock','composer.lock','Gemfile.lock','go.sum','Pipfile.lock','poetry.lock','uv.lock']);
 export const dependencyLock=(path:string)=>locks.has(posix.basename(path));
 export interface EvidenceSlice {path:string;startLine:number;endLine?:number;digest?:string;chunkLines?:number}
@@ -55,13 +55,26 @@ export function stageContext(request:ResearchRequest,paths:string[],nativeEntryP
  }else if(stage==='plan'){
   const profile=record(input.profile),research=record(profile.research);
   const data=record(research.data),analysis={ruleTopics:data.ruleTopics,guidance:data.guidance,observations:data.observations,unknowns:data.unknowns};
-  projected={allowedRoots:input.allowedRoots,profile:{commands:profile.commands,research:{data:analysis,unknowns:research.unknowns},unknowns:profile.unknowns},previousInventory:input.previousInventory,previousRuleTopics:input.previousRuleTopics,inventoryPolicy:input.inventoryPolicy};
-  refs(analysis);
+  const batches=array(record(input.topicEvidence).batches);
+  projected={allowedRoots:input.allowedRoots,profile:{commands:profile.commands,research:{data:analysis,unknowns:research.unknowns},unknowns:profile.unknowns},previousInventory:input.previousInventory,previousRuleTopics:input.previousRuleTopics,inventoryPolicy:input.inventoryPolicy,topicEvidence:input.topicEvidence};
+  if(batches.at(-1)?.from!=='plan')refs(analysis);
+  for(const batch of batches)refs(batch.results);
   for(const path of paths)if(instruction(path)||nativeEntries.has(path)||manifest(path))add({path,startLine:1});
   if(!research.data)unavailable.add('Prior analysis unavailable; do not infer unprovided project conventions');
  }else {
-  const job=record(input.job),research=record(input.research);
+  let job=record(input.job);
+  const research=record(input.research);
   if(typeof job.logicalId!=='string'||typeof job.target!=='string')throw Error('Stage context requires the current artifact job');
+  const repairs=new Set(stage==='content'?strings(record(input.rulebookRepair).ruleIds):[]);
+  if(repairs.size){
+   const ruleSources=array(job.ruleSources).filter(rule=>repairs.has(rule.id));
+   if(ruleSources.length!==repairs.size)throw Error('Rule repair requires known source IDs');
+   const ruleTopics=array(job.ruleTopics).filter(topic=>strings(topic.ruleIds).some(id=>repairs.has(id)));
+   job={...job,ruleSources,ruleTopics,sourceRefs:references([ruleSources,ruleTopics])};
+  }
+  const ruleTopics=new Set(array(job.ruleTopics).filter(topic=>array(topic.ruleIds).length).map(topic=>topic.id));
+  const topicEvidence=array(input.topicEvidence).map(batch=>({from:batch.from,results:array(batch.results).filter(result=>ruleTopics.has(result.topicId))})).filter(batch=>batch.results.length);
+  refs(topicEvidence);
   const jobs=new Map(array(research.artifacts).map(j=>[j.logicalId,j]));jobs.set(job.logicalId,job);
   const connected=new Map<string,any>();
   const visit=(id:string)=>{if(connected.has(id))return;const current=jobs.get(id);if(!current){unavailable.add(id+': related artifact metadata unavailable');return;}connected.set(id,current);for(const related of strings(current.relatedArtifacts))visit(related);};
@@ -100,8 +113,10 @@ export function stageContext(request:ResearchRequest,paths:string[],nativeEntryP
    return unknown||scopeApplies(value);
   };
   const hasTopic=(value:any)=>typeof value.topic==='string'&&!!value.topic.trim();
-  const neededObservation=(o:any)=>relevant(o)||references(o).some(e=>guard(e.path))||(o.classification==='explicit-rule'||!hasTopic(o))&&authorityApplies(o.scope,o.topic);
-  const neededGuidance=(g:any)=>relevant(g.sourceRef)||authorityApplies(g.scope,g.topic);
+  const repairTopic=(value:any)=>repairs.size>0&&ruleTopics.has(value.topicId);
+  const neededObservation=(o:any)=>relevant(o)||references(o).some(e=>guard(e.path))||
+   repairTopic(o)&&o.guidanceDisposition==='needs-decision'||(o.classification==='explicit-rule'||!hasTopic(o))&&authorityApplies(o.scope,o.topic);
+  const neededGuidance=(g:any)=>relevant(g.sourceRef)||repairTopic(g)&&['needs-decision','conflicting','unavailable'].includes(g.coverageStatus)||authorityApplies(g.scope,g.topic);
   const topics=new Set<string>();
   for(const o of array(research.observations))if(hasTopic(o)&&neededObservation(o))topics.add(o.topic);
   for(const g of array(research.guidance))if(hasTopic(g)&&neededGuidance(g))topics.add(g.topic);
@@ -111,7 +126,7 @@ export function stageContext(request:ResearchRequest,paths:string[],nativeEntryP
   const scopedResearch={guidance,observations,unknowns:research.unknowns,artifacts:[...connected.values()].filter(artifact=>!job.ruleSources||artifact!==job),dispositions:array(research.dispositions).filter(d=>connected.has(d.logicalId))};
   refs(scopedResearch);
   for(const path of paths)if(guard(path)||manifest(path)&&applies(path))add({path,startLine:1});
-  projected={job,research:scopedResearch,...(stage==='acceptance'?{candidate:input.candidate,candidatePages:input.candidatePages}:{attempt:input.attempt,repairReason:input.repairReason})};
+  projected={job,research:scopedResearch,...(topicEvidence.length?{topicEvidence}:{}),...(stage==='acceptance'?{candidate:input.candidate,candidatePages:input.candidatePages}:{attempt:input.attempt,repairReason:input.repairReason,rulebookRepair:input.rulebookRepair})};
  }
  return {stage,input:projected,slices:[...slices.values()].sort((a,b)=>a.path.localeCompare(b.path)||a.startLine-b.startLine||(a.endLine??Infinity)-(b.endLine??Infinity)),unavailable:[...unavailable].sort()};
 }

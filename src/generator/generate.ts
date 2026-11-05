@@ -14,14 +14,16 @@ import {filterContent} from '../analyzer/read-policy.js';
 import {trustedBaseline} from '../installer/baseline.js';
 import {PROMPT_VERSION} from '../analyzer/prompts.js';
 import {stageEvidence} from '../analyzer/stage-context.js';
+import {collectTopicEvidence,MAX_TOPIC_EVIDENCE_BATCHES,researchTopicIds,topicEvidenceRequests,type TopicEvidenceBatch} from '../analyzer/topic-evidence.js';
 import {validateArtifactList,type ArtifactJob,type ArtifactPage} from './artifacts.js';
 import {validateDocumentJob,validateDocumentTarget,validateDocumentContent,validateTemplateContent,DOCUMENT_POLICY_VERSION} from './document-policy.js';
 import {readWorkflowTemplates,renderFixed,validateNavigation,TEMPLATE_VERSION,type GuidanceBinding} from './render.js';
-import {isProjectRulesId,prepareProjectRules,PROJECT_RULES_CONSUMER,renderProjectRules} from './project-rules.js';
+import {isProjectRulesId,prepareProjectRules,PROJECT_RULES_CONSUMER,renderProjectRules,reviseRulebook} from './project-rules.js';
 import {signature,privateDirectory,readCache,saveCache} from './cache.js';
 export interface GenerationDependencies {effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
-interface Candidate {job:ArtifactJob;content:string;pages?:ArtifactPage[];digest:string;accepted:boolean}
-interface State {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];referenceIndex?:ArtifactPage;dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;spent:{calls:number;tokens:number|'unknown'}}
+interface Candidate {job:ArtifactJob;content:string;pages?:ArtifactPage[];rulebook?:unknown;digest:string;accepted:boolean}
+interface RuleRepair {draft:unknown;ruleIds:string[]}
+interface State {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;topicEvidence?:{limit:number;batches:TopicEvidenceBatch[]};plan?:{jobs:ArtifactJob[];referenceIndex?:ArtifactPage;dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;ruleRepairs?:Record<string,RuleRepair>;spent:{calls:number;tokens:number|'unknown'}}
 const candidateDigest=(content:string,pages?:ArtifactPage[])=>pages?signature({content,pages}):digest(content);
 export function inventorySignature(assets:ManagedAsset[]):string {return signature(assets.map(a=>({logicalId:a.logicalId,target:a.target,ownership:a.ownership,digest:a.digest})).sort((a,b)=>a.logicalId.localeCompare(b.logicalId)));}
 export async function generate(profile:ProjectProfile,options:SetupOptions,backend:AnalysisBackend,previousAssets:ManagedAsset[]=[],dependencies:GenerationDependencies={}):Promise<StepResult<SetupPlan>> {
@@ -40,21 +42,21 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  const fixedInventory=previousAssets.filter(deterministic);const semanticInventory=previousAssets.filter(a=>!deterministic(a));
  let state=await readCache<State>(path);
  if(!state||state.version!==1||![state.inputInventory,state.resultInventory].includes(inv)||!state.candidates||!state.spent)state={version:1,inputInventory:inv,runId:dependencies.runId??randomUUID(),candidates:{},spent:dependencies.spent??{calls:0,tokens:0}};
- state.attempts??={};state.repairReasons??={};
+ state.attempts??={};state.repairReasons??={};state.ruleRepairs??={};
  const persist=()=>save(path,JSON.stringify(state));
  if(state.artifactContextVersion!==backend.artifactContextVersion){
   // A wider authority contract requires fresh content and independent acceptance.
   // Keep the unchanged plan, run identity, consumption and bounded retry history.
   if(state.plan&&state.resultInventory===inv){state.inputInventory=inv;state.artifactRefreshInventory=inv;}
-  state.candidates={};for(const job of state.plan?.jobs??[])job.status='pending';
+  state.candidates={};state.ruleRepairs={};for(const job of state.plan?.jobs??[]){job.status='pending';if(job.ruleSources)delete state.repairReasons[job.logicalId];}
   state.artifactContextVersion=backend.artifactContextVersion;await persist();
  }
  const reader=dependencies.reader??await repositoryReader(profile.root,options,{expectedFingerprint:profile.fingerprint});
+ const budget=dependencies.budget??options.researchBudget??{maxCalls:60,maxTokens:100000};
  const completed=()=>state.plan?.jobs.filter(j=>{const c=state.candidates[j.logicalId];return c?.accepted&&c.digest===candidateDigest(c.content,c.pages);}).length??0;
  const run=async(expectedOutput:'plan'|'content'|'acceptance',input:unknown,artifact?:string):Promise<StepResult<ResearchResult>>=>{
   dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:artifact??'artifact-plan',completed:completed(),total:state.plan?.jobs.length,waiting:options.backend==='host'?'host research response':'provider '+expectedOutput,next:expectedOutput==='acceptance'?'save accepted candidate':'validate candidate',status:'running'});
-  const budget=dependencies.budget??options.researchBudget??{maxCalls:60,maxTokens:100000};
-  if(state.spent.calls>=budget.maxCalls)throw new Error('generation request budget exhausted');
+  if(!backend.durableBudget&&state.spent.calls>=budget.maxCalls)throw new Error('generation request budget exhausted');
   const result=await backend.run({kind:expectedOutput==='plan'?'artifact-plan':'artifact-content',expectedOutput,input,artifact,runId:state.runId,root:profile.root,fingerprint:profile.fingerprint,options,effectiveModel:dependencies.effectiveModel,versions,budget,...(options.backend!=='host'?{spent:state.spent}:{}),previousInventoryDigest:state.inputInventory,templateSourcesDigest},reader);
   if(result.status==='complete') {
    await validateResearch(result.value.data,reader);
@@ -83,9 +85,29 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
    });
    const inventoryPolicy='Previous generated baselines are comparison context, never evidence of project policy. Reconcile their claims against current source evidence; do not preserve invalidated rules. Local edits remain protected by three-way preview.'+
     (previousRuleTopics.length?' Reuse previousRuleTopics IDs for the same concerns, even when the titles or document route change.':'');
-   const response=await run('plan',{allowedRoots,profile:{files:profile.files,commands:profile.commands,research:profile.research,unknowns:profile.unknowns},previousInventory,inventoryPolicy,...(previousRuleTopics.length?{previousRuleTopics}:{})});
-   if(response.status==='pending-host')return response;
-   const data=response.value.data as Record<string,unknown>;
+   const planInput={allowedRoots,profile:{files:profile.files,commands:profile.commands,research:profile.research,unknowns:profile.unknowns},previousInventory,inventoryPolicy,...(previousRuleTopics.length?{previousRuleTopics}:{})};
+   const topics=backend.topicEvidence?researchTopicIds(profile.research?.data):new Set<string>();
+   if(backend.topicEvidence&&!state.topicEvidence){
+    const requests=topicEvidenceRequests(profile.research?.data);
+    const batches=requests.length?[await collectTopicEvidence('analysis',requests,topics,reader)]:[];
+    // Save the allowance before dispatch so a resumed paid request keeps the same identity.
+    const extraCalls=Math.max(0,budget.maxCalls-state.spent.calls-3);
+    state.topicEvidence={limit:Math.min(MAX_TOPIC_EVIDENCE_BATCHES,batches.length+(topics.size?extraCalls:0)),batches};
+    await persist();
+   }
+   const followup=backend.topicEvidence?state.topicEvidence:undefined;
+   let data:Record<string,unknown>;
+   for(;;){
+    const remainingBatches=followup?followup.limit-followup.batches.length:0;
+    const response=await run('plan',{...planInput,...(followup?{topicEvidence:{remainingBatches,batches:followup.batches}}:{})});
+    if(response.status==='pending-host')return response;
+    data=response.value.data as Record<string,unknown>;
+    const requests=followup?topicEvidenceRequests(data):[];
+    if(!requests.length)break;
+    if(!followup||remainingBatches<1)throw new Error('Topic evidence request allowance exhausted; a final artifact plan is required');
+    followup.batches.push(await collectTopicEvidence('plan',requests,topics,reader));
+    await persist();
+   }
    const jobs=validateArtifactList(data.artifacts,[]);
    const rulesTarget=allowedRoots[0]+'/development-rules.md';
    if(jobs.some(job=>isProjectRulesId(job.logicalId)||job.target===rulesTarget||job.target.startsWith(rulesTarget.slice(0,-3)+'/')))throw Error('Development rules targets are reserved for verified project rules');
@@ -107,6 +129,8 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   {logicalId:job.logicalId,target:job.target,content},...pages,
  ].map(page=>semanticAsset(page,job.consumer));
  for(const job of state.plan.jobs) {
+  const batches=job.ruleSources?state.topicEvidence?.batches:undefined;
+  const topicContext=batches?.length?{topicEvidence:batches}:{};
   let candidate:Candidate|undefined=state.candidates[job.logicalId];
   if(candidate && (candidate.digest!==candidateDigest(candidate.content,candidate.pages)||signature({...candidate.job,status:'pending'})!==signature({...job,status:'pending'}))) {delete state.candidates[job.logicalId];candidate=undefined;}
   const reused=!!candidate?.accepted;
@@ -116,13 +140,16 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
    for(let attempt=state.attempts[job.logicalId]??0;attempt<maxAttempts&&!accepted;attempt++) {
     state.attempts[job.logicalId]=attempt;if(attempt)dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:job.logicalId,completed:completed(),total:state.plan.jobs.length,status:'retry',attempt,retryLimit:maxAttempts-1,next:'bounded candidate repair'});
     if(!candidate) {
-     const response=await run('content',{job,research:state.plan.research,attempt,repairReason:state.repairReasons[job.logicalId]},job.logicalId);
+     const repair=state.ruleRepairs[job.logicalId];
+     const rulebookRepair=repair?{ruleIds:repair.ruleIds,priorRules:(repair.draft as {rules:{sourceId:string}[]}).rules.filter(rule=>repair.ruleIds.includes(rule.sourceId))}:undefined;
+     const response=await run('content',{job,research:state.plan.research,...topicContext,attempt,repairReason:state.repairReasons[job.logicalId],rulebookRepair},job.logicalId);
      if(response.status==='pending-host')return response;
      const data=response.value.data as {content?:unknown;rulebook?:unknown};
-     let value:string,pages:ArtifactPage[]|undefined;
+     let value:string,pages:ArtifactPage[]|undefined,rulebook:unknown;
      try{
       if(job.ruleSources){
-       const rendered=renderProjectRules(job,data.rulebook,state.plan.guidance);value=rendered.index;pages=rendered.pages;
+       rulebook=repair?reviseRulebook(repair.draft,data.rulebook,repair.ruleIds):data.rulebook;
+       const rendered=renderProjectRules(job,rulebook);value=rendered.index;pages=rendered.pages;
       }
       else if(typeof data.content==='string')value=data.content;
       else throw new Error('required artifact content missing');
@@ -130,19 +157,25 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
       validateNavigation(candidateAssets(job,value,pages),[...profile.files,...state.plan.jobs.map(j=>j.target),...semantic.map(a=>a.target),...integration.assets.map(a=>a.target)]);
      }
      catch(error){state.attempts[job.logicalId]=attempt+1;state.repairReasons[job.logicalId]=(error as Error).message.slice(0,500);await persist();if(attempt+1<maxAttempts)continue;throw error;}
-     candidate={job:{...job},content:value,pages,digest:candidateDigest(value,pages),accepted:false};
+     candidate={job:{...job},content:value,pages,rulebook,digest:candidateDigest(value,pages),accepted:false};
      state.candidates[job.logicalId]=candidate;await persist();
     }
-    const check=await run('acceptance',{job,candidate:candidate.content,candidatePages:candidate.pages,research:state.plan.research},job.logicalId);
+    const check=await run('acceptance',{job,candidate:candidate.content,candidatePages:candidate.pages,research:state.plan.research,...topicContext},job.logicalId);
     if(check.status==='pending-host')return check;
-    const verdict=check.value.data as {accepted?:unknown;reason?:unknown};
-    accepted=verdict.accepted===true&&typeof verdict.reason==='string'&&!!verdict.reason.trim();
+    const verdict=check.value.data as {accepted?:unknown;reason?:unknown;rejectedRuleIds?:unknown};
+    const ids=verdict.rejectedRuleIds;
+    accepted=verdict.accepted===true&&typeof verdict.reason==='string'&&!!verdict.reason.trim()&&(ids===undefined||Array.isArray(ids)&&ids.length===0);
     if(accepted) {
      // Persist accepted bytes and digest atomically before marking this job done.
+     delete state.ruleRepairs[job.logicalId];
      candidate={...candidate,accepted:true};state.candidates[job.logicalId]=candidate;await persist();
     } else {
+     delete state.ruleRepairs[job.logicalId];
+     if(candidate.rulebook&&Array.isArray(ids)&&ids.length&&ids.every(id=>job.ruleSources?.some(rule=>rule.id===id))){
+      state.ruleRepairs[job.logicalId]={draft:candidate.rulebook,ruleIds:[...new Set<string>(ids)]};
+     }
      delete state.candidates[job.logicalId];candidate=undefined;
-     state.repairReasons[job.logicalId]=(typeof verdict.reason==='string'?verdict.reason:'Independent acceptance did not return a reason').slice(0,500);
+     state.repairReasons[job.logicalId]=(typeof verdict.reason==='string'?verdict.reason:'Independent acceptance did not return a reason').slice(0,2000);
      state.attempts[job.logicalId]=attempt+1;await persist();
     }
    }

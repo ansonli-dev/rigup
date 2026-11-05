@@ -10,6 +10,7 @@ import {projectInput,type Ownership} from '../managed-input.js';
 import {readEvidence} from './evidence.js';
 import {digest,safePath} from './evidence.js';
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
+import type {SearchSelection} from './backend.js';
 const exec=promisify(execFile);
 export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
@@ -84,7 +85,12 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
  };
  const spent=dependencies.budget??{bytes:0,calls:0};if(!Number.isSafeInteger(spent.bytes)||spent.bytes<0||!Number.isSafeInteger(spent.calls)||spent.calls<0)throw new Error('reader budget state invalid');
  const maxBytes=options.readBudget?.maxBytes ?? 8_000_000;const maxCalls=options.readBudget?.maxFiles ?? 2000;
- const charge=async(size:number)=>{if(spent.calls>=maxCalls||spent.bytes+size>maxBytes)throw new Error('reader budget exceeded');spent.calls++;spent.bytes+=size;await dependencies.persist?.();};
+ let budgetWrites=Promise.resolve();
+ const charge=async(size:number)=>{
+  if(spent.calls>=maxCalls||spent.bytes+size>maxBytes)throw new Error('reader budget exceeded');
+  spent.calls++;spent.bytes+=size;
+  if(dependencies.persist){budgetWrites=budgetWrites.then(dependencies.persist);await budgetWrites;}
+ };
  const read=async(path:string,start:number,end?:number)=>{
   if(!allowed.has(path)) throw new Error('path outside reader inventory');
   const file=await safePath(root,path);const size=(await stat(file)).size;
@@ -95,22 +101,26 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
   const content=lines.slice(start-1,end).join('\n');
   return {content,evidence:{path,startLine:start,endLine:end,digest:digest(content)}};
  };
- // Counterexample queries share one filtered snapshot for this reader.
- let corpus:Promise<{path:string;lines:string[]}[]>|undefined;
- const loadCorpus=async()=>{
-  const files:{path:string;lines:string[]}[]=[];
-  for(const path of allowed){
-   await charge((await stat(await safePath(root,path))).size);
-   files.push({path,lines:(await visibleText(path)).split('\n')});
-  }
-  return files;
+ // Searches share filtered files while loading only the paths they need.
+ const corpus=new Map<string,Promise<string[]>>();
+ const searchLines=async(path:string)=>{
+  await charge((await stat(await safePath(root,path))).size);
+  return (await visibleText(path)).split('\n');
  };
  return {
   list:async()=>[...allowed],read,
-  search:async(query:string)=>{
+  search:async(query:string,selection?:SearchSelection)=>{
+   if(selection&&(!Number.isSafeInteger(selection.limit)||selection.limit<1))throw new Error('invalid search match limit');
    const matches:Awaited<ReturnType<typeof readEvidence>>[]=[];
-   for(const {path,lines} of await (corpus??=loadCorpus())) {
-    for(let i=0;i<lines.length;i++) if(lines[i].includes(query)) matches.push({content:lines[i],evidence:{path,startLine:i+1,endLine:i+1,digest:digest(lines[i])}});
+   for(const path of allowed){
+    if(selection&&!selection.paths.has(path))continue;
+    let pending=corpus.get(path);
+    if(!pending){pending=searchLines(path);corpus.set(path,pending);}
+    const lines=await pending;
+    for(let i=0;i<lines.length;i++)if(lines[i].includes(query)){
+     matches.push({content:lines[i],evidence:{path,startLine:i+1,endLine:i+1,digest:digest(lines[i])}});
+     if(selection&&matches.length>=selection.limit)return matches;
+    }
    }
    return matches;
   }

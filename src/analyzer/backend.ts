@@ -1,18 +1,26 @@
 import {validateOptions} from '../config.js';
 import type {Evidence,StepResult} from '../types.js';
-export interface RepositoryReader {list():Promise<string[]>;read(path:string,start:number,end?:number):Promise<{content:string;evidence:Evidence}>;search(query:string):Promise<{content:string;evidence:Evidence}[]>}
+export interface SearchSelection {paths:ReadonlySet<string>;limit:number}
+export interface RepositoryReader {list():Promise<string[]>;read(path:string,start:number,end?:number):Promise<{content:string;evidence:Evidence}>;search(query:string,selection?:SearchSelection):Promise<{content:string;evidence:Evidence}[]>}
 export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;effectiveModel?:import('../types.js').SetupOptions['model'];versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;expectedOutput?:'plan'|'content'|'acceptance';input?:unknown;previousInventoryDigest:string;templateSourcesDigest:string}
 export interface ResearchResult {data:unknown;model:string;unknowns:string[];usage:{calls:number|'unknown';tokens:number|'unknown'}}
-export interface AnalysisBackend {/** Revision of content/acceptance evidence; does not reset run accounting or the unchanged plan. */artifactContextVersion?:string;run(request:ResearchRequest,reader:RepositoryReader):Promise<StepResult<ResearchResult>>}
+export interface AnalysisBackend {
+ /** Revision of content/acceptance evidence; does not reset run accounting or the unchanged plan. */
+ artifactContextVersion?:string;
+ topicEvidence?:boolean;
+ /** This backend checks the durable budget before dispatch, including zero-cost recovery. */
+ durableBudget?:true;
+ run(request:ResearchRequest,reader:RepositoryReader):Promise<StepResult<ResearchResult>>;
+}
 const searched=new WeakMap<RepositoryReader,Set<string>>();
 
 export function selectResearchOutput(request:ResearchRequest,data:unknown):unknown {
  if(!data||typeof data!=='object'||Array.isArray(data))return data;
  const job=(request.input as {job?:{ruleSources?:unknown}}|undefined)?.job;
  if(!Array.isArray(job?.ruleSources))return data;
- const {rulebook,accepted,reason,unknowns}=data as Record<string,unknown>;
+ const {rulebook,accepted,reason,unknowns,rejectedRuleIds}=data as Record<string,unknown>;
  if(request.expectedOutput==='content')return {rulebook,unknowns,observations:[]};
- if(request.expectedOutput==='acceptance')return {accepted,reason,unknowns,observations:[]};
+ if(request.expectedOutput==='acceptance')return {accepted,reason,unknowns,observations:[],...(rejectedRuleIds!==undefined?{rejectedRuleIds}:{})};
  return data;
 }
 

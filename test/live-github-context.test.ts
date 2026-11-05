@@ -7,6 +7,7 @@ import {createWriteStream} from 'node:fs';
 import {access,mkdir,mkdtemp,readFile,readdir,realpath,writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {dirname,join,relative,resolve} from 'node:path';
+import {STAGE_EVIDENCE_POLICY} from '../src/analyzer/stage-context.js';
 
 const exec=promisify(execFile);
 const sha=(value:Buffer|string)=>createHash('sha256').update(value).digest('hex');
@@ -70,14 +71,14 @@ for(const fixture of cases)test(`live ${fixture.name} completes semantic setup w
   assert.equal(manifest.options.documentLanguage,fixture.language);
   for(const path of ['.rigup/manifest.json','.rigup/baseline/local','.rigup/native/codegraph/local','.rigup/tools/codegraph/local'])await exec('git',['-C',root,'check-ignore','--quiet','--',path]);
   const rules=manifest.assets.find((asset:any)=>asset.logicalId==='project-development-rules');assert.ok(rules,'project must have an accepted prescriptive rules document');
-  const rulesText=await readFile(join(root,rules.target),'utf8');assert.match(rulesText,/#L\d+-L\d+/);
+  const rulesText=await readFile(join(root,rules.target),'utf8');assert.doesNotMatch(rulesText,/#L\d+|needs-decision|Unresolved Decisions|待确认的决策/);
   if(fixture.language==='zh-CN')assert.match(rulesText.split('\n')[0],/\p{Script=Han}/u);
   const topics=manifest.assets.filter((asset:any)=>asset.logicalId.startsWith(rules.logicalId+':topic:'));
   assert.ok(topics.length>=4,'these projects must produce substantive rules across at least four distinct topics');
   for(const topic of topics){
    const content=await readFile(join(root,topic.target),'utf8');
    assert.ok(rulesText.includes(']('+relative(dirname(rules.target),topic.target)+')'),'index links to each managed topic');
-   assert.match(content,/^### /m);assert.match(content,/#L\d+-L\d+/);
+   assert.match(content,/^### /m);assert.doesNotMatch(content,/#L\d+|\]\([^)]+\)|Supporting Evidence|Counterevidence|支撑证据|反例证据|所引.{0,16}示例|cited examples?/i);
    if(fixture.language==='zh-CN')assert.match(content.split('\n')[0],/\p{Script=Han}/u);
   }
   assert.doesNotMatch(rulesText,/^### /m,'the index should route readers to rules rather than repeat them');
@@ -99,23 +100,40 @@ for(const fixture of cases)test(`live ${fixture.name} completes semantic setup w
   const query=await exec(join(root,'.rigup/tools/codegraph/node_modules/.bin/codegraph'),['query',symbol,'--path',root,'--json'],{cwd:root,env:{...env,CODEGRAPH_NO_DAEMON:'1',CODEGRAPH_NO_DOWNLOAD:'1'},timeout:30000});
   record.codegraphQuery=JSON.parse(query.stdout);assert.match(query.stdout,new RegExp(symbol));
   const exchange=home+'/.cache/rigup/codex/exchange',measurements=[];
+  let returnedTopicEvidence=0,reviewedTopicEvidence=0;
   for(const file of await readdir(exchange,{recursive:true}))if(file.endsWith('.request.json')){
    const requestPath=join(exchange,file),raw=await readFile(requestPath,'utf8'),body=JSON.parse(raw);
-   assert.equal(body.context.evidencePolicy,'stage-evidence-v3');assert.deepEqual(body.context.budget,{maxCalls:12,maxTokens:1200000});assert.deepEqual(body.context.options.scope,options.scope);
+   assert.equal(body.context.evidencePolicy,STAGE_EVIDENCE_POLICY);assert.deepEqual(body.context.budget,{maxCalls:12,maxTokens:1200000});assert.deepEqual(body.context.options.scope,options.scope);
    assert.match(body.context.inputDigest,/^[a-f0-9]{64}$/);assert.match(body.context.evidenceSelection.selectionDigest,/^[a-f0-9]{64}$/);
    if(lock){assert.ok(body.paths.includes(lock));assert.ok(body.omittedEvidence.some((o:any)=>o.path===lock));assert.ok(!body.evidence.some((e:any)=>e.evidence.path===lock));}
    if(lock)assert.ok(Buffer.byteLength(raw)<600000,'full lock content must not reappear in nested stage context');
    const job=body.context.input?.job;
    if(job)for(const ref of job.sourceRefs)assert.ok(body.evidence.some((e:any)=>['path','startLine','endLine','digest'].every(key=>e.evidence[key]===ref[key])),'current-job source references remain directly visible');
    for(const path of Object.keys(marker.nativeHashes).filter(path=>body.context.kind==='analyze'||/openspec-(?:propose|apply-change|archive-change|update-change|sync-specs)\/SKILL\.md$/.test(path)))assert.ok(body.evidence.some((e:any)=>e.evidence.path===path),'native gate remains visible: '+path);
-   if(body.context.expectedOutput==='plan')assert.equal(body.context.input.profile.files,undefined);
+   if(body.context.expectedOutput==='plan'){
+    assert.equal(body.context.input.profile.files,undefined);
+    const followup=body.context.input.topicEvidence;
+    assert.ok(followup&&followup.batches.length<=2);
+    for(const result of followup.batches.flatMap((batch:any)=>batch.results))for(const ref of result.refs){
+     assert.ok(body.evidence.some((e:any)=>['path','startLine','endLine','digest'].every(key=>e.evidence[key]===ref[key])),'Codex receives the requested excerpt in its next plan');
+     assert.ok(result.topicId);returnedTopicEvidence++;
+    }
+   }
+   if(body.context.expectedOutput==='acceptance'&&job?.ruleSources)for(const batch of body.context.input.topicEvidence??[])for(const result of batch.results){
+    assert.ok(job.ruleTopics.some((topic:any)=>topic.id===result.topicId&&topic.ruleIds.length));
+    for(const ref of result.refs){
+     assert.ok(body.evidence.some((e:any)=>e.evidence.digest===ref.digest&&e.evidence.path===ref.path));reviewedTopicEvidence++;
+    }
+   }
    measurements.push({requestId:body.requestId,kind:body.context.kind,expectedOutput:body.context.expectedOutput??'analysis',bytes:Buffer.byteLength(raw),inputBytes:Buffer.byteLength(JSON.stringify(body.context.input??{})),inventoryFiles:body.paths.length,evidenceFiles:new Set(body.evidence.map((e:any)=>e.evidence.path)).size,evidenceSnippets:body.evidence.length,evidenceChars:body.evidence.reduce((n:number,e:any)=>n+e.content.length,0),selection:body.context.evidenceSelection,job:job?{logicalId:job.logicalId,sourceRefs:job.sourceRefs,seedPaths:job.seedPaths,relatedArtifacts:job.relatedArtifacts}:undefined,omittedEvidence:body.omittedEvidence});
   }
   assert.ok(measurements.some(m=>m.kind==='analyze'));assert.ok(measurements.some(m=>m.expectedOutput==='plan'));
+  assert.ok(returnedTopicEvidence>0,'default Codex requests and receives targeted topic evidence');
+  assert.ok(reviewedTopicEvidence>0,'independent acceptance receives returned evidence for its topics');
   const analysis=measurements.find(m=>m.kind==='analyze')!;
   for(const item of measurements.filter(m=>m.kind!=='analyze')){assert.ok(item.evidenceChars<=analysis.evidenceChars*0.65,'later-stage evidence must materially shrink');assert.ok(item.evidenceFiles<analysis.evidenceFiles);}
   const jobs=manifest.assets.filter((a:any)=>a.source.kind==='semantic');if(jobs.length){assert.ok(measurements.some(m=>m.expectedOutput==='content'));assert.ok(measurements.some(m=>m.expectedOutput==='acceptance'));}
-  record.requests=measurements;record.usage=before;record.actualModelCalls=counts.calls;record.actualObservedTokens=counts.tokens;record.semanticAssets=jobs.map((a:any)=>a.target);record.sourceProtection={trackedFiles,changes:originalChanges,nativeEntriesUnchanged:Object.keys(marker.nativeHashes).length};record.unchangedUpdate={written:0,newModelCalls:0};record.localNoteProtected=true;record.openWikiNativeStateCreated=false;record.status='passed';delete record.reason;
+  record.requests=measurements;record.returnedTopicEvidence=returnedTopicEvidence;record.usage=before;record.actualModelCalls=counts.calls;record.actualObservedTokens=counts.tokens;record.semanticAssets=jobs.map((a:any)=>a.target);record.sourceProtection={trackedFiles,changes:originalChanges,nativeEntriesUnchanged:Object.keys(marker.nativeHashes).length};record.unchangedUpdate={written:0,newModelCalls:0};record.localNoteProtected=true;record.openWikiNativeStateCreated=false;record.status='passed';delete record.reason;
  }catch(error){record.status='failed';record.reason=(error as Error).message;record.usage=await ledgers();throw error;}
  finally{record.finishedAt=new Date().toISOString();await persist();await mkdir(out,{recursive:true});await writeFile(join(out,fixture.report),JSON.stringify(record,null,2)+'\n',{mode:0o600});}
 });

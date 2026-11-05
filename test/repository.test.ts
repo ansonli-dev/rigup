@@ -79,6 +79,20 @@ test('different counterexample queries share one budgeted corpus scan',()=>proje
  assert.deepEqual(budget,{calls:1,bytes:12});
  await assert.rejects(reader.read('a.ts',1),/budget/);
 }));
+test('scoped literal search stops at its match limit',()=>project(async root=>{
+ const {repositoryReader}=await import('../src/analyzer/repository.js');
+ await writeFile(join(root,'outside.ts'),'match outside\n');
+ await writeFile(join(root,'selected.ts'),'match one\nmatch two\nmatch three\n');
+ await writeFile(join(root,'z-later.ts'),'match later\n');
+ const budget={calls:0,bytes:0};
+ const reader=await repositoryReader(root,{agents:[],backend:'host'},{budget});
+ const selection={paths:new Set(['selected.ts','z-later.ts']),limit:2};
+ const matches=await reader.search('match',selection);
+ assert.deepEqual(matches.map(match=>[match.evidence.path,match.evidence.startLine]),[['selected.ts',1],['selected.ts',2]]);
+ assert.deepEqual(budget,{calls:1,bytes:32});
+ assert.equal((await reader.search('match')).length,5);
+ assert.equal(budget.calls,3);
+}));
 test('missing_baseline_disables_cache_and_is_not_silent',()=>project(async root=>{
  await mkdir(join(root,'.rigup'));
  await writeFile(join(root,'.rigup/manifest.json'),JSON.stringify({schemaVersion:1,assets:[{target:'guide.md',baseline:'.rigup/baseline/missing',ownership:{kind:'file'},digest:'unknown'}]}));

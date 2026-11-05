@@ -59,7 +59,7 @@ rigup init --agents codex --sdd none --tools none --dry-run --json
 
 ## 项目开发规范
 
-选用研发流程后，Rigup 在 `docs/rigup/development-rules.md` 生成规范索引。索引按适用范围链接原有指引和 `development-rules/` 下的主题规范。每条新增规则记录触发时机、操作、验证方式和源码依据。
+选用研发流程后，Codex 选择主题，并可请求读取特定源码行或搜索反例来收窄规则。Rigup 在 `docs/rigup/development-rules.md` 生成索引，按适用范围链接原有指引和 `development-rules/` 下的主题规范。每个主题页写明开发要求、例外和验证方法。证据与验收记录保存在私有运行状态中。
 
 两个流程 skill 将适用规则带入原生提案和任务执行，并指出已有的测试和 hook 定义，方便 agent 复用覆盖本次改动的检查。[研发流程与语言](docs/guides/usage.md#项目研发流程)
 

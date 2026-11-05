@@ -5,13 +5,12 @@ import type {Evidence,SetupOptions} from '../types.js';
 import {agents} from '../integrations/agents/index.js';
 import type {PreparedAsset,IntegrationPreparation} from '../integrations/registry.js';
 import {digest} from '../analyzer/evidence.js';
-import {isProjectRulesId} from './project-rules.js';
+import {isOriginalGuidance,isProjectRulesId,verifiedScopes} from './project-rules.js';
 import {markdownLinks} from './document-policy.js';
 export const TEMPLATE_VERSION='2';
 export interface GuidanceBinding {topic:string;topicId?:string;sourceRef?:Evidence;scope:string[];coverageStatus:string;consumers:string[];gaps:string[]}
-const inline=(value:string)=>value.replace(/[\r\n\t]+/g,' ').replace(/[\\`*_\[\]<>]/g,'\\$&');
-const link=(from:string,to:string,label=to,anchor='')=>`[${inline(label)}](${posix.relative(posix.dirname(from),to).split('/').map(part=>encodeURIComponent(part).replaceAll('(','%28').replaceAll(')','%29')).join('/')}${anchor})`;
-const original=(from:string,ref:Evidence)=>link(from,ref.path,ref.path,`#L${ref.startLine}-L${ref.endLine}`);
+const inline=(value:string)=>value.replace(/[\x00-\x1f\x7f]+/g,' ').replace(/[\\`*_\[\]<>]/g,'\\$&');
+const link=(from:string,to:string,label=to)=>`[${inline(label)}](${posix.relative(posix.dirname(from),to).split('/').map(part=>encodeURIComponent(part).replaceAll('(','%28').replaceAll(')','%29')).join('/')})`;
 export function readWorkflowTemplates(){
  return Promise.all(['change-prepare','change-deliver'].map(async name=>{
   const base=new URL('../../templates/skills/'+name+'/',import.meta.url);
@@ -24,7 +23,11 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
  if(!options.sdd && !(options.customSkills?.some(s=>s.position==='prepare'||s.position==='deliver'))) return result;
  templates??=await readWorkflowTemplates();
  const refs=[...new Set([...integration.assets.filter(a=>a.consumer==='change-deliver:review').map(a=>a.target),...semantic.filter(a=>!isProjectRulesId(a.logicalId)).map(a=>a.target)])];
- const reused=guidance.flatMap(g=>g.sourceRef&&(g.coverageStatus==='reusable'||g.coverageStatus==='partial')?[g.sourceRef]:[]);
+ const reused=new Map<string,string[]>();
+ for(const binding of guidance.filter(isOriginalGuidance)){
+  const path=binding.sourceRef.path;
+  reused.set(path,[...new Set([...(reused.get(path)??[]),...verifiedScopes(binding.scope,profile.files)])]);
+ }
  const commandSources=new Set(Object.values(profile.commands).flat().map(command=>posix.join(command.cwd,'package.json')));
  const hookSources=profile.files.filter(path=>/(?:^|\/)(?:\.husky\/(?:pre-commit|pre-push)|\.pre-commit-config\.ya?ml|\.?lefthook\.ya?ml|\.?lintstagedrc(?:\.[a-z]+)?|lint-staged\.config\.[a-z]+)$/.test(path));
  const rules=semantic.find(a=>isProjectRulesId(a.logicalId)&&a.target.endsWith('/development-rules.md'));
@@ -42,13 +45,13 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
    const lines=[reference.trimEnd(),'','## Installed workflow','',...(binding ? ['Native prepare: '+binding.prepare.join(', '),...(binding.revise?['Native revise: '+binding.revise]:[]),'Native deliver: '+binding.deliver.join(', '),'Native document routes: '+binding.artifacts.join(', '),...binding.gates] : options.sdd?['Native workflow prerequisites pending. Stop at the missing entry.']:['Use the explicitly selected customer workflow and preserve its approvals.']),...customerRefs.map(p=>'- '+link(refTarget,p,'Customer workflow'))];
    if(binding?.projectSources?.length)lines.push(...binding.projectSources.map(path=>'- '+link(refTarget,path)));
    for(const b of customerBindings)if(b.nativeName)lines.push('- Invoke existing native customer skill: '+inline(b.nativeName)+'. Preserve its gates.');
-   if(rules||refs.length||guidance.length){
+   if(rules||refs.length||reused.size){
     lines.push('','## Project guidance','');
     if(rules)lines.push('- Before planning or editing, use the scopes in the '+link(refTarget,rules.target,'project development rules index')+' to open the topics and original guidance that apply to the changed paths.');
     lines.push(...refs.map(p=>'- '+link(refTarget,p)));
-    for(const g of guidance){
-     const source=g.sourceRef?' '+original(refTarget,g.sourceRef)+'.':'';
-     lines.push(`- ${inline(g.topic)} (${inline(g.coverageStatus)}) applies to ${inline(g.scope.join(', '))||'an unresolved scope'}.${source}${g.gaps.length?' Gaps to check include '+inline(g.gaps.join(', '))+'.':''}`);
+    for(const [path,scope] of reused){
+     if(path===refTarget)continue;
+     lines.push('- '+link(refTarget,path)+(scope.length?' · '+inline(scope.join(', ')):''));
     }
    }
    const sources=profile.files.filter(p=>commandSources.has(p)||hookSources.includes(p));
@@ -64,8 +67,8 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
  for(const target of entryTargets) {
   const marker={kind:'block' as const,start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'};
   const skills=options.agents.filter(a=>agents[a].entry===target).flatMap(a=>templates.map(({name})=>agents[a].skillDirectory+'/'+name+'/SKILL.md'));
-  const sources=[...new Map(reused.filter(ref=>ref.path!==target).map(ref=>[ref.path,ref])).values()];
-  add('entry:'+target,target,[marker.start,'## Project workflow',...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,'Project development rules')]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(ref=>'- '+original(target,ref)),marker.end].join('\n')+'\n',marker);
+  const sources=[...reused.keys()].filter(path=>path!==target);
+  add('entry:'+target,target,[marker.start,'## Project workflow',...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,'Project development rules')]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>'- '+link(target,path)),marker.end].join('\n')+'\n',marker);
  }
  return result;
 }

@@ -4,7 +4,7 @@ import {join,resolve,relative,isAbsolute,parse,dirname} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {validateResearchRequest,validateResearch,selectResearchOutput,type AnalysisBackend} from './backend.js';
 import {READ_POLICY_VERSION} from './read-policy.js';
-import {PROMPT_VERSION,researchPrompt} from './prompts.js';
+import {PROMPT_VERSION,researchPrompt,topicEvidencePrompt} from './prompts.js';
 import {stageContext,stageEvidence,dependencyLock,STAGE_EVIDENCE_POLICY} from './stage-context.js';
 function stable(value:unknown):string {
  if(Array.isArray(value)) return '['+value.map(stable).join(',')+']';
@@ -36,7 +36,9 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   const omittedEvidence=protectedEvidence?paths.filter(path=>dependencyLock(path)||selected&&!selected.has(path)).map(path=>({path,reason:dependencyLock(path)?'Dependency lockfile body omitted from model context. Package manifests retain declared dependency ranges; exact locked/transitive versions are not supplied and must not be inferred.':'Body not selected for the current '+task!.stage+' task. Inventory is navigation, not evidence of unprovided contents.'})):[];
   const omitted=new Set(omittedEvidence.map(item=>item.path));const evidencePaths=paths.filter(path=>!omitted.has(path));
   const context={...request,input:task?task.input:request.input,root,promptVersion:PROMPT_VERSION,readPolicyVersion:READ_POLICY_VERSION,evidencePolicy:task?STAGE_EVIDENCE_POLICY:options.omitDependencyLocks?'dependency-manifests-v1':undefined,inputDigest:task?signature({input:request.input}):undefined,evidenceSelection:task?{stage:task.stage,selectionDigest:signature(task.slices),unavailable:task.unavailable}:undefined};
-  const instructions=researchPrompt+(task?'\nStage evidence policy: paths are a full inventory, NOT proof that their contents were read. Only supplied evidence bodies and exact visible ranges are available for new verification. Prior research is bounded comparison context. Do not claim knowledge of omitted bodies or uncited lines, or infer absence from selection. Preserve all supplied counterexamples, unresolved authority and unknowns. If a needed source is unavailable, state the limitation rather than inventing it. Native instructions and gates remain authoritative at their original paths.':'');
+  const topicPlanning=task?.stage==='plan'&&!!(request.input as {topicEvidence?:unknown}|undefined)?.topicEvidence;
+  const instructions=researchPrompt+(task?'\nStage evidence policy: paths are a full inventory, NOT proof that their contents were read. Only supplied evidence bodies and exact visible ranges are available for new verification. Prior research is bounded comparison context. Do not claim knowledge of omitted bodies or uncited lines, or infer absence from selection. Preserve all supplied counterexamples, unresolved authority and unknowns. If a needed source is unavailable, state the limitation rather than inventing it. Native instructions and gates remain authoritative at their original paths.':'')+
+   (task?.stage==='analyze'||topicPlanning?'\n'+topicEvidencePrompt:'');
   const requestDigest=createHash('sha256').update(stable(context)).digest('hex');
   const requestId=requestDigest;
   const requestPath=join(cache,requestId+'.request.json');
