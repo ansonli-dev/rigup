@@ -15,21 +15,28 @@ import type {Agent,SetupOptions} from '../../types.js';
 import {agents} from '../agents/index.js';
 import {loadUpstreamLock,requireRecipeEvidence} from '../upstream.js';
 import {resolveSddBinding,unqualifiedSkillName} from './binding.js';
-import {openspecInitArgs,openspecPackage} from './openspec.js';
+import {openspecInitArgs,openspecPackage,openspecPreparationCommand} from './openspec.js';
 
 const exec=promisify(execFile);
 const npmFlags=['--ignore-scripts','--no-audit','--no-fund','--prefer-offline','--registry','https://registry.npmjs.org/'];
 const hostScopes=(agent:Agent)=>[agents[agent].skillDirectory,agents[agent].skillDirectory.replace(/\/skills$/,'/commands')];
-const shell=(args:string[])=>args.map(arg=>/^[\w./:@,=-]+$/.test(arg)?arg:quoteShell(arg)).join(' ');
 const within=(root:string,path:string)=>{const rel=relative(root,path);return rel===''||rel!=='..'&&!rel.startsWith('../')&&!isAbsolute(rel);};
 const available=(path:string,mode:number)=>access(path,mode).then(()=>true,()=>false);
 const exists=(path:string)=>lstat(path).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
 // The portable launcher keeps its bundled Node available for Rigup operations.
-const consumerPath=()=>process.env.RIGUP_CONSUMER_PATH??process.env.PATH??'';
+async function consumerPath(root:string){
+ const path=process.env.RIGUP_CONSUMER_PATH??process.env.PATH??'';
+ const candidates=await Promise.all(path.split(delimiter).filter(dir=>isAbsolute(dir)&&!within(root,dir)).map(async dir=>{
+  const canonical=await realpath(dir).catch(()=>undefined);
+  if(!canonical||within(root,canonical))return;
+  const interpreter=await realpath(join(canonical,'node')).catch(()=>undefined);
+  if(!interpreter||!within(root,interpreter))return canonical;
+ }));
+ return candidates.filter((dir):dir is string=>!!dir);
+}
 
-async function executable(name:string,root:string){
- for(const directory of consumerPath().split(delimiter)){
-  if(!isAbsolute(directory))continue;
+async function executable(name:string,root:string,pathDirs:string[]){
+ for(const directory of pathDirs){
   const path=join(directory,name);
   if(!await available(path,constants.X_OK))continue;
   const canonical=await realpath(path);
@@ -37,34 +44,36 @@ async function executable(name:string,root:string){
  }
 }
 
-async function command(executable:string,args:string[],cwd:string,signal?:AbortSignal,extraEnv?:NodeJS.ProcessEnv,timeout=20_000){
- return exec(executable,args,{cwd,signal,timeout,maxBuffer:256_000,env:{...process.env,PATH:consumerPath(),DO_NOT_TRACK:'1',OPENSPEC_TELEMETRY:'0',...extraEnv}});
+async function command(executable:string,args:string[],cwd:string,path:string[],signal?:AbortSignal,extraEnv?:NodeJS.ProcessEnv,timeout=20_000){
+ return exec(executable,args,{cwd,signal,timeout,maxBuffer:256_000,env:{...process.env,PATH:path.join(delimiter),DO_NOT_TRACK:'1',OPENSPEC_TELEMETRY:'0',...extraEnv}});
 }
 
-async function npmPrefix(npm:string,root:string,signal?:AbortSignal){
- const preferred=(await command(npm,['prefix','-g'],homedir(),signal).catch(()=>undefined))?.stdout.trim();
+async function npmPrefix(npm:string,root:string,path:string[],signal?:AbortSignal){
+ const preferred=(await command(npm,['prefix','-g'],homedir(),path,signal).catch(()=>undefined))?.stdout.trim();
  if(!preferred)return;
- const path=await Promise.all(consumerPath().split(delimiter).filter(isAbsolute).map(dir=>realpath(dir).catch(()=>undefined)));
  for(const prefix of [preferred,join(homedir(),'.local')]){
   if(!prefix||!isAbsolute(prefix))continue;
+  const canonical=await realpath(prefix).catch(()=>undefined);
   const bin=await realpath(join(prefix,'bin')).catch(()=>undefined);
-  if(bin&&!within(root,bin)&&path.includes(bin)&&await available(bin,constants.W_OK))return await realpath(prefix);
+  if(!canonical||within(root,canonical)||!bin||!within(canonical,bin)||!path.includes(bin)||!await available(bin,constants.W_OK))continue;
+  if(await targetPath(canonical,'lib/node_modules/'+openspecPackage).catch(()=>undefined))return canonical;
  }
 }
 
-async function canRunOpenSpec(root:string,signal?:AbortSignal){
- const node=await executable('node',root);
+async function canRunOpenSpec(root:string,path:string[],signal?:AbortSignal){
+ const node=await executable('node',root,path);
  if(!node)return false;
- const version=(await command(node,['--version'],homedir(),signal).catch(()=>undefined))?.stdout.trim();
+ const version=(await command(node,['--version'],homedir(),path,signal).catch(()=>undefined))?.stdout.trim();
  const match=version?.match(/^v(\d+)\.(\d+)\.\d+$/);
  return !!match&&(Number(match[1])>22||Number(match[1])===22&&Number(match[2])>=12);
 }
 
 export async function inspectOpenSpec(root:string,options:Pick<SetupOptions,'agents'|'backend'>,signal?:AbortSignal){
+ const path=await consumerPath(root);
  const [lock,profile,cli]=await Promise.all([
   loadUpstreamLock(),
   scanRepository(root,{agents:options.agents,backend:options.backend,sdd:'openspec',scope:options.agents.flatMap(hostScopes)}),
-  executable('openspec',root)
+  executable('openspec',root,path)
  ]);
  const recipe=lock.find(item=>item.integrationId==='openspec')!;
  requireRecipeEvidence(recipe);
@@ -77,27 +86,26 @@ export async function inspectOpenSpec(root:string,options:Pick<SetupOptions,'age
    else problems.push(agent+': '+reason);
   }
  }
- let needsRoot=!await exists(join(root,'openspec/config.yaml'));
+ let needsRoot=!await exists(join(root,'openspec/config.yaml'))&&!await exists(join(root,'openspec/config.yml'));
  let cliVersion:string|undefined;
  if(cli){
-  const version=(await command(cli,['--version'],root,signal).catch(()=>undefined))?.stdout.trim();
+  const version=(await command(cli,['--version'],root,path,signal).catch(()=>undefined))?.stdout.trim();
   if(version&&/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(version)){
    cliVersion=version;
-   const listed=await command(cli,['list','--json'],root,signal).catch(error=>error.code===1?{stdout:error.stdout as string}:undefined);
+   const listed=await command(cli,['list','--json'],root,path,signal).catch(error=>error.code===1?{stdout:error.stdout as string}:undefined);
    try{
     const list=JSON.parse(listed?.stdout??'');
-    if(list.root===null&&(!list.status?.length||list.status.some((status:{code:string})=>status.code==='no_openspec_root')))needsRoot=true;
-    else if(list.root?.source==='store'||list.root?.path===root)needsRoot=false;
-    else if(list.root?.source==='nearest'&&needsRoot)needsRoot=true;
+    if(list.root===null&&(!list.status?.length||list.status.some((status:{code:string})=>['no_openspec_root','no_root_with_registered_stores'].includes(status.code))))needsRoot=true;
+    else if(list.root?.source==='declared'&&typeof list.root.path==='string'&&isAbsolute(list.root.path)||list.root?.path===root)needsRoot=false;
+    else if((list.root?.source==='nearest'||list.root?.source==='global_default')&&needsRoot)needsRoot=true;
     else problems.push('OpenSpec project root could not be verified');
    }catch{problems.push('OpenSpec CLI did not return a usable project status');}
-  }else problems.push('The existing openspec command did not start successfully');
+  }else problems.push('The existing openspec command did not start successfully. Repair its installation or put a working CLI first on PATH.');
  }
  const needsProject=needsRoot||needsEntries.length>0;
- const [npm,nodeReady]=cli?[undefined,true]:await Promise.all([executable('npm',root),canRunOpenSpec(root,signal)]);
- const prefix=npm&&nodeReady?await npmPrefix(npm,root,signal):undefined;
- const installAvailable=!!prefix&&!await exists(join(prefix,'bin/openspec'))&&!await exists(join(prefix,'lib/node_modules',openspecPackage));
- const installPrefix=prefix??join(homedir(),'.local');
+ const [npm,nodeReady]=cli?[undefined,true]:await Promise.all([executable('npm',root,path),canRunOpenSpec(root,path,signal)]);
+ const prefix=npm&&nodeReady?await npmPrefix(npm,root,path,signal):undefined;
+ const installAvailable=!cli&&!!prefix&&!await exists(join(prefix,'bin/openspec'))&&!await exists(join(prefix,'lib/node_modules',openspecPackage));
  const requirements=[
   ...(!cli?['OpenSpec CLI is missing from PATH']:[]),
   ...(needsRoot?['OpenSpec project root is missing']:[]),
@@ -108,19 +116,21 @@ export async function inspectOpenSpec(root:string,options:Pick<SetupOptions,'age
   ...(cliVersion&&cliVersion!==recipe.version&&needsProject?['Automatic project initialization uses the verified OpenSpec '+recipe.version+' layout']:[])
  ];
  const canPrepare=!problems.length&&(cliVersion===recipe.version||!!cliVersion&&!needsProject||!cli&&installAvailable);
+ const userBin=!cli&&npm&&nodeReady&&!prefix
+  ?await realpath(homedir()).then(home=>targetPath(home,'.local/bin')).catch(()=>undefined):undefined;
  const steps=[
-  ...(!cliVersion?[
-   shell(['npm','install','--global','--prefix',installPrefix,...npmFlags,openspecPackage+'@'+recipe.version]),
-   ...(!prefix?['export PATH='+quoteShell(join(installPrefix,'bin'))+':"$PATH"']:[])
+  ...(!cli&&npm&&nodeReady&&!prefix&&userBin&&!within(root,userBin)?[
+   'mkdir -p '+quoteShell(userBin),'export PATH='+quoteShell(userBin)+':"$PATH"'
   ]:[]),
-  ...(needsProject&&!problems.length?[shell(['cd',root])+' && '+shell(['openspec',...openspecInitArgs(needsEntries)])]:[])
+  ...((!cli||needsProject)&&!problems.length?[openspecPreparationCommand(root,options.agents)]:[])
  ];
- return {cli,cliVersion,npm,prefix,recipe,needsProject,needsRoot,needsEntries,requirements,canPrepare,steps,entries:profile.nativeEntries};
+ return {cli,cliVersion,npm,prefix,path,recipe,needsProject,needsRoot,needsEntries,requirements,canPrepare,steps,entries:profile.nativeEntries};
 }
 type OpenSpecSetup=Awaited<ReturnType<typeof inspectOpenSpec>>;
 
 export function reportOpenSpecPending(setup:OpenSpecSetup,resumeCommand:string,write:(text:string)=>void,report?:(value:Record<string,unknown>)=>void){
- const nextCommand=setup.steps.length?[...setup.steps,resumeCommand].join(' && '):null;
+ const steps=setup.steps.filter(step=>step!==resumeCommand);
+ const nextCommand=steps.length?[...steps,resumeCommand].join(' && '):null;
  report?.({phase:'preflight',installStatus:'pending',executable:false,pending:setup.requirements,requiredInput:setup.requirements,nextCommand,resumeCommand});
  write('补齐 OpenSpec 后继续原设置：\n'+(nextCommand??resumeCommand)+'\n');
 }
@@ -130,11 +140,11 @@ async function installOpenSpec(setup:OpenSpecSetup,stage:string,signal?:AbortSig
  if(!npm||!prefix||!recipe.packageIntegrity)throw Error('A writable npm bin directory on PATH is required');
  const name=openspecPackage+'@'+recipe.version;
  const archive='fission-ai-openspec-'+recipe.version+'.tgz';
- await command(npm,['pack','--ignore-scripts','--prefer-offline','--registry','https://registry.npmjs.org/','--pack-destination',stage,name],stage,signal,undefined,120_000);
+ await command(npm,['pack','--ignore-scripts','--prefer-offline','--registry','https://registry.npmjs.org/','--pack-destination',stage,name],stage,setup.path,signal,undefined,120_000);
  const tarball=join(stage,archive);
  const integrity='sha512-'+createHash('sha512').update(await readFile(tarball)).digest('base64');
  if(integrity!==recipe.packageIntegrity)throw Error('OpenSpec package integrity mismatch');
- await command(npm,['install','--global','--prefix',prefix,...npmFlags,tarball],stage,signal,undefined,120_000);
+ await command(npm,['install','--global','--prefix',prefix,...npmFlags,tarball],stage,setup.path,signal,undefined,120_000);
 }
 
 async function addNativeFiles(root:string,staged:string,setup:OpenSpecSetup,signal?:AbortSignal){
@@ -189,7 +199,7 @@ export async function prepareOpenSpec(root:string,options:Pick<SetupOptions,'age
    const staged=join(stage,'project');
    await mkdir(staged);
    write('正在准备 OpenSpec 项目入口\n');
-   await command(setup.cli,openspecInitArgs(setup.needsEntries),staged,signal,{XDG_CONFIG_HOME:join(stage,'config')});
+   await command(setup.cli,openspecInitArgs(setup.needsEntries),staged,setup.path,signal,{XDG_CONFIG_HOME:join(stage,'config')});
    await addNativeFiles(root,staged,setup,signal);
   }
   return await inspectOpenSpec(root,options,signal);

@@ -68,8 +68,7 @@ test('tools flag keeps OpenWiki generation separate from protected CodeGraph ini
 test('missing OpenSpec bindings return a copyable recovery command without applying',()=>project(async root=>project(async cache=>project(async state=>{
  let output='';const code=await runCli(['init','--agents','codex','--sdd','openspec','--defer-research','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
  assert.equal(code,3);const report=JSON.parse(output);assert.equal(report.executable,false);
- if(report.pending.includes('OpenSpec CLI is missing from PATH'))assert.match(report.nextCommand,/npm install --global.*@fission-ai\/openspec@1\.16\.0/);
- assert.match(report.nextCommand,/openspec init --tools codex --profile core/);
+ assert.match(report.nextCommand,/--agents codex --sdd openspec --prepare-openspec/);
  assert.match(report.resumeCommand,/--agents codex --sdd openspec --defer-research/);
  assert.deepEqual(await readdir(root),[]);
 }))));

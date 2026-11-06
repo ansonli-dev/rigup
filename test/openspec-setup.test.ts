@@ -3,6 +3,7 @@ import {access,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {delimiter,join} from 'node:path';
 import {test} from 'node:test';
 import {runCli,type CliIO} from '../src/cli.js';
+import {inspectOpenSpec} from '../src/integrations/sdd/openspec-setup.js';
 import {project} from './helpers.js';
 
 async function fixture(run:(root:string,control:string)=>Promise<void>){
@@ -13,9 +14,9 @@ async function fixture(run:(root:string,control:string)=>Promise<void>){
  });
 }
 
-async function installFakeOpenSpec(bin:string){
+async function installFakeOpenSpec(bin:string,shebang='#!'+process.execPath){
  await mkdir(bin,{recursive:true});
- await writeFile(join(bin,'openspec'),'#!'+process.execPath+'\n'+`
+ await writeFile(join(bin,'openspec'),shebang+'\n'+`
 const fs = require('node:fs');
 const path = require('node:path');
 const cwd = process.cwd();
@@ -24,7 +25,7 @@ switch (process.argv[2]) {
   console.log('1.16.0');
   break;
  case 'list':
-  console.log(JSON.stringify({root: fs.existsSync('openspec/config.yaml') ? {path:cwd,source:'nearest'} : null}));
+  console.log(process.env.RIGUP_TEST_OPENSPEC_ROOT || JSON.stringify({root: fs.existsSync('openspec/config.yaml') ? {path:cwd,source:'nearest'} : null}));
   break;
  case 'init':
   fs.mkdirSync('openspec/specs',{recursive:true});
@@ -74,21 +75,61 @@ test('a separate init resumes the OpenSpec selection and preserves existing proj
  const path=process.env.PATH;
  process.env.PATH=bin+delimiter+path;
  try{
-  const first=terminal(root,control,['','2','2']);
-  assert.equal(await runCli(['init'],first.io),3,first.output());
-  assert.match(first.output(),/openspec init.*--tools.*codex/);
-  await assert.rejects(access(join(root,'.rigup/manifest.json')),{code:'ENOENT'});
   await mkdir(join(root,'openspec'));
   await writeFile(join(root,'openspec/config.yaml'),'schema: spec-driven\n# original project config\n');
   const proposal=join(root,'.agents/skills/openspec-propose');
   await mkdir(proposal,{recursive:true});
   const existing='---\nname: openspec-propose\ndescription: Existing project proposal.\n---\n';
   await writeFile(join(proposal,'SKILL.md'),existing);
-  const resumed=terminal(root,control,['','','','','','']);
+  const first=terminal(root,control,['','2','2']);
+  assert.equal(await runCli(['init'],first.io),3,first.output());
+  assert.match(first.output(),/--agents codex --sdd openspec --prepare-openspec/);
+  assert.doesNotMatch(first.output(),/openspec init --tools/);
+  const prep=terminal(root,control,[]);
+  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--prepare-openspec','--json'],prep.io),0,prep.output());
+  assert.equal(JSON.parse(prep.output()).nativeWorkflow,'ready');
+  await assert.rejects(access(join(root,'.rigup/manifest.json')),{code:'ENOENT'});
+  const resumed=terminal(root,control,['','','','','']);
   assert.equal(await runCli(['init'],resumed.io),0,resumed.output());
   assert.doesNotMatch(resumed.output(),/目标 agents|原生 SDD；/);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/# original project config/);
   assert.equal(await readFile(join(proposal,'SKILL.md'),'utf8'),existing);
+ }finally{process.env.PATH=path;}
+}));
+
+test('preflight accepts a declared store and prepares a missing local root with registered stores',()=>fixture(async(root,control)=>{
+ const bin=join(control,'bin');
+ await installFakeOpenSpec(bin);
+ const path=process.env.PATH;
+ process.env.PATH=bin+delimiter+path;
+ try{
+  const options={agents:['codex' as const],backend:'host' as const};
+  process.env.RIGUP_TEST_OPENSPEC_ROOT=JSON.stringify({root:{path:join(control,'store'),source:'declared'}});
+  let setup=await inspectOpenSpec(root,options);
+  assert.equal(setup.needsRoot,false);
+  assert.equal(setup.canPrepare,true);
+  process.env.RIGUP_TEST_OPENSPEC_ROOT=JSON.stringify({root:null,status:[{code:'no_root_with_registered_stores'}]});
+  setup=await inspectOpenSpec(root,options);
+  assert.equal(setup.needsRoot,true);
+  assert.equal(setup.canPrepare,true);
+  process.env.RIGUP_TEST_OPENSPEC_ROOT=JSON.stringify({root:{path:join(control,'store'),source:'global_default'}});
+  assert.equal((await inspectOpenSpec(root,options)).needsRoot,true);
+ }finally{
+  process.env.PATH=path;
+  delete process.env.RIGUP_TEST_OPENSPEC_ROOT;
+ }
+}));
+
+test('OpenSpec startup uses the filtered PATH for env interpreters',()=>fixture(async(root,control)=>{
+ const bin=join(control,'bin');
+ await installFakeOpenSpec(bin,'#!/usr/bin/env node');
+ await writeFile(join(root,'node'),'#!/bin/sh\nprintf unsafe > "$PWD/node-was-invoked"\nexit 1\n',{mode:0o755});
+ const path=process.env.PATH;
+ process.env.PATH=['.',root,bin,path].join(delimiter);
+ try{
+  const setup=await inspectOpenSpec(root,{agents:['codex'],backend:'host'});
+  assert.equal(setup.cliVersion,'1.16.0');
+  await assert.rejects(access(join(root,'node-was-invoked')),{code:'ENOENT'});
  }finally{process.env.PATH=path;}
 }));
 

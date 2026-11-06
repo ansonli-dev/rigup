@@ -3,7 +3,6 @@ import {prepareCustomer} from './gitlab/customer.js';
 import {prepareSoftwareInstall} from './tools/software.js';
 import {prepareNativeInitialization} from './tools/initialization.js';
 import type {SetupOperation,SetupRequirement} from '../types.js';
-import {quoteShell} from '../shell-command.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
 import {lstat} from 'node:fs/promises';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
@@ -15,7 +14,7 @@ import type {Ownership} from '../managed-input.js';
 import {resolveSddBinding,resolveSkillSource,type SddBinding} from './sdd/binding.js';
 import {digest} from '../analyzer/evidence.js';
 import {loadUpstreamLock,requireRecipeEvidence} from './upstream.js';
-import {openspecInitArgs,openspecPackage} from './sdd/openspec.js';
+import {openspecPreparationCommand} from './sdd/openspec.js';
 export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVersion,type Recipe} from './upstream.js';
 export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
@@ -34,7 +33,7 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   }
  };
  if(options.sdd) {
-  const recipe=requireKnown(options.sdd);
+  requireKnown(options.sdd);
   for(const agent of options.agents) {
    try {
     const {binding,warnings:bindingWarnings}=resolveSddBinding(options.sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
@@ -45,8 +44,7 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
    catch(error){
     const reason=(error as Error).message;
     const nextCommand=options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')
-     ?'npm install --global --ignore-scripts --no-audit --no-fund '+openspecPackage+'@'+recipe.version
-      +' && cd '+quoteShell(profile.root)+' && openspec '+openspecInitArgs([agent]).join(' '):undefined;
+     ?openspecPreparationCommand(profile.root,options.agents):undefined;
     requirements.push({integrationId:options.sdd,reason,...(nextCommand?{nextCommand}:{})});
    }
   }

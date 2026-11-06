@@ -16,16 +16,17 @@ import {sessionHandoffRequired} from './installer/session.js';
 import {defaultStateRoot} from './installer/lock.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
 import {inspectOpenSpec,prepareOpenSpec,reportOpenSpecPending} from './integrations/sdd/openspec-setup.js';
+import {openspecPreparationCommand} from './integrations/sdd/openspec.js';
 import {privateDirectory,signature} from './generator/cache.js';
 import {readDurableRecord,saveDurable} from './private-record.js';
 import {quoteShell} from './shell-command.js';
 export interface CliIO {cwd:string;isTTY:boolean;write(text:string):void;writeError?(text:string):void;read?(secret?:boolean):Promise<string|null>;services?:LifecycleServices}
 const errorMessage=(error:unknown)=>error instanceof SyntaxError?'input/cache: invalid JSON syntax; inspect the local file without exporting its contents':error instanceof Error?error.message:'operation failed';
-const help='rigup                         Open the interactive project menu (TTY)\nrigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none] [--tools openwiki,codegraph|none] [--defer-research]\nrigup update [path] [--configure] [--dry-run|--review] [--apply previewId] [--request private-path|--response path] [--sessions-ended] [--resume]\nrigup doctor [path] [--run-checks build,lint,test,environment,eval]\nOptions: --backend codex|native|host --profile path --language auto|language-tag --model modelId --api-key-env NAME --json\nAdvanced: --retire logicalId,... --continue runId --research-tokens N\nOmit path to use the current directory. Missing setup choices are prompted in a TTY; --json never prompts.\n';
+const help='rigup                         Open the interactive project menu (TTY)\nrigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none] [--tools openwiki,codegraph|none] [--defer-research]\nrigup update [path] [--configure] [--dry-run|--review] [--apply previewId] [--request private-path|--response path] [--sessions-ended] [--resume]\nrigup doctor [path] [--run-checks build,lint,test,environment,eval]\nOptions: --backend codex|native|host --profile path --language auto|language-tag --model modelId --api-key-env NAME --json\nAdvanced: --retire logicalId,... --continue runId --research-tokens N --prepare-openspec\nOmit path to use the current directory. Missing setup choices are prompted in a TTY; --json never prompts.\n';
 async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  const services:LifecycleServices={...io.services};
  const flags:LifecycleFlags={};const overrides:Partial<SetupOptions>={};const positional:string[]=[];let applyId:string|undefined;
- const boolean=new Set(['--dry-run','--configure','--review','--sessions-ended','--resume','--defer-research']);const valued=new Set(['--agents','--sdd','--tools','--backend','--profile','--language','--response','--request','--apply','--model','--api-key-env','--continue','--retire','--run-checks','--research-tokens']);const values:Record<string,string>={};
+ const boolean=new Set(['--dry-run','--configure','--review','--sessions-ended','--resume','--defer-research','--prepare-openspec']);const valued=new Set(['--agents','--sdd','--tools','--backend','--profile','--language','--response','--request','--apply','--model','--api-key-env','--continue','--retire','--run-checks','--research-tokens']);const values:Record<string,string>={};
  for(let i=0;i<argv.length;i++){
   const arg=argv[i];if(boolean.has(arg)){values[arg]='true';continue;}if(valued.has(arg)){if(!argv[i+1]||argv[i+1].startsWith('--')){io.write(arg+': value required\n');return 2;}values[arg]=argv[++i];continue;}
   if(arg==='--help'){io.write(help);return 0;}
@@ -51,6 +52,10 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  }
  if(command==='init'&&manifest)command='update';
  io.write(command+': '+root+'\n');
+ if(values['--prepare-openspec']&&(command==='doctor'||['--apply','--dry-run','--continue','--request','--response','--research-tokens'].some(flag=>values[flag]))){
+  io.write('--prepare-openspec is a separate native setup step for init or update\n');
+  return 2;
+ }
  if(command==='doctor'){if(values['--research-tokens']){io.write('--research-tokens applies to Codex research only\n');return 2;}try{const runChecks=values['--run-checks']?.split(',');if(runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing check kinds required\n');return 2;}const report=await doctor(root,{runChecks:runChecks as import('./types.js').CheckKind[],stateRoot:io.services?.stateRoot,signal:io.services?.signal});io.services?.report?.({phase:'doctor',installStatus:'not-applicable',...report});for(const d of report.diagnostics)io.write(d.category+' '+d.id+': '+d.state+' — '+d.reason+'\n');for(const c of report.checks)io.write('check '+c.name+': '+c.status+' '+(c.startedAt??'')+' '+(c.commit??'')+'\n');return report.exitCode;}catch(e){io.write(errorMessage(e)+'\n');return 1;}}
  if(values['--agents'])overrides.agents=values['--agents'].split(',') as SetupOptions['agents'];
  if(values['--sdd']&&values['--sdd']!=='none')overrides.sdd=values['--sdd'] as SetupOptions['sdd'];
@@ -106,6 +111,28 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
   const inlineReview=!flags.review&&options.executionPolicy?.mode!=='review';
   if(!flags.dryRun&&(flags.deferResearch||manifest?.projectRules==='pending'||options.executionPolicy?.mode==='review')){flags.review=true;flags.yes=false;}
   validateOptions(options as unknown as Record<string,unknown>);
+  if(values['--prepare-openspec']){
+   if(options.sdd!=='openspec'||!options.agents.length)throw Error('--prepare-openspec requires --sdd openspec and at least one agent');
+   let setup=await inspectOpenSpec(root,options,services.signal);
+   if(setup.requirements.length&&setup.canPrepare){
+    if(await sessionHandoffRequired(root,flags.sessionsEnded))io.write('End affected sessions before preparing native OpenSpec files.\n');
+    else try{setup=await prepareOpenSpec(root,options,setup,{stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write});}
+    catch{
+     if(services.signal?.aborted)return 130;
+     io.write('OpenSpec setup did not finish. Inspect the remaining prerequisites and retry.\n');
+     setup=await inspectOpenSpec(root,options,services.signal);
+    }
+   }
+   if(services.signal?.aborted)return 130;
+   if(setup.requirements.length){
+    for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
+    reportOpenSpecPending(setup,openspecPreparationCommand(root,options.agents),io.write,services.report);
+    return 3;
+   }
+   services.report?.({phase:'preflight',installStatus:'not-installed',nativeWorkflow:'ready'});
+   io.write('OpenSpec CLI and project entries are ready.\n');
+   return 0;
+  }
   const offerSetupScope=command==='init'&&!manifest&&!flags.deferResearch&&!flags.dryRun&&!flags.resume&&!flags.researchTokens&&!flags.request&&!flags.response;
   const guided=io.isTTY&&!!io.read&&!values['--continue'];
   let resumed=false,setupExit=130;
@@ -130,7 +157,8 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
    if(draftPath)await saveDurable(draftPath,JSON.stringify({root,agents:selected.agents}));
    for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
    if(setup.canPrepare&&guided&&inlineReview&&!await sessionHandoffRequired(root,flags.sessionsEnded)){
-    if(setup.steps.length)io.write(setup.steps.join('\n')+'\n');
+    if(!setup.cli)io.write('将 OpenSpec '+setup.recipe.version+' 安装到 '+setup.prefix+'\n');
+    if(setup.needsProject)io.write('补齐当前项目缺失的原生 OpenSpec 文件\n');
     io.write('补齐 OpenSpec（Enter: 自动补齐，b 返回）\n');
     const answer=await promptChoice({write:io.write,read:io.read!},['自动补齐','手动准备后继续'],false,['自动补齐']);
     if(answer===null)return 'stop';
