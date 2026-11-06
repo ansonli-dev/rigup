@@ -122,11 +122,11 @@ export async function checkRelease({archive}) {
     const bin = join(workspace, 'bin');
     await mkdir(bin);
     await symlink(join(relocated, 'rigup'), join(bin, 'rigup'));
-    env.PATH = bin + delimiter + env.PATH;
+    const cliEnv = {...env, PATH: bin + delimiter + env.PATH};
     const run = async (args, allowed = [0]) => {
       let r;
       try {
-        r = await exec('rigup', args, {cwd: project, env, timeout: 90_000, maxBuffer: 4_000_000});
+        r = await exec('rigup', args, {cwd: project, env: cliEnv, timeout: 90_000, maxBuffer: 4_000_000});
         r.code = 0;
       } catch (error) {
         if (!allowed.includes(error.code)) throw error;
@@ -157,7 +157,8 @@ export async function checkRelease({archive}) {
       /human approval/,
     );
     const config = await readFile(join(project, '.codex/config.toml'), 'utf8');
-    assert.equal(parseToml(config).mcp_servers['portable-echo'].command, 'node');
+    const mcp = parseToml(config).mcp_servers['portable-echo'];
+    assert.deepEqual({...mcp}, {command: 'node', args: ['echo.mjs'], cwd: project, env_vars: []});
     assert.ok(!config.includes(relocated));
     // Model-free standalone consumption, explicitly provisioning the host Node
     // after Rigup's entire application/dependency directory becomes unavailable.
@@ -166,9 +167,9 @@ export async function checkRelease({archive}) {
     await mkdir(consumerBin);
     await symlink(process.execPath, join(consumerBin, 'node'));
     const echo = await pipe(
-      join(consumerBin, 'node'),
-      [join(project, '.rigup/mcp/portable-echo.mjs')],
-      {cwd: project, env: {...env, PATH: consumerBin + delimiter + env.PATH}},
+      mcp.command,
+      mcp.args,
+      {cwd: mcp.cwd, env: {...env, PATH: consumerBin + delimiter + env.PATH}},
       'standalone-portable-echo\n',
     );
     assert.equal(echo, 'standalone-portable-echo\n');
