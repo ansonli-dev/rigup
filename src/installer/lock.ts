@@ -11,8 +11,8 @@ export async function processIdentity(pid:number):Promise<ProcessIdentity>{const
 export async function isAlive(identity:ProcessIdentity):Promise<boolean>{try{process.kill(identity.pid,0);}catch(e){if((e as NodeJS.ErrnoException).code==='ESRCH')return false;throw new Error('process exit cannot be confirmed');}try{return (await processIdentity(identity.pid)).started===identity.started;}catch{throw new Error('process identity cannot be confirmed');}}
 export interface ProjectLock {root:string;id:string;stateRoot:string;release():Promise<void>}
 export const defaultStateRoot=()=>join(homedir(),'.local','state','rigup');
-export async function acquireLock(root:string,options:{stateRoot?:string;recover?:boolean}={}):Promise<ProjectLock>{
- root=await realpath(root);const stateRoot=await privateDirectory(options.stateRoot??defaultStateRoot(),root);const path=join(stateRoot,signature(root)+'.lock');
+export async function acquireLock(root:string,options:{stateRoot?:string;recover?:boolean;resource?:string}={}):Promise<ProjectLock>{
+ root=await realpath(root);const stateRoot=await privateDirectory(options.stateRoot??defaultStateRoot(),root);const path=join(stateRoot,signature(options.resource?{resource:options.resource}:root)+'.lock');
  const identity=await processIdentity(process.pid);const id=randomUUID();
  const take=async()=>{const handle=await open(path,'wx',0o600);try{await handle.writeFile(JSON.stringify({root,id,identity}));await handle.sync();}finally{await handle.close();}const directory=await open(stateRoot,'r');try{await directory.sync();}finally{await directory.close();}};
  try{await take();}catch(e){

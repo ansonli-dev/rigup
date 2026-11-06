@@ -303,7 +303,7 @@
       "runtime": {
         "node": ">=22.12.0",
         "platforms": "pending; local version probes only",
-        "installationScope": "project preferred; no automatic software installation enabled"
+        "installationScope": "User npm prefix on PATH for the CLI; selected host entry points and planning files in the project"
       },
       "entries": {},
       "operations": [],
@@ -322,7 +322,7 @@
       ],
       "pending": [
         "Native discovery and MCP/runtime compatibility still unverified",
-        "External setup operations require target protection and reconciliation evidence before enabling"
+        "Verify additional platforms and host configurations beyond the scoped first-run setup"
       ],
       "packageIntegrity": "sha512-WQVhZoIR5PoacH/H0qh84VKMcXFbKCIKuAI96arHS3KiKYhJStlRrjUKGxLqLYKLym0j+2hAAY5MZUrPE5qXIA=="
     },

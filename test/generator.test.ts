@@ -401,7 +401,7 @@ test('workflow contexts show the invocable specialized check with its working di
  const assets=await renderFixed(profile,opts,await prepareIntegrations(profile,opts),[],[]);
  for(const name of ['prepare','deliver']){
   const context=assets.find(a=>a.target.endsWith('change-'+name+'/references/project.md'))!.content;
-  assert.match(context,/## Specialized checks/);
+  assert.match(context,/## Existing checks/);
   assert.match(context,/`npm run test-e2e` from `apps\/react-vite` · \[apps\/react-vite\/package\.json\]\(\.\.\/\.\.\/\.\.\/\.\.\/apps\/react-vite\/package\.json\)/);
   assert.doesNotMatch(context,/local-browser|do-not-expose|npm run test:e2e/);
  }
@@ -418,17 +418,20 @@ test('specialized checks describe package-manager, process and database prerequi
  const assets=await renderFixed(profile,opts,await prepareIntegrations(profile,opts),[],[]);
  const reference=assets.find(a=>a.target.endsWith('change-deliver/references/project.md'))!.content;
  assert.match(reference,/Yarn.*PATH/);assert.match(reference,/PM2_HOME/);assert.match(reference,/Playwright browsers/);
- assert.match(reference,/npm exec --offline --yes=false --call 'command -v pm2'/);
  assert.match(reference,/npm exec --yes=false -- playwright install/);
  assert.match(reference,/dedicated PostgreSQL test database/);assert.match(reference,/database name.*`test`/);
- assert.match(reference,/`npm run migration:up:tests && npm run test:e2e`/);assert.match(reference,/jest-e2e\.json/);
- assert.match(reference,/`npm run migration:up:tests && npm run test -- --runInBand`/);
+ assert.match(reference,/Run `npm run migration:up:tests`.*then run.*listed test/);assert.match(reference,/jest-e2e\.json/);
+ assert.match(reference,/`npm run test -- --runInBand`/);
+ assert.match(reference,/project.s own test reporter.*Read that result/);
+ assert.doesNotMatch(reference,/check-worktree|rigup:receipt/);
  assert.deepEqual(profile.commands.test[0].args,['run','test']);
  validateNavigation(assets,profile.files);
  await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"/*\nif (!database.includes('test')) throw Error('comment');\n*/\nif (database.includes('test')) throw Error('Wrong database');\n");
- const unrelated=(await scanRepository(root,opts)).specializedChecks;
- assert.equal(unrelated.find(check=>check.command.args.includes('test:e2e'))?.postgres,undefined);
- assert.ok(!unrelated.some(check=>check.command.args.includes('test')));
+ const unverified=await scanRepository(root,opts);
+ assert.deepEqual(unverified.specializedChecks.find(check=>check.command.args.includes('test:e2e'))?.postgres,{config:'jest-e2e.json'});
+ assert.deepEqual(unverified.specializedChecks.find(check=>check.command.args.includes('test'))?.command.args,['run','test']);
+ const ci=await prepareIntegrations(unverified,{...opts,quality:{gitlab:{checks:['test']}}});
+ assert.ok(ci.requirements.some(requirement=>/project-owned CI job/.test(requirement.reason)));
  await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"if (!database.includes('test')) throw Error('Wrong database');\n");
  manifest.scripts.test+=' && node summary.js';
  await writeFile(root+'/package.json',JSON.stringify(manifest));

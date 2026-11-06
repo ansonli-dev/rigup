@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import {readFile,realpath} from 'node:fs/promises';
+import {readFile,realpath,rm} from 'node:fs/promises';
 import {resolve,join,relative,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
 import {pathToFileURL} from 'node:url';
@@ -13,7 +13,12 @@ import {loadPreview} from './installer/preview.js';
 import {apply} from './installer/apply.js';
 import {doctor} from './installer/doctor.js';
 import {sessionHandoffRequired} from './installer/session.js';
+import {defaultStateRoot} from './installer/lock.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
+import {inspectOpenSpec,prepareOpenSpec,reportOpenSpecPending} from './integrations/sdd/openspec-setup.js';
+import {privateDirectory,signature} from './generator/cache.js';
+import {readDurableRecord,saveDurable} from './private-record.js';
+import {quoteShell} from './shell-command.js';
 export interface CliIO {cwd:string;isTTY:boolean;write(text:string):void;writeError?(text:string):void;read?(secret?:boolean):Promise<string|null>;services?:LifecycleServices}
 const errorMessage=(error:unknown)=>error instanceof SyntaxError?'input/cache: invalid JSON syntax; inspect the local file without exporting its contents':error instanceof Error?error.message:'operation failed';
 const help='rigup                         Open the interactive project menu (TTY)\nrigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none] [--tools openwiki,codegraph|none] [--defer-research]\nrigup update [path] [--configure] [--dry-run|--review] [--apply previewId] [--request private-path|--response path] [--sessions-ended] [--resume]\nrigup doctor [path] [--run-checks build,lint,test,environment,eval]\nOptions: --backend codex|native|host --profile path --language auto|language-tag --model modelId --api-key-env NAME --json\nAdvanced: --retire logicalId,... --continue runId --research-tokens N\nOmit path to use the current directory. Missing setup choices are prompted in a TTY; --json never prompts.\n';
@@ -62,9 +67,32 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  if(applyId){
   if(overrides.documentLanguage){io.write('--language: prepare a new preview to change the document language\n');return 2;}
   if(await sessionHandoffRequired(root,flags.sessionsEnded)){io.write('End affected sessions and use --sessions-ended from an independent terminal\n');return 3;}
-  try{const cacheRoot=join(io.services?.cacheRoot??join(homedir(),'.cache','rigup'),'previews');const prepared=await loadPreview(applyId,cacheRoot);if(prepared.plan.root!==root)throw new Error('preview project root differs from requested path');if(flags.runChecks&&JSON.stringify([...flags.runChecks].sort())!==JSON.stringify([...(prepared.plan.runChecks??[])].sort()))throw new Error('apply checks differ from approved preview; prepare a new preview with --run-checks');const report=await apply(applyId,{cacheRoot,stateRoot:io.services?.stateRoot,recover:flags.resume,signal:io.services?.signal,runChecks:io.services?.runChecks});io.services?.report?.({phase:'apply',installStatus:report.status,...report});if(report.nextCommand)io.write('Project rules pending. Continue with '+report.nextCommand+'\n');io.write('Install '+report.status+'\n');return report.exitCode;}catch(e){io.write(errorMessage(e)+'\n');return 1;}
+  try{
+   const cacheRoot=join(services.cacheRoot??join(homedir(),'.cache','rigup'),'previews');
+   const prepared=await loadPreview(applyId,cacheRoot);
+   if(prepared.plan.root!==root)throw new Error('preview project root differs from requested path');
+   if(flags.runChecks&&JSON.stringify([...flags.runChecks].sort())!==JSON.stringify([...(prepared.plan.runChecks??[])].sort()))throw new Error('apply checks differ from approved preview; prepare a new preview with --run-checks');
+   if(!manifest&&prepared.preview.executable&&prepared.plan.options.sdd==='openspec'){
+    const setup=await inspectOpenSpec(root,prepared.plan.options,services.signal);
+    if(services.signal?.aborted)return 130;
+    if(setup.requirements.length){
+     for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
+     const resume=setup.needsProject
+      ?'rigup init '+quoteShell(root)+' --agents '+prepared.plan.options.agents.join(',')+' --sdd openspec'+(prepared.plan.projectRules==='pending'?' --defer-research':'')+' --review'
+      :'rigup update '+quoteShell(root)+' --apply '+applyId+' --sessions-ended'+(flags.resume?' --resume':'');
+     reportOpenSpecPending(setup,resume,io.write,services.report);
+     return 3;
+    }
+   }
+   const report=await apply(applyId,{cacheRoot,stateRoot:services.stateRoot,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});
+   services.report?.({phase:'apply',installStatus:report.status,...report});
+   if(report.nextCommand)io.write('工作流已可用。重开 agent 后用 change-prepare 发起提案。可选的项目规则生成命令：'+report.nextCommand+'\n');
+   io.write('Install '+report.status+'\n');
+   return report.exitCode;
+  }catch(e){io.write(errorMessage(e)+'\n');return 1;}
  }
  let options:SetupOptions;
+ let draftPath:string|undefined;
  try {
   let hasProjectConfig=true;try{await readFile(join(root,'.rigup/config.yaml'));}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')hasProjectConfig=false;else throw e;}
   const approvedOptions=manifest?.projectRules==='pending'&&!flags.configure&&!overrides.profile?manifest.options:undefined;
@@ -74,23 +102,93 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
   if(values['--model']||values['--api-key-env']){if(values['--backend']==='codex')throw Error('model/API-key flags select the Anthropic native backend; Codex model overrides are not supported');if(!values['--backend'])options.backend='native';const model=values['--model']??options.model?.model??process.env.ANTHROPIC_MODEL;const apiKeyEnv=values['--api-key-env']??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';if(!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))throw new Error('model.apiKeyEnv: environment reference required');if(!model&&!(io.isTTY&&io.read))throw new Error('model.model: required when changing the API-key reference');if(model)options.model={provider:'anthropic',model,apiKeyEnv};}
   if(values['--sdd']==='none')delete options.sdd;
   if((flags.request||flags.response)&&options.backend!=='host')throw new Error('request/response: select the host backend');
+  const firstWorkflow=command==='init'&&!flags.dryRun&&!flags.request&&!flags.response&&!flags.continuation&&!flags.researchTokens;
+  const inlineReview=!flags.review&&options.executionPolicy?.mode!=='review';
   if(!flags.dryRun&&(flags.deferResearch||manifest?.projectRules==='pending'||options.executionPolicy?.mode==='review')){flags.review=true;flags.yes=false;}
   validateOptions(options as unknown as Record<string,unknown>);
   const offerSetupScope=command==='init'&&!manifest&&!flags.deferResearch&&!flags.dryRun&&!flags.resume&&!flags.researchTokens&&!flags.request&&!flags.response;
-  if(io.isTTY&&io.read&&!values['--continue']){const setup=await onboard(options,{write:io.write,read:io.read},{configure:!!flags.configure,deferResearch:flags.deferResearch,offerSetupScope,knownBackend:!!approvedOptions||hasProjectConfig||!!overrides.backend||!!options.profile||!!values['--model']||!!values['--api-key-env'],languageProvided:!!values['--language'],provided:!hasProjectConfig&&!manifest&&!options.profile?{agents:!!values['--agents'],sdd:!!values['--sdd'],tools:!!values['--tools'],model:!!values['--model']||!!values['--api-key-env']}:undefined,apiKeyEnv:values['--api-key-env'],credentials:services.credentials});if(!setup)return 130;options=setup.options;services.credentials=setup.credentials;if(setup.deferResearch){flags.deferResearch=true;if(!flags.dryRun){flags.review=true;flags.yes=false;}}}
+  const guided=io.isTTY&&!!io.read&&!values['--continue'];
+  let resumed=false,setupExit=130;
+  if(firstWorkflow&&guided){
+   const state=await privateDirectory(services.stateRoot??defaultStateRoot(),root);
+   draftPath=join(state,'init-'+signature(root)+'.json');
+   if(!values['--agents']&&!values['--sdd']&&!flags.configure&&!hasProjectConfig&&!options.profile){
+    const draft=await readDurableRecord<{root:string;agents:SetupOptions['agents']}>(draftPath,'OpenSpec setup choices',value=>
+     value.root===root&&Array.isArray(value.agents)&&value.agents.length>0&&value.agents.every(agent=>['codex','claude','opencode','omp'].includes(agent)));
+    if(draft){
+     options={...options,agents:draft.agents,sdd:'openspec'};
+     resumed=true;
+     io.write('继续已选的 OpenSpec 设置（'+draft.agents.join(', ')+'）\n');
+    }
+   }
+  }
+  const checkWorkflow=async(selected:SetupOptions):Promise<'ready'|'back'|'stop'>=>{
+   if(selected.sdd!=='openspec'||!selected.agents.length)return 'ready';
+   let setup=await inspectOpenSpec(root,selected,services.signal);
+   if(services.signal?.aborted)return 'stop';
+   if(!setup.requirements.length)return 'ready';
+   if(draftPath)await saveDurable(draftPath,JSON.stringify({root,agents:selected.agents}));
+   for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
+   if(setup.canPrepare&&guided&&inlineReview&&!await sessionHandoffRequired(root,flags.sessionsEnded)){
+    if(setup.steps.length)io.write(setup.steps.join('\n')+'\n');
+    io.write('补齐 OpenSpec（Enter: 自动补齐，b 返回）\n');
+    const answer=await promptChoice({write:io.write,read:io.read!},['自动补齐','手动准备后继续'],false,['自动补齐']);
+    if(answer===null)return 'stop';
+    if(answer==='back'){
+     if(draftPath)await rm(draftPath,{force:true});
+     return 'back';
+    }
+    if(Array.isArray(answer)&&answer.length===1&&answer[0]==='自动补齐'){
+     try{setup=await prepareOpenSpec(root,selected,setup,{stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write});}
+     catch{
+      if(services.signal?.aborted)return 'stop';
+      io.write('自动补齐未完成。可以重新运行 rigup init 重试，或执行下面的准备命令。\n');
+      setup=await inspectOpenSpec(root,selected,services.signal);
+     }
+     if(!setup.requirements.length)return 'ready';
+    }
+   }
+   const originalFlags=Object.entries(values).filter(([flag])=>flag!=='--agents'&&flag!=='--sdd').flatMap(([flag,value])=>boolean.has(flag)?[flag]:[flag,quoteShell(value)]);
+   const resumeCommand=['rigup','init',quoteShell(root),'--agents',selected.agents.join(','),'--sdd','openspec',...originalFlags].join(' ');
+   reportOpenSpecPending(setup,resumeCommand,io.write,services.report);
+   setupExit=3;
+   return 'stop';
+  };
+  const promptSetup=(configure:boolean,knownBackend:boolean,provided?:Parameters<typeof onboard>[2]['provided'])=>onboard(options,{write:io.write,read:io.read!},{
+   configure,deferResearch:flags.deferResearch,offerSetupScope,knownBackend,languageProvided:!!values['--language'],
+   provided,apiKeyEnv:values['--api-key-env'],credentials:services.credentials,checkWorkflow:firstWorkflow?checkWorkflow:undefined
+  });
+  if(guided){
+   const provided=!hasProjectConfig&&!manifest&&!options.profile?{agents:resumed||!!values['--agents'],sdd:resumed||!!values['--sdd'],tools:!!values['--tools'],model:!!values['--model']||!!values['--api-key-env']}:undefined;
+   const setup=await promptSetup(!!flags.configure,!!approvedOptions||hasProjectConfig||!!overrides.backend||!!options.profile||!!values['--model']||!!values['--api-key-env'],provided);
+   if(!setup)return setupExit;
+   options=setup.options;
+   services.credentials=setup.credentials;
+   if(setup.deferResearch){flags.deferResearch=true;flags.review=true;flags.yes=false;}
+  }else if(firstWorkflow&&(flags.deferResearch||options.backend!=='host')&&await checkWorkflow(options)==='stop')return setupExit;
   while(!flags.dryRun&&!flags.yes&&!flags.review&&io.isTTY&&io.read){
    const budget=researchBudget(options);
    io.write('本轮范围：agents='+options.agents.join(',')+'; SDD='+(options.sdd??'none')+'; tools='+(options.tools??[]).map(t=>t.id+(t.install?':pinned install':':registration')).join(',')+'; backend='+options.backend+'; 研究上限 '+budget.maxCalls+' requests / '+(flags.researchTokens??budget.maxTokens)+' tokens。仅预览内受保护写入；b 返回修改。\n');
    const mode=await promptChoice({write:io.write,read:io.read},['continuous','review','dry-run'],false,[options.executionPolicy?.mode??'continuous']);if(mode===null)return 130;
-   if(mode==='back'){const setup=await onboard(options,{write:io.write,read:io.read},{configure:true,knownBackend:true,offerSetupScope,languageProvided:!!values['--language'],credentials:services.credentials});if(!setup)return 130;options=setup.options;services.credentials=setup.credentials;if(setup.deferResearch){flags.deferResearch=true;flags.review=true;}continue;}
+   if(mode==='back'){const setup=await promptSetup(true,true);if(!setup)return setupExit;options=setup.options;services.credentials=setup.credentials;if(setup.deferResearch){flags.deferResearch=true;flags.review=true;}continue;}
    if(!Array.isArray(mode)||mode.length!==1)return 2;flags.yes=mode[0]==='continuous';flags.review=mode[0]==='review';flags.dryRun=mode[0]==='dry-run';
   }
   if(flags.deferResearch&&!options.sdd)throw Error('--defer-research requires a selected development workflow');
   if(flags.researchTokens&&(!options.sdd||options.backend!=='codex'))throw Error('--research-tokens requires the Codex backend and a development workflow');
   if(flags.configure)options.executionPolicy={mode:flags.review?'review':'continuous'};
   validateOptions(options as unknown as Record<string,unknown>);
+  if(guided&&firstWorkflow&&inlineReview&&flags.deferResearch&&options.sdd==='openspec')services.confirmPreview=async()=>{
+   const choices=['应用预览并完成初始化','保存预览稍后应用'];
+   io.write('请确认预览（Enter: 应用预览并完成初始化）\n');
+   const answer=await promptChoice({write:io.write,read:io.read!},choices,false,[choices[0]]);
+   return Array.isArray(answer)&&answer.length===1&&answer[0]===choices[0];
+  };
  }catch(e){io.write(errorMessage(e)+'\n');return 2;}
- try{return await executeLifecycle(root,options,flags,io.write,{...services,isTTY:io.isTTY});}catch(e){io.write(errorMessage(e)+'\n');return io.services?.signal?.aborted?130:1;}
+ try{
+  const code=await executeLifecycle(root,options,flags,io.write,{...services,isTTY:io.isTTY});
+  if(code===0&&draftPath&&await loadManifest(root))await rm(draftPath,{force:true});
+  return code;
+ }catch(e){io.write(errorMessage(e)+'\n');return io.services?.signal?.aborted?130:1;}
 }
 export async function runCli(argv:string[],io:CliIO):Promise<number>{
  if(!argv.includes('--json'))return runCliInternal(argv,io);

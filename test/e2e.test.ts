@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
+import {openspecFixturePath,project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
 import {runCli} from '../src/cli.js';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {signature} from '../src/generator/cache.js';
@@ -7,6 +7,7 @@ import {absentDigest,preview} from '../src/installer/preview.js';
 import {apply} from '../src/installer/apply.js';
 import {loadContinuation} from '../src/lifecycle.js';
 import {CodexTokenLimit} from '../src/analyzer/budget.js';
+import {parse,stringify} from 'smol-toml';
 async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>fn(root,cache,state))));}
 test('CLI budget handoff continues the same run with its saved selections and mode',()=>fixture(async(root,cache,state)=>{
  for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
@@ -141,7 +142,7 @@ test('resume finds the saved OpenSpec research after optional external entries b
 test('failed_native_research_retains_spent_budget_before_retry',()=>fixture(async(root,cache,state)=>{
  const {ResearchFailure}=await import('../src/analyzer/backend.js');await writeFile(root+'/source.txt','source');await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({agents:['codex'],sdd:'openspec',backend:'native',researchBudget:{maxCalls:2,maxTokens:100}}));
  let requests=0;const backend={run:async(r:any)=>{if(r.spent?.calls>=2)throw new ResearchFailure('restored research budget exhausted');requests++;throw new ResearchFailure('provider returned invalid research JSON',undefined,{calls:2,tokens:20});}};
- for(let i=0;i<2;i++)assert.equal(await runCli(['init'],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend}}),1);
+ for(let i=0;i<2;i++)assert.equal(await runCli(['init','--dry-run'],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend}}),1);
  assert.equal(requests,1);
 }));
 test('deselected_capability_requires_explicit_retirement_before_old_wiring_can_remain_active',()=>fixture(async(root,cache,state)=>{
@@ -149,6 +150,32 @@ test('deselected_capability_requires_explicit_retirement_before_old_wiring_can_r
  assert.equal(await runCli(['init','--json'],io),0);const first=JSON.parse(await readFile(root+'/.rigup/manifest.json','utf8'));assert.ok(first.assets.length);await writeFile(config,JSON.stringify({agents:['codex'],backend:'host'}));output='';
  assert.equal(await runCli(['update','--json'],io),3);const report=JSON.parse(output);assert.ok(report.pending.every((p:any)=>/Retirement is outside/.test(p.reason)));assert.match(await readFile(root+'/.codex/config.toml','utf8'),/knowledge/);
  output='';assert.equal(await runCli(['update','--retire',first.assets.map((a:any)=>a.logicalId).join(','),'--json'],io),0);assert.doesNotMatch(await readFile(root+'/.codex/config.toml','utf8'),/knowledge/);assert.deepEqual(JSON.parse(await readFile(root+'/.rigup/manifest.json','utf8')).assets,[]);
+}));
+test('upgrade replaces an owned MCP launcher after explicit retirement and preserves other entries',()=>fixture(async(root,cache,state)=>{
+ const options={agents:['codex' as const],backend:'host' as const,mcp:[{id:'knowledge',agents:['codex' as const],command:{executable:'node',args:['server.mjs'],cwd:'.',envRefs:[]}}]};
+ const runner='.rigup/mcp/knowledge.mjs';
+ await mkdir(root+'/.rigup');await mkdir(root+'/.codex');
+ await writeFile(root+'/.rigup/config.yaml',JSON.stringify(options));
+ await writeFile(root+'/.codex/config.toml','[mcp_servers.customer]\nurl = "https://example.org/mcp"\n');
+ const legacy=await preview({
+  root,options,fingerprint:(await scanRepository(root,options)).fingerprint,
+  assets:[
+   {logicalId:'mcp-runner:knowledge',target:runner,content:'// Legacy MCP launcher\n',ownership:{kind:'file'},source:{kind:'customer-mcp',ref:'knowledge'}},
+   {logicalId:'mcp:codex:knowledge',target:'.codex/config.toml',content:stringify({mcp_servers:{knowledge:{command:'node',args:[root+'/'+runner]}}}),ownership:{kind:'toml-table',path:['mcp_servers','knowledge']},source:{kind:'customer-mcp',ref:'knowledge'}}
+  ],operations:[],requirements:[],warnings:[],versions:{},dispositions:[]
+ },[],{cacheRoot:cache+'/previews'});
+ assert.equal((await apply(legacy.previewId,{cacheRoot:cache+'/previews',stateRoot:state})).exitCode,0);
+ let output='';
+ const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
+ assert.equal(await runCli(['update','--json'],io),3);
+ assert.match(output,/--retire mcp-runner:knowledge/);
+ assert.match(await readFile(root+'/.codex/config.toml','utf8'),/knowledge\.mjs/);
+ output='';
+ assert.equal(await runCli(['update','--retire','mcp-runner:knowledge','--json'],io),0,output);
+ await assert.rejects(readFile(root+'/'+runner),{code:'ENOENT'});
+ const config=parse(await readFile(root+'/.codex/config.toml','utf8')) as any;
+ assert.deepEqual({...config.mcp_servers.knowledge},{command:'node',args:['server.mjs'],cwd:root,env_vars:[]});
+ assert.equal(config.mcp_servers.customer.url,'https://example.org/mcp');
 }));
 test('model_cli_overrides_update_individual_fields_without_discarding_existing_key_reference',()=>fixture(async(root,cache,state)=>{
  await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({agents:['codex'],sdd:'openspec',backend:'native',model:{provider:'anthropic',model:'existing-model',apiKeyEnv:'EXISTING_KEY'}}));
@@ -159,7 +186,8 @@ test('deferred setup installs the selected workflow before a separately reviewed
   const directory=root+'/.agents/skills/'+name;await mkdir(directory,{recursive:true});
   await writeFile(directory+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\n');
  }
- await mkdir(root+'/openspec');await writeFile(root+'/policy.md','Project policy.\n');
+ const fixturePath=await openspecFixturePath(root,cache);
+ await writeFile(root+'/policy.md','Project policy.\n');
  await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml','agents: [codex]\nbackend: host\n');
  const requests:string[]=[];
  const backend:import('../src/analyzer/backend.js').AnalysisBackend={run:async(request,reader)=>{
@@ -175,10 +203,15 @@ test('deferred setup installs the selected workflow before a separately reviewed
   let output='';const code=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}});
   return {code,...JSON.parse(output)};
  };
- const base=await cli('init','--agents','codex','--sdd','openspec','--backend','codex','--defer-research');
- assert.equal(base.code,3);assert.equal(base.phase,'handoff');assert.equal(base.projectRules,'pending');assert.deepEqual(requests,[]);
- await assert.rejects(()=>readFile(root+'/.agents/skills/change-prepare/SKILL.md'),{code:'ENOENT'});
- const installed=await cli('update','--apply',base.previewId,'--sessions-ended');
+ const path=process.env.PATH;
+ process.env.PATH=fixturePath;
+ let installed;
+ try{
+  const base=await cli('init','--agents','codex','--sdd','openspec','--backend','codex','--defer-research');
+  assert.equal(base.code,3);assert.equal(base.phase,'handoff');assert.equal(base.projectRules,'pending');assert.deepEqual(requests,[]);
+  await assert.rejects(()=>readFile(root+'/.agents/skills/change-prepare/SKILL.md'),{code:'ENOENT'});
+  installed=await cli('update','--apply',base.previewId,'--sessions-ended');
+ }finally{process.env.PATH=path;}
  assert.equal(installed.code,0);assert.equal(installed.projectRules,'pending');assert.match(installed.nextCommand,/rigup update .*--review/);
  const reference=root+'/.agents/skills/change-prepare/references/project.md';
  assert.match(await readFile(reference,'utf8'),/Project rules are pending/);

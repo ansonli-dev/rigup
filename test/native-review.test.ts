@@ -57,11 +57,19 @@ test('durable resume applies the same affected-session handoff as normal setup',
  const profile=await scanRepository(root,options),prepared=await prepareIntegrations(profile,options);const plan:SetupPlan={root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[]};
  const p=await preview(plan,[],{cacheRoot:cache+'/previews'});assert.equal(p.executable,true);
  await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache+'/previews',stateRoot:state,hook:async()=>{throw Error('interrupted after first file');}}),/interrupted/);
+ const interruptedConfig=await readFile(root+'/.codex/config.toml','utf8');
  await rm(cache,{recursive:true});
  await activeCodex(root,async()=>{const reports:any[]=[];
   assert.equal(await executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}),3);
-  assert.equal(reports.at(-1).phase,'handoff');assert.equal(reports.at(-1).previewId,p.previewId);await assert.rejects(access(root+'/.codex/config.toml'));
+  assert.equal(reports.at(-1).phase,'handoff');assert.equal(reports.at(-1).previewId,p.previewId);
+  assert.equal(await readFile(root+'/.codex/config.toml','utf8'),interruptedConfig);
+  await assert.rejects(access(root+'/.rigup/manifest.json'));
+  await writeFile(root+'/.codex/config.toml','# local edit\n'+interruptedConfig);
+  await assert.rejects(()=>executeLifecycle(root,options,{resume:true,sessionsEnded:true},()=>{},{cacheRoot:cache,stateRoot:state}),/interrupted target content/);
+  assert.equal(await readFile(root+'/.codex/config.toml','utf8'),'# local edit\n'+interruptedConfig);
+  await writeFile(root+'/.codex/config.toml',interruptedConfig);
   assert.equal(await executeLifecycle(root,options,{resume:true,sessionsEnded:true},()=>{},{cacheRoot:cache,stateRoot:state}),0);
+  await access(root+'/.rigup/manifest.json');
  });
 }));
 test('interrupted native output cannot become research after source drift rejects resume',()=>fixture(async(root,cache,state)=>{

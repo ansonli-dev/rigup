@@ -4,13 +4,15 @@
 
 Rigup sets up coding-agent workflows for an existing repository. It uses source evidence and your integration choices to prepare project guidance, skills, and configuration you can review before applying.
 
+Run `rigup init` at the project root. Once setup completes, close Rigup and use the installed workflow with your agent.
+
 [What it sets up](#what-rigup-sets-up) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Integrations](#integrations) · [Commands](#commands) · [Documentation](https://github.com/ansonli-dev/rigup/blob/main/docs/README.md)
 
 ## What Rigup sets up
 
 - **Project guidance.** Turn source, tests, and existing conventions into scoped instructions and references to the project's build and test commands.
 - **Spec-driven workflows.** `change-prepare` connects the agent to the selected workflow's planning and approval steps. `change-deliver` connects it to the native implementation and verification steps.
-- **Tools and checks.** Configure selected MCP tools and skills, and wire existing project checks into Git hooks or GitLab CI.
+- **Tools and checks.** Configure selected MCP tools and skills, and reuse project-owned Git hooks or configure native GitLab jobs.
 
 An applied Codex setup with OpenSpec includes these workflow files.
 
@@ -18,7 +20,7 @@ An applied Codex setup with OpenSpec includes these workflow files.
 AGENTS.md                               # Managed workflow links
 .agents/skills/change-prepare/SKILL.md  # Prepare a change and obtain approvals
 .agents/skills/change-deliver/SKILL.md  # Implement and verify the change
-.rigup/manifest.json                    # Ownership and baseline references
+.rigup/manifest.json                    # Installer metadata for updates and recovery
 ```
 
 ## Quick start
@@ -49,6 +51,8 @@ rigup init
 
 The guide asks for missing choices, including the language of generated project documents. With a development workflow selected, the default first-run option installs the base workflow without model calls. Use `rigup update --review` to prepare project rules later with your existing Codex login. Pass `--language zh-CN` to choose Simplified Chinese, or use the default `auto` to follow the project's guidance.
 
+Selecting OpenSpec checks its CLI and project entry points right away. Confirm automatic setup to install the pinned OpenSpec CLI in a writable npm prefix on PATH and add missing native files. If you prepare the prerequisites manually, rerun `rigup init` to resume your host and OpenSpec selections.
+
 This non-interactive command previews a minimal setup without model calls.
 
 ```sh
@@ -57,7 +61,7 @@ rigup init --agents codex --sdd none --tools none --dry-run --json
 
 ### 3. Review and use the installed workflow
 
-In review mode, inspect the preview and end any affected agent sessions. Run the reported `nextCommand` from a separate terminal, then reopen the agent. Where a native workflow is configured, start with the installed `change-prepare` and `change-deliver` skills. `rigup doctor` reports setup and reload status. [Apply and recovery](docs/guides/usage.md#应用与恢复)
+From an independent terminal, you can approve the OpenSpec foundation preview in the same session. In review mode, inspect the preview and end any affected agent sessions. Run the reported `nextCommand` from a separate terminal, then reopen the agent. Use `change-prepare` to propose a change and `change-deliver` to implement and verify it after approval. [Apply and recovery](docs/guides/usage.md#应用与恢复)
 
 ## Project development rules
 
@@ -86,10 +90,10 @@ flowchart TD
 ## Integrations
 
 - Agent adapters cover Codex, Claude Code, OpenCode, and Oh My Pi. [Tested combinations](docs/compatibility/status.md)
-- Prepare the official Superpowers, OpenSpec, or Spec Kit entry points before selecting that workflow. [Workflow prerequisites](docs/guides/usage.md#命令与引导)
+- The first-run guide can set up OpenSpec. Superpowers and Spec Kit use the project's existing official entry points. [Workflow prerequisites](docs/guides/usage.md#命令与引导)
 - Rigup builds the CodeGraph index in staging and verifies it before promotion. It connects OpenWiki over MCP and hands off wiki generation to a separate session. [Tool setup](docs/guides/usage.md#openwiki-和-codegraph)
 
-Installed MCP runners, hooks, and CI scripts use Node on the consuming environment's PATH. [Platform and runtime requirements](docs/guides/releases.md)
+After setup, agents use their native workflow and MCP configuration, along with the project’s existing tools and checks. [Platform and runtime requirements](docs/guides/releases.md)
 
 ## Commands
 

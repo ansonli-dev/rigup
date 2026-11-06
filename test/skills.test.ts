@@ -13,7 +13,9 @@ test('installed_skills_do_not_invoke_rigup_and_preserve_native_human_gates',asyn
  for(const name of ['change-prepare','change-deliver']) {
   const text=await readFile(new URL('../templates/skills/'+name+'/SKILL.md',import.meta.url),'utf8');assert.doesNotMatch(text,/\brigup\b/);assert.match(text,/human.*gate|human approval/);assert.match(text,/budget/);assert.match(text,/hand ?off|hand.*over/i);assert.match(text,/scope/);
   assert.match(text,/\]\(references\/project\.md\)/);
-  assert.match(await readFile(new URL('../templates/skills/'+name+'/references/project.md',import.meta.url),'utf8'),/native workflow/i);
+  const reference=await readFile(new URL('../templates/skills/'+name+'/references/project.md',import.meta.url),'utf8');
+  assert.match(reference,/native workflow/i);
+  assert.doesNotMatch(reference,/\brigup (?:check|doctor|init|update)\b/);
  }
 });
 test('workflow checks reusable boundaries before planning and before editing',async()=>{
@@ -38,8 +40,8 @@ test('OpenSpec uses resolved project sources and exposes its optional revision e
  const assets=await renderFixed(profile,options,integration,[],[]);
  const preparation=assets.find(asset=>asset.target.endsWith('change-prepare/SKILL.md'))!.content;
  const reference=assets.find(asset=>asset.target.endsWith('change-prepare/references/project.md'))!.content;
- assert.match(preparation,/Scope the change[\s\S]*project development rules index[\s\S]*closest existing test[\s\S]*dependency order/);
- assert.match(reference,/Reuse current native workflow results[\s\S]*native-required status checks and dependency rereads/);
+ assert.match(preparation,/native inspection[\s\S]*Existing checks[\s\S]*dependency order[\s\S]*native dependency rereads/);
+ assert.match(reference,/Reuse the active change's native paths and completed discovery[\s\S]*Refresh state after writes/);
  assert.match(reference,/Native revise: openspec-update-change/);
  assert.match(reference,/local-proposal\/SKILL\.md/);
  assert.doesNotMatch(reference,/\.claude\//);

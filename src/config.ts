@@ -2,6 +2,7 @@ import {readFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {parse} from 'yaml';
 import type {SetupOptions} from './types.js';
+import {isCheckSelector} from './integrations/tools/check-catalog.js';
 
 async function readConfig(path: string, required = false): Promise<Record<string, unknown>> {
   let source: string;
@@ -32,13 +33,12 @@ export function validateOptions(value: Record<string, unknown>): void {
   }
   if (value.documentLanguage !== undefined) normalizeDocumentLanguage(value.documentLanguage);
   if(value.executionPolicy!==undefined){const p=value.executionPolicy as Record<string,unknown>;if(!p||typeof p!=='object'||Object.keys(p).some(k=>k!=='mode')||!['continuous','review'].includes(String(p.mode)))throw new Error('executionPolicy.mode: continuous or review required');}
-  const kinds=['build','lint','test','environment','eval'];
   if(value.quality!==undefined){
    const q=value.quality as Record<string,unknown>;if(!q||typeof q!=='object'||Array.isArray(q))throw new Error('quality: expected object');
    for(const key of Object.keys(q))if(!['preCommit','prePush','maxPushCommits','gitlab'].includes(key))throw new Error('quality.'+key+': unknown field');
-   for(const key of ['preCommit','prePush'])if(q[key]!==undefined&&(!Array.isArray(q[key])||(q[key] as unknown[]).some(k=>!kinds.includes(String(k)))))throw new Error('quality.'+key+': existing check kinds required');
+   for(const key of ['preCommit','prePush'])if(q[key]!==undefined&&(!Array.isArray(q[key])||(q[key] as unknown[]).some(k=>!isCheckSelector(k))))throw new Error('quality.'+key+': existing check kinds or {cwd, script} required');
    if(q.maxPushCommits!==undefined&&(!Number.isSafeInteger(q.maxPushCommits)||Number(q.maxPushCommits)<1))throw new Error('quality.maxPushCommits: positive integer required');
-   if(q.gitlab!==undefined){const g=q.gitlab as Record<string,unknown>;if(!g||typeof g!=='object'||Array.isArray(g)||Object.keys(g).some(k=>!['checks','reportPaths','openwiki'].includes(k))||!Array.isArray(g.checks)||g.checks.some(k=>!kinds.includes(String(k))))throw new Error('quality.gitlab: invalid selection');
+   if(q.gitlab!==undefined){const g=q.gitlab as Record<string,unknown>;if(!g||typeof g!=='object'||Array.isArray(g)||Object.keys(g).some(k=>!['checks','reportPaths','openwiki'].includes(k))||!Array.isArray(g.checks)||g.checks.some(k=>!isCheckSelector(k)))throw new Error('quality.gitlab: invalid selection');
     if(g.reportPaths!==undefined&&(!Array.isArray(g.reportPaths)||g.reportPaths.some(p=>typeof p!=='string'||p.startsWith('/')||p.split('/').includes('..')||p.includes('\\')||/[?*]/.test(p))))throw new Error('quality.gitlab.reportPaths: exact relative report paths required');
     if(g.openwiki!==undefined){const w=g.openwiki as Record<string,unknown>;if(!w||typeof w!=='object'||Object.keys(w).some(k=>!['envRefs','sourcePaths'].includes(k))||!Array.isArray(w.envRefs)||w.envRefs.some(v=>typeof v!=='string'||!/^[A-Z_][A-Z0-9_]*$/.test(v))||!Array.isArray(w.sourcePaths)||!w.sourcePaths.length||w.sourcePaths.some(p=>typeof p!=='string'||p.startsWith('/')||p.split('/').includes('..')||p.startsWith('openwiki/')||p==='**/*'))throw new Error('quality.gitlab.openwiki: explicit environment references and source-only paths required');}
    }

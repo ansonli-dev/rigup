@@ -7,8 +7,8 @@ import type {PreparedAsset,IntegrationPreparation} from '../integrations/registr
 import {digest} from '../analyzer/evidence.js';
 import {isOriginalGuidance,isProjectRulesId,isProjectRulesIndex,verifiedScopes,type GuidanceBinding} from './project-rules.js';
 import {markdownLinks} from './document-policy.js';
-import {quoteShell} from '../shell-command.js';
-export const TEMPLATE_VERSION='4';
+import {projectChecks} from '../integrations/tools/check-catalog.js';
+export const TEMPLATE_VERSION='7';
 const inline=(value:string)=>value.replace(/[\x00-\x1f\x7f]+/g,' ').replace(/[\\`*_\[\]<>]/g,'\\$&');
 const link=(from:string,to:string,label=to)=>`[${inline(label)}](${posix.relative(posix.dirname(from),to).split('/').map(part=>encodeURIComponent(part).replaceAll('(','%28').replaceAll(')','%29')).join('/')})`;
 function codeSpan(value:string):string {
@@ -34,7 +34,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
   const path=binding.sourceRef.path;
   reused.set(path,[...new Set([...(reused.get(path)??[]),...verifiedScopes(binding.scope,profile.files)])]);
  }
- const commandSources=new Set(Object.values(profile.commands).flat().map(command=>posix.join(command.cwd,'package.json')));
+ const checks=projectChecks(profile);
  const hookSources=profile.files.filter(path=>/(?:^|\/)(?:\.husky\/(?:pre-commit|pre-push)|\.pre-commit-config\.ya?ml|\.?lefthook\.ya?ml|\.?lintstagedrc(?:\.[a-z]+)?|lint-staged\.config\.[a-z]+)$/.test(path));
  const rules=semantic.find(isProjectRulesIndex);
  const add=(logicalId:string,target:string,content:string,ownership:PreparedAsset['ownership']={kind:'file'})=>result.push({logicalId,target,content,ownership,source:{kind:'fixed-template',ref:TEMPLATE_VERSION,digest:digest(content)}});
@@ -51,7 +51,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
    const lines=[reference.trimEnd(),'','## Installed workflow','',...(binding ? ['Native prepare: '+binding.prepare.join(', '),...(binding.revise?['Native revise: '+binding.revise]:[]),'Native deliver: '+binding.deliver.join(', '),'Native document routes: '+binding.artifacts.join(', '),...binding.gates] : options.sdd?['Native workflow prerequisites pending. Stop at the missing entry.']:['Use the explicitly selected customer workflow and preserve its approvals.']),...customerRefs.map(p=>'- '+link(refTarget,p,'Customer workflow'))];
    if(binding?.projectSources?.length)lines.push(...binding.projectSources.map(path=>'- '+link(refTarget,path)));
    for(const b of customerBindings)if(b.nativeName)lines.push('- Invoke existing native customer skill: '+inline(b.nativeName)+'. Preserve its gates.');
-   if(projectRulesPending)lines.push('','Project rules are pending. For the touched paths, read applicable AGENTS.md or CLAUDE.md files and repository contribution guidance. Use the checks below. Run rigup update to prepare verified project rules.');
+   if(projectRulesPending)lines.push('','Project rules are pending. For the touched paths, read applicable AGENTS.md or CLAUDE.md files and repository contribution guidance. Use the checks below.');
    if(rules||refs.length||reused.size){
     lines.push('','## Project guidance','');
     if(rules)lines.push('- Before planning or editing, use the scopes in the '+link(refTarget,rules.target,'project development rules index')+' to open the topics and original guidance that apply to the changed paths.');
@@ -61,32 +61,24 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
      lines.push('- '+link(refTarget,path)+(scope.length?' · '+inline(scope.join(', ')):''));
     }
    }
-   const sources=profile.files.filter(p=>commandSources.has(p)||hookSources.includes(p));
-   if(sources.length){
-    lines.push('','## Existing checks','',...sources.map(p=>'- '+link(refTarget,p)));
-    for(const [kind,commands] of Object.entries(profile.commands)) for(const command of commands) lines.push(`- Existing ${kind} in ${inline(command.cwd)} runs ${inline(JSON.stringify([command.executable,...command.args]))}.`);
-   }
-   if(profile.specializedChecks.length){
-    lines.push('','## Specialized checks','','Working directories are relative to the repository root. Select the checks relevant to the change and verify their prerequisites in project sources. Use the specialized invocation when it covers an existing check.');
-    for(const {command,source,tools,postgres} of profile.specializedChecks){
-     const run=[command.executable,...command.args].join(' ');
-     const fromRoot=command.cwd==='.'?'':'cd '+quoteShell('./'+command.cwd)+' && ';
-     lines.push(`- ${codeSpan(run)} from ${codeSpan(command.cwd)} · ${link(refTarget,source)}`);
-     if(tools?.includes('yarn'))lines.push('  - The script calls Yarn. Put the project’s Yarn version on PATH and verify it with '+codeSpan('yarn --version')+'.');
-     if(tools?.includes('playwright'))lines.push('  - Install the project’s Playwright browsers if missing with '+codeSpan('npm exec --yes=false -- playwright install')+' from this package directory after installing project dependencies. Check the Playwright configuration for local URLs and ports.');
-     if(tools?.includes('pm2')){
-      const check=tools.includes('yarn')?"(command -v yarn >/dev/null || { printf '%s\\n' 'Yarn is required on PATH' >&2; exit 127; }) && ":'';
-      const isolated="(pm2_bin=$(npm exec --offline --yes=false --call 'command -v pm2') && test -x \"$pm2_bin\" || { printf '%s\\n' 'Install the project dependencies first' >&2; exit 127; }; PM2_HOME=$(mktemp -d) || exit; export PM2_HOME; trap '\"$pm2_bin\" kill >/dev/null 2>&1' 0; "+run+')';
-      lines.push('  - The script starts a PM2 background process. From the repository root, use an isolated '+codeSpan('PM2_HOME')+' and stop that instance on exit with '+codeSpan(fromRoot+check+isolated)+'.');
-     }
-     if(postgres){
-      lines.push('  - Use a reachable, dedicated PostgreSQL test database and load the project test environment in the authorized terminal. See '+link(refTarget,postgres.config)+'.');
-      if(postgres.guard)lines.push('  - '+link(refTarget,postgres.guard)+' requires that the database name contain '+codeSpan('test')+'. Confirm the resolved database before migrations or tests.');
-      const migration=postgres.migration?'npm run '+postgres.migration+' && ':'';
-      if(postgres.runInBand)lines.push('  - Run these Jest suites serially when they share the test database. Run separate database checks one at a time when they use the same fixtures.');
-      lines.push('  - After confirming the test target and environment, run from the repository root '+codeSpan(fromRoot+migration+run)+'. If the agent sandbox blocks loopback, copy this command to the authorized terminal and bring back the exit status and test summary.');
-     }
+   if(checks.length||hookSources.length){
+    lines.push('','## Existing checks','','Working directories are relative to the repository root.');
+    for(const {command,source,tools,postgres} of checks){
+     const run=codeSpan([command.executable,...command.args].join(' '));
+     const prerequisite=postgres?' · dedicated PostgreSQL test database':tools?.includes('playwright')?' · Playwright environment':'';
+     lines.push('- '+run+' from '+codeSpan(command.cwd)+' · '+link(refTarget,source)+prerequisite);
+     if(name==='change-prepare')continue;
+     if(tools?.includes('yarn'))lines.push('  - Put the project’s Yarn version on PATH and verify it with '+codeSpan('yarn --version')+'.');
+     if(tools?.includes('playwright'))lines.push('  - Install missing Playwright browsers in this package with '+codeSpan('npm exec --yes=false -- playwright install')+'. Check the Playwright configuration for local URLs and ports.');
+     if(tools?.includes('pm2'))lines.push('  - Use a private temporary '+codeSpan('PM2_HOME')+' for this run. After the check, stop that instance with '+codeSpan('npm exec --offline --yes=false -- pm2 kill')+' from the same directory and environment.');
+     if(postgres?.guard){
+      lines.push('  - Load the project test environment in the authorized terminal. Verify the reachable, dedicated PostgreSQL test database in '+link(refTarget,postgres.config)+'.');
+      lines.push('  - '+link(refTarget,postgres.guard)+' requires that the database name contain '+codeSpan('test')+'. Confirm it before migrations or tests.');
+      if(postgres.migration)lines.push('  - Run '+codeSpan('npm run '+postgres.migration)+' in '+codeSpan(command.cwd)+' against the confirmed test database, then run the listed test in its working directory.');
+      if(postgres.runInBand)lines.push('  - Run suites and separate checks sharing this database one at a time.');
+     }else if(postgres)lines.push('  - Verify the project’s test setup and its database guard before running the test or any migrations. Use a dedicated PostgreSQL test database in the authorized terminal.');
     }
+    if(hookSources.length)lines.push('','Check triggers',...hookSources.map(path=>'- '+link(refTarget,path)));
    }
    if(options.projectConventions?.tracker)lines.push('','Tracker convention '+inline(JSON.stringify(options.projectConventions.tracker)));
    if(options.projectConventions?.documentRoutes)lines.push('','Document destinations '+inline(JSON.stringify(options.projectConventions.documentRoutes)));

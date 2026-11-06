@@ -1,7 +1,7 @@
 export type Agent = 'claude' | 'codex' | 'opencode' | 'omp';
 export interface SetupOptions {
   agents: Agent[];
-  quality?:{preCommit?:CheckKind[];prePush?:CheckKind[];maxPushCommits?:number;gitlab?:{checks:CheckKind[];reportPaths?:string[];openwiki?:{envRefs:string[];sourcePaths:string[]}}};
+  quality?:{preCommit?:CheckSelector[];prePush?:CheckSelector[];maxPushCommits?:number;gitlab?:{checks:CheckSelector[];reportPaths?:string[];openwiki?:{envRefs:string[];sourcePaths:string[]}}};
   customer?:{commands?:Record<string,CommandSpec>;envRefs?:string[];deployment?:{adapter:string;target:string;authorizationReference:string;recoveryRunbook:string}};
   sdd?: 'superpowers'|'openspec'|'spec-kit';
   tools?: {id:'openwiki'|'codegraph';install:boolean;initialize:boolean;agents:Agent[]}[];
@@ -50,3 +50,5 @@ export interface SetupRequirement {integrationId:string;reason:string;nextComman
 export interface SetupPlan {projectRules?:ProjectRulesStatus;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
 
 export type CheckKind='build'|'lint'|'test'|'environment'|'eval';
+export interface NpmScript {cwd:string;script:string}
+export type CheckSelector=CheckKind|NpmScript;

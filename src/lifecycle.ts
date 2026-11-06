@@ -8,7 +8,6 @@ import {quoteShell as quote} from './shell-command.js';
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
-import {runProjectChecks} from './integrations/tools/quality.js';
 import type {SetupOptions,CheckKind,SetupPlan} from './types.js';
 import type {AnalysisBackend,ResearchResult} from './analyzer/backend.js';
 import {scanRepository,repositoryReader} from './analyzer/repository.js';
@@ -30,7 +29,7 @@ import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
 import {apply,interruptedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
 export interface LifecycleFlags {deferResearch?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
-export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;report?:(value:Record<string,unknown>)=>void}
+export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:()=>Promise<boolean>;report?:(value:Record<string,unknown>)=>void}
 interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string}
 async function readRun(path:string,root:string,consent:string):Promise<Run|undefined>{
  const run=await readDurableRecord<Run>(path,'Durable research run');
@@ -53,7 +52,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  let review=flags.review||flags.deferResearch;
  let researchResumeId:string|undefined;
  const handoff=async(result:Preview):Promise<boolean>=>{
-  if(!review&&!await sessionHandoffRequired(root,flags.sessionsEnded))return false;
+  const affected=await sessionHandoffRequired(root,flags.sessionsEnded);
+  if(!affected&&(!review||await services.confirmPreview?.()))return false;
   const nextCommand='rigup update '+quote(root)+' --apply '+result.previewId+' --sessions-ended'+(flags.resume?' --resume':'');
   emit({stage:'apply',completed:0,status:'waiting',requiresUserAction:true,waiting:'review / affected host session exit',next:'independent terminal apply'});services.report?.({phase:'handoff',installStatus:'pending',...result,pending:['End affected sessions / review the concrete preview'],nextCommand});write('Pending review/session handoff. End affected sessions, then run from an independent terminal:\n'+nextCommand+'\n');return true;
  };
@@ -112,6 +112,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
      {versions:{prompt:'8',template:'2',document:'1',read:'6'},label:'previous topic evidence contract',build:'the previous Rigup build'},
      {versions:{prompt:'9',template:'2',document:'1',read:'6'},label:'previous evidence and template contract',build:'the previous Rigup build'},
      {versions:{prompt:'10',template:'3',document:'1',read:'6'},label:'v0.2.0 evidence and template contract',build:'v0.2.0'},
+     {versions:{prompt:'10',template:'4',document:'1',read:'6'},label:'v0.2.1 evidence and template contract',build:'v0.2.1'},
     ];
     const priorFingerprint=options.sdd==='openspec'?(await scanRepository(root,options,{legacyOpenSpecDiscovery:true})).fingerprint:input.fingerprint;
     const candidates=priorFingerprint===input.fingerprint?[input]:[input,{...input,fingerprint:priorFingerprint}];
@@ -181,10 +182,10 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(!result.executable)return result.items.some(i=>i.action==='conflict')||!plan.requirements.length?1:3;
   if(flags.dryRun)return 0;
   if(await handoff(result))return 3;
-  const installed=await apply(result.previewId,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,onProgress:emit,recover:flags.resume,signal:services.signal,runChecks:services.runChecks??(flags.runChecks?.length?async()=>runProjectChecks(await scanRepository(root,options),flags.runChecks!,services.signal):undefined)});
+  const installed=await apply(result.previewId,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,onProgress:emit,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});
   services.report?.({phase:'apply',installStatus:installed.status,...installed});
   for(const warning of installed.warnings)write('Pending/note: '+warning+'\n');
-  if(installed.nextCommand)write('Project rules pending. Continue with '+installed.nextCommand+'\n');
+  if(installed.nextCommand)write('工作流已可用。重开 agent 后用 change-prepare 发起提案。可选的项目规则生成命令：'+installed.nextCommand+'\n');
   write('Install '+installed.status+'; written '+installed.written.length+'; checks '+installed.checks.map(c=>c.name+':'+c.status).join(', ')+'\n');return installed.exitCode;
  }catch(error){
   if(error instanceof CodexTokenLimit&&researchResumeId){
