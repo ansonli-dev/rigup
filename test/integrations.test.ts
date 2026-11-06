@@ -39,21 +39,28 @@ test('custom_skill_copies_resources_without_execution',()=>project(async root=>{
  await assert.rejects(access(join(root,'must-not-exist')));
 }));
 import {prepareCustomerMcp} from '../src/integrations/tools/customer-mcp.js';
+test('Codex MCP configuration starts the project command directly',()=>project(async root=>{
+ const {parse}=await import('smol-toml');
+ const prepared=await prepareCustomerMcp(root,{id:'direct',agents:['codex'],command:{executable:'node',args:['server.mjs'],cwd:'.',envRefs:['TEAM_TOKEN']}});
+ assert.equal(prepared.assets.length,1);
+ const entry=(parse(prepared.assets[0].content) as any).mcp_servers.direct;
+ assert.deepEqual({...entry},{command:'node',args:['server.mjs'],cwd:root,env_vars:['TEAM_TOKEN']});
+}));
 test('customer_mcp_maps_four_hosts_without_starting_server',()=>project(async root=>{
  const prepared=await prepareCustomerMcp(root,{id:'customer-knowledge',agents:['claude','codex','opencode','omp'],command:{executable:'node',args:['server.mjs'],cwd:'.',envRefs:['TEAM_TOKEN']}});
  assert.equal(prepared.operations.length,0);
  assert.deepEqual(prepared.assets.filter((a:any)=>a.logicalId.startsWith('mcp:')).map((a:any)=>a.target).sort(),['.codex/config.toml','.mcp.json','.omp/mcp.json','opencode.jsonc']);
  const claude=prepared.assets.find((a:any)=>a.target === '.mcp.json');const entry=JSON.parse(claude.content);assert.equal(entry.command,'node');assert.equal(entry.env.TEAM_TOKEN,'${TEAM_TOKEN}');
- assert.equal(prepared.assets.some((a:any)=>a.target.endsWith('customer-knowledge.mjs')),true);
+ assert.ok(prepared.assets.every(a=>a.logicalId.startsWith('mcp:')));
 }));
-test('rendered_mcp_runner_uses_declared_module_cwd_without_rigup_imports',()=>project(async root=>{
+test('native_mcp_config_uses_the_declared_module_cwd',()=>project(async root=>{
  const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile}=await import('node:fs/promises');
+ const {parse}=await import('smol-toml');
  await mkdir(join(root,'packages/a'),{recursive:true});
  await writeFile(join(root,'packages/a/server.mjs'),"import {writeFileSync} from 'node:fs';writeFileSync('observed.txt',process.cwd());");
  const prepared=await prepareCustomerMcp(root,{id:'fixture',agents:['codex'],command:{executable:process.execPath,args:['server.mjs'],cwd:'packages/a',envRefs:[]}});
- const runner=prepared.assets.find(a=>a.logicalId === 'mcp-runner:fixture')!;
- await mkdir(join(root,'.rigup/mcp'),{recursive:true});await writeFile(join(root,runner.target),runner.content);
- await promisify(execFile)(process.execPath,[join(root,runner.target)]);
+ const entry=(parse(prepared.assets[0].content) as any).mcp_servers.fixture;
+ await promisify(execFile)(entry.command,entry.args,{cwd:entry.cwd});
  assert.equal(await readFile(join(root,'packages/a/observed.txt'),'utf8'),join(root,'packages/a'));
 }));
 test('mcp_rejects_embedded_credentials_and_path_escape',()=>project(async root=>{
@@ -92,8 +99,12 @@ test('prepare_plans_protected_tool_initialization_and_rejects_unknown_adapter',(
 test('multi_agent_openwiki_uses_separate_host_arguments_without_collision',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const prepared=await prepareIntegrations(profile,{agents:['claude','codex'],backend:'host',tools:[{id:'openwiki',install:false,initialize:false,agents:['claude','codex']}]});
- assert.equal(prepared.assets.filter(a=>a.logicalId.startsWith('mcp:')).length,2);
- assert.equal(prepared.assets.filter(a=>a.logicalId.startsWith('mcp-runner:')).length,2);
+ assert.equal(prepared.assets.length,2);
+ const {parse}=await import('smol-toml');
+ const claude=prepared.assets.find(a=>a.target==='.mcp.json')!;
+ const codex=prepared.assets.find(a=>a.target==='.codex/config.toml')!;
+ assert.deepEqual(JSON.parse(claude.content).args,['mcp','--host','claude']);
+ assert.deepEqual((parse(codex.content) as any).mcp_servers.openwiki.args,['mcp','--host','codex']);
 }));
 test('software_install_requires_new_empty_owned_scope',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
@@ -106,13 +117,14 @@ test('software_install_requires_new_empty_owned_scope',()=>project(async root=>{
 }));
 test('selected_project_install_is_the_executable_used_by_mcp',()=>project(async root=>{
  const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {chmod,readFile}=await import('node:fs/promises');
+ const {parse}=await import('smol-toml');
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const prepared=await prepareIntegrations(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:false,agents:['codex']}]});
- const runner=prepared.assets.find(a=>a.logicalId.startsWith('mcp-runner:'))!;
+ const entry=(parse(prepared.assets[0].content) as any).mcp_servers.codegraph;
  const executable=join(root,'.rigup/tools/codegraph/node_modules/.bin/codegraph');await mkdir(join(root,'.rigup/tools/codegraph/node_modules/.bin'),{recursive:true});
  await writeFile(executable,'#!/usr/bin/env node\nrequire("node:fs").writeFileSync("used-project-tool","yes");\n');await chmod(executable,0o755);
- await mkdir(join(root,'.rigup/mcp'),{recursive:true});await writeFile(join(root,runner.target),runner.content);
- await promisify(execFile)(process.execPath,[join(root,runner.target)],{timeout:2000});
+ assert.equal(entry.command,executable);
+ await promisify(execFile)(entry.command,entry.args,{cwd:entry.cwd,timeout:2000});
  assert.equal(await readFile(join(root,'used-project-tool'),'utf8'),'yes');
 }));
 test('npm_software_recipe_installs_local_fixture_offline_without_lifecycle',()=>project(async root=>{
@@ -154,12 +166,13 @@ test('four_host_mcp_fragments_parse_in_their_declared_formats',()=>project(async
   else {const data=JSON.parse(asset.content);assert.equal(data.type,asset.target === 'opencode.jsonc' ? 'local' : 'stdio');}
  }
 }));
-test('mcp_runner_resolves_only_declared_environment_references_at_runtime',()=>project(async root=>{
- const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile}=await import('node:fs/promises');
- await writeFile(join(root,'server.mjs'),'import {writeFileSync} from "node:fs";writeFileSync("observed-token",process.argv[2]);');
- const prepared=await prepareCustomerMcp(root,{id:'environment-fixture',agents:['claude'],command:{executable:process.execPath,args:['server.mjs','${RIGUP_TEST_TOKEN}'],cwd:'.',envRefs:['RIGUP_TEST_TOKEN']}});
- const runner=prepared.assets.find(a=>a.logicalId.startsWith('mcp-runner:'))!;await mkdir(join(root,'.rigup/mcp'),{recursive:true});await writeFile(join(root,runner.target),runner.content);
- await promisify(execFile)(process.execPath,[join(root,runner.target)],{env:{...process.env,RIGUP_TEST_TOKEN:'fixture-ephemeral-token'}});
- assert.equal(await readFile(join(root,'observed-token'),'utf8'),'fixture-ephemeral-token');
- assert.doesNotMatch(runner.content,/fixture-ephemeral-token/);
+test('mcp_environment_references_use_native_host_expansion_or_require_setup',()=>project(async root=>{
+ const command={executable:process.execPath,args:['server.mjs','${RIGUP_TEST_TOKEN}'],cwd:'.',envRefs:['RIGUP_TEST_TOKEN']};
+ const prepared=await prepareCustomerMcp(root,{id:'environment-fixture',agents:['claude','codex'],command});
+ assert.equal(prepared.assets.length,1);
+ assert.deepEqual(JSON.parse(prepared.assets[0].content).args,command.args);
+ assert.deepEqual(JSON.parse(prepared.assets[0].content).env,{RIGUP_TEST_TOKEN:'${RIGUP_TEST_TOKEN}'});
+ assert.equal(prepared.requirements[0].integrationId,'mcp:codex:environment-fixture');
+ assert.match(prepared.requirements[0].reason,/reads environment variables directly/);
+ await assert.rejects(prepareCustomerMcp(root,{id:'environment-fixture',agents:['claude'],command:{...command,envRefs:[]}}),/declare each environment reference/);
 }));

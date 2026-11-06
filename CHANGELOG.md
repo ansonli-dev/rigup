@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2 · 2026-11-06 · Development preview
+
+- Check the OpenSpec CLI and project entry points as soon as users select OpenSpec. With approval, install the pinned CLI and add missing native files. Resume saved choices after manual preparation.
+- Apply the reviewed OpenSpec foundation in the same terminal session. Begin proposing changes with the agent as soon as initialization finishes.
+- Run development through native workflow skills and project commands. Record verification in native tasks and test reports. Reuse project-owned Git hooks and configure MCP and GitLab directly.
+- Preserve local configuration during updates and resume partially written native configuration. Upgrade previews identify managed launchers and scripts that can be retired.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.2.2) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.2.2)
+
 ## 0.2.1 · 2026-11-06 · Development preview
 
 - Default to a model-free foundation in the interactive first run. Show the pinned OpenSpec initialization command when required native entries are missing.

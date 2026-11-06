@@ -2,7 +2,7 @@ import {discoverNativeSources,nativeSkillMetadata,type NativeDiscoveryOptions} f
 import {agents} from '../integrations/agents/index.js';
 import type {Agent} from '../types.js';
 import {readdir,readFile,realpath,stat,lstat} from 'node:fs/promises';
-import {join,relative,dirname,posix} from 'node:path';
+import {join,relative,dirname} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import type {SetupOptions,CommandSpec} from '../types.js';
@@ -10,7 +10,7 @@ import {projectInput,type Ownership} from '../managed-input.js';
 import {digest,safePath,sliceEvidence,type EvidenceRead,type ReadEvidence} from './evidence.js';
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
 import type {SearchSelection} from './backend.js';
-import {checkPrerequisites,hasTestDatabaseGuard,linkDatabaseGuards,type SpecializedCheck} from './check-prerequisites.js';
+import {checkPrerequisites,hasTestDatabaseGuard,jestSetupPath,linkDatabaseGuards,type SpecializedCheck} from './check-prerequisites.js';
 const exec=promisify(execFile);
 const specializedScripts=['test:e2e','test-e2e','check-types','typecheck','deps:validate','test'];
 export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
@@ -28,6 +28,9 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
  }catch{/* Non-Git repositories are valid. */}
  const managed=await loadManaged(root,profile);
  const inputs:string[]=[];let bytes=0;
+ const quality=options.quality;
+ const configuredScripts=[...(quality?.preCommit??[]),...(quality?.prePush??[]),...(quality?.gitlab?.checks??[])]
+  .filter(ref=>typeof ref!=='string');
  const jestSetups=new Map<string,string>(),testGuards=new Set<string>();
  const maxFiles=options.readBudget?.maxFiles ?? 2000;const maxBytes=options.readBudget?.maxBytes ?? 8_000_000;
  async function walk(dir:string):Promise<void>{
@@ -37,7 +40,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    if(generatedScopes.some(scope=>path===scope||path.startsWith(scope+'/')))continue;
    if(options.scope?.length && !options.scope.some(s=>path === s || path.startsWith(s+'/') || s.startsWith(path+'/'))) continue;
    if((managed.get(path)??[]).some(o=>o.kind==='file')) continue;
-   if(path.startsWith('.rigup/baseline/')||path === '.rigup/manifest.json'||path === '.rigup/config.yaml'||path.startsWith('.rigup/tools/')) continue;
+   if(path.startsWith('.rigup/baseline/')||path === '.rigup/manifest.json'||path === '.rigup/config.yaml'||path.startsWith('.rigup/tools/')||path==='.rigup/check-results') continue;
    if(entry.isSymbolicLink()){profile.unknowns.push(path+': symlink skipped');continue;}
    if(entry.isDirectory()){await walk(file);continue;}
    if(!entry.isFile()) continue;
@@ -72,8 +75,8 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    if(/\.[cm]?[jt]s$/.test(entry.name)&&hasTestDatabaseGuard(visible))testGuards.add(path);
    if(/jest.*\.json$/i.test(entry.name)){
     try{
-     const setup=JSON.parse(visible).globalSetup;
-     if(typeof setup==='string'&&/^<rootDir>\/[\w./-]+$/.test(setup)&&!setup.split('/').includes('..'))jestSetups.set(path,posix.join(dirname(path),setup.slice('<rootDir>/'.length)));
+     const setup=jestSetupPath(path,JSON.parse(visible).globalSetup);
+     if(setup)jestSetups.set(path,setup);
     }catch{/* Other JSON configuration has no recognized Jest setup. */}
    }
    if(entry.name === 'package.json') {
@@ -81,7 +84,8 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
      const manifest=JSON.parse(visible),{scripts}=manifest;
      const cwd=dirname(path);
      for(const kind of Object.keys(profile.commands))if(typeof scripts?.[kind]==='string')profile.commands[kind].push({executable:'npm',args:['run',kind],cwd,envRefs:[]});
-     for(const script of specializedScripts){
+     const checks=new Set([...specializedScripts,...configuredScripts.filter(ref=>ref.cwd===cwd).map(ref=>ref.script)]);
+     for(const script of checks){
       if(typeof scripts?.[script]!=='string'||!scripts[script].trim())continue;
       const command={executable:'npm',args:['run',script],cwd,envRefs:[]};
       profile.specializedChecks.push({command,source:path,...checkPrerequisites(scripts[script],manifest,cwd)});

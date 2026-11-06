@@ -3,8 +3,8 @@ import {prepareCustomer} from './gitlab/customer.js';
 import {prepareSoftwareInstall} from './tools/software.js';
 import {prepareNativeInitialization} from './tools/initialization.js';
 import type {SetupOperation,SetupRequirement} from '../types.js';
-import {quoteShell} from '../shell-command.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
+import {lstat} from 'node:fs/promises';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
 import {collectCustomSkill} from './custom-skills.js';
 import {renderCustomerTemplate} from './custom-templates.js';
@@ -14,13 +14,14 @@ import type {Ownership} from '../managed-input.js';
 import {resolveSddBinding,resolveSkillSource,type SddBinding} from './sdd/binding.js';
 import {digest} from '../analyzer/evidence.js';
 import {loadUpstreamLock,requireRecipeEvidence} from './upstream.js';
+import {openspecPreparationCommand} from './sdd/openspec.js';
 export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVersion,type Recipe} from './upstream.js';
 export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
 export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
 export async function prepareIntegrations(profile:import('../analyzer/repository.js').ProjectProfile,options:import('../types.js').SetupOptions):Promise<IntegrationPreparation>{
- const lock=await loadUpstreamLock();const assets:PreparedAsset[]=[];const operations:SetupOperation[]=[];const warnings:string[]=[];const requirements:IntegrationPreparation['requirements']=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
+ const [lock,quality]=await Promise.all([loadUpstreamLock(),prepareQuality(profile,options)]);const assets:PreparedAsset[]=[];const operations:SetupOperation[]=[];const warnings:string[]=[];const requirements:IntegrationPreparation['requirements']=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
  const requireKnown=(id:string)=>{const recipe=lock.find(r=>r.integrationId === id);if(!recipe) throw new Error('unsupported integration: '+id);requireRecipeEvidence(recipe);return recipe;};
  for(const agent of options.agents) {if(!Object.hasOwn(agents,agent)) throw new Error('unknown agent');requireKnown(agent);}
  const push=(added:PreparedAsset[])=>{
@@ -32,7 +33,7 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   }
  };
  if(options.sdd) {
-  const recipe=requireKnown(options.sdd);
+  requireKnown(options.sdd);
   for(const agent of options.agents) {
    try {
     const {binding,warnings:bindingWarnings}=resolveSddBinding(options.sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
@@ -42,22 +43,22 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
    }
    catch(error){
     const reason=(error as Error).message;
-    const nextCommand=options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')&&['codex','claude','opencode'].includes(agent)
-     ?'cd '+quoteShell(profile.root)+' && npx --yes @fission-ai/openspec@'+recipe.version+' init --tools '+agent+' --profile core --no-copilot-cloud':undefined;
+    const nextCommand=options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')
+     ?openspecPreparationCommand(profile.root,options.agents):undefined;
     requirements.push({integrationId:options.sdd,reason,...(nextCommand?{nextCommand}:{})});
    }
   }
  }
  for(const input of options.mcp ?? []) {
   if(input.agents.some(a=>!options.agents.includes(a))) throw new Error('MCP target agent not selected');
-  const prepared=await prepareCustomerMcp(profile.root,input);push(prepared.assets);warnings.push(...prepared.warnings);
+  const prepared=await prepareCustomerMcp(profile.root,input);push(prepared.assets);warnings.push(...prepared.warnings);requirements.push(...prepared.requirements);
  }
  for(const selection of options.tools ?? []) {
   const recipe=requireKnown(selection.id);const tool=selection.id === 'openwiki' ? openwiki : selection.id === 'codegraph' ? codegraph : undefined;
   if(!tool) throw new Error('unsupported executable adapter');
   if(selection.agents.some(a=>!options.agents.includes(a))) throw new Error('tool MCP target agent not selected');
   for(const agent of selection.agents) {
-   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable:selection.install||selection.initialize&&!!profile.installedTools?.[tool.id] ? resolve(profile.root,'.rigup/tools/'+tool.id+'/node_modules/.bin/'+tool.software) : tool.software,args:tool.mcpArgs(agent),cwd:'.',envRefs:[]}},tool.id+'-'+agent);push(prepared.assets);
+   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable:selection.install||selection.initialize&&!!profile.installedTools?.[tool.id] ? resolve(profile.root,'.rigup/tools/'+tool.id+'/node_modules/.bin/'+tool.software) : tool.software,args:tool.mcpArgs(agent),cwd:'.',envRefs:[]}});push(prepared.assets);requirements.push(...prepared.requirements);
   }
   warnings.push(tool.id+': binary '+recipe.version+' availability and native connection pending');
   let installed=false;
@@ -91,11 +92,12 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
  const roots=[context,...assets.filter(a=>a.target.endsWith('/SKILL.md')).map(a=>a.target.slice(0,-9)+'/references')];
  for(const template of options.templates ?? []) push([await renderCustomerTemplate(profile.root,template,roots,'change-deliver:review')]);
  if(options.projectConventions?.tracker) warnings.push('Tracker convention recorded; executable tracker adapter is pending');
- const quality=await prepareQuality(profile,options);push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
+ push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
  if(profile.git.available&&(assets.length||bindings.length)){
   const ownership={kind:'block' as const,start:'# rigup:start',end:'# rigup:end'};
-  const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/',ownership.end,''].join('\n');
+  const legacyResults=await lstat(resolve(profile.root,'.rigup/check-results')).then(()=>true).catch(error=>{if(error.code!=='ENOENT')throw error;return false;});
+  const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/',...(legacyResults?['/check-results/']:[]),ownership.end,''].join('\n');
   push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
  }
  for(let i=operations.length-1;i>=0;i--) {

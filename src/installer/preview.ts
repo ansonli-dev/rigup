@@ -29,7 +29,7 @@ export interface PreviewResolution {target:string;selector:Ownership;observedDig
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
 export interface Preview {projectRules?:SetupPlan['projectRules'];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number}
-export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;nativeDiscoveryVersion?:1;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
+export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
 export async function readTarget(root:string,target:string):Promise<Buffer|undefined>{return (await readFileState(root,target)).bytes;}
 export async function loadPreview(previewId:string,cacheRoot=defaultPreviewCache()):Promise<PreviewData>{
@@ -51,7 +51,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const entries:{candidate?:PreparedAsset;old?:ManagedAsset;action:'update'|'remove'|'retain'|'pending'}[]=[];
  for(const asset of inputAssets){
   if(asset.mode!==undefined&&(!Number.isInteger(asset.mode)||asset.mode<0||asset.mode>0o777||asset.ownership.kind!=='file'))throw Error('managed file mode requires ordinary permissions and full-file ownership');
-  if(asset.target==='.rigup/manifest.json'||asset.target.startsWith('.rigup/baseline/'))throw new Error('installer metadata target reserved');
+  if(asset.target==='.rigup/manifest.json'||asset.target.startsWith('.rigup/baseline/')||asset.target==='.rigup/check-results'||asset.target.startsWith('.rigup/check-results/'))throw new Error('installer metadata target reserved');
   const prior=old.find(a=>a.logicalId===asset.logicalId)??old.find(a=>a.target===asset.target&&signature(a.ownership)===signature(asset.ownership)&&plan.dispositions.some(d=>d.logicalId===a.logicalId&&d.action==='retire'));
   if(prior&&(prior.target!==asset.target||signature(prior.ownership)!==signature(asset.ownership)))throw new Error('logicalId target/selector changed; explicit old retirement and new identity required');
   const disposition=plan.dispositions.find(d=>d.logicalId===asset.logicalId);
@@ -138,7 +138,6 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   let text:string|undefined;try{text=ownedContent(file.text,asset.ownership);}catch{continue;}
   if(text===undefined){blockers.push(asset.target+': required owned binding missing');continue;}
   if(entry.candidate&&['quality-template','customer-runtime'].includes(entry.candidate.source.kind)&&text!==entry.candidate.content)blockers.push(asset.target+': fixed executable/configuration binding changed; resolve against the deterministic candidate');
-  if(entry.candidate?.source.kind==='customer-mcp'&&asset.target.endsWith('.mjs')&&text!==entry.candidate.content)blockers.push(asset.target+': fixed MCP runner changed; resolve before apply');
   if(asset.target.endsWith('.md')) {
    try{validateTemplateContent(text);}catch{blockers.push(asset.target+': local content conflicts with mandatory workflow gate; regenerate or resolve');}
    for(const match of markdownLinks(text)){
@@ -166,18 +165,22 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
- const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan),files,assets:nextAssets,baselines:baselineRecords};
+ const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:2,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan,{},allTargets),files,assets:nextAssets,baselines:baselineRecords};
  const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
  return publicPreview;
 }
 
-export async function installationInput(root:string,plan:SetupPlan,discovery:NativeDiscoveryOptions={}):Promise<string>{
- const scopes=plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites);
- const profile=await scanRepository(root,plan.options,discovery,scopes);const old=(await loadManifest(root))?.assets??[];const values:string[]=[];
+export async function installationInput(root:string,plan:SetupPlan,discovery:NativeDiscoveryOptions={},managedTargets?:string[]):Promise<string>{
+ // The apply journal verifies whole managed files, including customer content.
+ // Keep those files out of the source snapshot so partial writes can resume.
+ const scopes=[...plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites),...(managedTargets??[])];
+ const profile=await scanRepository(root,plan.options,discovery,scopes);
+ const legacyAssets=managedTargets?[]:[...(await loadManifest(root))?.assets??[],...plan.assets];
+ const values:string[]=[];
  for await(const {target:path,state} of readFileStates(root,profile.files)) {
   if(!state.bytes)throw Error('source input changed while preparing installation');
   const raw=state.bytes.toString('utf8');
-  const selectors=[...old,...plan.assets].filter(a=>a.target===path).map(a=>a.ownership);
+  const selectors=legacyAssets.filter(a=>a.target===path).map(a=>a.ownership);
   const unique=[...new Map(selectors.map(s=>[signature(s),s])).values()];
   const present=unique.filter(s=>ownedContent(raw,s)!==undefined);
   const text=projectInput(raw,present);if(text!==null)values.push(path+'\0'+digest(text));

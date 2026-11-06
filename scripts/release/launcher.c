@@ -46,6 +46,7 @@ int main(int argc, char **argv) {
     char **args = calloc((size_t)argc + 2, sizeof(char *));
     if (!path || !args) { fprintf(stderr, "rigup: out of memory\n"); return 127; }
     snprintf(path, path_length, "%s%s%s", runtime, old_path && *old_path ? ":" : "", old_path ? old_path : "");
+    if (setenv("RIGUP_CONSUMER_PATH", old_path ? old_path : "", 1) != 0) { perror("rigup: consumer PATH"); return 127; }
     if (setenv("PATH", path, 1) != 0) { perror("rigup: PATH"); return 127; }
     args[0] = node; args[1] = script;
     for (int i = 1; i < argc; i++) args[i + 1] = argv[i];

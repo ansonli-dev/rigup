@@ -15,7 +15,7 @@ npm audit --audit-level=low
 - `src/cli.ts`, `src/onboarding.ts`, and `src/config.ts` handle the command, guide, and settings.
 - `src/analyzer/` filters and scopes evidence. `src/generator/` prepares validated candidate assets.
 - `src/installer/` handles preview, ownership, apply, and recovery. `src/integrations/` binds native entry points and pinned tools.
-- `templates/` contains installed skills and standalone scripts. `scripts/release/` builds and verifies portable distributions.
+- `templates/` contains installed skills and their references. `scripts/release/` builds and verifies portable distributions.
 
 ## Opt-in integrations
 
@@ -51,7 +51,7 @@ RIGUP_LIVE_GITLAB=1 RIGUP_GITLAB_HOST=http://127.0.0.1:42880 \
   node --import tsx --test test/live-gitlab.test.ts
 ```
 
-The probe checks real include resolution, snapshot reports, failed checks, wiki push guards, and the missing-model pending report. Validate a target GitLab separately with its own permissions and runner.
+The probe checks real include resolution, native JUnit reports, failed checks, wiki push guards, and the missing-model job failure. Validate a target GitLab separately with its own permissions and runner.
 
 ## Release checklist
 

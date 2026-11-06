@@ -12,7 +12,7 @@ try {
   const packed = await exec('npm', ['pack', '--json', '--pack-destination', workspace], {cwd: source, timeout: 120_000, maxBuffer: 2_000_000});
   const [archive] = JSON.parse(packed.stdout);
   const paths = archive.files.map(file => file.path);
-  for (const required of ['LICENSE', 'README.md', 'README.zh-CN.md', 'docs/guides/usage.md', 'docs/compatibility/status.md', 'docs/compatibility/upstream-lock.json', 'templates/scripts/check-snapshot.mjs', 'dist/cli.js']) {
+  for (const required of ['LICENSE', 'README.md', 'README.zh-CN.md', 'docs/guides/usage.md', 'docs/compatibility/status.md', 'docs/compatibility/upstream-lock.json', 'dist/integrations/tools/project-check.mjs', 'dist/cli.js']) {
     assert.ok(paths.includes(required), `distribution is missing ${required}`);
   }
   assert.ok(!paths.some(path => /(^|\/)(?:\.DS_Store|\.superpowers|node_modules|test)(?:\/|$)/.test(path) || path.startsWith('docs/compatibility/evidence/')), 'distribution contains private scratch or fixtures');

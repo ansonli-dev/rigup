@@ -15,7 +15,11 @@ rigup doctor
 
 省略路径时使用当前目录。交互终端保留已给的选项并补问缺少的设置，按 `b` 返回。`update --configure` 重新打开设置引导。`--json` 使用非交互模式，stdout 输出一个最终 JSON 对象，进度走 stderr。
 
-`--dry-run` 保存私有候选和预览。选中研发流程时，生成完整规则的 dry-run 仍会请求模型。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。选用 Superpowers、OpenSpec 或 Spec Kit 前，按对应框架准备官方入口。缺少可识别的 OpenSpec 入口时，报告会给出在目标目录初始化所选宿主的命令。初始化后再运行 Rigup。[验证范围](../compatibility/status.md) · [上游版本与入口](../compatibility/upstream-lock.json)
+`--dry-run` 保存私有候选和预览。选中研发流程时，生成完整规则的 dry-run 仍会请求模型。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Superpowers 和 Spec Kit 使用项目已有的官方入口。[验证范围](../compatibility/status.md) · [上游版本与入口](../compatibility/upstream-lock.json)
+
+首次选择 OpenSpec 后，Rigup 检查 PATH 中的 CLI、项目的 OpenSpec 根和所选宿主的工作流入口。缺失时可确认自动补齐。Rigup 用 npm 安装锁定版本的 CLI，在临时目录生成原生文件并补入项目的空缺。已有项目配置和技能保留原样。自动安装使用用户终端里的 Node.js 22.12 或更新版本、npm 和 PATH 上可写的用户安装位置。便携版也按这个环境检查。
+
+在显式审阅或非交互设置中，缺少先决条件时可执行报告的 `nextCommand`。其中 `--prepare-openspec` 单独补齐原生依赖，使用同一套保护步骤保留已有项目文件。交互中选择手动准备后，可用报告里的续跑命令，也可回到项目执行 `rigup init` 继续已选择的宿主和 OpenSpec。
 
 ## 项目配置
 
@@ -36,18 +40,18 @@ mcp:
     agents: [codex]
     command:
       executable: node
-      args: [tools/knowledge-server.mjs, --token, '${DOCS_TOKEN}']
+      args: [tools/knowledge-server.mjs]
       cwd: .
       envRefs: [DOCS_TOKEN]
 ```
 
 - 用 `scope` 限定项目内相对路径，用 `readBudget.maxFiles` 和 `readBudget.maxBytes` 限制读取。`researchBudget` 约束本轮各阶段的累计用量。
-- MCP 的 `envRefs` 由 runner 启动时解析。配置里保存变量名，凭据由宿主环境提供。安装后重载 agent，再检查实际连接。
+- MCP 使用宿主原生的工作目录与环境变量配置。配置保存变量名，凭据由宿主环境提供。遇到宿主无法表达的参数展开或工作目录，选择项目已有的启动命令。安装后重载 agent，再检查实际连接。
 - `customSkills` 接受本地 `source` 目录，可用 `position` 绑定 `prepare`、`deliver` 或 `release`。`templates` 通过 `source`、`target` 和 `values` 为允许的文档或 skill 资源做标量替换。`change-release` 需要真实的客户部署适配器。
 
 ## 先安装工作流，再生成规则
 
-首次交互选择研发流程时，按 Enter 默认先安装工作流、稍后生成规则。也可以选择同时准备两部分。基础安装使用同样的预览和独立应用流程。应用结果和 doctor 会显示项目规则待生成。
+首次交互选择研发流程时，按 Enter 默认先安装工作流、稍后生成规则。也可以选择同时准备两部分。OpenSpec 的基础预览可在独立终端当场确认应用。需要结束宿主会话时，按报告里的命令交接。基础安装完成即可打开 agent 发起提案，生成额外的项目规则是后续选项。
 
 ```sh
 rigup init --defer-research --review
@@ -95,7 +99,7 @@ Rigup 比较上次生成的基线、本地文件和新候选。非重叠改动�
 
 升级前用生成预览的 Rigup 版本完成或核对中断的安装。研究续跑遇到中断安装时，会给出待处理的预览 ID。用该安装原有的审批完成恢复后，再继续研究。
 
-Git 项目应用集成后，`.rigup/.gitignore` 会排除本机安装回执、基线、软件和原生工具状态。项目配置和共享检查脚本仍可跟踪。
+Git 项目应用集成后，`.rigup/.gitignore` 会排除本机安装回执、基线、软件和原生工具状态。项目配置仍可跟踪。
 
 升级前，先用原版本续跑或对账未完成的语义研究。准备新预览时，会使用新版本的证据格式和独立的预算记录。
 
@@ -112,19 +116,14 @@ rigup init --agents codex --sdd none --tools openwiki,codegraph --review --json
 
 ## 工程检查和退出码
 
-`quality` 选择项目已有的检查。Git hooks 从 index 或实际推送的提交范围构建隔离快照，所选命令须能在快照内运行。
+初始化完成后，用 agent 打开项目，按原生工作流准备提案、审批和交付。项目参考列出已有命令、工作目录和对应的项目文件。任务直接记录这些信息。例如在 Hexagon 根目录运行 `npm run deps:validate`，从原生命令输出定位违规文件，修复后重跑同一命令。
 
-```yaml
-quality:
-  preCommit: [lint]
-  prePush: [test]
-  gitlab:
-    checks: [test]
-    reportPaths: [reports/junit.xml]
-```
+行为变更使用原生规格的场景和审批。任务记录实际命令与结果，并可链接项目测试报告或 CI 作业。数据库访问需要获准终端时，带上工作目录和已有准备条件。回到交付后读取项目测试报告，或记录退出状态和脱敏摘要。共享测试库检查按顺序运行。
 
-GitLab 使用拥有的 include 块。OpenWiki CI 需要固定版工具、既有初始化、显式 source 范围和模型配置。
+`quality.preCommit` 和 `quality.prePush` 核对已有且启用的项目 hook。项目自己的 hook 决定检查输入和执行方式。GitLab 作业在 CI 的提交检出中直接运行所选项目命令，`reportPaths` 指向项目原本生成的 JUnit 文件。需要专用数据库或进程的检查使用项目已有的 CI 作业。OpenWiki CI 由 runner 提供固定版本工具和所需环境变量。
 
-`rigup doctor` 默认只读。明确选择已有命令才会执行，例如 `rigup doctor --run-checks environment,test --json`。报告分开记录配置、安装、初始化和宿主重载。
+升级旧安装时，预览会列出待退役的旧启动包装器和检查脚本。旧 hook 由 Rigup 生成时，先把项目自有 hook 配置到项目自己的路径，再按预览的 `--retire` 提示处理旧的受管文件。已有验证记录仍可查阅。
+
+`rigup doctor` 用于可选的安装诊断。显式选择已有命令才会执行，例如 `rigup doctor --run-checks test --json`。
 
 退出码 `0` 表示当前阶段完成，`1` 为失败或冲突，`2` 为参数问题，`3` 为待办或交接，`130` 为取消。结合 `phase`、`installStatus`、`pending`、`conflicts` 和 `nextCommand` 判断下一步。

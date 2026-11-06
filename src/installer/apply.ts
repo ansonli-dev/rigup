@@ -24,7 +24,7 @@ import {atomicProjectWrite} from './manifest.js';
 import {targetPath,ownedContent} from './ownership.js';
 import {loadManifest,type Manifest} from './baseline.js';
 import {runProjectChecks} from '../integrations/tools/quality.js';
-export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;environment?:{node:string;platform:string};exitCode?:number}
+export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;durationMs?:number;diagnostic?:{rule:string;path:string;relatedPath:string};environment?:{node:string;platform:string};exitCode?:number}
 export interface InstallReport {projectRules?:SetupPlan['projectRules'];nextCommand?:string;status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
 export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
 interface Transaction {previewId:string;installId:string;status:'prepared'|'complete';files:Record<string,{before:string;after:string;beforeMode?:number;afterMode?:number}>;checks?:CheckResult[];receipts:NonNullable<Manifest['installedTools']>;initialized?:NonNullable<Manifest['initializedTools']>;preview?:{digest:string;data:PreviewData};report?:InstallReport}
@@ -111,11 +111,12 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   }
   if((currentManifest?digest(currentManifest):absentDigest)!==data.manifestDigest)throw new Error('manifest changed since preview');
   let discovery:NativeDiscoveryOptions={};
-  if(await installationInput(root,data.plan)!==data.inputSnapshot){
+  const managedTargets=data.inputSnapshotVersion===2?data.files.map(file=>file.target):undefined;
+  if(await installationInput(root,data.plan,discovery,managedTargets)!==data.inputSnapshot){
    if(data.nativeDiscoveryVersion||data.plan.options.sdd!=='openspec')throw Error('source input changed since preview');
    // Older approvals never observed optional external OpenSpec entries.
    discovery={legacyOpenSpecDiscovery:true};
-   if(await installationInput(root,data.plan,discovery)!==data.inputSnapshot)throw Error('source input changed since preview');
+   if(await installationInput(root,data.plan,discovery,managedTargets)!==data.inputSnapshot)throw Error('source input changed since preview');
   }
   if(!tx) {
    if((await scanRepository(root,data.plan.options,discovery)).fingerprint!==data.plan.fingerprint)throw new Error('research input changed since generation');

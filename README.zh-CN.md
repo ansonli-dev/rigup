@@ -4,13 +4,15 @@
 
 Rigup 为已有仓库配置编程 agent 的研发流程。它根据源码证据和你选择的接入项准备项目指引、skills 和配置，应用前可预览具体变更。
 
+在项目根目录运行 `rigup init`。初始化完成后即可退出 Rigup，打开 agent 使用项目里已安装的工作流。
+
 [Rigup 能做什么](#rigup-能做什么) · [快速开始](#快速开始) · [工作原理](#工作原理) · [接入范围](#接入范围) · [命令速查](#命令速查) · [文档](https://github.com/ansonli-dev/rigup/blob/main/docs/README.md)
 
 ## Rigup 能做什么
 
 - **项目指引。** 从源码、测试和已有约定提取适用范围明确的指引，并记录项目现有的构建和测试命令。
 - **规格驱动研发流程。** `change-prepare` 接入所选流程的规划和审批，`change-deliver` 接入原生的实施和验证步骤。
-- **工具和工程检查。** 按需配置 MCP、安装 skills，并让 Git hooks 或 GitLab CI 运行项目已有的检查。
+- **工具和工程检查。** 按需配置 MCP、安装 skills，并复用项目已有的 Git hooks 或配置原生 GitLab 作业。
 
 以 Codex 搭配 OpenSpec 为例，应用后会生成这些流程文件或托管区块。
 
@@ -18,7 +20,7 @@ Rigup 为已有仓库配置编程 agent 的研发流程。它根据源码证据�
 AGENTS.md                               # 托管区块中的流程入口
 .agents/skills/change-prepare/SKILL.md  # 准备变更并取得审批
 .agents/skills/change-deliver/SKILL.md  # 实施并验证变更
-.rigup/manifest.json                    # 文件归属和基线引用
+.rigup/manifest.json                    # 安装器用于更新和恢复的元数据
 ```
 
 ## 快速开始
@@ -53,9 +55,11 @@ rigup init
 rigup init --agents codex --sdd none --tools none --dry-run --json
 ```
 
+选中 OpenSpec 时，引导会立即检查 CLI 和项目入口。确认自动补齐后，Rigup 会把锁定版本的 OpenSpec 装到 PATH 上可写的 npm 前缀，并补齐所选宿主的原生文件。手动处理后再次运行 `rigup init` 会接着已选的宿主和 OpenSpec 继续。
+
 ### 3. 应用并重载
 
-在审阅模式中，先检查预览并结束受影响的 agent 会话，再从独立终端执行报告里的 `nextCommand`。重开 agent 后，已接入原生研发流程的项目可以使用 `change-prepare` 和 `change-deliver`。用 `rigup doctor` 检查安装与重载状态。[应用与恢复](docs/guides/usage.md#应用与恢复)
+在独立终端完成 OpenSpec 基础初始化时，可以当场确认应用预览。在审阅模式中，先检查预览并结束受影响的 agent 会话，再从独立终端执行报告里的 `nextCommand`。重开 agent 后，用 `change-prepare` 发起提案，审批后用 `change-deliver` 实现和验证。[应用与恢复](docs/guides/usage.md#应用与恢复)
 
 ## 项目开发规范
 
@@ -84,10 +88,10 @@ flowchart TD
 ## 接入范围
 
 - Agent 配置适配覆盖 Codex、Claude Code、OpenCode 和 Oh My Pi。[已验证场景](docs/compatibility/status.md)
-- 选择 Superpowers、OpenSpec 或 Spec Kit 前，先准备对应的官方入口。[流程接入前置条件](docs/guides/usage.md#命令与引导)
+- OpenSpec 可在首次引导中准备。Superpowers 和 Spec Kit 使用项目已有的官方入口。[流程接入前置条件](docs/guides/usage.md#命令与引导)
 - Rigup 在暂存区构建并验证 CodeGraph 索引，随后将索引移入项目。OpenWiki 通过 MCP 接通，由用户在独立会话生成 wiki。[工具设置](docs/guides/usage.md#openwiki-和-codegraph)
 
-安装后的 MCP runner、hooks 和 CI 脚本使用运行环境 PATH 中的 Node.js。[平台与运行时要求](docs/guides/releases.md)
+安装结束后，agent 使用宿主原生工作流、MCP 配置和项目已有工具。[平台与运行时要求](docs/guides/releases.md)
 
 ## 命令速查
 

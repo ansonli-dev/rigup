@@ -1,12 +1,12 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
+import {openspecFixturePath,project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
 import {execFile} from 'node:child_process';import {promisify} from 'node:util';import {resolve} from 'node:path';
 const exec=promisify(execFile);
 test('multi_process_host_analyze_plan_two_candidates_acceptance_and_preview',()=>project(async root=>project(async home=>{
  // A subprocess has an isolated home/cache/state and actual native project entry fixtures.
  for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']) {await mkdir(root+'/.agents/skills/'+name,{recursive:true});await writeFile(root+'/.agents/skills/'+name+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\nNative fixture\n');}
  await writeFile(root+'/source.ts','export const service = true;\n');
- const args=['--import','tsx',resolve('src/cli.ts'),'init',root,'--agents','codex','--sdd','openspec','--backend','host','--dry-run'];const env={...process.env,HOME:home};
+ const args=['--import','tsx',resolve('src/cli.ts'),'init',root,'--agents','codex','--sdd','openspec','--backend','host','--dry-run'];const env={...process.env,HOME:home,PATH:await openspecFixturePath(root,home)};
  const seen:string[]=[];let response:string|undefined;let continuation:string|undefined;
  for(let round=0;round<8;round++) {
   let output='',code=0;try{output=(await exec(process.execPath,continuation?['--import','tsx',resolve('src/cli.ts'),'update',root,'--continue',continuation,'--response',response!]:args,{env})).stdout;}catch(e){output=(e as any).stdout;code=(e as any).code;}
