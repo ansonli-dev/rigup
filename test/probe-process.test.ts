@@ -98,7 +98,17 @@ test('one-shot live timeout stops the process tree before returning',{timeout:40
 test('a zero-exit live command with a lingering descendant reports cleanup failure',{timeout:40_000},()=>project(async cwd=>{
  const pidsPath=join(cwd,'pids.json'),release=join(cwd,'release');
  try{
-  const program=fixtureTree(pidsPath,release,'process.exit(0);');
+  const linger=grandchild.replace('process.send(process.pid);','');
+  const program=`
+   const {spawn}=require('node:child_process');
+   const {writeFileSync}=require('node:fs');
+   const child=spawn(process.execPath,['-e',${JSON.stringify(linger)},${JSON.stringify(release)}],{
+    detached:process.platform==='win32',stdio:'ignore'
+   });
+   writeFileSync(${JSON.stringify(pidsPath)},JSON.stringify([process.pid,child.pid]));
+   child.unref();
+   process.exit(0);
+  `;
   await assert.rejects(runLiveCommand(process.execPath,['-e',program],{cwd,timeoutMs:15_000}),LiveProcessCleanupError);
   await assertStopped(pidsPath);
  }finally{await releaseFixture(release,pidsPath);}
