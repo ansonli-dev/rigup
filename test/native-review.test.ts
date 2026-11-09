@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir,writeFile,readFile,readdir,rm,symlink,lstat,access} from 'node:fs/promises';
+import {mkdir,writeFile,readFile,readdir,rm,lstat,access} from 'node:fs/promises';
+import {delimiter,join} from 'node:path';
+import {writeNativeToolFixture} from './native-tool-fixture.js';
 import {project} from './helpers.js';
 import {executeLifecycle} from '../src/lifecycle.js';
 import {runCli} from '../src/cli.js';
@@ -11,7 +13,7 @@ import {apply} from '../src/installer/apply.js';
 import {queryOperation} from '../src/installer/operations.js';
 import {validateOptions} from '../src/config.js';
 import type {SetupOptions,SetupPlan} from '../src/types.js';
-async function fixture(fn:(root:string,cache:string,state:string,control:string)=>Promise<void>){await project(async control=>{const root=control+'/root';await mkdir(root);await fn(root,control+'/cache',control+'/state',control);});}
+async function fixture(fn:(root:string,cache:string,state:string,control:string)=>Promise<void>){await project(async control=>{const root=join(control,'root');await mkdir(root);await fn(root,join(control,'cache'),join(control,'state'),control);});}
 async function activeCodex(root:string,fn:()=>Promise<void>){const cwd=process.cwd(),prior=process.env.CODEX_THREAD_ID;process.chdir(root);process.env.CODEX_THREAD_ID='review-active-codex';try{await fn();}finally{process.chdir(cwd);if(prior===undefined)delete process.env.CODEX_THREAD_ID;else process.env.CODEX_THREAD_ID=prior;}}
 
 test('public lifecycle preserves unresolved Codex identity when ordinary cache is lost',()=>fixture(async(root,cache,state,control)=>{
@@ -19,9 +21,17 @@ test('public lifecycle preserves unresolved Codex identity when ordinary cache i
   const dir=root+'/.agents/skills/'+name;await mkdir(dir,{recursive:true});
   await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\n');
  }
- await writeFile(root+'/source.js','export const source = 1;\n');await mkdir(control+'/bin');
- await writeFile(control+'/bin/codex','#!'+process.execPath+'\n'+`const fs=require('fs');if(process.argv.includes('--version')){console.log('codex-cli 0.166.0');process.exit(0);}process.stdin.resume();process.stdin.on('end',()=>{fs.appendFileSync(${JSON.stringify(control+'/calls')},'called\\n');setTimeout(()=>process.exit(1),30);});`,{mode:0o755});
- const old=process.env.PATH;process.env.PATH=control+'/bin:'+old;
+ await writeFile(root+'/source.js','export const source = 1;\n');
+ const bin=join(control,'bin');await mkdir(bin);
+ const script=`const fs=require('fs');if(process.argv.includes('--version')){console.log('codex-cli 0.166.0');process.exit(0);}process.stdin.resume();process.stdin.on('end',()=>{fs.appendFileSync(${JSON.stringify(join(control,'calls'))},'called\\n');setTimeout(()=>process.exit(1),30);});`;
+ if(process.platform==='win32'){
+  const pkg=join(bin,'node_modules','@openai','codex');
+  await mkdir(join(pkg,'bin'),{recursive:true});
+  await writeFile(join(pkg,'package.json'),JSON.stringify({name:'@openai/codex',version:'0.166.0',bin:{codex:'bin/codex.js'}}));
+  await writeFile(join(pkg,'bin','codex.js'),script);
+  await writeFile(join(bin,'codex.cmd'),'@echo off\r\nexit /b 91\r\n');
+ }else await writeFile(join(bin,'codex'),'#!'+process.execPath+'\n'+script,{mode:0o755});
+ const old=process.env.PATH;process.env.PATH=[bin,old].filter(Boolean).join(delimiter);
  const options:SetupOptions={agents:['codex'],backend:'codex',sdd:'openspec',researchBudget:{maxCalls:1,maxTokens:10000}};
  try{
   await assert.rejects(()=>executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state}));
@@ -30,7 +40,7 @@ test('public lifecycle preserves unresolved Codex identity when ordinary cache i
   await assert.rejects(()=>executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state}));
   assert.equal(await readFile(control+'/calls','utf8'),initial,'cache loss must not authorize another model request');
   assert.equal((await readdir(state+'/codex')).filter(p=>p.endsWith('.usage.json')).length,1);
- }finally{process.env.PATH=old;}
+ }finally{if(old===undefined)delete process.env.PATH;else process.env.PATH=old;}
 }));
 test('explicit Anthropic CLI flags select their provider after default resolution',()=>fixture(async(root,cache,state)=>{
  const old=process.env.ANTHROPIC_MODEL;process.env.ANTHROPIC_MODEL='environment-choice';
@@ -81,8 +91,7 @@ test('interrupted native output cannot become research after source drift reject
  // operation queries, journals, preview/apply and repository-reader boundaries.
  await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache+'/previews',stateRoot:state,operation:{launch:async op=>{
   if(op.kind==='install'){
-   const base=root+'/.rigup/tools/codegraph',pkg=base+'/node_modules/@colbymchenry/codegraph';await mkdir(pkg,{recursive:true});await mkdir(base+'/node_modules/.bin');
-   await writeFile(pkg+'/package.json',JSON.stringify({name:'@colbymchenry/codegraph',version:'1.6.2',type:'module',bin:{codegraph:'cli.js'}}));await writeFile(pkg+'/cli.js','#!/usr/bin/env node\n',{mode:0o755});await symlink('../@colbymchenry/codegraph/cli.js',base+'/node_modules/.bin/codegraph');
+   const {prefix:base}=await writeNativeToolFixture(root,'codegraph','1.6.2');
    await writeFile(base+'/package-lock.json',JSON.stringify({packages:{'':{dependencies:{'@colbymchenry/codegraph':'1.6.2'}},'node_modules/@colbymchenry/codegraph':{version:'1.6.2',integrity:op.query.integrity}}}));
   }else{
    await mkdir(root+'/.codegraph');const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(root+'/.codegraph/codegraph.db');

@@ -6,7 +6,7 @@ test('multi_process_host_analyze_plan_two_candidates_acceptance_and_preview',()=
  // A subprocess has an isolated home/cache/state and actual native project entry fixtures.
  for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']) {await mkdir(root+'/.agents/skills/'+name,{recursive:true});await writeFile(root+'/.agents/skills/'+name+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\nNative fixture\n');}
  await writeFile(root+'/source.ts','export const service = true;\n');
- const args=['--import','tsx',resolve('src/cli.ts'),'init',root,'--agents','codex','--sdd','openspec','--backend','host','--dry-run'];const env={...process.env,HOME:home,PATH:await openspecFixturePath(root,home)};
+ const args=['--import','tsx',resolve('src/cli.ts'),'init',root,'--agents','codex','--sdd','openspec','--backend','host','--dry-run'];const env={...process.env,HOME:home,...(process.platform==='win32'?{USERPROFILE:home}:{}),PATH:await openspecFixturePath(root,home)};
  const seen:string[]=[];let response:string|undefined;let continuation:string|undefined;
  for(let round=0;round<8;round++) {
   let output='',code=0;try{output=(await exec(process.execPath,continuation?['--import','tsx',resolve('src/cli.ts'),'update',root,'--continue',continuation,'--response',response!]:args,{env})).stdout;}catch(e){output=(e as any).stdout;code=(e as any).code;}
@@ -22,10 +22,13 @@ test('multi_process_host_analyze_plan_two_candidates_acceptance_and_preview',()=
 })));
 import {spawn} from 'node:child_process';import {pathToFileURL} from 'node:url';
 test('second_cli_cannot_mutate_active_generation_run_and_host_pending_releases_lock',()=>project(async root=>project(async home=>{
- const env={...process.env,HOME:home};const script=`import {executeLifecycle} from ${JSON.stringify(pathToFileURL(resolve('src/lifecycle.ts')).href)};await executeLifecycle(${JSON.stringify(root)},{agents:['codex'],sdd:'openspec',backend:'host'},{dryRun:true},s=>process.stdout.write(s),{backend:{run:async()=>{process.stdout.write('WAITING\\n');await new Promise(r=>{process.stdin.resume();process.stdin.once('end',r)});return {status:'pending-host',requestId:'pending',requestPath:'/private/request',nextCommand:'resume'}}}});`;
+ const env={...process.env,HOME:home,...(process.platform==='win32'?{USERPROFILE:home}:{})};const script=`import {executeLifecycle} from ${JSON.stringify(pathToFileURL(resolve('src/lifecycle.ts')).href)};await executeLifecycle(${JSON.stringify(root)},{agents:['codex'],sdd:'openspec',backend:'host'},{dryRun:true},s=>process.stdout.write(s),{backend:{run:async()=>{process.stdout.write('WAITING\\n');await new Promise(r=>{process.stdin.resume();process.stdin.once('end',r)});return {status:'pending-host',requestId:'pending',requestPath:'/private/request',nextCommand:'resume'}}}});`;
  const child=spawn(process.execPath,['--import','tsx','--input-type=module','-e',script],{env,stdio:['pipe','pipe','pipe']});let stdout='';await new Promise<void>((done,reject)=>{child.stdout.on('data',chunk=>{stdout+=chunk;if(stdout.includes('WAITING'))done();});child.once('error',reject);child.once('exit',code=>{if(!stdout.includes('WAITING'))reject(Error('early child exit '+code));});});
- const runDir=home+'/.local/state/rigup/runs';const files=await readdir(runDir);const before=await Promise.all(files.map(f=>readFile(runDir+'/'+f,'utf8')));
- try {await assert.rejects(()=>exec(process.execPath,['--import','tsx',resolve('src/cli.ts'),'init',root,'--agents','codex','--sdd','openspec','--backend','host','--dry-run'],{env}),e=>(e as any).code===1&&/locked/.test((e as any).stdout));assert.deepEqual(await Promise.all(files.map(f=>readFile(runDir+'/'+f,'utf8'))),before);}
- finally{const finished=new Promise(r=>child.once('exit',r));child.stdin.end();await finished;}
+ const finished=child.exitCode===null?new Promise(r=>child.once('exit',r)):Promise.resolve();
+ try {
+  const runDir=home+'/.local/state/rigup/runs';const files=await readdir(runDir);const before=await Promise.all(files.map(f=>readFile(runDir+'/'+f,'utf8')));
+  await assert.rejects(()=>exec(process.execPath,['--import','tsx',resolve('src/cli.ts'),'init',root,'--agents','codex','--sdd','openspec','--backend','host','--dry-run'],{env}),e=>(e as any).code===1&&/locked/.test((e as any).stdout));
+  assert.deepEqual(await Promise.all(files.map(f=>readFile(runDir+'/'+f,'utf8'))),before);
+ } finally{child.stdin.end();await finished;}
  const next=await exec(process.execPath,['--import','tsx',resolve('src/cli.ts'),'init',root,'--agents','codex','--dry-run'],{env});assert.match(next.stdout,/Preview/);
 })));

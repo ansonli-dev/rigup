@@ -8,6 +8,10 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFile, spawnSync} from 'node:child_process';
 import {promisify} from 'node:util';
+
+const portableInstallerOnly = {
+  skip: process.platform !== 'darwin' && process.platform !== 'linux' && 'The shell installer requires macOS or Linux',
+};
 const exec = promisify(execFile),
   target = process.platform + '-' + process.arch;
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -112,7 +116,7 @@ async function fixture(run: (f: any) => Promise<void>) {
   }
 }
 
-test('installer verifies then installs repeats and upgrades without deleting the old version', () =>
+test('installer verifies then installs repeats and upgrades without deleting the old version', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0');
     f.add('0.1.1');
@@ -127,7 +131,7 @@ test('installer verifies then installs repeats and upgrades without deleting the
     assert.equal((await f.install()).code, 0);
     assert.equal((await exec(bin, ['--version'])).stdout.trim(), '0.1.0');
   }));
-test('checksum failure preserves the installed command and never promotes the new version', () =>
+test('checksum failure preserves the installed command and never promotes the new version', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0');
     assert.equal((await f.install()).code, 0);
@@ -141,7 +145,7 @@ test('checksum failure preserves the installed command and never promotes the ne
     );
     await assert.rejects(stat(join(f.env.RIGUP_INSTALL_DIR, 'versions/v0.1.1')));
   }));
-test('an unrelated rigup command is never replaced or executed', () =>
+test('an unrelated rigup command is never replaced or executed', portableInstallerOnly, () =>
   fixture(async (f) => {
     await mkdir(f.env.RIGUP_BIN_DIR);
     const path = join(f.env.RIGUP_BIN_DIR, 'rigup');
@@ -153,23 +157,25 @@ test('an unrelated rigup command is never replaced or executed', () =>
     assert.equal(await readFile(path, 'utf8'), 'unrelated command\n');
     assert.equal(f.requests(), 0);
   }));
-test('unsafe archive members never escape staging or install a command', () =>
+test('unsafe archive members never escape staging or install a command', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0', {unsafe: true});
     const result = await f.install();
     assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /unsafe|archive/i);
     await assert.rejects(stat(join(f.env.RIGUP_BIN_DIR, 'rigup')));
     await assert.rejects(stat(join(f.root, 'escaped')));
   }));
-test('invalid version overrides stop before downloading or changing directories', () =>
+test('invalid version overrides stop before downloading or changing directories', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0');
     const result = await f.install('0.1.0', {RIGUP_VERSION: 'v0.1.0/../../escape'});
     assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /release version/i);
     assert.equal(f.requests(), 0);
     await assert.rejects(stat(f.env.RIGUP_INSTALL_DIR));
   }));
-test('installer preserves an occupied install lock and never steals it', () =>
+test('installer preserves an occupied install lock and never steals it', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0');
     assert.equal((await f.install()).code, 0);
@@ -181,7 +187,7 @@ test('installer preserves an occupied install lock and never steals it', () =>
     assert.match(result.stderr, /lock|occupied/i);
     assert.equal(await readFile(join(lock, 'owner'), 'utf8'), 'unconfirmed test owner\n');
   }));
-test('modified owned version directories are retained for manual reconciliation', () =>
+test('modified owned version directories are retained for manual reconciliation', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0');
     assert.equal((await f.install()).code, 0);
@@ -193,7 +199,7 @@ test('modified owned version directories are retained for manual reconciliation'
     assert.equal(await readFile(file, 'utf8'), 'user modification\n');
   }));
 
-test('archive links that leave the version directory are refused before installation', () =>
+test('archive links that leave the version directory are refused before installation', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0', {unsafe: 'link'});
     const result = await f.install();
@@ -202,7 +208,7 @@ test('archive links that leave the version directory are refused before installa
     await assert.rejects(stat(join(f.env.RIGUP_BIN_DIR, 'rigup')));
   }));
 
-test('an installed command replaced by a directory cannot receive the next version link', () =>
+test('an installed command replaced by a directory cannot receive the next version link', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0');
     assert.equal((await f.install()).code, 0);
@@ -218,7 +224,7 @@ test('an installed command replaced by a directory cannot receive the next versi
     await assert.rejects(stat(join(prior, 'rigup')));
   }));
 
-test('dot segments cannot hide an archive symlink that escapes its version directory', () =>
+test('dot segments cannot hide an archive symlink that escapes its version directory', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0', {unsafe: 'dot-link'});
     const result = await f.install();
@@ -227,7 +233,7 @@ test('dot segments cannot hide an archive symlink that escapes its version direc
     await assert.rejects(stat(join(f.env.RIGUP_BIN_DIR, 'rigup')));
   }));
 
-test('trailing slashes cannot hide an archive symlink that escapes its version directory', () =>
+test('trailing slashes cannot hide an archive symlink that escapes its version directory', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0', {unsafe: 'slash-link'});
     const result = await f.install();
@@ -236,7 +242,7 @@ test('trailing slashes cannot hide an archive symlink that escapes its version d
     await assert.rejects(stat(join(f.env.RIGUP_BIN_DIR, 'rigup')));
   }));
 
-test('first installation preserves a command created after the ownership check', () =>
+test('first installation preserves a command created after the ownership check', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0');
     const tools = join(f.root, 'simulated-race');
@@ -260,7 +266,7 @@ exec "/bin/\${0##*/}" "$@"
     assert.equal(await readlink(command), other);
   }));
 
-test('the one-line installer runs the release script only after a complete download', async () => {
+test('the one-line installer runs the release script only after a complete download', portableInstallerOnly, async () => {
   const bootstrap = await readFile(new URL('../install.sh', import.meta.url), 'utf8');
   const root = await mkdtemp(join(tmpdir(), 'rigup-bootstrap-'));
   try {

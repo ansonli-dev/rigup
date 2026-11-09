@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {writeFile,readdir,mkdir,readFile,rm} from 'node:fs/promises';
+import {delimiter,join} from 'node:path';
 import {project} from './helpers.js';
 import {scanRepository,repositoryReader} from '../src/analyzer/repository.js';
 import {loadOptions} from '../src/config.js';
@@ -160,6 +161,14 @@ test('Codex feature-discovery startup warning is not mistaken for a tool call',(
  const backend=await createBackend({cacheRoot:cache,invoke:async()=>result(data,[{type:'item.completed',item:{type:'error',message:'Under-development features enabled: skip_host_skill_discovery. Under-development features are incomplete and may behave unpredictably.'}}])});
  assert.equal((await backend.run(request,reader)).status,'complete');
 }));
+test('Codex HTTPS fallback notice preserves a completed response and its usage',()=>fixture(async(_root,cache,request,reader)=>{
+ const backend=await createBackend({cacheRoot:cache,invoke:async()=>result(data,[
+  {type:'item.completed',item:{type:'error',message:'Falling back from WebSockets to HTTPS transport. stream disconnected before completion: tls handshake eof'}}
+ ])});
+ const response=await backend.run(request,reader);
+ assert.equal(response.status,'complete');
+ assert.deepEqual(response.value.usage,{calls:1,tokens:18});
+}));
 test('remaining Codex budget and cancellation are checked before invoking the model',()=>fixture(async(root,cache,request,reader)=>{
  let calls=0;const signal=new AbortController();signal.abort();
  const backend=await createBackend({cacheRoot:cache,signal:signal.signal,invoke:async()=>{calls++;return result();}});await assert.rejects(()=>backend.run(request,reader),/cancel|abort/i);
@@ -170,6 +179,25 @@ test('missing local Codex reports unavailable without asking for an unrelated AP
 }));
 test('Codex process is stopped if its durable process identity cannot be recorded',()=>project(async control=>{
  const {invokeCodex}=await import('../src/analyzer/codex-process.js');await mkdir(control+'/bin');await mkdir(control+'/workspace');
+ if(process.platform==='win32'){
+  const {windowsJobActive}=await import('../src/integrations/tools/windows-process.mjs');
+  const bin=join(control,'bin'),pkg=join(bin,'node_modules','@openai','codex'),launched=join(control,'launched');
+  await mkdir(join(pkg,'bin'),{recursive:true});
+  await writeFile(join(pkg,'package.json'),JSON.stringify({name:'@openai/codex',version:'0.166.0',bin:{codex:'bin/codex.js'}}));
+  await writeFile(join(pkg,'bin','codex.js'),`require('node:fs').writeFileSync(${JSON.stringify(launched)},'started');setInterval(()=>{},1000);`);
+  await writeFile(join(bin,'codex.cmd'),'@echo off\r\nexit /b 91\r\n');
+  const old=process.env.PATH;process.env.PATH=[bin,old].filter(Boolean).join(delimiter);
+  let job:string|undefined;
+  try{
+   await assert.rejects(()=>invokeCodex({cwd:join(control,'workspace'),args:[],prompt:'must not be delivered',output:join(control,'output'),onStart:async identity=>{
+    job=identity.windowsJob;throw Error('durable identity failed');
+   }}),/durable identity failed/);
+   assert.ok(job);
+   assert.equal(await windowsJobActive(job),false);
+   await assert.rejects(readFile(launched),{code:'ENOENT'});
+  }finally{if(old===undefined)delete process.env.PATH;else process.env.PATH=old;}
+  return;
+ }
  await writeFile(control+'/bin/ps','#!/bin/sh\nexit 1\n',{mode:0o755});
  await writeFile(control+'/bin/codex','#!'+process.execPath+'\nrequire("fs").writeFileSync('+JSON.stringify(control+'/pid')+',String(process.pid));process.stdin.resume();setInterval(()=>{},1000);\n',{mode:0o755});
  const old=process.env.PATH;process.env.PATH=control+'/bin:'+old;let pid:number|undefined;

@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp, mkdir, readFile, realpath, rm, writeFile} from 'node:fs/promises';
+import {access, mkdtemp, mkdir, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {delimiter, dirname, join, resolve} from 'node:path';
 
 const exec = promisify(execFile);
+const windows = process.platform === 'win32';
+const npmCli = process.env.npm_execpath || (windows ? join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js') : undefined);
+const npm = (args, options) => npmCli ? exec(process.execPath, [npmCli, ...args], options) : exec('npm', args, options);
 const source = resolve('.');
 const workspace = await realpath(await mkdtemp(join(tmpdir(), 'rigup-distribution-')));
 try {
-  const packed = await exec('npm', ['pack', '--json', '--pack-destination', workspace], {cwd: source, timeout: 120_000, maxBuffer: 2_000_000});
+  const packed = await npm(['pack', '--json', '--pack-destination', workspace], {cwd: source, timeout: 120_000, maxBuffer: 2_000_000});
   const [archive] = JSON.parse(packed.stdout);
   const paths = archive.files.map(file => file.path);
   for (const required of ['LICENSE', 'README.md', 'README.zh-CN.md', 'docs/guides/usage.md', 'docs/compatibility/status.md', 'docs/compatibility/upstream-lock.json', 'dist/integrations/tools/project-check.mjs', 'dist/cli.js']) {
@@ -18,9 +21,10 @@ try {
   assert.ok(!paths.some(path => /(^|\/)(?:\.DS_Store|\.superpowers|node_modules|test)(?:\/|$)/.test(path) || path.startsWith('docs/compatibility/evidence/')), 'distribution contains private scratch or fixtures');
   const consumer = join(workspace, 'consumer');
   await mkdir(consumer);
-  await exec('npm', ['install', '--prefix', consumer, join(workspace, archive.filename), '--prefer-offline', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--userconfig', join(workspace, 'npmrc'), '--globalconfig', join(workspace, 'global-npmrc')], {timeout: 120_000, maxBuffer: 1_000_000});
+  await npm(['install', '--prefix', consumer, join(workspace, archive.filename), '--prefer-offline', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--userconfig', join(workspace, 'npmrc'), '--globalconfig', join(workspace, 'global-npmrc')], {timeout: 120_000, maxBuffer: 1_000_000});
   await exec(process.execPath, [join(source, 'scripts/check-docs.mjs'), join(consumer, 'node_modules', archive.name)], {timeout: 30_000});
-  const cli = join(consumer, 'node_modules', '.bin', 'rigup');
+  const bin = join(consumer, 'node_modules', '.bin');
+  await access(join(bin, windows ? 'rigup.cmd' : 'rigup'));
   const home = join(workspace, 'home');
   const project = join(workspace, 'project');
   const skill = join(workspace, 'canary');
@@ -29,8 +33,15 @@ try {
   await writeFile(join(project, '.rigup', 'config.yaml'), JSON.stringify({agents: ['codex'], backend: 'codex', customSkills: [{source: skill}]}));
   // Make the handoff contract explicit on CI as well as inside a real agent.
   // This marker does not assert actual native discovery or start a model turn.
-  const env = {...process.env, PATH: [dirname(cli), process.env.PATH].filter(Boolean).join(delimiter), HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'), XDG_STATE_HOME: join(home, 'state'), CODEX_THREAD_ID: 'distribution-smoke-controlled-session', NO_COLOR: '1'};
-  const run = async args => exec('rigup', args, {cwd: project, env, timeout: 60_000, maxBuffer: 1_000_000});
+  const env = {...process.env, PATH: [bin, process.env.PATH].filter(Boolean).join(delimiter), HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'), XDG_STATE_HOME: join(home, 'state'), CODEX_THREAD_ID: 'distribution-smoke-controlled-session', NO_COLOR: '1'};
+  if (windows) env.USERPROFILE = home;
+  const options = {cwd: project, env, timeout: 60_000, maxBuffer: 1_000_000};
+  const run = async args => {
+    if (!windows) return exec('rigup', args, options);
+    // cmd.exe parses the npm shim. Pass only simple tokens, including the preview ID.
+    assert.ok(args.every(arg => arg && !/[^a-z0-9-]/i.test(arg)), 'Windows shim requires simple argument tokens');
+    return exec(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'rigup.cmd', ...args], options);
+  };
   assert.match((await run(['--help'])).stdout, /rigup init/);
   const version = JSON.parse(await readFile(join(source, 'package.json'), 'utf8')).version;
   assert.equal((await run(['--version'])).stdout.trim(), version);

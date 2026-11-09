@@ -2,8 +2,10 @@ import {execFile,spawn} from 'node:child_process';
 import {promisify} from 'node:util';
 import {access,constants,mkdtemp,rm,lstat,realpath,open} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {delimiter,join,resolve,relative,isAbsolute,posix} from 'node:path';
+import {delimiter,join,resolve,relative,isAbsolute,posix,sep} from 'node:path';
 import {stripVTControlCharacters} from 'node:util';
+import {npmCommand} from '../../npm-command.mjs';
+import {startWindowsProcess} from './windows-process.mjs';
 const exec=promisify(execFile);
 export function checkPrerequisites(script,manifest,cwd){
  const tools=[];
@@ -64,7 +66,7 @@ async function resolveNpmCommand(root,command){
 }
 function within(root,path){
  const rel=relative(root,path);
- return rel!=='..'&&!rel.startsWith('../')&&!isAbsolute(rel);
+ return rel!=='..'&&!rel.startsWith('..'+sep)&&!isAbsolute(rel);
 }
 async function dependencyDiagnostic(text,root,cwd){
  const match=/^\s*error ([a-zA-Z0-9_-]{1,100}): ([\w./@-]{1,400}) → ([\w./@-]{1,400})\s*$/m.exec(stripVTControlCharacters(text));
@@ -75,7 +77,7 @@ async function dependencyDiagnostic(text,root,cwd){
    const path=resolve(cwd,value);
    if(!(await lstat(path)).isFile())return;
    const canonical=await realpath(path);
-   if(within(root,canonical))return relative(root,canonical);
+   if(within(root,canonical))return relative(root,canonical).split(sep).join('/');
   }catch{/* The diagnostic is useful only for confirmed project paths. */}
  }));
  if(paths.every(Boolean))return {rule:match[1],path:paths[0],relatedPath:paths[1]};
@@ -122,12 +124,54 @@ export async function executeCheck(command,root,options={}){
 }
 async function dispatchCheck(command,root,cwd,{env,signal,timeoutMs}){
  if(signal?.aborted)return {status:'pending',exitCode:130,reason:'Check cancelled before dispatch'};
- const child=spawn(command.executable,command.args,{cwd,env,shell:false,detached:true,stdio:['ignore','pipe','pipe']});
+ let launch;
+ try{launch=command.executable==='npm'?npmCommand(command.args):command;}
+ catch{return {exitCode:3,status:'pending',reason:'Check executable unavailable in the selected environment'};}
  // Only allowlisted diagnostic fields leave this buffer. Keep draining after its limit.
  const chunks=[];let bytes=0;
  const collect=chunk=>{const part=chunk.subarray(0,32768-bytes);if(part.length){chunks.push(part);bytes+=part.length;}};
+ const result=process.platform==='win32'
+  ?await runWindowsCheck(launch,cwd,{env,signal,timeoutMs},collect)
+  :await runPosixCheck(launch,cwd,{env,signal,timeoutMs},collect);
+ if(result.status==='failed'&&!result.reason){
+  const output=stripVTControlCharacters(Buffer.concat(chunks).toString('utf8'));
+  if(command.testDatabase&&/\b(?:connect[ \t]+(?:EPERM|EACCES|ECONNREFUSED|ENETUNREACH|ETIMEDOUT)|getaddrinfo[ \t]+(?:ENOTFOUND|EAI_AGAIN))\b/i.test(output))
+   return {...result,processExitCode:result.exitCode,exitCode:3,status:'pending',reason:'Test database unavailable here. Use an authorized terminal with the dedicated test database and rerun the same check.'};
+  if(command.tools?.includes('playwright')&&/Executable doesn't exist|playwright install/i.test(output)&&/browserType\.launch|Playwright Test or Playwright/i.test(output))
+   return {...result,processExitCode:result.exitCode,exitCode:3,status:'pending',reason:'Install the project browsers with npm exec --yes=false -- playwright install in the check working directory.'};
+  const diagnostic=await dependencyDiagnostic(output,root,cwd);
+  return {...result,...(diagnostic?{diagnostic}:{reason:'Check failed; inspect the project command in its working directory'})};
+ }
+ return result;
+}
+
+async function runWindowsCheck(launch,cwd,{env,signal,timeoutMs},collect){
+ let child;
+ try{child=startWindowsProcess({...launch,cwd,env});}
+ catch{return {exitCode:3,status:'pending',reason:'Check executable unavailable in the selected environment'};}
+ child.stdout?.on('data',collect);child.stderr?.on('data',collect);
+ let interrupted;
+ const interrupt=reason=>{interrupted??=reason;child.stop();};
+ const cancel=()=>interrupt('cancelled');
+ const timeout=setTimeout(()=>interrupt('timed out'),timeoutMs);
+ signal?.addEventListener('abort',cancel,{once:true});
+ try{
+  if(signal?.aborted)cancel();else child.start();
+  const {code,remaining,unavailable,interrupted:stopped}=await child.completed;
+  if(remaining)return {exitCode:1,status:'failed',reason:'Check left a process running or could not confirm its exit; result cannot be accepted'};
+  if(interrupted)return {exitCode:interrupted==='cancelled'?130:3,status:'pending',reason:'Check '+interrupted};
+  if(unavailable||stopped)return {exitCode:3,status:'pending',reason:'Check executable unavailable in the selected environment'};
+  return {exitCode:code??1,status:code===0?'passed':'failed',commandFinishedAt:new Date().toISOString()};
+ }finally{
+  clearTimeout(timeout);signal?.removeEventListener('abort',cancel);
+  child.stop();await child.completed;
+ }
+}
+
+async function runPosixCheck(launch,cwd,{env,signal,timeoutMs},collect){
+ const child=spawn(launch.executable,launch.args,{cwd,env,shell:false,detached:true,stdio:['ignore','pipe','pipe']});
  child.stdout.on('data',collect);child.stderr.on('data',collect);
- const result=await new Promise(resolveResult=>{
+ return new Promise(resolveResult=>{
   let interrupted,unavailable=false;
   const kill=()=>{if(child.pid)try{process.kill(-child.pid,'SIGKILL');}catch{}};
   const interrupt=reason=>{interrupted=reason;kill();child.stdout.destroy();child.stderr.destroy();};
@@ -145,14 +189,4 @@ async function dispatchCheck(command,root,cwd,{env,signal,timeoutMs}){
    resolveResult({exitCode:code??1,status:code===0?'passed':'failed',commandFinishedAt:new Date().toISOString()});
   });
  });
- if(result.status==='failed'&&!result.reason){
-  const output=stripVTControlCharacters(Buffer.concat(chunks).toString('utf8'));
-  if(command.testDatabase&&/\b(?:connect[ \t]+(?:EPERM|EACCES|ECONNREFUSED|ENETUNREACH|ETIMEDOUT)|getaddrinfo[ \t]+(?:ENOTFOUND|EAI_AGAIN))\b/i.test(output))
-   return {...result,processExitCode:result.exitCode,exitCode:3,status:'pending',reason:'Test database unavailable here. Use an authorized terminal with the dedicated test database and rerun the same check.'};
-  if(command.tools?.includes('playwright')&&/Executable doesn't exist|playwright install/i.test(output)&&/browserType\.launch|Playwright Test or Playwright/i.test(output))
-   return {...result,processExitCode:result.exitCode,exitCode:3,status:'pending',reason:'Install the project browsers with npm exec --yes=false -- playwright install in the check working directory.'};
-  const diagnostic=await dependencyDiagnostic(output,root,cwd);
-  return {...result,...(diagnostic?{diagnostic}:{reason:'Check failed; inspect the project command in its working directory'})};
- }
- return result;
 }

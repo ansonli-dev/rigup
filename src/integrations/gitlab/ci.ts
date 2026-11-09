@@ -4,7 +4,7 @@ import type {PreparedAsset} from '../registry.js';
 import {targetPath} from '../../installer/ownership.js';
 import {digest} from '../../analyzer/evidence.js';
 import type {CommandSpec,SetupOptions} from '../../types.js';
-import {quoteShell} from '../../shell-command.js';
+import {quotePosixShell} from '../../shell-command.js';
 export async function prepareGitlab(root:string,selection:NonNullable<SetupOptions['quality']>['gitlab'],commands:CommandSpec[]):Promise<{assets:PreparedAsset[];requirements:{integrationId:string;reason:string}[]}>{
  const assets:PreparedAsset[]=[];const requirements:{integrationId:string;reason:string}[]=[];if(!selection)return {assets,requirements};
  let text='';try{text=await readFile(await targetPath(root,'.gitlab-ci.yml'),'utf8');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
@@ -23,14 +23,14 @@ export async function prepareGitlab(root:string,selection:NonNullable<SetupOptio
  const checkout='test "$(git rev-parse HEAD)" = "$CI_COMMIT_SHA"';
  const variables={GIT_STRATEGY:'clone',GIT_CHECKOUT:'true'};
  if(commands.length)jobs['rigup:checks']={
-  stage,variables,script:[checkout,...commands.map(({cwd,executable,args})=>'(cd '+quoteShell(cwd)+' && '+[executable,...args].map(quoteShell).join(' ')+')')],
+  stage,variables,script:[checkout,...commands.map(({cwd,executable,args})=>'(cd '+quotePosixShell(cwd)+' && '+[executable,...args].map(quotePosixShell).join(' ')+')')],
   ...(selection.reportPaths?.length?{artifacts:{when:'always',paths:selection.reportPaths,reports:{junit:selection.reportPaths}}}:{}),
   rules:[{if:'$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'}]
  };
  if(selection.openwiki){
   const required=selection.openwiki.envRefs.map(name=>{
    if(!/^[A-Z_][A-Z0-9_]*$/.test(name))throw Error('Invalid GitLab environment reference');
-   return 'test -n "$'+'{'+name+':-}" || { printf \'%s\\n\' '+quoteShell('Missing OpenWiki environment reference '+name)+' >&2; exit 3; }';
+   return 'test -n "$'+'{'+name+':-}" || { printf \'%s\\n\' '+quotePosixShell('Missing OpenWiki environment reference '+name)+' >&2; exit 3; }';
   });
   jobs['rigup:openwiki']={
    stage,variables,timeout:'5m',script:[checkout,...required,'openwiki --update --mode code --print'],artifacts:{when:'always',paths:['openwiki/']},

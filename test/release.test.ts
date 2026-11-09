@@ -16,6 +16,10 @@ import {join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawn} from 'node:child_process';
 
+const portableLauncherOnly = {
+  skip: process.platform !== 'darwin' && process.platform !== 'linux' && 'The portable launcher requires macOS or Linux',
+};
+
 const run = (file: string, args: string[], options: {cwd: string; env: NodeJS.ProcessEnv}, input?: string) =>
   new Promise<{code: number | null; stdout: string; stderr: string}>((done, reject) => {
     const child = spawn(file, args, {...options, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']});
@@ -29,7 +33,7 @@ const run = (file: string, args: string[], options: {cwd: string; env: NodeJS.Pr
     child.stdin?.end(input);
   });
 
-test('portable launcher uses its own runtime and resources through relocation and a symlink', async () => {
+test('portable launcher uses its own runtime and resources through relocation and a symlink', portableLauncherOnly, async () => {
   const {compileLauncher} = await import('../scripts/release/build.mjs');
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rigup-release-test-')));
   try {
@@ -73,7 +77,7 @@ test('portable launcher uses its own runtime and resources through relocation an
   }
 });
 
-test('an incomplete portable directory never falls back to system Node or another checkout', async () => {
+test('an incomplete portable directory never falls back to system Node or another checkout', portableLauncherOnly, async () => {
   const {compileLauncher} = await import('../scripts/release/build.mjs');
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rigup-incomplete-release-')));
   try {

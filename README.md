@@ -40,7 +40,7 @@ The macOS and Linux installer downloads a bundle with Node.js and links `rigup` 
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
 ```
 
-Use Git and `ps` on the host. Linux needs glibc 2.35 or newer, including when using WSL2. [Install, upgrade, and pin a version](docs/guides/releases.md)
+For native Windows, use the npm installation with Windows Node.js 24, PowerShell 7, and Git for Windows. The portable installer uses Git and POSIX tools including `ps`. Linux needs glibc 2.35 or newer, including when using WSL2. [Install, upgrade, and pin a version](docs/guides/releases.md)
 
 ### 2. Set up a project
 

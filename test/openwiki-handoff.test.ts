@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {access,lstat,mkdir,readdir,readFile,symlink,writeFile} from 'node:fs/promises';
+import {access,lstat,mkdir,readdir,readFile,writeFile} from 'node:fs/promises';
+import {writeNativeToolFixture} from './native-tool-fixture.js';
 import {project} from './helpers.js';
 import {prepareIntegrations,loadUpstreamLock} from '../src/integrations/registry.js';
 import {scanRepository} from '../src/analyzer/repository.js';
@@ -15,10 +16,7 @@ import {signature} from '../src/generator/cache.js';
 async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>fn(root,cache,state))));}
 async function pinnedOpenWiki(root:string){
  const recipe=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!;
- const prefix=root+'/.rigup/tools/openwiki',pkg=prefix+'/node_modules/openwiki';
- await mkdir(pkg,{recursive:true});await mkdir(prefix+'/node_modules/.bin');
- await writeFile(pkg+'/package.json',JSON.stringify({name:'openwiki',version:'0.7.3',type:'module',bin:{openwiki:'cli.js'}}));
- await writeFile(pkg+'/cli.js','#!/usr/bin/env node\n',{mode:0o755});await symlink('../openwiki/cli.js',prefix+'/node_modules/.bin/openwiki');
+ const {prefix}=await writeNativeToolFixture(root,'openwiki','0.7.3','module');
  await writeFile(prefix+'/package-lock.json',JSON.stringify({packages:{'':{dependencies:{openwiki:'0.7.3'}},'node_modules/openwiki':{version:'0.7.3',integrity:recipe.packageIntegrity}}}));
  return initializationRecipe(root,'openwiki','0.7.3',recipe.packageIntegrity);
 }

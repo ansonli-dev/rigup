@@ -1,5 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {project,setNativeEntries} from './helpers.js';import {mkdir,writeFile,readFile,readdir,rm,symlink} from 'node:fs/promises';
+import {project,setNativeEntries} from './helpers.js';import {mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
+import {writeNativeToolFixture} from './native-tool-fixture.js';
 import {scanRepository} from '../src/analyzer/repository.js';import {preview} from '../src/installer/preview.js';import {apply,restoreInterruptedPreview} from '../src/installer/apply.js';
 import {signature} from '../src/generator/cache.js';import {loadManifest} from '../src/installer/baseline.js';
 import type {SetupPlan} from '../src/types.js';
@@ -56,8 +57,11 @@ test('changed_external_template_source_rejects_old_preview',()=>fixture(async(ro
 import {execFile} from 'node:child_process';import {promisify} from 'node:util';import {pathToFileURL} from 'node:url';import {resolve} from 'node:path';
 const exec=promisify(execFile);
 test('sigkill_after_file_reconciles_real_files_with_explicit_stale_lock_recovery',()=>fixture(async(root,cache,state)=>{
- const p=await preview(await plan(root),[],{cacheRoot:cache});const script=`import {apply} from ${JSON.stringify(pathToFileURL(resolve('src/installer/apply.ts')).href)};await apply(${JSON.stringify(p.previewId)},{cacheRoot:${JSON.stringify(cache)},stateRoot:${JSON.stringify(state)},hook:async point=>{if(point==='after-file')process.kill(process.pid,'SIGKILL')}});`;
- await assert.rejects(()=>exec(process.execPath,['--import','tsx','--input-type=module','-e',script]),e=>(e as any).signal==='SIGKILL');assert.equal(await readFile(root+'/guide.md','utf8'),'new');assert.equal(await loadManifest(root),undefined);
+ const p=await preview(await plan(root),[],{cacheRoot:cache});const script=`import {writeSync} from 'node:fs';import {apply} from ${JSON.stringify(pathToFileURL(resolve('src/installer/apply.ts')).href)};await apply(${JSON.stringify(p.previewId)},{cacheRoot:${JSON.stringify(cache)},stateRoot:${JSON.stringify(state)},hook:async point=>{if(point==='after-file'){writeSync(1,'interrupting after-file');process.kill(process.pid,'SIGKILL')}}});`;
+ await assert.rejects(()=>exec(process.execPath,['--import','tsx','--input-type=module','-e',script]),error=>{
+  const {code,signal,stdout}=error as {code?:number;signal?:string;stdout?:string};
+  return stdout==='interrupting after-file'&&(process.platform==='win32'?code===1:signal==='SIGKILL');
+ });assert.equal(await readFile(root+'/guide.md','utf8'),'new');assert.equal(await loadManifest(root),undefined);
  await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache,stateRoot:state}),/locked/);const recovered=await apply(p.previewId,{cacheRoot:cache,stateRoot:state,recover:true});assert.equal(recovered.status,'complete');assert.deepEqual(recovered.written,[]);
 }));
 test('sigkill_plus_lost_cache_keeps_partial_unowned_files_protected',()=>fixture(async(root,cache,state)=>{
@@ -83,13 +87,8 @@ test('independent installs overlap, retain the lock on failure and reconcile bot
   launches.push(op.id);
   if(launches.length===2)otherStarted.resolve();
   if(op.integrationId==='codegraph')await resumeOther.promise;
-  const {name,version,integrity,packageJson,packageLock}=op.query;
-  const directory=root+'/'+packageJson.slice(0,-'/package.json'.length);
-  const bin=root+'/'+op.protection.target+'/node_modules/.bin';
-  await mkdir(directory,{recursive:true});await mkdir(bin,{recursive:true});
-  await writeFile(directory+'/package.json',JSON.stringify({name,version,bin:{[op.integrationId]:'cli.js'}}));
-  await writeFile(directory+'/cli.js','#!/usr/bin/env node\n',{mode:0o755});
-  await symlink('../'+name+'/cli.js',bin+'/'+op.integrationId);
+  const {name,version,integrity,packageLock}=op.query;
+  await writeNativeToolFixture(root,op.integrationId==='codegraph'?'codegraph':'openwiki',version);
   await writeFile(root+'/'+packageLock,JSON.stringify({packages:{'':{dependencies:{[name]:version}},['node_modules/'+name]:{version,integrity}}}));
   if(op.integrationId==='openwiki')throw Error('lost install result');
   return queryOperation(op);

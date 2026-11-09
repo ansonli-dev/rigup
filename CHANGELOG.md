@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.4 · 2026-11-09 · Development preview
+
+- Run the npm-installed CLI, OpenSpec setup, and protected preview and apply flows in native Windows PowerShell 7.
+- Supervise Windows tool and Codex process trees with Job Objects, verify private state with NTFS access controls, and preserve operation recovery after process interruption.
+- Launch project-installed OpenWiki and CodeGraph on Windows. Recognize a completed OpenWiki baseline in doctor, and detect Windows agent launchers on PATH.
+- Accept a completed Codex response after its WebSocket connection falls back to HTTPS. Preserve the usage ledger and reject unexpected tool activity.
+- Verify the real Codex preview, apply, and no-op update on Windows 11 ARM64. A separate Codex session completed OpenWiki initialization in the installed project.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.2.4) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.2.4)
+
 ## 0.2.3 · 2026-11-06 · Development preview
 
 - Check the OpenSpec CLI and project entry points as soon as users select OpenSpec. With approval, install the pinned CLI and add missing native files. Resume saved choices after manual preparation.

@@ -40,7 +40,7 @@ macOS 和 Linux 也可以通过安装器下载内置 Node.js 的便携版。安�
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
 ```
 
-宿主需要 Git 和 `ps`，Linux（含 WSL2）需要 glibc 2.35 或更新版本。[安装、升级与固定版本](docs/guides/releases.md)
+原生 Windows 使用 npm 安装，需准备 Windows Node.js 24、PowerShell 7 和 Git for Windows。便携版安装器需要 Git 和 `ps` 等 POSIX 工具，Linux（含 WSL2）需要 glibc 2.35 或更新版本。[安装、升级与固定版本](docs/guides/releases.md)
 
 ### 2. 初始化项目
 

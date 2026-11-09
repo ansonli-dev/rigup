@@ -4,6 +4,11 @@ import {targetPath} from './ownership.js';
 
 export const absentDigest=digest('rigup:absent');
 export interface FileState {bytes?:Buffer;digest:string;mode?:number}
+export function platformFileMode(mode?:number):number|undefined{
+ // Node's Windows chmod supports only the writable/read-only attribute.
+ if(mode===undefined||process.platform!=='win32')return mode;
+ return mode&0o200 ? 0o666 : 0o444;
+}
 export async function readFileState(root:string,target:string):Promise<FileState>{
  const path=await targetPath(root,target);
  let handle;
@@ -14,7 +19,7 @@ export async function readFileState(root:string,target:string):Promise<FileState
   const bytes=await handle.readFile();return {bytes,digest:digest(bytes),mode:info.mode&0o777};
  }finally{await handle.close();}
 }
-export function matchesFileState(actual:FileState,hash:string,mode?:number):boolean{return actual.digest===hash&&actual.mode===mode;}
+export function matchesFileState(actual:FileState,hash:string,mode?:number):boolean{return actual.digest===hash&&actual.mode===platformFileMode(mode);}
 
 export async function* readFileStates(root:string,targets:readonly string[]){
  const batchSize=8;

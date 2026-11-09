@@ -1,5 +1,5 @@
 import {readFile,stat} from 'node:fs/promises';
-import {resolve,isAbsolute,posix} from 'node:path';
+import {resolve,isAbsolute,posix,parse} from 'node:path';
 import {safePath,digest} from '../analyzer/evidence.js';
 export interface CustomerTemplateAsset {logicalId:string;target:string;content:string;ownership:{kind:'file'};consumer:string;source:{kind:'customer-template';ref:string;digest:string}}
 export async function renderCustomerTemplate(root:string,input:{source:string;target:string;values?:Record<string,string|number|boolean>},allowedRoots:string[],consumer:string):Promise<CustomerTemplateAsset>{
@@ -8,7 +8,7 @@ export async function renderCustomerTemplate(root:string,input:{source:string;ta
  if(!consumer.trim()) throw new Error('template.consumer: required');
  if(target.includes('/skills/') && !/\/(references|assets)\//.test(target)) throw new Error('template.target: fixed flow cannot be replaced');
  const source=resolve(root,input.source);
- const sourcePath=await safePath('/',source);
+ const sourcePath=await safePath(parse(source).root,source);
  if((await stat(sourcePath)).size>1_000_000) throw new Error('template.source: exceeds size budget');
  const text=await readFile(sourcePath,'utf8');
  if(text.includes('\0')) throw new Error('template.source: binary templates unsupported');

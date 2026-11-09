@@ -2,6 +2,7 @@ import {prepareQuality} from './tools/quality.js';
 import {prepareCustomer} from './gitlab/customer.js';
 import {prepareSoftwareInstall} from './tools/software.js';
 import {prepareNativeInitialization} from './tools/initialization.js';
+import {toolPackage} from './tools/recipes.js';
 import type {SetupOperation,SetupRequirement} from '../types.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
 import {lstat} from 'node:fs/promises';
@@ -57,12 +58,22 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   const recipe=requireKnown(selection.id);const tool=selection.id === 'openwiki' ? openwiki : selection.id === 'codegraph' ? codegraph : undefined;
   if(!tool) throw new Error('unsupported executable adapter');
   if(selection.agents.some(a=>!options.agents.includes(a))) throw new Error('tool MCP target agent not selected');
+  const useProjectTool=selection.install||selection.initialize&&!!profile.installedTools?.[tool.id];
+  const {prefix,name,entry}=toolPackage(selection.id);
   for(const agent of selection.agents) {
-   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable:selection.install||selection.initialize&&!!profile.installedTools?.[tool.id] ? resolve(profile.root,'.rigup/tools/'+tool.id+'/node_modules/.bin/'+tool.software) : tool.software,args:tool.mcpArgs(agent),cwd:'.',envRefs:[]}});push(prepared.assets);requirements.push(...prepared.requirements);
+   const args=tool.mcpArgs(agent);
+   let executable=tool.software;
+   if(useProjectTool){
+    if(process.platform==='win32'){
+     executable=process.execPath;
+     args.unshift(resolve(profile.root,prefix,'node_modules',name,entry));
+    }else executable=resolve(profile.root,prefix,'node_modules','.bin',tool.software);
+   }
+   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable,args,cwd:'.',envRefs:[]}});push(prepared.assets);requirements.push(...prepared.requirements);
   }
   warnings.push(tool.id+': binary '+recipe.version+' availability and native connection pending');
   let installed=false;
-  if(selection.install||selection.initialize&&profile.installedTools?.[tool.id]) {
+  if(useProjectTool) {
    const prepared=await prepareSoftwareInstall(profile.root,selection.id,recipe.version,recipe.packageIntegrity,profile.installedTools?.[tool.id]);
    if('pending' in prepared) {warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}
    else if('reused' in prepared) {installed=true;warnings.push(tool.id+': reuse receipted project installation '+prepared.version);}
@@ -75,7 +86,7 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   }
  }
  for(const skill of options.customSkills ?? []) for(const agent of options.agents) {
-  const copies=await collectCustomSkill(skill.source.startsWith('/') ? skill.source : profile.root+'/'+skill.source,agents[agent].skillDirectory);
+  const copies=await collectCustomSkill(resolve(profile.root,skill.source),agents[agent].skillDirectory);
   const entry=copies.find(a=>a.target.endsWith('/SKILL.md'))!;const name=entry.target.split('/').at(-2)!;
   const existing=(profile.skillSources?.[agent]??[]).filter(s=>s.name===name||s.name.split(':').at(-1)===name);
   const resolved=existing.length?resolveSkillSource(name,existing.map(s=>({...s,name,nativeName:s.name}))):undefined;

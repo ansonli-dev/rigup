@@ -1,4 +1,5 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {join} from 'node:path';import assert from 'node:assert/strict';
 import {openspecFixturePath,project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
 import {runCli} from '../src/cli.js';
 import {scanRepository} from '../src/analyzer/repository.js';
@@ -64,7 +65,7 @@ test('deterministic_only_setup_does_not_require_model_credentials',()=>fixture(a
  let out='';const code=await runCli(['init','--agents','codex','--json'],{cwd:root,isTTY:false,write:s=>out+=s,services:{cacheRoot:cache,stateRoot:state,backend:{run:async()=>{throw Error('no backend call');}}}});assert.equal(code,0);assert.equal(JSON.parse(out).installStatus,'complete');assert.ok((await readdir(root+'/.rigup')).includes('manifest.json'));
 }));
 test('explicit_host_request_stays_private_and_response_may_be_an_explicit_external_file',()=>fixture(async(root,cache,state)=>{
- const requestPath=cache+'/host/custom.request.json';let out='';const io={cwd:root,isTTY:false,write:(s:string)=>out+=s,services:{cacheRoot:cache,stateRoot:state}};
+ const requestPath=join(cache,'host','custom.request.json');let out='';const io={cwd:root,isTTY:false,write:(s:string)=>out+=s,services:{cacheRoot:cache,stateRoot:state}};
  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--backend','host','--request',requestPath,'--json'],io),3);const report=JSON.parse(out);assert.equal(report.requestPath,requestPath);const exported=JSON.parse(await readFile(requestPath,'utf8'));const response=state+'/external.response.json';await writeFile(response,JSON.stringify({requestId:exported.requestId,requestDigest:exported.requestDigest,model:'fixture',data:{observations:[],unknowns:[],guidance:[]}}));const continuation=report.nextCommand.match(/--continue ([a-f0-9]{64})/)![1];out='';assert.equal(await runCli(['update','--continue',continuation,'--response',response,'--json'],io),3);assert.equal(JSON.parse(out).phase,'generation');assert.deepEqual(await readdir(root),[]);
 }));
 test('configure_persists_only_explicit_settings_and_following_update_reuses_them',()=>fixture(async(root,cache,state)=>{
@@ -79,7 +80,7 @@ test('replaying_an_already_accepted_host_response_advances_the_same_run',()=>fix
  for(let i=0;i<2;i++){output='';assert.equal(await runCli(['update','--continue',id,'--response',response,'--json'],io),3);assert.equal(JSON.parse(output).phase,'generation');}
 }));
 test('onboarding_collects_all_choices_before_first_backend_request_and_masks_key',()=>fixture(async(root,cache,state)=>{
- const events:string[]=[];const answers=['2','1','3','2','2','fixture-model','temporary-secret','zh-CN','1'];let secret=false;const native=['superpowers:brainstorming','superpowers:writing-plans','superpowers:executing-plans','superpowers:verification-before-completion'];for(const name of native){const dir=root+'/.agents/skills/'+name;await mkdir(dir,{recursive:true});await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: fixture\n---\nNative gates\n');}
+ const events:string[]=[];const answers=['2','1','3','2','2','fixture-model','temporary-secret','zh-CN','1'];let secret=false;const native=['superpowers:brainstorming','superpowers:writing-plans','superpowers:executing-plans','superpowers:verification-before-completion'];for(const name of native){const dir=join(root,'.agents','skills',name.split(':').at(-1)!);await mkdir(dir,{recursive:true});await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: fixture\n---\nNative gates\n');}
  let output='';const code=await runCli(['init'],{cwd:root,isTTY:true,write:s=>output+=s,read:async hidden=>{events.push('prompt');secret||=!!hidden;return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{events.push('backend');return {status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture-model',unknowns:[],usage:{calls:1,tokens:1}}};}}}});assert.equal(code,0);assert.equal(secret,true);assert.doesNotMatch(output,/temporary-secret/);const first=events.indexOf('backend');assert.ok(first>0);assert.ok(!events.slice(first).includes('prompt'));
 }));
 test('technical_continuation_cannot_silently_change_execution_mode',()=>fixture(async(root,cache,state)=>{

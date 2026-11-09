@@ -2,6 +2,7 @@ import {mkdir,rename,open,link,unlink} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {targetPath} from './ownership.js';
+import {syncDirectory} from '../sync-directory.js';
 export async function atomicProjectWrite(root:string,target:string,content:Buffer,mode?:number,exclusive=false):Promise<void>{
  const path=await targetPath(root,target);await mkdir(dirname(path),{recursive:true});await targetPath(root,target);
  const temporary=path+'.rigup-'+randomUUID()+'.tmp';
@@ -11,5 +12,5 @@ export async function atomicProjectWrite(root:string,target:string,content:Buffe
   await targetPath(root,target);
   if(exclusive)await link(temporary,path);else await rename(temporary,path);
  }finally{await unlink(temporary).catch(error=>{if(error.code!=='ENOENT')throw error;});}
- const dir=await open(dirname(path),'r');try{await dir.sync();}finally{await dir.close();}
+ await syncDirectory(dirname(path));
 }

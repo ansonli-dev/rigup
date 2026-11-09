@@ -1,6 +1,6 @@
 import {parseDocument,isSeq} from 'yaml';
 import {lstat,realpath} from 'node:fs/promises';
-import {resolve} from 'node:path';
+import {isAbsolute,relative,resolve,sep} from 'node:path';
 import type {Ownership} from '../managed-input.js';
 import {relativeTarget} from '../generator/artifacts.js';
 import {jsonValue,editJson,tomlRange,editToml} from '../integrations/agents/config-edit.js';
@@ -38,8 +38,19 @@ export function replaceOwned(text:string|undefined,selector:Ownership,next:strin
 }
 export async function targetPath(root:string,target:string):Promise<string>{
  if(!relativeTarget(target))throw new Error('target escapes root');
- root=await realpath(root);let current=root;
- for(const part of target.split('/')){current=resolve(current,part);try{const st=await lstat(current);if(st.isSymbolicLink())throw new Error('target symlink denied');if(current!==resolve(root,target)&&!st.isDirectory())throw new Error('target parent not directory');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}}
+ root=await realpath(root);const destination=resolve(root,target);
+ const within=relative(root,destination);
+ if(!within||within==='..'||within.startsWith('..'+sep)||isAbsolute(within))throw new Error('target escapes root');
+ let current=root;
+ for(const part of target.split('/')){
+  current=resolve(current,part);
+  try{
+   const st=await lstat(current);
+   if(st.isSymbolicLink())throw new Error('target symlink denied');
+   if(current!==destination&&!st.isDirectory())throw new Error('target parent not directory');
+   if(process.platform==='win32'&&(await realpath(current)).toLowerCase()!==current.toLowerCase())throw new Error('Windows target aliases are not allowed');
+  }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+ }
  return current;
 }
 export function selectorsOverlap(a:Ownership,b:Ownership):boolean {

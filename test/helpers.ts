@@ -8,14 +8,25 @@ import type {Agent} from '../src/types.js';
 // Unit workers never inherit the developer's native-plugin/auth installation.
 const nativeTestHome=realpathSync(mkdtempSync(join(tmpdir(),'rigup-native-test-home-')));
 Object.assign(process.env,{HOME:nativeTestHome,CODEX_HOME:join(nativeTestHome,'.codex'),CLAUDE_CONFIG_DIR:join(nativeTestHome,'.claude'),XDG_CONFIG_HOME:join(nativeTestHome,'.config'),PI_CODING_AGENT_DIR:join(nativeTestHome,'.omp/agent')});
+if(process.platform==='win32')process.env.USERPROFILE=nativeTestHome;
 after(()=>rmSync(nativeTestHome,{recursive:true,force:true}));
 export function setNativeEntries(profile:ProjectProfile,entries:Partial<Record<Agent,string[]>>){profile.nativeEntries=entries;profile.skillSources={};for(const[key,names]of Object.entries(entries))profile.skillSources[key as Agent]=names.map(name=>({name,origin:'local',identity:'fixture/'+name+'/SKILL.md',digest:'fixture:'+name,satisfies:true}));}
+export async function writeOpenSpecFixture(bin:string,source:string,shebang='#!'+process.execPath){
+ await mkdir(bin,{recursive:true});
+ if(process.platform==='win32'){
+  const packageRoot=join(bin,'node_modules','@fission-ai','openspec');
+  await mkdir(join(packageRoot,'bin'),{recursive:true});
+  await writeFile(join(packageRoot,'package.json'),JSON.stringify({name:'@fission-ai/openspec',bin:{openspec:'bin/openspec.js'}}));
+  await writeFile(join(packageRoot,'bin','openspec.js'),source);
+  await writeFile(join(bin,'openspec.cmd'),'@echo off\r\nnode "%~dp0node_modules\\@fission-ai\\openspec\\bin\\openspec.js" %*\r\n');
+ }else await writeFile(join(bin,'openspec'),shebang+'\n'+source,{mode:0o755});
+}
+
 export async function openspecFixturePath(root:string,control:string){
  await mkdir(join(root,'openspec'));
  await writeFile(join(root,'openspec/config.yaml'),'schema: spec-driven\n');
  const bin=join(control,'bin');
- await mkdir(bin);
- await writeFile(join(bin,'openspec'),'#!'+process.execPath+'\nconsole.log(process.argv.includes("--version")?"1.16.0":JSON.stringify({root:{path:process.cwd(),source:"nearest"}}));\n',{mode:0o755});
+ await writeOpenSpecFixture(bin,'console.log(process.argv.includes("--version")?"1.16.0":JSON.stringify({root:{path:process.cwd(),source:"nearest"}}));\n');
  return bin+delimiter+process.env.PATH;
 }
 export async function project(fn:(root:string)=>Promise<void>) {

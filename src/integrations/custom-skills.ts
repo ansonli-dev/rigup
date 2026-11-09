@@ -1,12 +1,13 @@
 import {readFile,readdir,stat} from 'node:fs/promises';
-import {resolve,relative,posix} from 'node:path';
+import {resolve,relative,posix,parse as parsePath} from 'node:path';
 import {parse} from 'yaml';
 import {safePath,digest} from '../analyzer/evidence.js';
 import {secretName} from '../analyzer/read-policy.js';
 export interface SkillAsset {logicalId:string;target:string;content:string;encoding:'utf8'|'base64';mode:number;ownership:{kind:'file'};source:{kind:'customer-skill';ref:string;digest:string}}
 export async function collectCustomSkill(source:string,targetRoot:string):Promise<SkillAsset[]>{
  if(!['.agents/skills','.claude/skills','.opencode/skills','.omp/skills'].includes(targetRoot)) throw new Error('skill target root unsupported');
- source=await safePath('/',resolve(source));
+ source=resolve(source);
+ source=await safePath(parsePath(source).root,source);
  const skillPath=await safePath(source,'SKILL.md');
  if((await stat(skillPath)).size>1_000_000) throw new Error('skill frontmatter exceeds budget');
  const skill=await readFile(skillPath,'utf8');

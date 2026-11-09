@@ -1,4 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
+import {delimiter,join} from 'node:path';
+import type {SetupOptions} from '../src/types.js';
 import {project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
 import {doctor} from '../src/installer/doctor.js';import {preview} from '../src/installer/preview.js';import {apply} from '../src/installer/apply.js';import {scanRepository} from '../src/analyzer/repository.js';
 async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>{await writeFile(root+'/package.json',JSON.stringify({scripts:{test:'node -e "process.exit(7)"',environment:'node -e "process.exit(0)"'}}));const options={agents:['codex' as const],backend:'host' as const};const p=await preview({root,fingerprint:(await scanRepository(root,options)).fingerprint,options,assets:[],dispositions:[],operations:[],warnings:[],requirements:[],versions:{}},[],{cacheRoot:cache});await apply(p.previewId,{cacheRoot:cache,stateRoot:state});await fn(root,cache,state);})));}
@@ -16,4 +18,42 @@ test('stale_result_does_not_validate_new_input',()=>fixture(async(root,cache,sta
 }));
 test('missing_secrets_are_pending_without_values_or_implicit_commands',()=>fixture(async(root,cache,state)=>{
  const file=root+'/.rigup/manifest.json';const m=JSON.parse(await readFile(file,'utf8'));m.options.customer={envRefs:['RIGUP_TEST_MISSING_SECRET'],commands:{feedback:{executable:'must-not-run',args:[],cwd:'.',envRefs:['RIGUP_TEST_MISSING_SECRET']}}};await writeFile(file,JSON.stringify(m));const report=await doctor(root);assert.ok(report.diagnostics.some(d=>d.id==='env:RIGUP_TEST_MISSING_SECRET'&&d.state==='pending'));assert.deepEqual(report.checks,[]);assert.doesNotMatch(JSON.stringify(report),/secret-value/);
+}));
+async function diagnosticFixture(tools:SetupOptions['tools'],check:(root:string,manifestPath:string)=>Promise<void>){
+ await project(async root=>{
+  await mkdir(join(root,'.rigup'));
+  const manifestPath=join(root,'.rigup','manifest.json');
+  await writeFile(manifestPath,JSON.stringify({schemaVersion:1,installId:'doctor-test',assets:[],options:{agents:['codex'],backend:'host',tools}}));
+  await check(root,manifestPath);
+ });
+}
+test('doctor finds a Codex launcher in a quoted PATH directory without executing it',()=>diagnosticFixture([],async root=>{
+ const bin=join(root,'test bin');await mkdir(bin);
+ const windows=process.platform==='win32';
+ const command=join(bin,windows?'codex.ps1':'codex');
+ await writeFile(command,windows?'throw "doctor must not execute the launcher"\n':'#!/bin/sh\nexit 73\n',{mode:0o700});
+ const path=process.env.PATH;
+ try{
+  process.env.PATH=[join(root,'missing'),'"'+bin+'"'].join(delimiter);
+  const report=await doctor(root);
+  assert.equal(report.diagnostics.find(d=>d.id==='codex:binary')?.state,'available');
+ }finally{if(path===undefined)delete process.env.PATH;else process.env.PATH=path;}
+}));
+test('doctor observes a completed external OpenWiki baseline without claiming ownership',()=>diagnosticFixture([{id:'openwiki',install:false,initialize:false,agents:['codex']}],async(root,manifestPath)=>{
+ const before=await readFile(manifestPath,'utf8');
+ const wiki=join(root,'openwiki');await mkdir(wiki);
+ const marker=join(wiki,'.last-update.json');
+ const completed={updatedAt:'2026-11-09T06:42:01.688Z',command:'init',gitHead:'686142ccbf8b4e6ef86b344a9e917c01ec825298',model:'host-agent/codex',status:'complete',language:'en'};
+ const initialization=async()=>(await doctor(root)).diagnostics.find(d=>d.id==='openwiki:initialization');
+ await writeFile(marker,JSON.stringify(completed));
+ assert.equal((await initialization())?.state,'pending');
+ await writeFile(join(wiki,'index.md'),'# Index\n');
+ await writeFile(join(wiki,'quickstart.md'),'# Quickstart\n');
+ assert.equal((await initialization())?.state,'initialized');
+ assert.equal(await readFile(manifestPath,'utf8'),before);
+ assert.equal(await readFile(marker,'utf8'),JSON.stringify(completed));
+ await writeFile(marker,JSON.stringify({...completed,status:'pending'}));
+ assert.equal((await initialization())?.state,'pending');
+ await writeFile(marker,'invalid JSON');
+ assert.equal((await initialization())?.state,'pending');
 }));
