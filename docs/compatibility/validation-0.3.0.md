@@ -33,3 +33,9 @@
 - **上游工具。** OpenSpec latest 1.16.1 可以用官方 CLI 手动初始化，Rigup 的自动初始化继续核验 1.16.0。Spec Kit 1.3.2 实际生成 `speckit-*` Claude skills，Rigup 预览绑定通过。Superpowers 7.0.2 在隔离 Claude 配置里安装成功，Rigup 预览按 7.0.1 锁拒绝绑定。OpenWiki latest 0.9.0 未用于集成验收，实测锁定的 0.7.3 安装、握手、规划与续跑。新一轮完整 wiki 内容生成待测。[OpenSpec 发布](https://github.com/Fission-AI/OpenSpec/releases) · [Spec Kit 发布](https://github.com/github/spec-kit/releases/tag/v1.3.2) · [Superpowers 发布](https://github.com/obra/superpowers/releases/tag/v7.0.2) · [上游锁](upstream-lock.json)
 - **环境。** Oh My Pi 的隔离环境没有可用模型。企业 GitLab 和 Colla 缺少本轮获授权的可写项目与凭据，本机也没有在运行的 GitLab 测试服务。真实企业写入和目标 Runner 留作对应环境验收。Claude 的 Windows x64、WSL2 模型交付仍引用 v0.2.4 证据。
 - **便携接线。** 便携安装包自带 CLI 运行时。共享的项目 Node MCP 入口要求启动 agent 的 PATH 能找到 Node.js 24 和 Rigup。这样同一份接线可跨平台及 checkout 使用，Windows 路径也可以用已安装的 npm 包入口启动。
+
+## 发布校验
+
+- v0.3.0 合并提交为 `93080d55d7c49d60bc6f2289e8c0ebab40d17482`。对应的分支检查在 Linux、macOS 和原生 Windows 通过，Windows 为 **505 项通过、40 项条件跳过**。发布工作流校验 macOS 与 Linux 的 ARM64、x64 四种便携包。[合并 PR](https://github.com/ansonli-dev/rigup/pull/6) · [三平台 CI](https://github.com/ansonli-dev/rigup/actions/runs/42642395836) · [发布工作流](https://github.com/ansonli-dev/rigup/actions/runs/42643473853)
+- 公开 npm 的 `latest` 为 0.3.0，SHA-512 与发布清单和 GitHub 下载的 npm 归档一致。macOS 的干净 npm 安装返回 0.3.0。下载的 Apple Silicon 便携包通过 SHA-256 和冒烟检查，默认安装脚本也在独立前缀安装出 0.3.0。[npm](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.3.0) · [GitHub 发布](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.0)
+- 本机 Windows 11 ARM64 虚拟机使用 PowerShell 7.6.9 和 Node.js 24.22.1，实际从公开 npm 安装 0.3.0。Unicode 和空格路径的基础预览、独立 apply、doctor、零写入重放通过。从子目录启动 MCP，列出五个工具并收到分析任务。模型请求为零。虚拟机中未发现 Claude CLI 或可用 WSL 发行版。
