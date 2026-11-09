@@ -1,7 +1,8 @@
 import {realpath,access,constants,stat,lstat} from 'node:fs/promises';
 import {delimiter,join} from 'node:path';
 import type {CheckKind,SetupOptions} from '../types.js';
-import type {InstallReport} from './apply.js';
+import {interruptedApplyId,type InstallReport} from './apply.js';
+import {quoteShell} from '../shell-command.js';
 import {loadManifest,trustedBaseline} from './baseline.js';
 import {equalOwnedContent,ownedContent,targetPath} from './ownership.js';
 import {readTarget} from './preview.js';
@@ -10,7 +11,7 @@ import {scanRepository} from '../analyzer/repository.js';
 import {runProjectChecks} from '../integrations/tools/quality.js';
 import {loadUpstreamLock} from '../integrations/upstream.js';
 import {assertNoUnknownWriters} from './operations.js';
-import {acquireLock} from './lock.js';
+import {acquireLock,defaultStateRoot} from './lock.js';
 import {agents} from '../integrations/agents/index.js';
 import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import {verifyToolInitializationReceipt} from '../integrations/tools/native-state.js';
@@ -49,6 +50,13 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
  root=await realpath(root);const diagnostics:Diagnostic[]=[];const report:InstallReport&{diagnostics:Diagnostic[]}={status:'pending',exitCode:3,previewId:'doctor',written:[],operations:[],checks:[],warnings:[],diagnostics};
  const add=(category:Diagnostic['category'],id:string,state:Diagnostic['state'],reason:string)=>diagnostics.push({category,id,state,reason});
  let manifest:Awaited<ReturnType<typeof loadManifest>>;try{manifest=await loadManifest(root);}catch{add('config','manifest','failed','Damaged ownership metadata; no repair or initialization performed');return {...report,status:'failed',exitCode:1};}
+ let interrupted:string|undefined;
+ try{interrupted=await interruptedApplyId(root,options.stateRoot??defaultStateRoot());}
+ catch{add('config','installation','failed','Installation recovery record is unavailable or damaged');return {...report,status:'failed',exitCode:1};}
+ if(interrupted){
+  add('config','installation','pending','An approved installation was interrupted. Review the saved preview before resuming.');
+  report.nextCommand='rigup update '+quoteShell(root)+' --resume --review';
+ }
  if(!manifest){add('config','manifest','pending','No installation manifest; no setup performed');return report;}
  add('config','manifest','configured','Manifest schema readable');const selected:SetupOptions=manifest.options??{agents:[],backend:'native'};
  if(manifest.projectRules){
@@ -88,5 +96,5 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
  }
  if(options.runChecks?.length){const lock=await acquireLock(root,{stateRoot:options.stateRoot});try{await assertNoUnknownWriters(root,lock.stateRoot);report.checks=await runProjectChecks(await scanRepository(root,selected),options.runChecks,options.signal);}finally{await lock.release();}}
  for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??'Actual selected command result; separate from installation status');
- const failed=diagnostics.some(d=>d.state==='failed');const pending=diagnostics.some(d=>d.state==='pending'||d.state==='reload-required');report.status=diagnostics.some(d=>d.category==='config'&&d.state==='failed')?'failed':'complete';report.exitCode=options.signal?.aborted?130:failed?1:pending?3:0;return report;
+ const failed=diagnostics.some(d=>d.state==='failed');const pending=diagnostics.some(d=>d.state==='pending'||d.state==='reload-required');report.status=diagnostics.some(d=>d.category==='config'&&d.state==='failed')?'failed':interrupted?'pending':'complete';report.exitCode=options.signal?.aborted?130:failed?1:pending?3:0;return report;
 }

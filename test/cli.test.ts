@@ -29,7 +29,7 @@ test('bare_non_tty_exits_2_without_writes', async () => {
 test('bare_tty_routes_by_project_state',()=>project(async root=>{
  let output='';const answers=['1','1','4','3','1'];
  const code=await runCli([],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null});
- assert.equal(code,0);assert.match(output,/init:/);
+ assert.equal(code,0,output);assert.match(output,/init:/);
 }));
 test('eof_never_confirms', async () => {
  let output='';

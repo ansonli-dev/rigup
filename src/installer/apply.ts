@@ -14,7 +14,7 @@ import {unlink} from 'node:fs/promises';
 import {readFileState,readFileStates,matchesFileState} from './file-state.js';
 import type {CommandSpec,SetupOptions,SetupPlan} from '../types.js';
 import {loadPreview,readTarget,installationInput,absentDigest,type PreviewData} from './preview.js';
-import {acquireLock,type ProjectLock} from './lock.js';
+import {acquireLock,defaultStateRoot,type ProjectLock} from './lock.js';
 import {assertNoUnknownWriters,operationExecutor,queryOperation,type OperationDependencies,type OperationResult} from './operations.js';
 import {privateDirectory,signature,saveCache} from '../generator/cache.js';
 import {digest} from '../analyzer/evidence.js';
@@ -52,12 +52,22 @@ export async function interruptedApplyId(root:string,stateRoot:string):Promise<s
  const tx=await readApplyRecord(join(stateRoot,signature(root)+'.apply.json'));
  return tx?.status==='prepared'?tx.previewId:undefined;
 }
+function approvedInterruptedPreview(root:string,tx:Transaction):NonNullable<Transaction['preview']>{
+ const stored=tx.preview;
+ if(!stored?.data?.plan||!isRecord(stored.data.plan.options)||!Array.isArray(stored.data.plan.options.agents)||!Array.isArray(stored.data.files)||
+  !stored.data.preview||stored.digest!==signature(stored.data)||stored.data.plan.root!==root||stored.data.preview.previewId!==tx.previewId||!stored.data.preview.executable)throw Error('Durable interrupted preview unavailable or corrupted; manual reconciliation required');
+ assertPreviewFileTransitions(tx,stored.data);
+ return stored;
+}
+export async function interruptedApplyOptions(root:string,stateRoot=defaultStateRoot()):Promise<SetupOptions|undefined>{
+ const state=await privateDirectory(stateRoot,root);
+ const tx=await readApplyRecord(join(state,signature(root)+'.apply.json'));
+ if(tx?.status==='prepared')return approvedInterruptedPreview(root,tx).data.plan.options;
+}
 export async function restoreInterruptedPreview(root:string,options:SetupOptions,cacheRoot:string,stateRoot:string):Promise<string|undefined>{
  const tx=await readApplyRecord(join(stateRoot,signature(root)+'.apply.json'));
  if(tx?.status!=='prepared')return;
- const stored=tx.preview;
- if(!stored||stored.digest!==signature(stored.data)||stored.data.plan.root!==root||stored.data.preview.previewId!==tx.previewId||!stored.data.preview.executable)throw Error('Durable interrupted preview unavailable or corrupted; manual reconciliation required');
- assertPreviewFileTransitions(tx,stored.data);
+ const stored=approvedInterruptedPreview(root,tx);
  if(signature(stored.data.plan.options)!==signature(options))throw Error('Interrupted installation options changed; resume with the original selection');
  await privateDirectory(cacheRoot,root);await saveCache(join(cacheRoot,tx.previewId+'.json'),JSON.stringify(stored));return tx.previewId;
 }

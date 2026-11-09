@@ -10,7 +10,7 @@ import {researchBudget} from './analyzer/budget.js';
 import type {SetupOptions} from './types.js';
 import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
-import {apply} from './installer/apply.js';
+import {apply,interruptedApplyOptions} from './installer/apply.js';
 import {doctor} from './installer/doctor.js';
 import {sessionHandoffRequired} from './installer/session.js';
 import {defaultStateRoot} from './installer/lock.js';
@@ -56,7 +56,7 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
   io.write('--prepare-openspec is a separate native setup step for init or update\n');
   return 2;
  }
- if(command==='doctor'){if(values['--research-tokens']){io.write('--research-tokens applies to Codex research only\n');return 2;}try{const runChecks=values['--run-checks']?.split(',');if(runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing check kinds required\n');return 2;}const report=await doctor(root,{runChecks:runChecks as import('./types.js').CheckKind[],stateRoot:io.services?.stateRoot,signal:io.services?.signal});io.services?.report?.({phase:'doctor',installStatus:'not-applicable',...report});for(const d of report.diagnostics)io.write(d.category+' '+d.id+': '+d.state+' — '+d.reason+'\n');for(const c of report.checks)io.write('check '+c.name+': '+c.status+' '+(c.startedAt??'')+' '+(c.commit??'')+'\n');return report.exitCode;}catch(e){io.write(errorMessage(e)+'\n');return 1;}}
+ if(command==='doctor'){if(values['--research-tokens']){io.write('--research-tokens applies to Codex research only\n');return 2;}try{const runChecks=values['--run-checks']?.split(',');if(runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing check kinds required\n');return 2;}const report=await doctor(root,{runChecks:runChecks as import('./types.js').CheckKind[],stateRoot:io.services?.stateRoot,signal:io.services?.signal});io.services?.report?.({phase:'doctor',installStatus:report.nextCommand?'pending':'not-applicable',...report});if(report.nextCommand)io.write(report.nextCommand+'\n');for(const d of report.diagnostics)io.write(d.category+' '+d.id+': '+d.state+' — '+d.reason+'\n');for(const c of report.checks)io.write('check '+c.name+': '+c.status+' '+(c.startedAt??'')+' '+(c.commit??'')+'\n');return report.exitCode;}catch(e){io.write(errorMessage(e)+'\n');return 1;}}
  if(values['--agents'])overrides.agents=values['--agents'].split(',') as SetupOptions['agents'];
  if(values['--sdd']&&values['--sdd']!=='none')overrides.sdd=values['--sdd'] as SetupOptions['sdd'];
  if(values['--backend'])overrides.backend=values['--backend'] as SetupOptions['backend'];
@@ -96,18 +96,29 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
    return report.exitCode;
   }catch(e){io.write(errorMessage(e)+'\n');return 1;}
  }
+ const resumeApply=flags.resume&&!flags.request&&!flags.response&&!flags.researchTokens&&!values['--prepare-openspec']&&!values['--continue'];
+ let savedApplyOptions:SetupOptions|undefined;
+ try{if(resumeApply)savedApplyOptions=await interruptedApplyOptions(root,services.stateRoot);}
+ catch(error){io.write(errorMessage(error)+'\n');return 1;}
  let options:SetupOptions;
  let draftPath:string|undefined;
  try {
   let hasProjectConfig=true;try{await readFile(join(root,'.rigup/config.yaml'));}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')hasProjectConfig=false;else throw e;}
-  const approvedOptions=manifest?.projectRules==='pending'&&!flags.configure&&!overrides.profile?manifest.options:undefined;
+  if(resumeApply&&command==='update'&&!savedApplyOptions&&!manifest&&!hasProjectConfig&&Object.keys(values).every(flag=>['--resume','--review','--dry-run','--sessions-ended'].includes(flag))){
+   const nextCommand='rigup init '+quoteShell(root)+' --review';
+   io.write('No saved installation selection. Choose the initial setup with '+nextCommand+'\n');
+   services.report?.({phase:'preflight',installStatus:'not-installed',nextCommand});
+   return 3;
+  }
+  if(savedApplyOptions&&(flags.configure||flags.runChecks||flags.retireIds||overrides.profile))throw Error('Interrupted installation retains its approved plan. Finish it before changing the selection or checks.');
+  const approvedOptions=savedApplyOptions??(manifest?.projectRules==='pending'&&!flags.configure&&!overrides.profile?manifest.options:undefined);
   options=await loadOptions(root,!approvedOptions&&!hasProjectConfig&&manifest?{...(manifest.options??{agents:[]}),...overrides}:overrides,approvedOptions);
   if(values['--tools']){const ids=values['--tools'].split(',');if(ids.includes('none')&&ids.length!==1)throw Error('tools: none cannot be combined with a tool');if(ids[0]==='none')delete options.tools;else options.tools=[...new Set(ids)].map(id=>({id:id as 'openwiki'|'codegraph',install:true,initialize:id==='codegraph',agents:[...options.agents]}));}
   if(values['--continue']){if(Object.keys(overrides).length||['--tools','--model','--api-key-env','--review','--dry-run','--configure','--retire','--run-checks'].some(k=>values[k]))throw new Error('continuation cannot change explicit selections or execution mode');const continuation=await loadContinuation(root,values['--continue'],io.services);options=continuation.options;Object.assign(flags,{...continuation.flags,response:flags.response,sessionsEnded:flags.sessionsEnded,resume:flags.resume});}
   if(values['--model']||values['--api-key-env']){if(values['--backend']==='codex')throw Error('model/API-key flags select the Anthropic native backend; Codex model overrides are not supported');if(!values['--backend'])options.backend='native';const model=values['--model']??options.model?.model??process.env.ANTHROPIC_MODEL;const apiKeyEnv=values['--api-key-env']??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';if(!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))throw new Error('model.apiKeyEnv: environment reference required');if(!model&&!(io.isTTY&&io.read))throw new Error('model.model: required when changing the API-key reference');if(model)options.model={provider:'anthropic',model,apiKeyEnv};}
   if(values['--sdd']==='none')delete options.sdd;
   if((flags.request||flags.response)&&options.backend!=='host')throw new Error('request/response: select the host backend');
-  const firstWorkflow=command==='init'&&!flags.dryRun&&!flags.request&&!flags.response&&!flags.continuation&&!flags.researchTokens;
+  const firstWorkflow=!savedApplyOptions&&command==='init'&&!flags.dryRun&&!flags.request&&!flags.response&&!flags.continuation&&!flags.researchTokens;
   const inlineReview=!flags.review&&options.executionPolicy?.mode!=='review';
   if(!flags.dryRun&&(flags.deferResearch||manifest?.projectRules==='pending'||options.executionPolicy?.mode==='review')){flags.review=true;flags.yes=false;}
   validateOptions(options as unknown as Record<string,unknown>);
@@ -134,7 +145,7 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
    return 0;
   }
   const offerSetupScope=command==='init'&&!manifest&&!flags.deferResearch&&!flags.dryRun&&!flags.resume&&!flags.researchTokens&&!flags.request&&!flags.response;
-  const guided=io.isTTY&&!!io.read&&!values['--continue'];
+  const guided=!savedApplyOptions&&io.isTTY&&!!io.read&&!values['--continue'];
   let resumed=false,setupExit=130;
   if(firstWorkflow&&guided){
    const state=await privateDirectory(services.stateRoot??defaultStateRoot(),root);
@@ -194,7 +205,7 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
    services.credentials=setup.credentials;
    if(setup.deferResearch){flags.deferResearch=true;flags.review=true;flags.yes=false;}
   }else if(firstWorkflow&&(flags.deferResearch||options.backend!=='host')&&await checkWorkflow(options)==='stop')return setupExit;
-  while(!flags.dryRun&&!flags.yes&&!flags.review&&io.isTTY&&io.read){
+  while(!savedApplyOptions&&!flags.dryRun&&!flags.yes&&!flags.review&&io.isTTY&&io.read){
    const budget=researchBudget(options);
    io.write('本轮范围：agents='+options.agents.join(',')+'; SDD='+(options.sdd??'none')+'; tools='+(options.tools??[]).map(t=>t.id+(t.install?':pinned install':':registration')).join(',')+'; backend='+options.backend+'; 研究上限 '+budget.maxCalls+' requests / '+(flags.researchTokens??budget.maxTokens)+' tokens。仅预览内受保护写入；b 返回修改。\n');
    const mode=await promptChoice({write:io.write,read:io.read},['continuous','review','dry-run'],false,[options.executionPolicy?.mode??'continuous']);if(mode===null)return 130;
