@@ -1,9 +1,11 @@
 import {parseDocument,isSeq} from 'yaml';
+import {parse as parseToml} from 'smol-toml';
 import {lstat,realpath} from 'node:fs/promises';
 import {isAbsolute,relative,resolve,sep} from 'node:path';
+import {isDeepStrictEqual} from 'node:util';
 import type {Ownership} from '../managed-input.js';
 import {relativeTarget} from '../generator/artifacts.js';
-import {jsonValue,editJson,tomlRange,editToml} from '../integrations/agents/config-edit.js';
+import {jsonValue,parseConfigJsonValue,editJson,tomlRange,editToml} from '../integrations/agents/config-edit.js';
 export function validateOwnership(selector:Ownership):void {
  if(!selector||!['file','block','json-key','toml-table'].includes(selector.kind))throw new Error('invalid ownership selector');
  if(selector.kind==='block'&&selector.insert&&(selector.insert.kind!=='yaml-sequence'||selector.insert.key!=='include'))throw new Error('unsupported block insertion anchor');
@@ -24,6 +26,21 @@ export function ownedContent(text:string|undefined,selector:Ownership):string|un
  const range=selector.kind==='block'?blockRange(text,selector):tomlRange(text,selector.path);
  return range?text.slice(range.start,range.end):undefined;
 }
+function containsTomlDate(value:unknown):boolean {
+ return value instanceof Date||!!value&&typeof value==='object'&&Object.values(value).some(containsTomlDate);
+}
+export function equalOwnedContent(selector:Ownership,left:string,right:string):boolean {
+ if(left===right)return true;
+ try{
+  if(selector.kind==='json-key')return isDeepStrictEqual(parseConfigJsonValue(left),parseConfigJsonValue(right));
+  if(selector.kind==='toml-table'){
+   const a=parseToml(left,{integersAsBigInt:true}),b=parseToml(right,{integersAsBigInt:true});
+   // The legacy TOML date parser loses precision and stores date kinds privately.
+   return !containsTomlDate(a)&&isDeepStrictEqual(a,b);
+  }
+ }catch{}
+ return false;
+}
 export function replaceOwned(text:string|undefined,selector:Ownership,next:string|undefined):string|undefined {
  validateOwnership(selector);if(selector.kind==='file')return next;
  if(selector.kind==='json-key')return editJson(text??'{}\n',selector.path,next);
@@ -36,19 +53,28 @@ export function replaceOwned(text:string|undefined,selector:Ownership,next:strin
  }
  return range?(text??'').slice(0,range.start)+(next??'')+(text??'').slice(range.end):(text??'')+(next===undefined?'':(text&&!text.endsWith('\n')?'\n':'')+next);
 }
+export class LinkedRigupDirectoryError extends Error {
+ constructor(){
+  const kind=process.platform==='win32'?'a junction, symbolic link, or other redirecting reparse point':'a symbolic link';
+  super(`Project .rigup is ${kind}. Preserve the destination data, move only the link aside, and restore .rigup as a regular directory inside the project before retrying.`);
+ }
+}
+
 export async function targetPath(root:string,target:string):Promise<string>{
  if(!relativeTarget(target))throw new Error('target escapes root');
  root=await realpath(root);const destination=resolve(root,target);
  const within=relative(root,destination);
  if(!within||within==='..'||within.startsWith('..'+sep)||isAbsolute(within))throw new Error('target escapes root');
+ const windows=process.platform==='win32';
  let current=root;
  for(const part of target.split('/')){
+  const metadataDirectory=current===root&&(windows?part.toLowerCase():part)==='.rigup';
   current=resolve(current,part);
   try{
    const st=await lstat(current);
-   if(st.isSymbolicLink())throw new Error('target symlink denied');
+   if(st.isSymbolicLink())throw metadataDirectory?new LinkedRigupDirectoryError():new Error('target symlink denied');
    if(current!==destination&&!st.isDirectory())throw new Error('target parent not directory');
-   if(process.platform==='win32'&&(await realpath(current)).toLowerCase()!==current.toLowerCase())throw new Error('Windows target aliases are not allowed');
+   if(windows&&(await realpath(current)).toLowerCase()!==current.toLowerCase())throw metadataDirectory?new LinkedRigupDirectoryError():new Error('Windows target aliases are not allowed');
   }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
  }
  return current;

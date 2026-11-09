@@ -1,6 +1,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {project} from './helpers.js';import {mkdir,writeFile,readFile,symlink} from 'node:fs/promises';
 import {preview} from '../src/installer/preview.js';import {ownedContent,replaceOwned,targetPath} from '../src/installer/ownership.js';
+import {doctor} from '../src/installer/doctor.js';
 import type {SetupPlan,ManagedAsset} from '../src/types.js';import {digest} from '../src/analyzer/evidence.js';
 function plan(root:string,target='owned.md',content='next'):SetupPlan{return {root,fingerprint:'source',options:{agents:[],backend:'host'},assets:[{logicalId:'a',target,content,ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],dispositions:[],operations:[],warnings:[],requirements:[],versions:{}};}
 async function fixture(fn:(root:string,cache:string)=>Promise<void>){await project(async root=>project(async cache=>fn(root,cache)));}
@@ -16,6 +17,69 @@ test('jsonc_comments_and_unknown_fields_survive',()=>{
 });
 test('toml_unowned_tables_survive',()=>{
  const text='secret = "CUSTOMER_SECRET"\n\n[mcp_servers.old]\ncommand = "old"\n';const o={kind:'toml-table' as const,path:['mcp_servers','new']};const result=replaceOwned(text,o,'[mcp_servers.new]\ncommand = "new"\n')!;assert.ok(result.startsWith(text));assert.match(result,/command = "new"/);
+});
+test('nested MCP layout is not a local change and does not block a generated update',()=>fixture(async(root,cache)=>{
+ const target='.mcp.json',ownership={kind:'json-key' as const,path:['mcpServers','tool']};
+ const base='{\n  "command": "node",\n  "args": ["old.mjs"]\n}';
+ const local='{\n  // Retain this unowned comment\n  "mcpServers": {\n    "tool": {\n      "args": ["old.mjs"],\n      "command": "node",\n    },\n    "other": {"command": "other-tool"}\n  }\n}\n';
+ await manifest(root,{target,ownership},base);
+ await writeFile(root+'/'+target,local);
+ const diagnostic=async()=>(await doctor(root)).diagnostics.find(d=>d.id==='a')?.state;
+ assert.equal(await diagnostic(),'configured');
+ const candidate=plan(root,target,base);
+ candidate.assets[0].ownership=ownership;
+ candidate.dispositions=[{logicalId:'a',action:'update',reason:'refresh binding'}];
+ const noop=await preview(candidate,[],{cacheRoot:cache});
+ assert.equal(noop.items[0].action,'noop');
+ assert.equal((await loadPreview(noop.previewId,cache)).files[0].next,local);
+
+ candidate.assets[0].content=base.replace('old.mjs','new.mjs');
+ const updated=await preview(candidate,[],{cacheRoot:cache});
+ assert.equal(updated.executable,true);
+ assert.equal(updated.items[0].action,'update');
+ const next=(await loadPreview(updated.previewId,cache)).files[0].next!;
+ assert.match(next,/Retain this unowned comment/);
+ assert.match(next,/"other-tool"/);
+ assert.equal(JSON.parse(ownedContent(next,ownership)!).args[0],'new.mjs');
+
+ await writeFile(root+'/'+target,local.replace('old.mjs','local.mjs'));
+ assert.equal(await diagnostic(),'pending');
+ assert.equal((await preview(candidate,[],{cacheRoot:cache})).items[0].action,'conflict');
+}));
+test('structured comparison keeps independent edits mergeable as text',()=>fixture(async(root,cache)=>{
+ const target='.mcp.json',ownership={kind:'json-key' as const,path:['mcpServers','tool']};
+ const base='{\n  "command": "node",\n  "args": ["old.mjs"],\n\n  "env": {"MODE": "old"}\n}';
+ const local=base.replace('"MODE": "old"','"MODE": "local"');
+ await manifest(root,{target,ownership},base);
+ await writeFile(root+'/'+target,'{"mcpServers":{"tool":'+local+'}}');
+ const candidate=plan(root,target,base.replace('old.mjs','new.mjs'));
+ candidate.assets[0].ownership=ownership;
+ candidate.dispositions=[{logicalId:'a',action:'update',reason:'refresh binding'}];
+ const updated=await preview(candidate,[],{cacheRoot:cache});
+ assert.equal(updated.items[0].action,'update');
+ assert.equal(updated.executable,false);
+ assert.match(updated.blockers.join('\n'),/differs from accepted configuration/);
+ const next=(await loadPreview(updated.previewId,cache)).files[0].next!;
+ assert.deepEqual(JSON.parse(ownedContent(next,ownership)!),{command:'node',args:['new.mjs'],env:{MODE:'local'}});
+}));
+test('a TOML table with the same values and different layout is a no-op',()=>fixture(async(root,cache)=>{
+ const target='config.toml',ownership={kind:'toml-table' as const,path:['mcp_servers','tool']};
+ const base='[mcp_servers.tool]\ncommand = "node"\nargs = ["serve"]\n';
+ const local='[mcp_servers.tool]\nargs=["serve"] # launch argument\ncommand="node"\n';
+ await manifest(root,{target,ownership},base);
+ await writeFile(root+'/'+target,local);
+ const candidate=plan(root,target,base);
+ candidate.assets[0].ownership=ownership;
+ candidate.dispositions=[{logicalId:'a',action:'update',reason:'refresh binding'}];
+ const result=await preview(candidate,[],{cacheRoot:cache});
+ assert.equal(result.items[0].action,'noop');
+ assert.equal((await loadPreview(result.previewId,cache)).files[0].next,local);
+}));
+test('a duplicate JSONC property cannot select a managed binding',()=>{
+ const ownership={kind:'json-key' as const,path:['mcpServers','tool']};
+ for(const text of ['{"mcpServers":{"tool":{},"tool":{}}}','{"mcpServers":{"tool":{"command":"a","command":"b"}}}']){
+  assert.throws(()=>ownedContent(text,ownership),/duplicate/i);
+ }
 });
 test('malformed_markers_need_manual_patch',()=>assert.throws(()=>ownedContent('before\n<!-- rigup:start -->\nbroken',{kind:'block',start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'}),/marker/));
 test('baseline_never_copies_unowned_secrets_and_public_preview_does_not_leak',()=>fixture(async(root,cache)=>{

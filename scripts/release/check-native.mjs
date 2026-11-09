@@ -19,6 +19,8 @@ export async function checkNativeRelease({archive}) {
     const project = join(workspace, 'project');
     await mkdir(join(project, 'src'), {recursive: true});
     await writeFile(join(project, 'src/order.js'), 'export function createOrder(id) { return {id}; }\n');
+    const toolProfile = join(workspace, 'tools-only.yaml');
+    await writeFile(toolProfile, 'projectRules: false\n');
     const env = await isolatedEnvironment(workspace);
     const reports = [];
     const run = async (args, expected) => {
@@ -35,7 +37,7 @@ export async function checkNativeRelease({archive}) {
       return report;
     };
     const preview = await run(
-      ['init', '--agents', 'codex', '--sdd', 'none', '--tools', 'openwiki,codegraph', '--review', '--json'],
+      ['init', '--agents', 'codex', '--sdd', 'none', '--tools', 'openwiki,codegraph', '--profile', toolProfile, '--review', '--json'],
       3,
     );
     assert.equal(preview.executable, true);

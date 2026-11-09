@@ -117,8 +117,8 @@ test('software_install_requires_new_empty_owned_scope',()=>project(async root=>{
  await mkdir(join(root,'.rigup/tools/codegraph'),{recursive:true});await writeFile(join(root,'.rigup/tools/codegraph/user.txt'),'preserve');
  const blocked=await prepareIntegrations(profile,options);assert.equal(blocked.operations.length,0);assert.match(blocked.warnings.join(' '),/existing|nonempty|non-empty/);
 }));
-test('selected_project_install_is_the_executable_used_by_mcp',()=>project(async workspace=>{
- const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile}=await import('node:fs/promises');
+test('selected_project_install_is_the_executable_used_by_mcp after relocation',()=>project(async workspace=>{
+ const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile,rename}=await import('node:fs/promises');
  const exec=promisify(execFile);
  const {parse}=await import('smol-toml');
  const root=join(workspace,'project with spaces');await mkdir(root);
@@ -131,13 +131,14 @@ test('selected_project_install_is_the_executable_used_by_mcp',()=>project(async 
  const op=prepared.operations[0];
  const npm=npmCommand([...op.parameters.args.slice(0,-1),local,'--offline','--install-links']);
  await exec(npm.executable,npm.args,{cwd:root});
- const installed=join(root,'.rigup/tools/codegraph/node_modules');
- if(process.platform==='win32'){
-  assert.equal(entry.command,process.execPath);
-  assert.deepEqual(entry.args,[join(installed,'@colbymchenry/codegraph/npm-shim.js'),'serve','--mcp']);
- }else assert.equal(entry.command,join(installed,'.bin/codegraph'));
- await exec(entry.command,entry.args,{cwd:entry.cwd,timeout:10000});
- assert.deepEqual(JSON.parse(await readFile(join(root,'used-project-tool'),'utf8')),['serve','--mcp']);
+ assert.equal(entry.command,'node');
+ assert.equal(entry.cwd,'.');
+ assert.deepEqual(entry.args.slice(2),['--','.codex/config.toml','.rigup/tools/codegraph/node_modules/@colbymchenry/codegraph/npm-shim.js','serve','--mcp']);
+ await mkdir(join(root,'.codex'));await writeFile(join(root,'.codex/config.toml'),prepared.assets[0].content);
+ await mkdir(join(root,'nested'));
+ const moved=join(workspace,'迁移 project');await rename(root,moved);
+ await exec(entry.command,entry.args,{cwd:join(moved,'nested',entry.cwd),timeout:10000});
+ assert.deepEqual(JSON.parse(await readFile(join(moved,'used-project-tool'),'utf8')),['serve','--mcp']);
 }));
 test('npm_software_recipe_installs_local_fixture_offline_without_lifecycle',()=>project(async root=>{
  const {prepareSoftwareInstall}=await import('../src/integrations/tools/software.js');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile,access}=await import('node:fs/promises');

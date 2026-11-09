@@ -31,12 +31,11 @@ npm run check > "$EVIDENCE/default-check.log" 2>&1
 set +e
 ```
 
-默认检查通过后再开启 live。按锁定版本复现 Claude Code 2.1.273，若使用其他版本则记为新场景。可沿用本机已有登录。专用 `CLAUDE_CONFIG_DIR` 需要在该目录重新登录。[Claude 安装与版本固定](https://code.claude.com/docs/en/setup#install-a-specific-version) · [认证](https://code.claude.com/docs/en/authentication)
+默认检查通过后再开启 live。使用 Claude Code 最新发布版，记录实测版本并在同一批场景中固定。可沿用本机已有登录。专用 `CLAUDE_CONFIG_DIR` 需要单独认证。[Claude 安装](https://code.claude.com/docs/en/setup) · [认证](https://code.claude.com/docs/en/authentication)
 
 ```sh
-# 仅在需要安装固定版本时执行
-curl -fsSL https://claude.ai/install.sh | bash -s 2.1.273
-export DISABLE_AUTOUPDATER=1
+claude update
+export DISABLE_AUTOUPDATER=1 # 验证结束后取消
 claude --version
 claude --help > "$EVIDENCE/claude-help.txt"
 claude auth login
@@ -83,7 +82,11 @@ JS
 
 ## C3 · Claude 与 OpenSpec 原生流程
 
-`--agents claude` 选择安装目标。只有 Claude Code 登录时可用 `--backend host` 手工处理研究，沿用同一请求和费用账本。Anthropic API 需要独立凭据。[研究后端](usage.md#研究后端与预算)
+`--agents claude` 选择安装目标。以下私有请求交接保留为 v0.2.4 兼容场景。验证 v0.3.0 的新入口时先应用 `rigup init --defer-research --review` 的基础预览，再从已登录的宿主调用 `rigup_begin` 并按同一任务账本记录费用。CLI provider 使用独立凭据。[研究入口](usage.md#研究后端与预算)
+
+原生 Windows 使用 `rigup init --agents claude --sdd openspec --defer-research --prepare-openspec` 准备 OpenSpec。下面的 `npm install --prefix` 示例适用于 macOS 和 Linux。
+
+验证 Spec Kit 时，用 `specify init --here --integration claude` 准备原生技能，核对 `speckit-constitution` 和 `speckit-specify` 等入口。验证 Superpowers 时，记录插件版本和 Rigup 预览中报告的版本冲突。
 
 ```sh
 cd "$RIGUP_SOURCE"
@@ -178,7 +181,7 @@ uname -a
 用 PowerShell 7、Windows Node.js 24.x 和 Git for Windows，在 NTFS 私有目录做源码探针。记录 Windows build 与架构。POSIX `ps`、进程组、mode/ACL 和 shell hooks 是当前平台移植验证点。CLI help 与 installer 验收分开记录。[PowerShell 安装](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)
 
 ```powershell
-$CaseRoot = Join-Path $env:LOCALAPPDATA ('RigupValidation\' + [guid]::NewGuid())
+$CaseRoot = Join-Path $env:USERPROFILE ('.rigup-validation\' + [guid]::NewGuid())
 $Evidence = Join-Path $CaseRoot 'evidence'
 $Source = Join-Path $CaseRoot 'source'
 New-Item -ItemType Directory -Path $Evidence -Force | Out-Null
@@ -208,9 +211,10 @@ if ($CheckExit) { throw 'Full check failed. Inspect the retained logs before con
 
 记录包安装、资产独立运行、空格/中文路径、盘符与换行、文件权限/链接、预览保护和中断恢复。优先定位第一个原生阻塞。用 `Get-CimInstance Win32_Process` 或 `Get-Process -Id` 核实本次进程身份，确认后再处理该进程树。
 
-无模型生命周期可用后，按官方说明安装固定版 Claude 并本机登录。执行 C2 的同名测试和报告断言。探针也需验证超时终止及 MCP 清理，分别记录 Claude 登录、安装和真实连接。[Claude Windows 安装](https://code.claude.com/docs/en/setup#install-on-native-windows)
+无模型生命周期可用后，更新到最新 Claude Code 并本机登录。执行 C2 的同名测试和报告断言。探针也需验证超时终止及 MCP 清理，分别记录 Claude 登录、安装和真实连接。[Claude Windows 安装](https://code.claude.com/docs/en/setup#install-on-native-windows)
 
 ```powershell
+claude update
 claude --version
 claude auth login
 claude auth status > (Join-Path $Evidence 'claude-auth-private.json')
@@ -227,6 +231,14 @@ try {
   Remove-Item Env:RIGUP_LIVE, Env:RIGUP_LIVE_EVIDENCE_DIR
 }
 ```
+
+### W2 实测要点
+
+- Rigup 状态目录和缓存依赖私有 NTFS 权限。隔离 HOME 放在 `%USERPROFILE%` 下的私有子目录，并让测试进程的 `USERPROFILE` 与 `HOME` 指向同一位置。域机器的 `%LOCALAPPDATA%` 或盘符根可能继承额外的访问授权。
+- 自动化调用 `claude --print` 时，将完整请求通过 stdin 传入并关闭管道。只通过参数传提示词时也要关闭 stdin。host 研究请求中的 `guidance[].scope`、`consumers` 和 `gaps` 使用字符串数组。
+- 超时后核对本次探针的进程标识，用 `taskkill /T /F /PID` 清理仍运行的进程树。另行检查 CodeGraph `serve --mcp` 是否在 Claude 退出后仍在运行。
+- Windows GitLab Runner 使用 Git for Windows 的 Bash 时，`builds_dir` 和 `cache_dir` 使用相对路径。Docker Desktop 中的 GitLab 使用与容器发布端口一致的 `external_url`。Windows x64 实测覆盖 CI lint、成功和失败时的 JUnit 产物、wiki 递归守卫和缺少变量时的失败提示。
+- WSL 非登录 shell 如果找不到 `~/.local/bin` 中的 Claude，用 `bash -lc` 加载登录环境。MCP 名称冲突时，核对用户级和项目级的注册。通过网关运行时，将 CLI 成本估算和网关账单分开记录。续跑同一会话使用最后一次累计值。
 
 ## 恢复与留证
 

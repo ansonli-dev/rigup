@@ -3,6 +3,7 @@ import {project,setNativeEntries} from './helpers.js';import {mkdir,writeFile,re
 import {writeNativeToolFixture} from './native-tool-fixture.js';
 import {scanRepository} from '../src/analyzer/repository.js';import {preview} from '../src/installer/preview.js';import {apply,restoreInterruptedPreview} from '../src/installer/apply.js';
 import {signature} from '../src/generator/cache.js';import {loadManifest} from '../src/installer/baseline.js';
+import {runCli} from '../src/cli.js';
 import type {SetupPlan} from '../src/types.js';
 async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>fn(root,cache,state))));}
 async function plan(root:string,content='new'):Promise<SetupPlan>{const options={agents:[],backend:'host' as const};return {root,fingerprint:(await scanRepository(root,options)).fingerprint,options,assets:[{logicalId:'guide',target:'guide.md',content,ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],operations:[],dispositions:[],warnings:[],requirements:[],versions:{}};}
@@ -88,7 +89,7 @@ test('independent installs overlap, retain the lock on failure and reconcile bot
   if(launches.length===2)otherStarted.resolve();
   if(op.integrationId==='codegraph')await resumeOther.promise;
   const {name,version,integrity,packageLock}=op.query;
-  await writeNativeToolFixture(root,op.integrationId==='codegraph'?'codegraph':'openwiki',version);
+  await writeNativeToolFixture(root,op.integrationId==='codegraph'?'codegraph':'openwiki',version,'commonjs',op.protection.target);
   await writeFile(root+'/'+packageLock,JSON.stringify({packages:{'':{dependencies:{[name]:version}},['node_modules/'+name]:{version,integrity}}}));
   if(op.integrationId==='openwiki')throw Error('lost install result');
   return queryOperation(op);
@@ -99,7 +100,7 @@ test('independent installs overlap, retain the lock on failure and reconcile bot
   assert.equal(await Promise.race([otherStarted.promise.then(()=>true),rejected.then(()=>false)]),true,'CodeGraph launches even while the OpenWiki result is unresolved');
   const records=await pendingOperations(root,state);
   assert.deepEqual(records.map(r=>r.operation.id).sort(),['install:codegraph','install:openwiki']);
-  assert.ok(records.every(r=>r.stage==='dispatching'));
+  assert.ok(records.every(r=>r.stage==='prepared'&&r.installStage?.identity));
   await assert.rejects(()=>apply(approved.previewId,deps),/locked/);
   assert.equal(await loadManifest(root),undefined);
  }finally{resumeOther.resolve();await rejected;}
@@ -111,6 +112,41 @@ test('independent installs overlap, retain the lock on failure and reconcile bot
 }));
 test('external_scope_changed_after_preview_stops_before_dispatch_or_text_writes',()=>fixture(async(root,cache,state)=>{
  const p=await plan(root);const recipe=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!;const op=await prepareSoftwareInstall(root,'openwiki',recipe.version,recipe.packageIntegrity);if('pending' in op||'reused' in op)throw Error('fixture');p.operations=[op];const view=await preview(p,[],{cacheRoot:cache});assert.equal(view.executable,true);await mkdir(root+'/.rigup/tools/openwiki',{recursive:true});await writeFile(root+'/.rigup/tools/openwiki/customer.txt','preserve');let dispatched=0;const r=await apply(view.previewId,{cacheRoot:cache,stateRoot:state,operation:{launch:async()=>{dispatched++;return {status:'done',message:'should not dispatch'};}}});assert.equal(r.exitCode,3);assert.equal(dispatched,0);assert.equal(await loadManifest(root),undefined);assert.ok(!(await readdir(root)).includes('guide.md'));
+}));
+
+test('resume review restores the approved choices before any project write',()=>fixture(async(root,cache,state)=>{
+ const previews=cache+'/previews';
+ const candidate=await plan(root);
+ const pin=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!;
+ const op=await prepareSoftwareInstall(root,'openwiki',pin.version,pin.packageIntegrity);
+ if('pending' in op||'reused' in op)throw Error('fixture');
+ candidate.options={agents:['claude'],backend:'host'};
+ candidate.fingerprint=(await scanRepository(root,candidate.options)).fingerprint;
+ candidate.operations=[op];
+ const approved=await preview(candidate,[],{cacheRoot:previews});
+ await assert.rejects(()=>apply(approved.previewId,{cacheRoot:previews,stateRoot:state,operation:{save:async()=>{throw Error('interrupted before writing the project');}}}),/interrupted before writing the project/);
+ await rm(cache,{recursive:true,force:true});
+ let output='';
+ const diagnostics=await runCli(['doctor','--json'],{cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot:cache,stateRoot:state}});
+ assert.equal(diagnostics,3);
+ assert.match(JSON.parse(output).nextCommand,/update .*--resume --review/);
+ output='';
+ const code=await runCli(['update','--resume','--review','--json'],{cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot:cache,stateRoot:state}});
+ assert.equal(code,3,output);
+ const restored=JSON.parse(output);
+ assert.equal(restored.previewId,approved.previewId);
+ assert.match(restored.nextCommand,new RegExp('--apply '+approved.previewId+' --sessions-ended --resume'));
+ assert.deepEqual(restored.operations.map((operation:SetupPlan['operations'][number])=>operation.id),[op.id]);
+ assert.deepEqual(await readdir(root),[]);
+}));
+
+test('resume with no installation or recorded selection returns not-installed',()=>fixture(async(root,cache,state)=>{
+ let output='';
+ const code=await runCli(['update','--resume','--review','--json'],{cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot:cache,stateRoot:state}});
+ assert.equal(code,3,output);
+ assert.equal(JSON.parse(output).installStatus,'not-installed');
+ assert.match(JSON.parse(output).nextCommand,/^rigup init /);
+ assert.deepEqual(await readdir(root),[]);
 }));
 
 test('damaged apply record blocks restore and a new apply without writing project files',()=>fixture(async(root,cache,state)=>{

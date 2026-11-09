@@ -15,7 +15,7 @@ rigup doctor
 
 省略路径时使用当前目录。交互终端保留已给的选项并补问缺少的设置，按 `b` 返回。`update --configure` 重新打开设置引导。`--json` 使用非交互模式，stdout 输出一个最终 JSON 对象，进度走 stderr。
 
-`--dry-run` 保存私有候选和预览。选中研发流程时，生成完整规则的 dry-run 仍会请求模型。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Superpowers 和 Spec Kit 使用项目已有的官方入口。[验证范围](../compatibility/status.md) · [上游版本与入口](../compatibility/upstream-lock.json)
+`--dry-run` 保存私有候选和预览。已配置 provider 时，生成完整规则的 dry-run 仍会请求模型。首次设置可用 `--defer-research` 明确只准备基础接线。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Superpowers 和 Spec Kit 使用项目已有的官方入口。[验证范围](../compatibility/status.md) · [上游版本与入口](../compatibility/upstream-lock.json)
 
 首次选择 OpenSpec 后，Rigup 检查 PATH 中的 CLI、项目的 OpenSpec 根和所选宿主的工作流入口。缺失时可确认自动补齐。Rigup 用 npm 安装锁定版本的 CLI，在临时目录生成原生文件并补入项目的空缺。已有项目配置和技能保留原样。自动安装使用用户终端里的 Node.js 22.12 或更新版本、npm 和 PATH 上可写的用户安装位置。便携版也按这个环境检查。
 
@@ -27,7 +27,7 @@ rigup doctor
 
 ```yaml
 agents: [codex]
-backend: codex
+projectRules: true
 sdd: openspec
 documentLanguage: zh-CN
 executionPolicy:
@@ -46,21 +46,23 @@ mcp:
 ```
 
 - 用 `scope` 限定项目内相对路径，用 `readBudget.maxFiles` 和 `readBudget.maxBytes` 限制读取。`researchBudget` 约束本轮各阶段的累计用量。
+- 仓库根目录的 `.rigupignore` 使用 gitignore 规则排除研究来源。Rigup 的 CLI 读取和 MCP 引用验收都使用同一范围。项目配置和原生工作流入口仍可用于安装与检查发现。OpenSpec 的项目规格和 Spec Kit 的项目 constitution 保留在可研究范围内，除非被项目主动排除。
 - MCP 使用宿主原生的工作目录与环境变量配置。配置保存变量名，凭据由宿主环境提供。遇到宿主无法表达的参数展开或工作目录，选择项目已有的启动命令。安装后重载 agent，再检查实际连接。
 - `customSkills` 接受本地 `source` 目录，可用 `position` 绑定 `prepare`、`deliver` 或 `release`。`templates` 通过 `source`、`target` 和 `values` 为允许的文档或 skill 资源做标量替换。`change-release` 需要真实的客户部署适配器。
+- 对支持 HTTP MCP 的企业 GitLab、协作文档等服务，在对应 `mcp` 项填入 HTTPS `url` 和 `bearerTokenEnv: TEAM_MCP_TOKEN`。从启动宿主的环境提供专用凭据。宿主和服务继续负责工具权限、审批和读写范围。`rigup doctor` 只报告变量名及是否存在。
 
 ## 先安装工作流，再生成规则
 
-首次交互选择研发流程时，按 Enter 默认先安装工作流、稍后生成规则。也可以选择同时准备两部分。OpenSpec 的基础预览可在独立终端当场确认应用。需要结束宿主会话时，按报告里的命令交接。基础安装完成即可打开 agent 发起提案，生成额外的项目规则是后续选项。
+首次交互按 Enter 默认先安装基础接线、稍后生成规则。也可以同时准备两部分。基础安装支持 `--sdd none`。配置 `projectRules: false` 时可只安装所选工作流和工具。
 
 ```sh
 rigup init --defer-research --review
 rigup update --apply PREVIEW_ID --sessions-ended
-rigup update --review
-rigup update --apply RULES_PREVIEW_ID --sessions-ended
 ```
 
-第一阶段无需模型请求，技能在重载后可配合项目原有指引使用。第二阶段按已保存的选择生成并独立验收规则，应用后重载宿主。中断时使用原设置执行 `rigup update --review --resume`。现有完整设置入口仍可一次准备两部分。
+基础设置完成后重载宿主，审核项目的 Rigup MCP 配置并启用它。要生成规则，可告诉 agent「为当前项目生成 Rigup 规则，从 `rigup_begin` 开始」。宿主按工具返回的任务执行分析、计划、内容和独立验收。服务端保存续跑状态，`rigup_finish` 只交付预览。退役旧条目时，在审阅列出的删除项后向 `rigup_finish` 提供相应 `retireIds`，再从独立终端应用。
+
+自 v0.2.4 升级时，可用 `rigup update --configure --review` 接入 MCP，审阅后应用基础设置。恢复已批准但中断的安装时，使用原设置执行 `rigup update --resume --review`。
 
 ## 项目研发流程
 
@@ -71,17 +73,15 @@ rigup update --apply RULES_PREVIEW_ID --sessions-ended
 
 ## 研究后端与预算
 
-- `codex` 使用本机已登录的 Codex CLI。研究在隔离工作目录运行。Codex 可按主题请求限定行段或字面搜索，Rigup 在读取预算内返回选中的片段，每轮最多两批补证。规划、写作和验收按各自任务选取证据，锁文件只参与指纹校验。源码、配置或锁文件变化会使相关结果失效。
-- `native` 通过 Anthropic API 研究。用 `--model` 或 `model.model` 选择模型，默认密钥变量为 `ANTHROPIC_API_KEY`，可用 `model.apiKeyEnv` 指定。`--model` 和 `--api-key-env` 会选择 native，与 `--backend codex` 互斥。Claude Code 登录与此 API 认证分开。
-- `host` 导出私有研究请求。读取报告的 `requestPath` 和该轮输出要求，将实际结果包入 `requestId`、`requestDigest`、`model`、`data` 后保存到指定响应路径，再执行 `nextCommand`。续跑会验证证据、输入指纹和当前设置。`--request` 的目标须在私有 host 缓存内，且与 `--response` 互斥。
+CLI 支持 `anthropic` 和 `openai-compatible`。将 `RIGUP_PROVIDER`、`RIGUP_MODEL_ID` 和 provider 的密钥变量注入当前进程。Anthropic 使用 `ANTHROPIC_API_KEY`，OpenAI 兼容接口使用 `OPENAI_API_KEY`。可用 `RIGUP_BASE_URL` 指定 HTTPS API 根路径，`RIGUP_API_KEY_ENV` 指定自定义密钥变量名。环境变量优先于本机私有 `~/.config/rigup/provider.json` 中同一 provider 的 `model`、`apiKeyEnv`、`baseURL`。`--model` 覆盖本轮模型 ID。没有 provider 凭据时可在 agent 内使用 Rigup MCP。
 
 ```sh
-rigup init --agents codex --sdd openspec --backend host --review --json
+rigup update --review --model MODEL_ID --json
 ```
 
-Codex 默认最多 60 次请求、累计 120 万 token。发出请求前，Rigup 用已准备的上下文估算下一次所需额度。收到响应后，仍按 Codex 报告的实际总用量（含缓存输入）核验。单次调用可能超出估算。额度不足时报告已用量、上限、估算和建议的累计额度。确认额度后执行报告中的 `--continue … --research-tokens N`，续用原有请求和用量记录。重试同一运行时沿用已指定的额度，明确提供新额度时才调整。未知消费须先对账再重试。
+私有 provider 文件使用 `provider`、`model`、`apiKeyEnv` 和可选 `baseURL`。限制文件和目录为当前用户可访问，并把密钥值留在进程环境或当次隐藏输入中。CLI provider 只能请求经过过滤的读取、清单和搜索。Anthropic 的计数预检和生成均计入请求数，OpenAI 兼容接口需要报告实际 token 用量。未知消费会保留在私有运行状态中，等待对账。MCP 宿主的模型费用由宿主记录。源码、配置或读取范围变化时会重新校验相关结果。
 
-Native 和 Host 默认 10 万 token。Native 将 token 预检和模型请求都计入请求数，Host 的实际用量由执行方另行对账。
+旧项目的后端设置和私有请求续跑参数继续用于兼容已有运行。新设置使用 CLI provider 或 Rigup MCP。续跑旧研究时以原报告里的命令为准。
 
 ## 应用与恢复
 
@@ -95,11 +95,15 @@ rigup update --resume --review --json
 
 Rigup 比较上次生成的基线、本地文件和新候选。非重叠改动可合并，冲突保留本地内容，等待用户处理后重新预览。混合配置按拥有的键、表或标记块更新，完整文件也核对权限位。需要显式退役时使用 `--retire logicalId,...`。
 
-中断后保留项目 `.rigup/` 和私有状态 `~/.local/state/rigup/`。普通候选与请求位于 `~/.cache/rigup/`。先核实 controller 和原生写入进程已退出，再在原项目路径用原配置执行 `--resume`。续跑可从持久记录恢复已批准的预览。输入或权限前置变化时先对账，再生成新预览。对未确认的副作用保留记录，等待身份和结果核实。
+中断后保留项目 `.rigup/` 和私有状态 `~/.local/state/rigup/`。普通候选与请求位于 `~/.cache/rigup/`。先核实 controller 和原生写入进程已退出，再在原项目路径运行 `rigup update --resume --review`。Rigup 从持久记录恢复原有选择和批准的预览。复核后，在独立终端执行报告中含 `--apply`、`--sessions-ended` 和 `--resume` 的命令。输入或权限前置变化时先对账，再生成新预览。对未确认的副作用保留记录，等待身份和结果核实。
+
+工具安装使用 `.rigup/tools/` 下的专用暂存目录，核验包、依赖树和入口后才提升到正式路径。重试只清理私有记录可验证归属的暂存目录。旧安装残留如果占用了正式路径，先将报告列出的目录移到安全的位置留存，再复核同一预览。
 
 升级前用生成预览的 Rigup 版本完成或核对中断的安装。研究续跑遇到中断安装时，会给出待处理的预览 ID。用该安装原有的审批完成恢复后，再继续研究。
 
 Git 项目应用集成后，`.rigup/.gitignore` 会排除本机安装回执、基线、软件和原生工具状态。项目配置仍可跟踪。
+
+项目级 MCP 接线使用相对路径。让宿主的 PATH 可找到 Node.js 24 和 Rigup。新 clone 里的共享接线可以启动服务，研究依赖本机建立归属记录。若初次预览发现已有文件归属不明，先留存冲突文件，再审阅重建后的接线。
 
 升级前，先用原版本续跑或对账未完成的语义研究。准备新预览时，会使用新版本的证据格式和独立的预算记录。
 

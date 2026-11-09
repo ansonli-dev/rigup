@@ -48,7 +48,7 @@ export function unqualifiedSkillName(name:string):string {
 }
 
 function specKitName(name:string,agent:string):string {
- return 'speckit'+(agent==='codex'?'-':'.')+name;
+ return 'speckit'+(agent==='claude'||agent==='codex'?'-':'.')+name;
 }
 
 function optionalEntries(descriptor:SddDescriptor):string[] {

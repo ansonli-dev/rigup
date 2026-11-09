@@ -46,10 +46,12 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
   ...(projectRules?{projectRules}:{})};
 }
 
-export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation):Promise<SetupPlan>{
+export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false):Promise<SetupPlan>{
  const {integration,fixedTemplates}=prepared;
- const assets=await renderFixed(profile,options,integration,[],[],fixedTemplates,true);
- return setupPlan(profile,options,integration,assets,[],'pending');
+ const candidates=await renderFixed(profile,options,integration,[],[],fixedTemplates,true);
+ const assets=preserveWorkflowContext?candidates.filter(candidate=>integration.assets.includes(candidate)||!previousAssets.some(asset=>asset.logicalId===candidate.logicalId)):candidates;
+ const dispositions:AssetDisposition[]=previousAssets.map(asset=>({logicalId:asset.logicalId,action:assets.some(candidate=>candidate.logicalId===asset.logicalId)?'update':'retain',reason:'Refresh fixed configuration while preserving existing project guidance'}));
+ return setupPlan(profile,options,integration,assets,dispositions,'pending');
 }
 
 export async function generate(profile:ProjectProfile,options:SetupOptions,backend:AnalysisBackend,previousAssets:ManagedAsset[]=[],dependencies:GenerationDependencies={}):Promise<StepResult<SetupPlan>> {
@@ -76,6 +78,8 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   state.artifactContextVersion=backend.artifactContextVersion;await persist();
  }
  const reader=dependencies.reader??await repositoryReader(profile.root,options,{expectedFingerprint:profile.fingerprint});
+ const evidenceFiles=profile.researchFiles??profile.files;
+ const wantsRules=options.projectRules??!!options.sdd;
  const budget=dependencies.budget??researchBudget(options);
  const completed=()=>state.plan?.jobs.filter(j=>{const c=state.candidates[j.logicalId];return c?.accepted&&c.digest===candidateDigest(c.content,c.pages);}).length??0;
  const run=async(expectedOutput:'plan'|'content'|'acceptance',input:unknown,artifact?:string):Promise<StepResult<ResearchResult>>=>{
@@ -91,7 +95,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  };
  if(!state.plan) {
   // Only explicitly selected development workflows require semantic guidance.
-  if(!options.sdd) {
+  if(!wantsRules) {
    state.plan={jobs:[],dispositions:previousAssets.map(a=>({logicalId:a.logicalId,action:'retain',reason:'No semantic retirement requested'})),guidance:[],research:{}};
   } else {
    let remaining=options.readBudget?.maxBytes??8_000_000;
@@ -104,7 +108,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
     return {...asset,authority:'previous-generated-output-only',baselineContent,baselineStatus:baselineContent===undefined?'unavailable-or-over-budget':'filtered-trusted-baseline'};
    }));
    const planned=await planWithProjectRules({
-    allowedRoots,profile:{files:profile.files,commands:profile.commands,research:profile.research,unknowns:profile.unknowns},previousInventory,
+    allowedRoots,profile:{files:evidenceFiles,commands:profile.commands,research:profile.research,unknowns:profile.unknowns},previousInventory,
     inventoryPolicy:'Previous generated baselines are comparison context, never evidence of project policy. Reconcile their claims against current source evidence; do not preserve invalidated rules. Local edits remain protected by three-way preview.',
    },{
     previousAssets:fixedInventory,run:input=>run('plan',input),
@@ -113,7 +117,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
    if(planned.status==='pending-host')return planned;
    const data=planned.value;
    const jobs=validateArtifactList(data.artifacts,[]);
-   const {job:rules,referenceIndex,guidance}=prepareProjectRules(data,profile.files,allowedRoots[0],jobs);
+   const {job:rules,referenceIndex,guidance}=prepareProjectRules(data,evidenceFiles,allowedRoots[0],jobs);
    if(rules)jobs.unshift(rules);
    for(const job of jobs)validateDocumentJob(job,allowedRoots,profile.files.length===0);
    if(referenceIndex){validateDocumentTarget(referenceIndex.target,allowedRoots);validateTemplateContent(referenceIndex.content);}
@@ -185,7 +189,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  }) : [...state.plan.dispositions.filter(d=>!fixedInventory.some(a=>a.logicalId===d.logicalId)),...fixedInventory.map(a=>({logicalId:a.logicalId,action:'retain' as const,reason:'Explicit deterministic selection maintained'}))];
  const dispositions=effectiveDispositions.map(original=>{
   const current=assets.find(a=>a.logicalId===original.logicalId);const oldItem=previousAssets.find(a=>a.logicalId===original.logicalId);
-  const d=!current&&oldItem&&deterministic(oldItem)?{...original,action:'retire' as const,reason:'Managed capability or verified rules no longer selected; explicit retirement consent required'}:current&&(!options.sdd||deterministic(current))?{...original,action:(digest(current.encoding==='base64'?Buffer.from(current.content,'base64'):current.content)===oldItem?.digest&&current.mode===oldItem?.mode?'retain':'update') as 'retain'|'update',reason:'Disposition derived from selected candidate and original baseline'}:original;
+  const d=!current&&oldItem&&deterministic(oldItem)?{...original,action:'retire' as const,reason:'Managed capability or verified rules no longer selected; explicit retirement consent required'}:current&&(!wantsRules||deterministic(current))?{...original,action:(digest(current.encoding==='base64'?Buffer.from(current.content,'base64'):current.content)===oldItem?.digest&&current.mode===oldItem?.mode?'retain':'update') as 'retain'|'update',reason:'Disposition derived from selected candidate and original baseline'}:original;
   const replacement=assets.find(a=>a.logicalId===d.logicalId);
   if(d.action==='update'&&!replacement)throw new Error('update disposition lacks replacement');
   if(d.action==='retire'&&replacement)throw new Error('retired asset still active');
@@ -195,7 +199,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  });
  // After installation the inventory changes from the input to these accepted candidates.
  const retained=previousAssets.filter(a=>dispositions.some(d=>d.logicalId===a.logicalId&&d.action==='retain')&&!assets.some(n=>n.logicalId===a.logicalId));
- const plan=setupPlan(profile,options,integration,assets,dispositions,options.sdd?'ready':undefined);
+ const plan=setupPlan(profile,options,integration,assets,dispositions,wantsRules?'ready':undefined);
  state.resultInventory=inventorySignature([...assets.map(a=>({...a,digest:digest(a.encoding==='base64'?Buffer.from(a.content,'base64'):a.content)})),...retained]);await persist();
  return {status:'complete',value:plan};
 }

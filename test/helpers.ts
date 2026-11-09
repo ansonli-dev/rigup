@@ -1,12 +1,14 @@
 import {mkdir,mkdtemp,realpath,rm,writeFile} from 'node:fs/promises';
 import {delimiter,join} from 'node:path';
-import {tmpdir} from 'node:os';
+import {homedir,tmpdir} from 'node:os';
 import {mkdtempSync,rmSync,realpathSync} from 'node:fs';
 import {after} from 'node:test';
 import type {ProjectProfile} from '../src/analyzer/repository.js';
 import type {Agent} from '../src/types.js';
-// Unit workers never inherit the developer's native-plugin/auth installation.
-const nativeTestHome=realpathSync(mkdtempSync(join(tmpdir(),'rigup-native-test-home-')));
+// Default tests provide their own model credentials and active-session markers.
+for(const key of ['ANTHROPIC_API_KEY','ANTHROPIC_MODEL','ANTHROPIC_BASE_URL','ANTHROPIC_CUSTOM_HEADERS','OPENAI_API_KEY','OPENAI_MODEL','OPENAI_BASE_URL','RIGUP_PROVIDER','RIGUP_MODEL_ID','RIGUP_BASE_URL','RIGUP_API_KEY_ENV','CODEX_THREAD_ID','CLAUDECODE','OPENCODE'])delete process.env[key];
+// Unit workers use a separate native-plugin installation.
+const nativeTestHome=realpathSync(mkdtempSync(join(process.platform==='win32'?homedir():tmpdir(),'.rigup-native-test-home-')));
 Object.assign(process.env,{HOME:nativeTestHome,CODEX_HOME:join(nativeTestHome,'.codex'),CLAUDE_CONFIG_DIR:join(nativeTestHome,'.claude'),XDG_CONFIG_HOME:join(nativeTestHome,'.config'),PI_CODING_AGENT_DIR:join(nativeTestHome,'.omp/agent')});
 if(process.platform==='win32')process.env.USERPROFILE=nativeTestHome;
 after(()=>rmSync(nativeTestHome,{recursive:true,force:true}));

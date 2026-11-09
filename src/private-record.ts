@@ -1,6 +1,7 @@
 import {lstat,open,readFile,rename} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {renameWithRetry} from './atomic-rename.js';
 import {assertPrivateAccess} from './private-access.js';
 import {syncDirectory} from './sync-directory.js';
 export function isRecord(value:unknown):value is Record<string,unknown> {
@@ -39,6 +40,6 @@ export async function readDurableRecord<T>(path:string,record:string,valid?:(val
 export async function saveDurable(path:string,content:string):Promise<void>{
  const temp=path+'.'+randomUUID()+'.tmp';const file=await open(temp,'wx',0o600);
  try{await file.writeFile(content);await file.sync();}finally{await file.close();}
- await rename(temp,path);
+ await renameWithRetry(()=>rename(temp,path));
  await syncDirectory(dirname(path));
 }

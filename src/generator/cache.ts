@@ -1,6 +1,7 @@
 import {mkdir,lstat,realpath,writeFile,rename} from 'node:fs/promises';
 import {resolve,relative,isAbsolute,parse,join,sep} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {renameWithRetry} from '../atomic-rename.js';
 import {digest} from '../analyzer/evidence.js';
 import {readPrivateJson} from '../private-record.js';
 import {assertPrivateAccess,assertSafeWindowsAncestors} from '../private-access.js';
@@ -35,4 +36,8 @@ export async function privateDirectory(path:string,project:string):Promise<strin
 export async function readCache<T>(path:string):Promise<T|undefined>{
  try{return await readPrivateJson<T>(path);}catch(error){if(error instanceof SyntaxError)return;throw error;}
 }
-export async function saveCache(path:string,content:string):Promise<void>{const tmp=path+'.'+randomUUID()+'.tmp';await writeFile(tmp,content,{flag:'wx',mode:0o600});await rename(tmp,path);}
+export async function saveCache(path:string,content:string):Promise<void>{
+ const tmp=path+'.'+randomUUID()+'.tmp';
+ await writeFile(tmp,content,{flag:'wx',mode:0o600});
+ await renameWithRetry(()=>rename(tmp,path));
+}

@@ -248,6 +248,35 @@ test('native_reserves_budget_before_dispatch_and_blocks_when_persistence_fails',
  let calls=0;const usage:any[]=[];const backend=nativeBackend({apiKey:'fixture',model:'fixture',onUsage:async value=>{usage.push(value);if(value.tokens==='unknown')throw Error('budget persistence failed');},fetch:async()=>{calls++;return new Response(JSON.stringify({input_tokens:10}),{headers:{'content-type':'application/json'}});}});
  await assert.rejects(backend.run(request,reader));assert.equal(calls,1);assert.deepEqual(usage,[{calls:1,tokens:0},{calls:2,tokens:'unknown'}]);
 });
+test('native_honors_configured_base_url_without_following_redirects',async()=>{
+ const requests:string[]=[];
+ const ambient=process.env.ANTHROPIC_CUSTOM_HEADERS;
+ process.env.ANTHROPIC_CUSTOM_HEADERS='Authorization: Bearer unrelated\nX-Org-Token: fixture-token';
+ const backend=nativeBackend({apiKey:'fixture',model:'fixture',baseURL:'https://example.test/anthropic',fetch:async(url,init)=>{
+  requests.push(String(url));
+  assert.equal(init?.redirect,'error');
+  const headers=new Headers(init?.headers);
+  assert.equal(headers.get('x-api-key'),'fixture');
+  assert.equal(headers.has('authorization'),false);
+  assert.equal(headers.has('x-org-token'),false);
+  if(String(url).endsWith('/count_tokens'))return Response.json({input_tokens:10});
+  return Response.json({id:'msg_fixture',type:'message',role:'assistant',model:'served-model',content:[{type:'text',text:'{"observations":[],"unknowns":[]}'}],stop_reason:'end_turn',usage:{input_tokens:10,output_tokens:5,cache_read_input_tokens:5}});
+ }});
+ const result=await backend.run(request,reader).finally(()=>{if(ambient===undefined)delete process.env.ANTHROPIC_CUSTOM_HEADERS;else process.env.ANTHROPIC_CUSTOM_HEADERS=ambient;});
+ assert.equal(result.status,'complete');
+ if(result.status==='complete')assert.deepEqual(result.value.usage,{calls:2,tokens:20});
+ assert.deepEqual(requests,['https://example.test/anthropic/v1/messages/count_tokens','https://example.test/anthropic/v1/messages']);
+});
+test('native_treats_malformed_generation_usage_as_unknown',async()=>{
+ const recorded:unknown[]=[];
+ const backend=nativeBackend({apiKey:'fixture',model:'fixture',onUsage:async value=>{recorded.push(value);},fetch:async url=>String(url).endsWith('/count_tokens')?Response.json({input_tokens:10}):Response.json({id:'msg_fixture',type:'message',role:'assistant',model:'served-model',content:[{type:'text',text:'{"observations":[],"unknowns":[]}'}],stop_reason:'end_turn',usage:{input_tokens:10}})});
+ await assert.rejects(backend.run(request,reader),(error:unknown)=>{
+  assert.ok(error instanceof Error && 'usage' in error);
+  assert.deepEqual(error.usage,{calls:2,tokens:'unknown'});
+  return true;
+ });
+ assert.deepEqual(recorded,[{calls:1,tokens:0},{calls:2,tokens:'unknown'}]);
+});
 test('native_result_preserves_reused_source_scope_and_explicit_rule',async()=>{
  const {project}=await import('./helpers.js');const fs=await import('node:fs/promises');const {join}=await import('node:path');const {repositoryReader}=await import('../src/analyzer/repository.js');
  await project(async root=>{

@@ -1,12 +1,15 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {execFile, spawn} from 'node:child_process';
+import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp, mkdir, open, readFile, rm, writeFile} from 'node:fs/promises';
+import {createWriteStream} from 'node:fs';
+import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {dirname, join} from 'node:path';
+import {delimiter, dirname, join} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {finished} from 'node:stream/promises';
 import {prepareGitlab} from '../src/integrations/gitlab/ci.js';
+import {liveVersion,startLiveCommand} from './live-process-support.js';
 
 const exec = promisify(execFile);
 const pause = (ms:number) => new Promise(done => setTimeout(done, ms));
@@ -18,15 +21,16 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
   const token = (await readFile(process.env.RIGUP_GITLAB_TOKEN_FILE!, 'utf8')).trim();
   assert.ok(token);
   const binary = process.env.RIGUP_GITLAB_RUNNER!;
-  const runnerVersion = (await exec(binary, ['--version'])).stdout.trim();
+  const runnerVersion = await liveVersion(binary);
   const control = await mkdtemp(join(tmpdir(), 'rigup-gitlab-live-'));
   const home = join(control, 'home');
   const root = join(control, 'source');
   await mkdir(home); await mkdir(root);
   const report:any = {caseId: 'gitlab/local-lint-runner', status: 'failed', startedAt: new Date().toISOString(), source: (await exec('git', ['rev-parse', 'HEAD'])).stdout.trim(), platform: process.platform, node: process.version, runnerVersion, pipelines: [], scope: 'Disposable local GitLab and shell runner with native job scripts, JUnit artifacts, a missing environment reference and wiki skip guards.'};
   let projectId:number|undefined;
-  let runner:ReturnType<typeof spawn>|undefined;
-  let runnerLog:Awaited<ReturnType<typeof open>>|undefined;
+  let runner:ReturnType<typeof startLiveCommand>|undefined;
+  let runnerLog:ReturnType<typeof createWriteStream>|undefined;
+  let runnerLogClosed:Promise<void>|undefined;
   const api = async (method:string, path:string, body?:unknown, text=false):Promise<any> => {
     const response = await fetch(new URL('/api/v4' + path, host), {method, headers: {'PRIVATE-TOKEN': token, 'Content-Type': 'application/json'}, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30_000)});
     const value = text ? await response.text() : response.status === 204 ? null : await response.json();
@@ -41,16 +45,26 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
     const registered = await api('POST', '/user/runners', {runner_type: 'project_type', project_id: projectId, description: 'Rigup disposable local validation', run_untagged: true, locked: true});
     const config = join(control, 'runner.toml');
     await writeFile(config, `concurrent = 1\ncheck_interval = 1\n[[runners]]\nname = "rigup-disposable"\nurl = ${JSON.stringify(host.origin)}\nid = ${registered.id}\ntoken = ${JSON.stringify(registered.token)}\nexecutor = "shell"\nshell = "bash"\nbuilds_dir = ${JSON.stringify(join(control, 'builds'))}\ncache_dir = ${JSON.stringify(join(control, 'cache'))}\n`, {mode: 0o600});
-    runnerLog = await open(join(control, 'runner.log'), 'w', 0o600);
-    runner = spawn(binary, ['run', '--config', config, '--working-directory', control], {cwd: control, detached: true, stdio: ['ignore', runnerLog.fd, runnerLog.fd], env: {PATH: [dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(':'), HOME: home, LANG: 'en_US.UTF-8', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(home, 'gitconfig')}});
     let runnerError:Error|undefined;
-    runner.on('error', error => {runnerError = error;});
+    runnerLog = createWriteStream(join(control, 'runner.log'), {mode:0o600});
+    runnerLogClosed = finished(runnerLog);
+    void runnerLogClosed.catch(error => {runnerError = error;});
+    const path = process.platform==='win32'
+      ? [dirname(process.execPath), process.env.PATH].filter(Boolean).join(delimiter)
+      : [dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(delimiter);
+    runner = startLiveCommand(binary, ['run', '--config', config, '--working-directory', control], {cwd:control,
+      env:{PATH:path, SystemRoot:process.env.SystemRoot, HOME:home, LANG:'en_US.UTF-8', GIT_CONFIG_NOSYSTEM:'1', GIT_CONFIG_GLOBAL:join(home, 'gitconfig')}});
+    runner.stdout.pipe(runnerLog,{end:false});
+    runner.stderr.pipe(runnerLog,{end:false});
+    void runner.completed.then(
+      code => {runnerError = Error('Disposable runner exited before pipeline completion (code '+code+')');},
+      error => {runnerError = error;},
+    );
     const commit = async (actions:unknown[], skip=true) => api('POST', base + '/repository/commits', {branch: 'main', commit_message: 'Rigup disposable fixture' + (skip ? ' [skip ci]' : ''), actions});
     const waitPipeline = async (id:number) => {
       const deadline = Date.now() + 180_000;
       while (Date.now() < deadline) {
         if (runnerError) throw runnerError;
-        assert.equal(runner?.exitCode, null, 'disposable runner exited before pipeline completion');
         const pipeline = await api('GET', base + '/pipelines/' + id);
         if (['success', 'failed', 'canceled', 'skipped', 'manual'].includes(pipeline.status)) return pipeline;
         await pause(1000);
@@ -113,12 +127,16 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
     report.privateControl = control;
     throw error;
   } finally {
-    if (runner?.pid) {
-      try { process.kill(-runner.pid, 'SIGQUIT'); } catch {}
-      for (let attempt = 0; runner.exitCode === null && attempt < 30; attempt++) await pause(100);
-      if (runner.exitCode === null) { try { process.kill(-runner.pid, 'SIGKILL'); } catch {} }
+    let cleanupError:unknown;
+    try {
+      try { await runner?.stop('SIGQUIT'); }
+      finally { runnerLog?.end(); await runnerLogClosed; }
+    } catch (error) {
+      cleanupError = error;
+      report.status = 'failed';
+      report.runnerCleanup = (error as Error).message;
+      report.privateControl = control;
     }
-    await runnerLog?.close();
     if (projectId !== undefined) {
       try { await api('DELETE', '/projects/' + projectId); report.projectCleanup = 'deleted own disposable project'; }
       catch { report.projectCleanup = 'failed; remove own disposable instance before reuse'; }
@@ -127,5 +145,6 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
     const out = process.env.RIGUP_LIVE_EVIDENCE_DIR ?? join(control, 'evidence');
     await mkdir(out, {recursive: true}); await writeFile(join(out, 'gitlab-local-runner.json'), JSON.stringify(report, null, 2) + '\n');
     if (report.status === 'passed') await rm(control, {recursive: true, force: true});
+    if (cleanupError) throw cleanupError;
   }
 });

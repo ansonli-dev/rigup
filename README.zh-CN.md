@@ -49,10 +49,10 @@ cd /path/to/project
 rigup init
 ```
 
-引导会补问缺少的设置，包括生成项目文档的语言。可以传 `--language zh-CN` 选简体中文，默认 `auto` 沿用项目指引的语言。语义研究默认使用本机已登录的 Codex。下例做非交互预览，模型调用为零。
+引导会补问缺少的设置，包括生成项目文档的语言。可以传 `--language zh-CN` 选简体中文，默认 `auto` 沿用项目指引的语言。首次设置默认安装基础接线和 Rigup MCP，再从已配置的 agent 生成项目规则。也可以配置 Anthropic 或 OpenAI 兼容服务，从终端执行 `rigup update --review`。下例用 `--defer-research` 做零模型调用的非交互预览。[研究入口与预算](docs/guides/usage.md#研究后端与预算)
 
 ```sh
-rigup init --agents codex --sdd none --tools none --dry-run --json
+rigup init --agents codex --sdd none --tools none --defer-research --dry-run --json
 ```
 
 选中 OpenSpec 时，引导会立即检查 CLI 和项目入口。确认自动补齐后，Rigup 会把锁定版本的 OpenSpec 装到 PATH 上可写的 npm 前缀，并补齐所选宿主的原生文件。手动处理后再次运行 `rigup init` 会接着已选的宿主和 OpenSpec 继续。
@@ -63,7 +63,7 @@ rigup init --agents codex --sdd none --tools none --dry-run --json
 
 ## 项目开发规范
 
-选用研发流程后，Codex 选择主题，并可请求读取特定源码行或搜索反例来收窄规则。Rigup 在 `docs/rigup/development-rules.md` 生成索引，按适用范围链接原有指引和 `development-rules/` 下的主题规范。每个主题页写明开发要求、例外和验证方法。证据与验收记录保存在私有运行状态中。
+通过宿主的 Rigup MCP 或终端的 provider 研究项目后，Rigup 核对引用的源码范围，在 `docs/rigup/development-rules.md` 生成索引。索引按适用范围链接原有指引和 `development-rules/` 下的主题规范。每个主题页写明开发要求、例外和验证方法。证据与验收记录保存在私有运行状态中。
 
 两个流程 skill 将适用规则带入原生提案和任务执行，并指出已有的测试和 hook 定义，方便 agent 复用覆盖本次改动的检查。[研发流程与语言](docs/guides/usage.md#项目研发流程)
 

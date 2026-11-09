@@ -26,8 +26,9 @@ export function readWorkflowTemplates(){
 }
 export async function renderFixed(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,semantic:PreparedAsset[],guidance:GuidanceBinding[],templates?:Awaited<ReturnType<typeof readWorkflowTemplates>>,projectRulesPending=false):Promise<PreparedAsset[]>{
  const result=[...integration.assets,...semantic];
- if(!options.sdd && !(options.customSkills?.some(s=>s.position==='prepare'||s.position==='deliver'))) return result;
- templates??=await readWorkflowTemplates();
+ const hasWorkflow=!!options.sdd||options.customSkills?.some(s=>s.position==='prepare'||s.position==='deliver');
+ if(!hasWorkflow&&!options.projectRules)return result;
+ templates=hasWorkflow?(templates??await readWorkflowTemplates()):[];
  const refs=[...new Set([...integration.assets.filter(a=>a.consumer==='change-deliver:review').map(a=>a.target),...semantic.filter(a=>!isProjectRulesId(a.logicalId)).map(a=>a.target)])];
  const reused=new Map<string,string[]>();
  for(const binding of guidance.filter(isOriginalGuidance)){
@@ -51,7 +52,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
    const lines=[reference.trimEnd(),'','## Installed workflow','',...(binding ? ['Native prepare: '+binding.prepare.join(', '),...(binding.revise?['Native revise: '+binding.revise]:[]),'Native deliver: '+binding.deliver.join(', '),'Native document routes: '+binding.artifacts.join(', '),...binding.gates] : options.sdd?['Native workflow prerequisites pending. Stop at the missing entry.']:['Use the explicitly selected customer workflow and preserve its approvals.']),...customerRefs.map(p=>'- '+link(refTarget,p,'Customer workflow'))];
    if(binding?.projectSources?.length)lines.push(...binding.projectSources.map(path=>'- '+link(refTarget,path)));
    for(const b of customerBindings)if(b.nativeName)lines.push('- Invoke existing native customer skill: '+inline(b.nativeName)+'. Preserve its gates.');
-   if(projectRulesPending)lines.push('','Project rules are pending. For the touched paths, read applicable AGENTS.md or CLAUDE.md files and repository contribution guidance. Use the checks below.');
+   if(projectRulesPending)lines.push('','Project rules are pending. For the touched paths, read applicable AGENTS.md or CLAUDE.md files and repository contribution guidance. Use the checks below.',...(options.projectRules?['Use the Rigup MCP research tools to prepare a rules preview. Ask the user to apply the preview from an independent terminal after ending affected sessions.']:[]));
    if(rules||refs.length||reused.size){
     lines.push('','## Project guidance','');
     if(rules)lines.push('- Before planning or editing, use the scopes in the '+link(refTarget,rules.target,'project development rules index')+' to open the topics and original guidance that apply to the changed paths.');
@@ -89,7 +90,8 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
   const marker={kind:'block' as const,start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'};
   const skills=options.agents.filter(a=>agents[a].entry===target).flatMap(a=>templates.map(({name})=>agents[a].skillDirectory+'/'+name+'/SKILL.md'));
   const sources=[...reused.keys()].filter(path=>path!==target);
-  add('entry:'+target,target,[marker.start,'## Project workflow',...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,'Project development rules')]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>'- '+link(target,path)),marker.end].join('\n')+'\n',marker);
+  const pending=projectRulesPending&&options.projectRules?['Project rules are pending. Use the Rigup MCP research tools when asked to prepare a rules preview.']:[];
+  add('entry:'+target,target,[marker.start,hasWorkflow?'## Project workflow':'## Project guidance',...pending,...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,'Project development rules')]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>'- '+link(target,path)),marker.end].join('\n')+'\n',marker);
  }
  return result;
 }

@@ -2,7 +2,7 @@ import type {SetupOptions} from './types.js';
 import {normalizeDocumentLanguage} from './config.js';
 import {promptChoice} from './prompt.js';
 export interface OnboardingIO {write(text:string):void;read(secret?:boolean):Promise<string|null>}
-export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{configure:boolean;knownBackend:boolean;deferResearch?:boolean;offerSetupScope?:boolean;apiKeyEnv?:string;languageProvided?:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools'|'model',boolean>>;credentials?:{apiKey?:string;model?:string};checkWorkflow?:(options:SetupOptions)=>Promise<'ready'|'back'|'stop'>}):Promise<{options:SetupOptions;credentials:{apiKey?:string;model?:string};deferResearch:boolean}|null>{
+export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{configure:boolean;knownBackend:boolean;modernResearch?:boolean;deferResearch?:boolean;offerSetupScope?:boolean;apiKeyEnv?:string;languageProvided?:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools'|'model',boolean>>;credentials?:{apiKey?:string;model?:string};checkWorkflow?:(options:SetupOptions)=>Promise<'ready'|'back'|'stop'>}):Promise<{options:SetupOptions;credentials:{apiKey?:string;model?:string};deferResearch:boolean}|null>{
  const options=structuredClone(initial);let credentials={...settings.credentials};let stage=!options.agents.length||settings.configure||!settings.knownBackend||settings.provided?0:4;
  const provided=settings.configure?{}:{...settings.provided};let knownBackend=settings.knownBackend;
  let deferResearch=!!settings.deferResearch,scopeChosen=false;
@@ -36,30 +36,30 @@ export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{con
    for(const id of answer.filter(x=>x!=='none')){const old=options.tools?.find(t=>t.id===id);if(old){selected.push({...old,agents:old.agents.length?old.agents:[...options.agents],...(id==='openwiki'?{initialize:false}:{})});continue;}const mode=await list(id+'：作用于当前所选 agents',['pinned-project-install','register-existing-binary'],['pinned-project-install']);if(mode===null)return null;if(mode==='back'){back=true;break;}if(!Array.isArray(mode)||mode.length!==1){back=true;break;}selected.push({id:id as 'openwiki'|'codegraph',install:mode[0]==='pinned-project-install',initialize:id==='codegraph'&&mode[0]==='pinned-project-install',agents:[...options.agents]});}
    if(back)continue;options.tools=selected.length?selected:undefined;stage++;continue;
   }
-  if(stage===3){if(!options.sdd||knownBackend&&!settings.configure){stage++;continue;}const answer=await list('语义研究后端：codex 使用本机登录；native 使用 Anthropic；host 交换请求文件',['codex','native','host'],[options.backend]);if(answer===null)return null;if(answer==='back'){goBack(2);continue;}if(!Array.isArray(answer)||answer.length!==1)continue;if(options.backend!==answer[0]){delete options.model;credentials={};}options.backend=answer[0] as SetupOptions['backend'];stage++;continue;}
+  if(stage===3){if(settings.modernResearch||!options.sdd||knownBackend&&!settings.configure){stage++;continue;}const answer=await list('语义研究后端：codex 使用本机登录；native 使用 Anthropic；host 交换请求文件',['codex','native','host'],[options.backend]);if(answer===null)return null;if(answer==='back'){goBack(2);continue;}if(!Array.isArray(answer)||answer.length!==1)continue;if(options.backend!==answer[0]){delete options.model;credentials={};}options.backend=answer[0] as SetupOptions['backend'];stage++;continue;}
   if(stage===5){
    const guidedSetup=settings.configure||!settings.knownBackend||!!settings.provided;
-   if(!options.sdd||!guidedSetup||settings.languageProvided||options.documentLanguage&&!settings.configure)break;
+   if(!(options.sdd||settings.modernResearch)||!guidedSetup||settings.languageProvided||options.documentLanguage&&!settings.configure)break;
    io.write('生成文档语言（auto、zh-CN、en 或其他语言标签） [Enter: '+(options.documentLanguage??'auto')+']，b 返回，Esc/EOF 取消\n');
    const answer=await io.read();if(answer===null||answer==='\x1b')return null;
-   if(answer==='b'||answer==='back'){goBack(3);continue;}
+   if(answer==='b'||answer==='back'){goBack(settings.modernResearch?2:3);continue;}
    try { options.documentLanguage=normalizeDocumentLanguage(answer.trim()||options.documentLanguage||'auto'); }
    catch(error){io.write((error as Error).message+'\n');continue;}
    break;
   }
-  if(settings.offerSetupScope&&options.sdd&&!scopeChosen){
+  if(settings.offerSetupScope&&(options.sdd||settings.modernResearch)&&!scopeChosen){
    const choices=['先安装工作流，稍后生成规则（本阶段不调用模型）','同时准备工作流和项目规则'];
    const answer=await list('首次设置范围',choices,[choices[0]]);
-   if(answer===null)return null;if(answer==='back'){goBack(3);continue;}
+   if(answer===null)return null;if(answer==='back'){goBack(settings.modernResearch?2:3);continue;}
    if(!Array.isArray(answer)||answer.length!==1)continue;
    deferResearch=answer[0]===choices[0];scopeChosen=true;
   }
-  if(deferResearch||!options.sdd||options.backend!=='native'){stage++;continue;}
+  if(settings.modernResearch||deferResearch||!options.sdd||options.backend!=='native'){stage++;continue;}
   let model=options.model?.model??credentials.model??process.env.ANTHROPIC_MODEL;
   if(!model){io.write('Anthropic model ID（非密钥；b 返回）\n');const value=await io.read();if(value===null||value==='\x1b')return null;if(value==='b'||value==='back'){goBack(3);continue;}if(!value.trim())continue;model=value.trim();}
   const apiKeyEnv=settings.apiKeyEnv??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';options.model={provider:'anthropic',model,apiKeyEnv};
   if(!credentials.apiKey&&!process.env[apiKeyEnv]){io.write('缺少 '+apiKeyEnv+'；输入隐藏密钥仅供本轮使用，不保存值（Esc/EOF 取消）\n');const secret=await io.read(true);if(secret===null||secret==='\x1b')return null;if(!secret)continue;credentials.apiKey=secret;}
   credentials.model=model;stage++;
  }
- return {options,credentials,deferResearch:!!options.sdd&&deferResearch};
+ return {options,credentials,deferResearch:!!(options.sdd||settings.modernResearch)&&deferResearch};
 }

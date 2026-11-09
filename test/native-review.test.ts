@@ -45,7 +45,7 @@ test('public lifecycle preserves unresolved Codex identity when ordinary cache i
 test('explicit Anthropic CLI flags select their provider after default resolution',()=>fixture(async(root,cache,state)=>{
  const old=process.env.ANTHROPIC_MODEL;process.env.ANTHROPIC_MODEL='environment-choice';
  try{for(const [flags,model,reference] of [[['--model','explicit-choice'],'explicit-choice','ANTHROPIC_API_KEY'],[['--api-key-env','TEAM_KEY'],'environment-choice','TEAM_KEY']] as const){
-  let seen:any;await runCli(['init','--sdd','openspec','--dry-run',...flags],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async request=>{seen=request;throw Error('stop before model');}}}});
+  let seen:any;await runCli(['init','--sdd','openspec','--backend','native','--dry-run',...flags],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async request=>{seen=request;throw Error('stop before model');}}}});
   assert.equal(seen.options.backend,'native');assert.deepEqual(seen.effectiveModel,{provider:'anthropic',model,apiKeyEnv:reference});
  }}finally{if(old===undefined)delete process.env.ANTHROPIC_MODEL;else process.env.ANTHROPIC_MODEL=old;}
 }));
@@ -91,7 +91,7 @@ test('interrupted native output cannot become research after source drift reject
  // operation queries, journals, preview/apply and repository-reader boundaries.
  await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache+'/previews',stateRoot:state,operation:{launch:async op=>{
   if(op.kind==='install'){
-   const {prefix:base}=await writeNativeToolFixture(root,'codegraph','1.6.2');
+   const {prefix:base}=await writeNativeToolFixture(root,'codegraph','1.6.2','commonjs',op.protection.target);
    await writeFile(base+'/package-lock.json',JSON.stringify({packages:{'':{dependencies:{'@colbymchenry/codegraph':'1.6.2'}},'node_modules/@colbymchenry/codegraph':{version:'1.6.2',integrity:op.query.integrity}}}));
   }else{
    await mkdir(root+'/.codegraph');const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(root+'/.codegraph/codegraph.db');

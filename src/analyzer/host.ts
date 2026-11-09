@@ -1,7 +1,6 @@
 import {privateDirectory,readCache,saveCache,signature,stable} from '../generator/cache.js';
-import {realpath,readFile,writeFile,lstat,rename} from 'node:fs/promises';
+import {realpath,readFile,writeFile,lstat} from 'node:fs/promises';
 import {join,resolve,relative,isAbsolute,dirname} from 'node:path';
-import {randomUUID} from 'node:crypto';
 import {assertPrivateAccess} from '../private-access.js';
 import {quoteShell} from '../shell-command.js';
 import {validateResearchRequest,validateResearch,selectResearchOutput,type AnalysisBackend} from './backend.js';
@@ -88,8 +87,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   if(!state.requests.includes(requestId)) {
    if(state.requests.length>=request.budget.maxCalls) throw new Error('host run request budget exhausted');
    state.requests.push(requestId);
-   const temporary=budgetPath+'.'+randomUUID()+'.tmp';
-   await writeFile(temporary,JSON.stringify(state),{flag:'wx',mode:0o600});await rename(temporary,budgetPath);
+   await saveCache(budgetPath,JSON.stringify(state));
   }
   const prior=await readCache<any>(requestPath);
   if(prior){if(prior.requestDigest!==requestDigest||stable(prior.context)!==stable(context)||prior.instructions!==instructions)throw new Error('request context or instructions tampered or changed');await verifyDelivery(prior);if(options.requestPath&&prior.deliveryPath!==deliveryPath)throw new Error('request export target changed');deliveryPath=prior.deliveryPath??requestPath;}

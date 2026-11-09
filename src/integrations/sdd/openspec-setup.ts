@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {constants} from 'node:fs';
 import {access,lstat,mkdir,mkdtemp,readdir,readFile,realpath,rm} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {delimiter,isAbsolute,join,relative,sep} from 'node:path';
+import {basename,delimiter,dirname,isAbsolute,join,relative,sep} from 'node:path';
 import {promisify} from 'node:util';
 import {scanRepository} from '../../analyzer/repository.js';
 import {acquireLock} from '../../installer/lock.js';
@@ -51,7 +51,9 @@ async function executable(name:string,root:string,pathDirs:string[]){
 
 async function windowsNpmCommand(name:'openspec'|'npm',directory:string,root:string,pathDirs:string[]):Promise<Program>{
  const packageName=name==='npm'?'npm':openspecPackage;
- const packageRoot=await targetPath(directory,packageDirectory(packageName));
+ const modules=dirname(directory);
+ const prefix=basename(directory).toLowerCase()==='.bin'&&basename(modules).toLowerCase()==='node_modules'?dirname(modules):directory;
+ const packageRoot=await targetPath(prefix,packageDirectory(packageName));
  const manifest=await targetPath(packageRoot,'package.json');
  const stat=await lstat(manifest);
  if(!stat.isFile()||stat.size>64_000)throw Error('Invalid npm package manifest');
@@ -60,8 +62,9 @@ async function windowsNpmCommand(name:'openspec'|'npm',directory:string,root:str
  if(metadata.name!==packageName||typeof bin!=='string'||!/^[\w./-]+\.(?:c|m)?js$/i.test(bin))throw Error('Invalid npm package entry');
  const entry=await targetPath(packageRoot,bin.replace(/^\.\//,''));
  const node=await executable(nodeName,root,[directory,...pathDirs]);
- if(!node||within(root,await realpath(entry))||!(await lstat(entry)).isFile())throw Error('Unsafe npm package entry');
- return {file:node,args:[entry]};
+ const canonical=await realpath(entry);
+ if(!node||!within(packageRoot,canonical)||within(root,canonical)||!(await lstat(entry)).isFile())throw Error('Unsafe npm package entry');
+ return {file:node,args:[canonical]};
 }
 
 async function findProgram(name:'openspec'|'npm',root:string,pathDirs:string[]):Promise<Program|undefined>{
@@ -167,6 +170,7 @@ export async function inspectOpenSpec(root:string,options:Pick<SetupOptions,'age
   }else problems.push('The existing openspec command did not start successfully. Repair its installation or put a working CLI first on PATH.');
  }
  const needsProject=needsRoot||needsEntries.length>0;
+ const externalPreparation=!!cliVersion&&cliVersion!==recipe.version&&needsProject;
  const [npm,nodeReady]=cli?[undefined,true]:await Promise.all([findProgram('npm',root,path).catch(()=>undefined),canRunOpenSpec(root,path,signal)]);
  const prefix=npm&&nodeReady?await npmPrefix(npm,root,path,signal):undefined;
  const installTargets=windows?['openspec','openspec.exe','openspec.cmd','openspec.ps1']:['bin/openspec'];
@@ -178,7 +182,7 @@ export async function inspectOpenSpec(root:string,options:Pick<SetupOptions,'age
   ...problems,
   ...(!nodeReady?['OpenSpec needs Node.js 22.12 or newer on the user PATH']:[]),
   ...(!cli&&!installAvailable?['Automatic installation requires npm and a writable user bin directory on PATH']:[]),
-  ...(cliVersion&&cliVersion!==recipe.version&&needsProject?['Automatic project initialization uses the verified OpenSpec '+recipe.version+' layout']:[])
+  ...(externalPreparation?['Automatic project initialization uses the verified OpenSpec '+recipe.version+' layout. Use the installed OpenSpec CLI to initialize this project, then retry Rigup.']:[])
  ];
  const canPrepare=!problems.length&&(cliVersion===recipe.version||!!cliVersion&&!needsProject||!cli&&installAvailable);
  const userBin=!windows&&!cli&&npm&&nodeReady&&!prefix
@@ -187,7 +191,9 @@ export async function inspectOpenSpec(root:string,options:Pick<SetupOptions,'age
   ...(!cli&&npm&&nodeReady&&!prefix&&userBin&&!within(root,userBin)?[
    'mkdir -p '+quoteShell(userBin),'export PATH='+quoteShell(userBin)+':"$PATH"'
   ]:[]),
-  ...((!cli||needsProject)&&!problems.length?[openspecPreparationCommand(root,options.agents)]:[])
+  ...((!cli||needsProject)&&!problems.length?[externalPreparation
+   ?['openspec',...openspecInitArgs(options.agents),quoteShell(root)].join(' ')
+   :openspecPreparationCommand(root,options.agents)]:[])
  ];
  return {cli,cliVersion,npm,prefix,path,recipe,needsProject,needsRoot,needsEntries,requirements,canPrepare,steps,entries:profile.nativeEntries};
 }
