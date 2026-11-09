@@ -438,15 +438,17 @@ test('specialized checks describe package-manager, process and database prerequi
  assert.ok(!(await scanRepository(root,opts)).specializedChecks.some(check=>check.command.args.includes('test')));
 }));
 test('multi_agent_sdd_context_uses_each_hosts_native_command_names',()=>fixture(async(root)=>{
- const selected={agents:['claude','codex'] as ('claude'|'codex')[],backend:'host' as const,sdd:'spec-kit' as const};
+ const selected={agents:['claude','codex','opencode'] as ('claude'|'codex'|'opencode')[],backend:'host' as const,sdd:'spec-kit' as const};
  const profile=await scanRepository(root,selected);
  const names=['constitution','specify','plan','tasks','implement','converge'];
- setNativeEntries(profile,{claude:names.map(n=>'speckit.'+n),codex:names.map(n=>'speckit-'+n)});
+ setNativeEntries(profile,{claude:names.map(n=>'speckit-'+n),codex:names.map(n=>'speckit-'+n),opencode:names.map(n=>'speckit.'+n)});
  const integration=await prepareIntegrations(profile,selected);assert.deepEqual(integration.requirements,[]);
  const assets=await renderFixed(profile,selected,integration,[],[]);
  const context=(prefix:string)=>assets.find(a=>a.target===prefix+'/change-prepare/references/project.md')!.content;
- assert.match(context('.claude/skills'),/Native prepare: speckit\.constitution/);
+ assert.match(context('.claude/skills'),/Native prepare: speckit-constitution/);
  assert.match(context('.agents/skills'),/Native prepare: speckit-constitution/);
+ assert.match(context('.opencode/skills'),/Native prepare: speckit\.constitution/);
+ assert.doesNotMatch(context('.claude/skills'),/speckit\.constitution/);
  assert.doesNotMatch(context('.agents/skills'),/speckit\.constitution/);
 }));
 test('positioned_customer_skills_are_bound_to_their_selected_flow_without_sdd',()=>fixture(async(root)=>{
