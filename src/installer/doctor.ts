@@ -3,7 +3,7 @@ import {delimiter,join} from 'node:path';
 import type {CheckKind,SetupOptions} from '../types.js';
 import type {InstallReport} from './apply.js';
 import {loadManifest,trustedBaseline} from './baseline.js';
-import {ownedContent,targetPath} from './ownership.js';
+import {equalOwnedContent,ownedContent,targetPath} from './ownership.js';
 import {readTarget} from './preview.js';
 import {readFileState,platformFileMode} from './file-state.js';
 import {scanRepository} from '../analyzer/repository.js';
@@ -58,7 +58,14 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
  if(!manifest.options)add('config','selection','pending','Installed selection unavailable; cannot infer capabilities');
  for(const asset of manifest.assets){
   const baseline=await trustedBaseline(root,asset);if(baseline===undefined){add('config',asset.logicalId,'failed','Trusted generated baseline unavailable');continue;}
-  try{const actual=await readFileState(root,asset.target);const local=ownedContent(actual.bytes?.toString(asset.encoding==='base64'?'base64':'utf8'),asset.ownership);if(local===undefined)add('config',asset.logicalId,'failed','Owned target or selector missing');else if(asset.mode!==undefined&&actual.mode!==platformFileMode(asset.mode))add('config',asset.logicalId,'pending','Local file mode differs from the managed baseline; user chmod preserved, review actual executable permissions');else add('config',asset.logicalId,local===baseline?'configured':'pending',local===baseline?'Owned content present':'Local modification preserved; capability needs review');}
+  try{
+   const actual=await readFileState(root,asset.target);
+   const local=ownedContent(actual.bytes?.toString(asset.encoding==='base64'?'base64':'utf8'),asset.ownership);
+   if(local===undefined)add('config',asset.logicalId,'failed','Owned target or selector missing');
+   else if(asset.mode!==undefined&&actual.mode!==platformFileMode(asset.mode))add('config',asset.logicalId,'pending','Local file mode differs from the managed baseline; user chmod preserved, review actual executable permissions');
+   else if(equalOwnedContent(asset.ownership,local,baseline))add('config',asset.logicalId,'configured','Owned content present');
+   else add('config',asset.logicalId,'pending','Local modification preserved; capability needs review');
+  }
   catch{add('config',asset.logicalId,'failed','Configuration or ownership markers cannot be parsed safely');}
  }
  for(const agent of selected.agents){

@@ -1,6 +1,4 @@
 import {parseDocument} from 'yaml';
-import {parse as parseJsonc} from 'jsonc-parser';
-import {parse as parseToml} from 'smol-toml';
 import {filterContent} from '../analyzer/read-policy.js';
 import {scanRepository} from '../analyzer/repository.js';
 import type {NativeDiscoveryOptions} from '../analyzer/native-sources.js';
@@ -24,7 +22,7 @@ import {privateDirectory,signature,readCache,saveCache} from '../generator/cache
 import {markdownLinks,validateTemplateContent} from '../generator/document-policy.js';
 import {loadManifest,trustedBaseline,type Manifest} from './baseline.js';
 import {mergeManaged,type MergeResult} from './merge.js';
-import {ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
+import {equalOwnedContent,ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
 export interface Preview {projectRules?:SetupPlan['projectRules'];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
@@ -75,7 +73,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   try {local=ownedContent(file.text,asset.ownership);}catch{items.push({logicalId:asset.logicalId,target:asset.target,ownership:asset.ownership,action:'conflict',reason:'Cannot safely select owned content; manual patch required',observedDigest});blockers.push(asset.target+': malformed ownership/configuration');continue;}
   if(entry.action==='pending'){result={action:'conflict',reason:'Unresolved old asset disposition'};}
   else if(entry.action==='retain') {result=base===undefined?{action:'conflict',reason:'Retained item has no trusted baseline'}:{action:'keep',content:local};}
-  else result=mergeManaged(base,local,entry.candidate?.content,{action:entry.action,binary:asset.encoding==='base64'});
+  else result=mergeManaged(base,local,entry.candidate?.content,{action:entry.action,binary:asset.encoding==='base64',equals:(left,right)=>equalOwnedContent(asset.ownership,left,right)});
   let nextMode=file.mode;
   const localMode=file.observedMode,baseMode=platformFileMode(entry.old?.mode),newMode=platformFileMode(entry.candidate?.mode);
   let modeConflict=false;
@@ -153,7 +151,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    if(entry.candidate?.source.kind==='fixed-template')for(const match of markdownLinks(entry.candidate.content))if(!text.includes(match[0]))blockers.push(asset.target+': required consumer binding removed; regenerate or resolve');
   }else if(asset.ownership.kind==='json-key'||asset.ownership.kind==='toml-table'){
    // A locally changed executable binding cannot inherit semantic acceptance of N.
-   if(entry.candidate&&signature(asset.ownership.kind==='json-key'?parseJsonc(text):parseToml(text))!==signature(asset.ownership.kind==='json-key'?parseJsonc(entry.candidate.content):parseToml(entry.candidate.content)))blockers.push(asset.target+': selected machine binding differs from accepted configuration');
+   if(entry.candidate&&!equalOwnedContent(asset.ownership,text,entry.candidate.content))blockers.push(asset.target+': selected machine binding differs from accepted configuration');
   }
  }
  if(plan.options.quality?.gitlab){

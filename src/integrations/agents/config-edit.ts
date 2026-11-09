@@ -1,14 +1,39 @@
-import {parseTree,findNodeAtLocation,modify,applyEdits,type ParseError} from 'jsonc-parser';
+import {parseTree,findNodeAtLocation,getNodeValue,modify,applyEdits,type Node,type ParseError} from 'jsonc-parser';
 import {parse as parseToml} from 'smol-toml';
-export function jsonValue(text:string,path:string[]):string|undefined {
+
+function assertUniqueKeys(node:Node):void {
+ const children=node.children??[];
+ if(node.type==='object'){
+  const names=new Set<string>();
+  for(const child of children){
+   const name=child.children![0].value as string;
+   if(names.has(name))throw new Error('configuration JSONC has a duplicate property');
+   names.add(name);
+  }
+ }
+ for(const child of children)assertUniqueKeys(child);
+}
+
+function jsonTree(text:string):Node {
  const errors:ParseError[]=[];const tree=parseTree(text,errors,{allowTrailingComma:true});
- if(errors.length||!tree||tree.type!=='object')throw new Error('configuration JSONC cannot be parsed safely');
+ if(errors.length||!tree)throw new Error('configuration JSONC cannot be parsed safely');
+ assertUniqueKeys(tree);
+ return tree;
+}
+
+export function parseConfigJsonValue(text:string):unknown {
+ return getNodeValue(jsonTree(text));
+}
+
+export function jsonValue(text:string,path:string[]):string|undefined {
+ const tree=jsonTree(text);
+ if(tree.type!=='object')throw new Error('configuration JSONC must be an object');
  const node=findNodeAtLocation(tree,path);return node?text.slice(node.offset,node.offset+node.length):undefined;
 }
 export function editJson(text:string,path:string[],next:string|undefined):string {
  jsonValue(text,path);
  for(let n=1;n<path.length;n++){const value=jsonValue(text,path.slice(0,n));if(value!==undefined){const errors:ParseError[]=[];const node=parseTree(value,errors);if(!node||node.type!=='object')throw new Error('configuration parent is not an object');}}
- let value:unknown=undefined;if(next!==undefined){const errors:ParseError[]=[];const node=parseTree(next,errors,{allowTrailingComma:true});if(errors.length||!node)throw new Error('generated JSON value invalid');value=JSON.parse(next);}
+ let value:unknown=undefined;if(next!==undefined){jsonTree(next);value=JSON.parse(next);}
  return applyEdits(text,modify(text,path,value,{formattingOptions:{insertSpaces:true,tabSize:2}}));
 }
 export function tomlRange(text:string,path:string[]):{start:number;end:number}|undefined {

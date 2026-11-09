@@ -1,9 +1,11 @@
 import {parseDocument,isSeq} from 'yaml';
+import {parse as parseToml} from 'smol-toml';
 import {lstat,realpath} from 'node:fs/promises';
 import {isAbsolute,relative,resolve,sep} from 'node:path';
+import {isDeepStrictEqual} from 'node:util';
 import type {Ownership} from '../managed-input.js';
 import {relativeTarget} from '../generator/artifacts.js';
-import {jsonValue,editJson,tomlRange,editToml} from '../integrations/agents/config-edit.js';
+import {jsonValue,parseConfigJsonValue,editJson,tomlRange,editToml} from '../integrations/agents/config-edit.js';
 export function validateOwnership(selector:Ownership):void {
  if(!selector||!['file','block','json-key','toml-table'].includes(selector.kind))throw new Error('invalid ownership selector');
  if(selector.kind==='block'&&selector.insert&&(selector.insert.kind!=='yaml-sequence'||selector.insert.key!=='include'))throw new Error('unsupported block insertion anchor');
@@ -23,6 +25,21 @@ export function ownedContent(text:string|undefined,selector:Ownership):string|un
  if(selector.kind==='json-key')return jsonValue(text,selector.path);
  const range=selector.kind==='block'?blockRange(text,selector):tomlRange(text,selector.path);
  return range?text.slice(range.start,range.end):undefined;
+}
+function containsTomlDate(value:unknown):boolean {
+ return value instanceof Date||!!value&&typeof value==='object'&&Object.values(value).some(containsTomlDate);
+}
+export function equalOwnedContent(selector:Ownership,left:string,right:string):boolean {
+ if(left===right)return true;
+ try{
+  if(selector.kind==='json-key')return isDeepStrictEqual(parseConfigJsonValue(left),parseConfigJsonValue(right));
+  if(selector.kind==='toml-table'){
+   const a=parseToml(left,{integersAsBigInt:true}),b=parseToml(right,{integersAsBigInt:true});
+   // The legacy TOML date parser loses precision and stores date kinds privately.
+   return !containsTomlDate(a)&&isDeepStrictEqual(a,b);
+  }
+ }catch{}
+ return false;
 }
 export function replaceOwned(text:string|undefined,selector:Ownership,next:string|undefined):string|undefined {
  validateOwnership(selector);if(selector.kind==='file')return next;
