@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {createServer} from 'node:net';
 import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
-import {mkdir,writeFile,readFile,symlink,lstat,rename} from 'node:fs/promises';
+import {mkdir,writeFile,readFile,readdir,symlink,lstat,rename} from 'node:fs/promises';
 import {project} from './helpers.js';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
@@ -15,6 +16,7 @@ import {initializationRecipe} from '../src/integrations/tools/initialization.js'
 import {loadUpstreamLock} from '../src/integrations/registry.js';
 import {queryOperation} from '../src/installer/operations.js';
 import {nativeEnvironment,resumableNativeOperation} from '../src/integrations/tools/native-state.js';
+import {assertToolOperationRecipe} from '../src/integrations/tools/recipes.js';
 import {writeNativeToolFixture} from './native-tool-fixture.js';
 import {apply} from '../src/installer/apply.js';
 import {executeLifecycle} from '../src/lifecycle.js';
@@ -111,10 +113,11 @@ test('native state query never executes substituted adapter commands',()=>projec
  await queryOperation(op);
  await assert.rejects(()=>readFile(root+'/substituted-command-ran'),{code:'ENOENT'});
 }));
-test('native CodeGraph publication promotes a staged index into an empty target',()=>project(async root=>{
- const target=join(root,'.codegraph'),staging=join(root,'.codegraph-rigup-init');
- await mkdir(target);
- const {packageRoot}=await writeNativeToolFixture(root,'codegraph','1.6.2');
+async function codeGraphWorker(root:string){
+ const pin=(await loadUpstreamLock()).find(r=>r.integrationId==='codegraph')!;
+ const {packageRoot,prefix}=await writeNativeToolFixture(root,'codegraph',pin.version);
+ const name='@colbymchenry/codegraph';
+ await writeFile(join(prefix,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{[name]:pin.version}},['node_modules/'+name]:{version:pin.version,integrity:pin.packageIntegrity}}}));
  await writeFile(join(packageRoot,'index.js'),`
   const {DatabaseSync}=require('node:sqlite');
   const {existsSync,mkdirSync,rmSync}=require('node:fs');
@@ -137,10 +140,35 @@ test('native CodeGraph publication promotes a staged index into an empty target'
    close(){}
   };
  `);
- const pin=(await loadUpstreamLock()).find(r=>r.integrationId==='codegraph')!;
  const operation=initializationRecipe(root,'codegraph',pin.version,pin.packageIntegrity);
+ return {pin,operation,runWorker:(preload?:string)=>runNativeWorker(operation,preload)};
+}
+
+function runNativeWorker(operation:SetupOperation,preload?:string){
  const {executable,args}=operation.parameters;
- const runWorker=()=>JSON.parse(execFileSync(executable,args,{cwd:root,env:nativeEnvironment(operation),encoding:'utf8',stdio:['ignore','pipe','pipe']}));
+ const argv=preload?['--import',pathToFileURL(preload).href,...args]:args;
+ return JSON.parse(execFileSync(executable,argv,{cwd:operation.parameters.cwd,env:nativeEnvironment(operation),encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:15000}));
+}
+
+async function injectWindowsRename(root:string,implementation:string){
+ const preload=join(root,'rename-fault.mjs');
+ await writeFile(preload,`
+  import fs from 'node:fs/promises';
+  import {basename} from 'node:path';
+  import {syncBuiltinESMExports} from 'node:module';
+  Object.defineProperty(process,'platform',{value:'win32'});
+  const rename=fs.rename;
+  const failed=new Set();
+  fs.rename=${implementation};
+  syncBuiltinESMExports();
+ `);
+ return preload;
+}
+
+test('native CodeGraph publication promotes a staged index into an empty target',()=>project(async root=>{
+ const target=join(root,'.codegraph'),staging=join(root,'.codegraph-rigup-init');
+ await mkdir(target);
+ const {operation,runWorker}=await codeGraphWorker(root);
  const promote=async()=>{
   const result=runWorker();
   assert.equal(result.status,'done');
@@ -161,6 +189,102 @@ test('native CodeGraph publication promotes a staged index into an empty target'
   assert.ok((await lstat(target)).isDirectory());
   assert.ok((await lstat(join(staging,'codegraph.db'))).isFile());
  }
+}));
+test('native worker retries Windows journal, quarantine and publication renames',()=>project(async root=>{
+ const target=join(root,'.codegraph'),staging=join(root,'.codegraph-rigup-init');
+ const control=join(root,'.rigup/native/codegraph');
+ await mkdir(staging);
+ await writeFile(join(staging,'checkpoint'),'malformed unpublished checkpoint');
+ const {runWorker}=await codeGraphWorker(root);
+ const preload=await injectWindowsRename(root,`async (from,to)=>{
+  const name=basename(to);
+  const code=name==='intent.json'?'EPERM':name.startsWith('interrupted-')?'EACCES':name==='promotion.json'?'EBUSY':name==='.codegraph'?'EPERM':undefined;
+  if(code&&!failed.has(to)){failed.add(to);throw Object.assign(Error('transient rename failure'),{code});}
+  await rename(from,to);
+ }`);
+ assert.equal(runWorker(preload).status,'done');
+ assert.ok((await lstat(join(target,'codegraph.db'))).isFile());
+ const retained=(await readdir(control)).find(name=>/^interrupted-[a-f0-9-]+$/.test(name))!;
+ assert.equal(await readFile(join(control,retained,'checkpoint'),'utf8'),'malformed unpublished checkpoint');
+ await assert.rejects(lstat(staging),{code:'ENOENT'});
+}));
+test('the Windows native worker retains an OpenWiki checkpoint after a transient quarantine failure',()=>project(async root=>{
+ const control=join(root,'.rigup/native/openwiki'),staging=join(control,'repository');
+ await mkdir(staging,{recursive:true});
+ await writeFile(join(staging,'malformed'),'unreadable checkpoint');
+ const {packageRoot}=await writeNativeToolFixture(root,'openwiki','0.7.3','module');
+ await mkdir(join(packageRoot,'dist/generation'),{recursive:true});
+ await mkdir(join(packageRoot,'dist/integrations/core'),{recursive:true});
+ await writeFile(join(packageRoot,'dist/generation/run-state.js'),`
+  import {existsSync} from 'node:fs';
+  import {join} from 'node:path';
+  export function readRepositoryRunState(root){
+   if(existsSync(join(root,'malformed')))throw Error('malformed');
+   if(existsSync(join(root,'openwiki','checkpoint')))return {phase:'ready',runId:'fixture'};
+  }
+ `);
+ await writeFile(join(packageRoot,'dist/integrations/core/session-manager.js'),`
+  import {mkdir,writeFile} from 'node:fs/promises';
+  import {join} from 'node:path';
+  export class HostSessionManager {
+   static create(){return new HostSessionManager();}
+   async begin({root}){await mkdir(join(root,'openwiki'));await writeFile(join(root,'openwiki','checkpoint'),'new checkpoint');}
+  }
+ `);
+ const preload=await injectWindowsRename(root,`async (from,to)=>{
+  if(basename(to).startsWith('interrupted-')&&!failed.has(to)){
+   failed.add(to);throw Object.assign(Error('transient quarantine failure'),{code:'EACCES'});
+  }
+  await rename(from,to);
+ }`);
+ const result=runNativeWorker(initializationRecipe(root,'openwiki','0.7.3'),preload);
+ assert.equal(result.status,'done');
+ assert.equal(await readFile(join(root,'openwiki','checkpoint'),'utf8'),'new checkpoint');
+ const retained=(await readdir(control)).find(name=>name.startsWith('interrupted-'))!;
+ assert.equal(await readFile(join(control,retained,'malformed'),'utf8'),'unreadable checkpoint');
+}));
+test('native publication refuses a new Windows target after a transient rename failure',()=>project(async root=>{
+ const target=join(root,'.codegraph'),staging=join(root,'.codegraph-rigup-init');
+ await mkdir(target);
+ const {runWorker}=await codeGraphWorker(root);
+ const preload=await injectWindowsRename(root,`async (from,to)=>{
+  if(basename(to)!=='.codegraph')return rename(from,to);
+  await fs.mkdir(to);
+  throw Object.assign(Error('transient rename failure'),{code:'EBUSY'});
+ }`);
+ assert.throws(()=>runWorker(preload),/Native target appeared before promotion/);
+ assert.deepEqual(await readdir(target),[]);
+ assert.ok((await lstat(join(staging,'codegraph.db'))).isFile());
+}));
+test('the Windows native worker stops after five blocked rename attempts',()=>project(async root=>{
+ const {runWorker}=await codeGraphWorker(root);
+ const preload=await injectWindowsRename(root,`async (from,to)=>{
+  if(basename(to)==='intent.json'&&failed.size<5){
+   failed.add(failed.size);throw Object.assign(Error('blocked rename attempt '+failed.size),{code:'EPERM'});
+  }
+  await rename(from,to);
+ }`);
+ assert.throws(()=>runWorker(preload),/blocked rename attempt 5/);
+ await assert.rejects(lstat(join(root,'.rigup/native/codegraph/intent.json')),{code:'ENOENT'});
+}));
+test('a recognized v0.2.4 native recipe can reconcile staging and completed output',()=>project(async root=>{
+ const {operation,pin,runWorker}=await codeGraphWorker(root);
+ const prior=(digest:string)=>{
+  const legacy=structuredClone(operation);legacy.parameters.args[8]=digest;return legacy;
+ };
+ const legacy=[
+  prior('6cf421b0ba225d9f371a7dd67b083475fed40bacd30aee838a7d4bfb18cbf5b8'), // source checkout
+  prior('4cedd2d4e9de317a10d60e82a7211aa20837d4f1f250704fde9b9141a3d32c19'), // source with CRLF
+  prior('7a9e129185bd1c91eb6985ba3cb63d30e0c5c3b9a8a2ac9d93354d3ae43589a7'), // compiled distribution
+  prior('3bb951b931d7218fb70247d579c8b702ca0dd19a57c4ec68321bf5b6dc5debb3'), // distribution with CRLF
+ ];
+ for(const candidate of legacy)assert.equal(await resumableNativeOperation(candidate),true);
+ const {nativeReceipt}=runWorker();
+ for(const candidate of legacy)assert.deepEqual((await queryOperation(candidate)).nativeReceipt,nativeReceipt);
+ const arbitrary=prior('0'.repeat(64));
+ const substituted=structuredClone(legacy[0]);substituted.parameters.args[2]=join(root,'untrusted.mjs');
+ for(const rejected of [...legacy,arbitrary,substituted])assert.throws(()=>assertToolOperationRecipe(root,rejected,pin,[]),/verified recipe/);
+ for(const rejected of [arbitrary,substituted])assert.equal((await queryOperation(rejected)).status,'unknown');
 }));
 test('a live CodeGraph daemon socket preserves verified initialization', {skip:process.platform==='win32'},()=>project(async root=>{
  const index=root+'/.codegraph',control=root+'/.rigup/native/codegraph',socket=index+'/daemon.sock';

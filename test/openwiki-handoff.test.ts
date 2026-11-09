@@ -62,7 +62,8 @@ test('already accepted legacy OpenWiki initialization is reconciled without anot
  await mkdir(root+'/.rigup/native/openwiki',{recursive:true});const info=await lstat(root+'/openwiki');
  const receipt={version:'0.7.3',target:'openwiki',identity:info.dev+':'+info.ino};
  await writeFile(root+'/.rigup/native/openwiki/promotion.json',JSON.stringify({root,id:'openwiki',...receipt}));
- await writeFile(state+'/'+signature(root)+'.operations.json',JSON.stringify({operations:[{root,operation,authorizationRef:'legacy-preview',parametersDigest:signature(operation),stage:'dispatching'}]}),{mode:0o600});
+ const resultRecord={status:'done',message:'Recorded native acceptance',nativeReceipt:receipt};
+ await writeFile(state+'/'+signature(root)+'.operations.json',JSON.stringify({operations:[{root,operation,authorizationRef:'legacy-preview',parametersDigest:signature(operation),stage:'terminal',result:resultRecord}]}),{mode:0o600});
  const result=await executeOperation(operation,{stateRoot:state,authorizationRef:'legacy-preview',launch:async()=>{throw Error('must not repeat accepted initialization');}});
  assert.equal(result.status,'done');assert.deepEqual(result.nativeReceipt,receipt);
  assert.equal(JSON.parse(await readFile(root+'/openwiki/.run.json','utf8')).runId,'legacy-run');

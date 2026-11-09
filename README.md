@@ -49,14 +49,14 @@ cd /path/to/project
 rigup init
 ```
 
-The guide asks for missing choices, including the language of generated project documents. With a development workflow selected, the default first-run option installs the base workflow without model calls. Use `rigup update --review` to prepare project rules later with your existing Codex login. Pass `--language zh-CN` to choose Simplified Chinese, or use the default `auto` to follow the project's guidance.
+The guide asks for missing choices, including the language of generated project documents. The default first-run option installs the base setup and Rigup MCP without model calls. Open the configured agent and ask it to use Rigup MCP to prepare rules. To generate them from the terminal, configure an Anthropic or OpenAI-compatible provider and run `rigup update --review`. Use `--language zh-CN` for Simplified Chinese or `auto` to follow the project's guidance. [Research and budgets](docs/guides/usage.md#研究后端与预算)
 
 Selecting OpenSpec checks its CLI and project entry points right away. Confirm automatic setup to install the pinned OpenSpec CLI in a writable npm prefix on PATH and add missing native files. If you prepare the prerequisites manually, rerun `rigup init` to resume your host and OpenSpec selections.
 
 This non-interactive command previews a minimal setup without model calls.
 
 ```sh
-rigup init --agents codex --sdd none --tools none --dry-run --json
+rigup init --agents codex --sdd none --tools none --defer-research --dry-run --json
 ```
 
 ### 3. Review and use the installed workflow
@@ -65,7 +65,7 @@ From an independent terminal, you can approve the OpenSpec foundation preview in
 
 ## Project development rules
 
-With a development workflow selected, Codex chooses topics and can request targeted reads and searches before settling the rules. Rigup builds a scoped index at `docs/rigup/development-rules.md` that links original guidance and pages under `development-rules/`. Each page covers the rules, exceptions and checks for its topic. Source excerpts and review notes stay in private run records.
+Rigup prepares rules through either the configured agent or the CLI provider. It verifies source citations and builds a scoped index at `docs/rigup/development-rules.md` that links original guidance and pages under `development-rules/`. Each page covers the rules, exceptions and checks for its topic. Source excerpts and review notes stay in private run records.
 
 The two installed skills carry applicable rules into native proposals and task execution. They point agents to existing tests and hook definitions so each change can reuse the checks that cover it. [Project workflow and language](docs/guides/usage.md#项目研发流程)
 
@@ -93,7 +93,7 @@ flowchart TD
 - The first-run guide can set up OpenSpec. Superpowers and Spec Kit use the project's existing official entry points. [Workflow prerequisites](docs/guides/usage.md#命令与引导)
 - Rigup builds the CodeGraph index in staging and verifies it before promotion. It connects OpenWiki over MCP and hands off wiki generation to a separate session. [Tool setup](docs/guides/usage.md#openwiki-和-codegraph)
 
-After setup, agents use their native workflow and MCP configuration, along with the project’s existing tools and checks. [Platform and runtime requirements](docs/guides/releases.md)
+After setup, agents use their native workflow and MCP configuration, along with the project’s existing tools and checks. Project-local Node MCP entries need Node.js on the host agent's PATH, including when the CLI itself comes from the portable bundle. [Platform and runtime requirements](docs/guides/releases.md)
 
 ## Commands
 

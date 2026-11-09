@@ -4,7 +4,7 @@ import type {CheckKind,SetupOptions} from '../types.js';
 import {interruptedApplyId,type InstallReport} from './apply.js';
 import {quoteShell} from '../shell-command.js';
 import {loadManifest,trustedBaseline} from './baseline.js';
-import {equalOwnedContent,ownedContent,targetPath} from './ownership.js';
+import {equalOwnedContent,LinkedRigupDirectoryError,ownedContent,targetPath} from './ownership.js';
 import {readTarget} from './preview.js';
 import {readFileState,platformFileMode} from './file-state.js';
 import {scanRepository} from '../analyzer/repository.js';
@@ -49,7 +49,11 @@ async function completedOpenWikiBaseline(root:string):Promise<boolean>{
 export async function doctor(root:string,options:DoctorOptions={}):Promise<InstallReport&{diagnostics:Diagnostic[]}>{
  root=await realpath(root);const diagnostics:Diagnostic[]=[];const report:InstallReport&{diagnostics:Diagnostic[]}={status:'pending',exitCode:3,previewId:'doctor',written:[],operations:[],checks:[],warnings:[],diagnostics};
  const add=(category:Diagnostic['category'],id:string,state:Diagnostic['state'],reason:string)=>diagnostics.push({category,id,state,reason});
- let manifest:Awaited<ReturnType<typeof loadManifest>>;try{manifest=await loadManifest(root);}catch{add('config','manifest','failed','Damaged ownership metadata; no repair or initialization performed');return {...report,status:'failed',exitCode:1};}
+ let manifest:Awaited<ReturnType<typeof loadManifest>>;
+ try{manifest=await loadManifest(root);}catch(error){
+  add('config','manifest','failed',error instanceof LinkedRigupDirectoryError?error.message:'Damaged ownership metadata; no repair or initialization performed');
+  return {...report,status:'failed',exitCode:1};
+ }
  let interrupted:string|undefined;
  try{interrupted=await interruptedApplyId(root,options.stateRoot??defaultStateRoot());}
  catch{add('config','installation','failed','Installation recovery record is unavailable or damaged');return {...report,status:'failed',exitCode:1};}
@@ -82,7 +86,8 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   const host=agents[agent];const wired=manifest.assets.some(a=>a.target.startsWith(host.skillDirectory+'/')||a.target===host.mcpTarget||a.target===host.entry);
   add('host',agent+':load',wired?'reload-required':'pending',wired?'Reload affected sessions; current native loading has not been observed':'No native assets configured for this selected host');
  }
- const envRefs=new Set([...(selected.customer?.envRefs??[]),...(selected.mcp??[]).flatMap(m=>[...(m.envRefs??[]),...(m.command?.envRefs??[])]),...(selected.quality?.gitlab?.openwiki?.envRefs??[])]);
+ const mcpRefs=(selected.mcp??[]).flatMap(m=>[...(m.envRefs??[]),...(m.command?.envRefs??[]),...(m.bearerTokenEnv?[m.bearerTokenEnv]:[])]);
+ const envRefs=new Set([...(selected.customer?.envRefs??[]),...mcpRefs,...(selected.quality?.gitlab?.openwiki?.envRefs??[])]);
  for(const ref of envRefs)add('environment','env:'+ref,process.env[ref]?'available':'pending',process.env[ref]?'Environment reference is available; value omitted':'Missing credential/environment reference; value never stored');
  const recipes=await loadUpstreamLock();for(const tool of selected.tools??[]){
   const recipe=recipes.find(r=>r.integrationId===tool.id)!;

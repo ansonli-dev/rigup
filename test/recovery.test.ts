@@ -41,14 +41,14 @@ test('pending_record_is_durable_before_dispatch',()=>fixture(async(root,state)=>
  const op=await prepareSoftwareInstall(root,'openwiki','0.7.3',(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!.packageIntegrity);if('pending' in op||'reused' in op)throw Error('fixture');let dispatched=0;
  await assert.rejects(()=>executeOperation(op,{stateRoot:state,authorizationRef:'fixture-approved',save:async()=>{throw Error('state unavailable');},launch:async()=>{dispatched++;return {status:'done',message:'fake'};}}),/state unavailable/);assert.equal(dispatched,0);
 }));
-test('cancellation while recording dispatch leaves an undispatched operation resumable',()=>fixture(async(root,state)=>{
+test('cancellation after reserving staging leaves an undispatched operation resumable',()=>fixture(async(root,state)=>{
  const recipe=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!;
  const op=await prepareSoftwareInstall(root,'openwiki',recipe.version,recipe.packageIntegrity);
  if('pending' in op||'reused' in op)throw Error('fixture');
  const controller=new AbortController();
  const result=await executeOperation(op,{stateRoot:state,authorizationRef:'fixture-approved',signal:controller.signal,save:async(path,content)=>{
   await saveDurable(path,content);
-  if(JSON.parse(content).operations[0].stage==='dispatching')controller.abort();
+  if(JSON.parse(content).operations[0].installStage?.identity)controller.abort();
  },launch:async()=>{throw Error('cancelled operation was dispatched');}});
  assert.equal(result.status,'pending');
  assert.equal((await pendingOperations(root,state))[0].stage,'prepared');
@@ -61,12 +61,12 @@ import {signature} from '../src/generator/cache.js';
 test('crash_after_acceptance_reconciles_without_recreate_even_if_cache_is_lost',()=>fixture(async(root,state)=>{
  const integrity=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!.packageIntegrity!;const op=await prepareSoftwareInstall(root,'openwiki','0.7.3',integrity);if('pending' in op||'reused' in op)throw Error('fixture');let creates=0;
  const launch=async(dispatched:SetupOperation)=>{creates++;await completeFixtureInstall(root,dispatched);throw Error('controller crashed after acceptance');};
- await assert.rejects(()=>executeOperation(op,{stateRoot:state,authorizationRef:'fixture-approved',launch}),/crashed/);const pending=await pendingOperations(root,state);assert.equal(pending[0].stage,'dispatching');
+ await assert.rejects(()=>executeOperation(op,{stateRoot:state,authorizationRef:'fixture-approved',launch}),/crashed/);const pending=await pendingOperations(root,state);assert.equal(pending[0].stage,'prepared');
  const result=await executeOperation(op,{stateRoot:state,authorizationRef:'fixture-approved',launch});assert.equal(result.status,'done');assert.equal(creates,1);
 }));
 test('unconfirmed_process_exit_keeps_project_blocked',()=>fixture(async(root,state)=>{
  const integrity=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!.packageIntegrity!;const op=await prepareSoftwareInstall(root,'openwiki','0.7.3',integrity);if('pending' in op||'reused' in op)throw Error('fixture');
- const {processIdentity}=await import('../src/installer/lock.js');const identity=await processIdentity(process.pid);await writeFile(state+'/'+signature(root)+'.operations.json',JSON.stringify({operations:[{operation:op,parametersDigest:signature(op),stage:'dispatching',identity}]}),{mode:0o600});
+ const {processIdentity}=await import('../src/installer/lock.js');const identity=await processIdentity(process.pid);await writeFile(state+'/'+signature(root)+'.operations.json',JSON.stringify({operations:[{root,authorizationRef:'fixture-approved',operation:op,parametersDigest:signature(op),stage:'dispatching',identity}]}),{mode:0o600});
  await assert.rejects(()=>assertNoUnknownWriters(root,state),/active|blocked/);const r=await executeOperation(op,{stateRoot:state,authorizationRef:'fixture-approved'});assert.equal(r.status,'unknown');
 }));
 
@@ -136,7 +136,8 @@ test('damaged operation records block the writer gate and dispatch',()=>fixture(
  if('pending' in op||'reused' in op)throw Error('fixture');
  const record=state+'/'+signature(root)+'.operations.json';
  let dispatched=0;
- for(const invalid of ['{"operations":','{}','{"operations":[{}]}']){
+ const missingWriter=JSON.stringify({operations:[{root,authorizationRef:'fixture-approved',operation:op,parametersDigest:signature(op),stage:'dispatching'}]});
+ for(const invalid of ['{"operations":','{}','{"operations":[{}]}',missingWriter]){
   await writeFile(record,invalid,{mode:0o600});
   await assert.rejects(()=>assertNoUnknownWriters(root,state),/operation record.*reconciliation/i);
   await assert.rejects(()=>executeOperation(op,{stateRoot:state,authorizationRef:'fixture-approved',launch:async()=>{

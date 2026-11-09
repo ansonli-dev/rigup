@@ -6,8 +6,8 @@ import {
   writeFile,
   readFile,
   realpath,
-  link,
   copyFile,
+  constants,
   rename,
   symlink,
   rm,
@@ -42,11 +42,7 @@ test('portable launcher uses its own runtime and resources through relocation an
     await mkdir(project);
     await mkdir(join(portable, 'lib/node/bin'), {recursive: true});
     await mkdir(join(portable, 'lib/app/dist'), {recursive: true});
-    try {
-      await link(process.execPath, join(portable, 'lib/node/bin/node'));
-    } catch {
-      await copyFile(process.execPath, join(portable, 'lib/node/bin/node'));
-    }
+    await copyFile(process.execPath, join(portable, 'lib/node/bin/node'), constants.COPYFILE_FICLONE);
     await writeFile(
       join(portable, 'lib/app/dist/cli.js'),
       "console.log(JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd(),executable:process.execPath,path:process.env.PATH,stdin:require('node:fs').readFileSync(0,'utf8')}));\n",

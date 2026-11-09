@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {access,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {access,mkdir,readFile,rename,symlink,writeFile} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {runCli,type CliIO} from '../src/cli.js';
@@ -57,9 +57,10 @@ test('guided first init prepares OpenSpec before tool choices and applies the re
  const path=process.env.PATH;
  process.env.PATH=bin+delimiter+path;
  try{
-  const answers=['','2','','','','','',''];
+  const answers=['','2','','','','',''];
   const first=terminal(root,control,answers);
-  assert.equal(await runCli(['init'],first.io),0,first.output());
+  const code=await runCli(['init'],first.io);
+  assert.equal(code,0,first.output());
   assert.equal(answers.length,0);
   assert.ok(first.output().indexOf('自动补齐')<first.output().indexOf('可选工具'),first.output());
   assert.match(first.output(),/Install complete/);
@@ -179,5 +180,35 @@ test('Windows npm preflight uses the global prefix on PATH and refuses to overwr
   if(path===undefined)delete process.env.RIGUP_CONSUMER_PATH;
   else process.env.RIGUP_CONSUMER_PATH=path;
   delete process.env.RIGUP_TEST_NPM_PREFIX;
+ }
+}));
+
+test('Windows OpenSpec preflight resolves a local npm prefix through its package entry', {
+ skip:process.platform!=='win32'&&'uses Windows npm shims',
+},()=>fixture(async(root,control)=>{
+ const modules=join(control,'npm prefix & tools','node_modules');
+ const shims=join(modules,'.bin'),pkg=join(modules,'@fission-ai','openspec');
+ const entryDir=join(pkg,'bin'),entry=join(entryDir,'openspec.js');
+ await mkdir(shims,{recursive:true});await mkdir(entryDir,{recursive:true});
+ await writeFile(join(pkg,'package.json'),JSON.stringify({name:'@fission-ai/openspec',bin:{openspec:'./bin/openspec.js'}}));
+ await writeFile(entry,'console.log(process.argv[2]==="--version"?"1.16.0":JSON.stringify({root:null}));');
+ await writeFile(join(shims,'openspec.cmd'),'@echo off\r\nexit /b 97\r\n');
+ const path=process.env.RIGUP_CONSUMER_PATH;
+ process.env.RIGUP_CONSUMER_PATH=[shims,dirname(process.execPath)].join(delimiter);
+ try{
+  const options={agents:['codex' as const],backend:'host' as const};
+  const setup=await inspectOpenSpec(root,options);
+  assert.deepEqual(setup.cli?.args,[entry]);
+  assert.equal(setup.cliVersion,'1.16.0');
+  assert.equal(setup.canPrepare,true);
+  const external=join(control,'substituted entry');
+  await rename(entryDir,external);
+  await symlink(external,entryDir,'junction');
+  const unsafe=await inspectOpenSpec(root,options);
+  assert.equal(unsafe.cli,undefined);
+  assert.match(unsafe.requirements.join('\n'),/existing openspec command could not be resolved/);
+ }finally{
+  if(path===undefined)delete process.env.RIGUP_CONSUMER_PATH;
+  else process.env.RIGUP_CONSUMER_PATH=path;
  }
 }));

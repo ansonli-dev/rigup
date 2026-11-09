@@ -10,10 +10,11 @@ import {projectInput,type Ownership} from '../managed-input.js';
 import {digest,safePath,sliceEvidence,type EvidenceRead,type ReadEvidence} from './evidence.js';
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
 import type {SearchSelection} from './backend.js';
+import {loadResearchIgnore,workflowEvidenceKind} from './research-ignore.js';
 import {checkPrerequisites,hasTestDatabaseGuard,jestSetupPath,linkDatabaseGuards,type SpecializedCheck} from './check-prerequisites.js';
 const exec=promisify(execFile);
 const specializedScripts=['test:e2e','test-e2e','check-types','typecheck','deps:validate','test'];
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
@@ -28,6 +29,9 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
  }catch{/* Non-Git repositories are valid. */}
  const managed=await loadManaged(root,profile);
  const inputs:string[]=[];let bytes=0;
+ const ignored=await loadResearchIgnore(root);
+ if(ignored.fingerprint){profile.ignoreFingerprint=ignored.fingerprint;inputs.push('.rigupignore\0'+ignored.fingerprint);}
+ if(options.projectRules||ignored.fingerprint)profile.researchFiles=[];
  const quality=options.quality;
  const configuredScripts=[...(quality?.preCommit??[]),...(quality?.prePush??[]),...(quality?.gitlab?.checks??[])]
   .filter(ref=>typeof ref!=='string');
@@ -38,12 +42,22 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    if(['.git','node_modules','dist','.superpowers'].includes(entry.name)||secretName.test(entry.name)) continue;
    const file=join(dir,entry.name);const path=relative(root,file).split('\\').join('/');
    if(generatedScopes.some(scope=>path===scope||path.startsWith(scope+'/')))continue;
-   if(options.scope?.length && !options.scope.some(s=>path === s || path.startsWith(s+'/') || s.startsWith(path+'/'))) continue;
+   if(path==='.rigupignore')continue;
+   const outsideScope=!!options.scope?.length&&!options.scope.some(s=>path === s || path.startsWith(s+'/') || s.startsWith(path+'/'));
+   const excluded=ignored.excludes(path,entry.isDirectory())||outsideScope;
+   const workflow=options.projectRules?workflowEvidenceKind(path,entry.isDirectory()):undefined;
+   if(workflow==='generated')continue;
+   if(outsideScope&&!options.projectRules)continue;
    if((managed.get(path)??[]).some(o=>o.kind==='file')) continue;
    if(path.startsWith('.rigup/baseline/')||path === '.rigup/manifest.json'||path === '.rigup/config.yaml'||path.startsWith('.rigup/tools/')||path==='.rigup/check-results') continue;
    if(entry.isSymbolicLink()){profile.unknowns.push(path+': symlink skipped');continue;}
-   if(entry.isDirectory()){await walk(file);continue;}
+   if(entry.isDirectory()){
+    try{await walk(file);}catch(error){if(!excluded||!['EACCES','EPERM'].includes((error as NodeJS.ErrnoException).code??''))throw error;}
+    continue;
+   }
    if(!entry.isFile()) continue;
+   const discoveryEntry=Object.values(agents).some(host=>path.startsWith(host.skillDirectory+'/')&&path.endsWith('/SKILL.md'))||/^\.(?:claude|opencode|omp)\/commands\/.+\.md$/.test(path);
+   if(excluded&&!discoveryEntry&&entry.name!=='package.json')continue;
    if(profile.files.length>=maxFiles){profile.truncated=true;profile.unknowns.push('file budget reached');return;}
    let raw:Buffer;let visible:string;
    try {const filePath=await safePath(root,path);if((await stat(filePath)).size+bytes>maxBytes){profile.truncated=true;profile.unknowns.push(path+': byte budget reached');continue;}raw=await readFile(filePath);if(bytes+raw.length>maxBytes){profile.truncated=true;profile.unknowns.push(path+': byte budget reached');continue;}}
@@ -55,6 +69,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    if(projected === null || projected === '' && managed.has(path)) continue;
    try{visible=visibleText(path,text,ownership);}catch{profile.unknowns.push(path+': unreadable or denied by policy');continue;}
    profile.files.push(path);
+   if(workflow!=='entry'&&!excluded)profile.researchFiles?.push(path);
    for(const agent of Object.keys(agents) as Agent[]) {
     const host=agents[agent];
     if(path.startsWith(host.skillDirectory+'/') && path.endsWith('/SKILL.md')) {
@@ -108,7 +123,7 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
  root=profile.root;
  if(dependencies.expectedFingerprint&&profile.fingerprint!==dependencies.expectedFingerprint)throw new Error('reader source fingerprint changed during preparation');
  if(profile.researchBlocked)throw new Error(profile.researchBlocked);
- const allowed=new Set(profile.files);
+ const allowed=new Set(profile.researchFiles??profile.files);
  const spent=dependencies.budget??{bytes:0,calls:0};if(!Number.isSafeInteger(spent.bytes)||spent.bytes<0||!Number.isSafeInteger(spent.calls)||spent.calls<0)throw new Error('reader budget state invalid');
  const maxBytes=options.readBudget?.maxBytes ?? 8_000_000;const maxCalls=options.readBudget?.maxFiles ?? 2000;
  let budgetWrites=Promise.resolve();

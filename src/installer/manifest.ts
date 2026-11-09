@@ -1,20 +1,33 @@
-import {mkdir,rename,open,link,unlink} from 'node:fs/promises';
+import {mkdir,rename,open,link,unlink,lstat} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {renameWithRetry} from '../atomic-rename.js';
 import {targetPath} from './ownership.js';
 import {syncDirectory} from '../sync-directory.js';
-export async function atomicProjectWrite(root:string,target:string,content:Buffer,mode?:number,exclusive=false):Promise<void>{
+export async function atomicProjectWrite(root:string,target:string,content:Buffer,mode?:number,exclusive=false,verifyCurrent?:()=>Promise<void>):Promise<void>{
  const path=await targetPath(root,target);
- const verify=async()=>{
+ const directory=dirname(path);
+ const verifyPath=async()=>{
   if(await targetPath(root,target)!==path)throw new Error('target path changed during write');
  };
- await mkdir(dirname(path),{recursive:true});
- await verify();
+ await mkdir(directory,{recursive:true});
+ await verifyPath();
+ const parent=await lstat(directory,{bigint:true});
+ if(!parent.isDirectory()||parent.ino===0n)throw new Error('target parent identity unavailable');
+ const verifyParent=async()=>{
+  const current=await lstat(directory,{bigint:true});
+  if(!current.isDirectory()||current.dev!==parent.dev||current.ino!==parent.ino)throw new Error('target parent changed during write');
+ };
+ const verify=async()=>{
+  await verifyPath();
+  await verifyCurrent?.();
+  await verifyParent();
+ };
  const suffix='.rigup-'+randomUUID()+'.tmp';
  const temporary=path+suffix;
  const removeTemporary=async()=>{
   if(await targetPath(root,target.replace(/\/$/,'')+suffix)!==temporary)throw new Error('temporary path changed during write');
+  await verifyParent();
   await unlink(temporary).catch(error=>{if(error.code!=='ENOENT')throw error;});
  };
  const handle=await open(temporary,'wx',mode??0o600);
@@ -28,5 +41,5 @@ export async function atomicProjectWrite(root:string,target:string,content:Buffe
   throw error;
  }
  if(exclusive)await removeTemporary();
- await syncDirectory(dirname(path));
+ await syncDirectory(directory);
 }

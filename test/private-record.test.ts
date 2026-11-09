@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import childProcess,{execFile,spawn} from 'node:child_process';
 import {once} from 'node:events';
-import fs,{access,mkdir,readFile,symlink,writeFile} from 'node:fs/promises';
+import fs,{access,mkdir,readFile,readdir,symlink,writeFile} from 'node:fs/promises';
 import {syncBuiltinESMExports} from 'node:module';
 import {basename,join} from 'node:path';
 import {test,type TestContext} from 'node:test';
 import {promisify} from 'node:util';
 import {privateDirectory,saveCache} from '../src/generator/cache.js';
+import {readFileState} from '../src/installer/file-state.js';
 import {atomicProjectWrite} from '../src/installer/manifest.js';
 import {assertSafeWindowsAncestors} from '../src/private-access.js';
 import {readPrivateJson,saveDurable} from '../src/private-record.js';
@@ -138,6 +139,59 @@ test('project rename retry refuses a redirected parent and preserves unrelated f
  await assert.rejects(atomicProjectWrite(root,'target/manifest.json',Buffer.from('second')),/target symlink denied/);
  assert.equal(await readFile(unrelatedTemporary,'utf8'),'unrelated');
  assert.equal(await readFile(join(relocated,'manifest.json'),'utf8'),'first');
+}));
+
+test('a transient project rename does not overwrite a destination edited before retry',t=>project(async root=>{
+ const destination=join(root,'manifest.json');
+ await writeFile(destination,'approved content');
+ const approved=await readFileState(root,'manifest.json');
+ const originalRename=fs.rename;
+ let blocked=false;
+ interceptRename(t,'win32',async(source,target)=>{
+  if(!blocked){
+   blocked=true;
+   await writeFile(destination,'intervening edit');
+   throw Object.assign(Error('file temporarily busy'),{code:'EPERM'});
+  }
+  await originalRename(source,target);
+ });
+ await assert.rejects(atomicProjectWrite(root,'manifest.json',Buffer.from('replacement'),0o644,false,async()=>{
+  const current=await readFileState(root,'manifest.json');
+  if(current.digest!==approved.digest||current.mode!==approved.mode)throw Error('destination changed since approval');
+ }),/destination changed since approval/);
+ assert.equal(await readFile(destination,'utf8'),'intervening edit');
+ assert.deepEqual(await readdir(root),['manifest.json']);
+}));
+
+test('project rename retry and cleanup preserve a replaced regular parent directory',t=>project(async root=>{
+ const parent=join(root,'target'),relocated=join(root,'relocated');
+ const destination=join(parent,'manifest.json');
+ await mkdir(parent);
+ await writeFile(destination,'approved content');
+ const originalRename=fs.rename;
+ let unrelatedTemporary='';
+ interceptRename(t,'win32',async(source,target)=>{
+  if(!unrelatedTemporary){
+   await originalRename(parent,relocated);
+   await mkdir(parent);
+   await writeFile(destination,'replacement directory content');
+   unrelatedTemporary=join(parent,basename(String(source)));
+   await writeFile(unrelatedTemporary,'unrelated');
+   throw Object.assign(Error('file temporarily busy'),{code:'EPERM'});
+  }
+  await originalRename(source,target);
+ });
+ await assert.rejects(atomicProjectWrite(root,'target/manifest.json',Buffer.from('replacement')),/target parent changed/);
+ assert.equal(await readFile(destination,'utf8'),'replacement directory content');
+ assert.equal(await readFile(unrelatedTemporary,'utf8'),'unrelated');
+ assert.equal(await readFile(join(relocated,'manifest.json'),'utf8'),'approved content');
+}));
+
+test('an exclusive project write checks approved state before creating the link',()=>project(async root=>{
+ await assert.rejects(atomicProjectWrite(root,'new.json',Buffer.from('replacement'),0o644,true,async()=>{
+  throw Error('approval no longer current');
+ }),/approval no longer current/);
+ assert.deepEqual(await readdir(root),[]);
 }));
 
 for(const [platform,code,maxAttempts] of [

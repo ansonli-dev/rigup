@@ -5,6 +5,7 @@
 - [Install, verify, and roll back](guides/releases.md)
 - [Use and configure Rigup](guides/usage.md) (中文)
 - [Tested platforms and integration status](compatibility/status.md)
+- [Rigup v0.3.0 validation report](compatibility/validation-0.3.0.md) (中文)
 - [Claude, WSL2, and Windows validation handoff](guides/external-validation-handoff.md) (中文)
 - [Develop, test, and publish a release](guides/development.md)
 - [Upstream pins and verification](compatibility/README.md)

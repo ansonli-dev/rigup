@@ -3,6 +3,7 @@ import {join,resolve} from 'node:path';
 import {parse} from 'yaml';
 import type {SetupOptions} from './types.js';
 import {isCheckSelector} from './integrations/tools/check-catalog.js';
+import {validateRemoteMcp} from './integrations/tools/customer-mcp.js';
 
 async function readConfig(path: string, required = false): Promise<Record<string, unknown>> {
   let source: string;
@@ -29,9 +30,10 @@ export function normalizeDocumentLanguage(value: unknown): string {
 
 export function validateOptions(value: Record<string, unknown>): void {
   for (const key of Object.keys(value)) {
-    if (!['agents','backend','documentLanguage','quality','customer','executionPolicy','profile','templates','mcp','readBudget','researchBudget','scope','model','sdd','tools','customSkills','projectConventions'].includes(key)) throw new Error(key + ': unknown field');
+    if (!['agents','backend','projectRules','documentLanguage','quality','customer','executionPolicy','profile','templates','mcp','readBudget','researchBudget','scope','model','sdd','tools','customSkills','projectConventions'].includes(key)) throw new Error(key + ': unknown field');
   }
   if (value.documentLanguage !== undefined) normalizeDocumentLanguage(value.documentLanguage);
+  if(value.projectRules!==undefined&&typeof value.projectRules!=='boolean')throw Error('projectRules: expected boolean');
   if(value.executionPolicy!==undefined){const p=value.executionPolicy as Record<string,unknown>;if(!p||typeof p!=='object'||Object.keys(p).some(k=>k!=='mode')||!['continuous','review'].includes(String(p.mode)))throw new Error('executionPolicy.mode: continuous or review required');}
   if(value.quality!==undefined){
    const q=value.quality as Record<string,unknown>;if(!q||typeof q!=='object'||Array.isArray(q))throw new Error('quality: expected object');
@@ -82,11 +84,11 @@ export function validateOptions(value: Record<string, unknown>): void {
    if(!value.model || typeof value.model !== 'object' || Array.isArray(value.model)) throw new Error('model: expected object');
    const model=value.model as Record<string,unknown>;
    for(const field of Object.keys(model)) if(!['provider','model','apiKeyEnv'].includes(field)) throw new Error('model.'+field+': unknown field');
-   if(model.provider !== 'anthropic') throw new Error('model.provider: expected anthropic');
+   if(!['anthropic','openai-compatible'].includes(String(model.provider))) throw new Error('model.provider: expected anthropic or openai-compatible');
    if(typeof model.model !== 'string' || !model.model.trim()) throw new Error('model.model: required');
    if(typeof model.apiKeyEnv !== 'string' || !/^[A-Z_][A-Z0-9_]*$/.test(model.apiKeyEnv)) throw new Error('model.apiKeyEnv: environment reference required');
   }
-  if(value.backend==='codex'&&value.model!==undefined)throw Error('model: Anthropic configuration conflicts with the Codex backend');
+  if(value.backend==='codex'&&value.model!==undefined)throw Error('model: provider configuration conflicts with the Codex backend');
   if(value.scope !== undefined && (!Array.isArray(value.scope) || value.scope.some(s=>typeof s !== 'string' || s.startsWith('/') || s.split('/').includes('..')))) throw new Error('scope: expected relative paths');
   if(value.readBudget !== undefined) {
    if(!value.readBudget || typeof value.readBudget !== 'object' || Array.isArray(value.readBudget)) throw new Error('readBudget: expected object');
@@ -102,7 +104,7 @@ export function validateOptions(value: Record<string, unknown>): void {
       const field=key+'.'+index;
       if(!item || typeof item !== 'object') throw new Error(field+': expected object');
       const v=item as Record<string,unknown>;
-      const allowed=key === 'templates' ? ['source','target','values'] : ['id','agents','url','command','envRefs'];
+      const allowed=key === 'templates' ? ['source','target','values'] : ['id','agents','url','command','envRefs','bearerTokenEnv'];
       for(const name of Object.keys(v)) if(!allowed.includes(name)) throw new Error(field+'.'+name+': unknown field');
       if(key === 'templates' && v.values !== undefined) {
        if(!v.values || typeof v.values !== 'object' || Array.isArray(v.values)) throw new Error(field+'.values: scalar mapping required');
@@ -116,10 +118,7 @@ export function validateOptions(value: Record<string, unknown>): void {
       if(key === 'mcp') {
         if(!Array.isArray(v.agents) || !v.agents.length || v.agents.some(a=>!['claude','codex','opencode','omp'].includes(a))) throw new Error(field+'.agents: required');
         if((v.url === undefined) === (v.command === undefined)) throw new Error(field+': choose url or command');
-        if(v.url !== undefined) {
-         let url:URL;try {url=new URL(String(v.url));} catch {throw new Error(field+'.url: invalid');}
-         if(!['http:','https:'].includes(url.protocol)||url.username||url.password||[...url.searchParams.keys()].some(k=>/token|password|secret|auth|key|cookies?/i.test(k))) throw new Error(field+'.url: credential values or unsupported transport');
-        }
+        validateRemoteMcp(v.url,v.bearerTokenEnv,field);
         if(v.command !== undefined) {
          const command=v.command as Record<string,unknown>;
          if(!command || typeof command !== 'object' || Array.isArray(command)) throw new Error(field+'.command: expected object');
@@ -142,6 +141,7 @@ export function validateOptions(value: Record<string, unknown>): void {
          if(!Array.isArray(command.envRefs) || command.envRefs.some(r=>typeof r !== 'string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(r))) throw new Error(field+'.command.envRefs: invalid');
         }
         if(v.envRefs !== undefined && (!Array.isArray(v.envRefs) || v.envRefs.some(r=>typeof r !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r)))) throw new Error(field+'.envRefs: invalid');
+        if(v.bearerTokenEnv!==undefined&&Array.isArray(v.envRefs)&&v.envRefs.length)throw Error(field+'.envRefs: remote authentication uses only bearerTokenEnv');
       }
     }
   }
@@ -151,15 +151,18 @@ export function validateOptions(value: Record<string, unknown>): void {
   if (value.profile !== undefined && typeof value.profile !== 'string') throw new Error('profile: expected path');
 }
 
-export async function loadOptions(root: string, overrides: Partial<SetupOptions>, approvedOptions?: SetupOptions): Promise<SetupOptions> {
+export async function loadOptions(root: string, overrides: Partial<SetupOptions>, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions}={}): Promise<SetupOptions> {
   const project = approvedOptions ? {...approvedOptions} : await readConfig(join(root,'.rigup','config.yaml'));
   validateOptions(project); validateOptions(overrides);
-  const profilePath = approvedOptions ? undefined : overrides.profile ?? project.profile;
+  const profilePath = approvedOptions ? undefined : overrides.profile ?? project.profile ?? defaults.fallback?.profile;
   const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath), true) : {};
   validateOptions(profile);
-  const options={...{agents: ['codex'], backend:'codex'}, ...profile, ...project, ...overrides} as SetupOptions;
+  const fallback:Partial<SetupOptions>=approvedOptions?{}:defaults.fallback??{};
+  const layers=[fallback,profile,project,overrides];
+  const modern=defaults.projectRules&&!layers.some(layer=>layer.backend!==undefined||layer.model!==undefined);
+  const options={...{agents: ['codex'], backend:modern?'host':'codex',...(modern?{projectRules:true}:{})}, ...fallback, ...profile, ...project, ...overrides} as SetupOptions;
   if (options.documentLanguage !== undefined) options.documentLanguage = normalizeDocumentLanguage(options.documentLanguage);
-  const layers=[profile,project,overrides];const backendLayer=layers.findLastIndex(layer=>layer.backend!==undefined),modelLayer=layers.findLastIndex(layer=>layer.model!==undefined);
+  const backendLayer=layers.findLastIndex(layer=>layer.backend!==undefined),modelLayer=layers.findLastIndex(layer=>layer.model!==undefined);
   if(options.model&&modelLayer>backendLayer)options.backend='native';
   else if(options.backend==='codex'&&options.model)delete options.model;
   validateOptions(options as unknown as Record<string,unknown>);

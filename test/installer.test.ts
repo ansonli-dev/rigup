@@ -100,7 +100,7 @@ test('independent installs overlap, retain the lock on failure and reconcile bot
   assert.equal(await Promise.race([otherStarted.promise.then(()=>true),rejected.then(()=>false)]),true,'CodeGraph launches even while the OpenWiki result is unresolved');
   const records=await pendingOperations(root,state);
   assert.deepEqual(records.map(r=>r.operation.id).sort(),['install:codegraph','install:openwiki']);
-  assert.ok(records.every(r=>r.stage==='dispatching'));
+  assert.ok(records.every(r=>r.stage==='prepared'&&r.installStage?.identity));
   await assert.rejects(()=>apply(approved.previewId,deps),/locked/);
   assert.equal(await loadManifest(root),undefined);
  }finally{resumeOther.resolve();await rejected;}

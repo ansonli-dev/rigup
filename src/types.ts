@@ -7,8 +7,9 @@ export interface SetupOptions {
   tools?: {id:'openwiki'|'codegraph';install:boolean;initialize:boolean;agents:Agent[]}[];
   customSkills?: {source:string;position?:'prepare'|'deliver'|'release'}[];
   projectConventions?: {tracker?:{system:'gitlab'|'github'|'local'|'other';reference?:string;description?:string};documentRoutes?:Record<string,string>;labelMapping?:Record<string,string>};
-  model?: {provider:'anthropic';model:string;apiKeyEnv:string};
+  model?: {provider:'anthropic'|'openai-compatible';model:string;apiKeyEnv:string};
   backend: 'codex' | 'native' | 'host';
+  projectRules?: boolean;
   documentLanguage?: string;
   executionPolicy?:{mode:'continuous'|'review'};
   profile?: string;
@@ -16,7 +17,7 @@ export interface SetupOptions {
   researchBudget?:{maxCalls:number;maxTokens:number};
   readBudget?: {maxFiles:number;maxBytes:number};
   templates?: {source:string;target:string;values?:Record<string,string|number|boolean>}[];
-  mcp?: {id:string;agents:Agent[];url?:string;command?:CommandSpec;envRefs?:string[]}[];
+  mcp?: {id:string;agents:Agent[];url?:string;command?:CommandSpec;envRefs?:string[];bearerTokenEnv?:string}[];
 }
 export type StepResult<T> =
   | { status: 'complete'; value: T }

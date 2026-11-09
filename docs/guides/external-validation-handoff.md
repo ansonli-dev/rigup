@@ -82,7 +82,7 @@ JS
 
 ## C3 · Claude 与 OpenSpec 原生流程
 
-`--agents claude` 选择安装目标。使用已登录的 Claude Code 处理导出的研究请求时，显式选择 `--backend host` 并沿用同一请求和费用账本。默认研究后端仍使用 Codex。Anthropic API 使用独立凭据。[研究后端](usage.md#研究后端与预算)
+`--agents claude` 选择安装目标。以下私有请求交接保留为 v0.2.4 兼容场景。验证 v0.3.0 的新入口时先应用 `rigup init --defer-research --review` 的基础预览，再从已登录的宿主调用 `rigup_begin` 并按同一任务账本记录费用。CLI provider 使用独立凭据。[研究入口](usage.md#研究后端与预算)
 
 原生 Windows 使用 `rigup init --agents claude --sdd openspec --defer-research --prepare-openspec` 准备 OpenSpec。下面的 `npm install --prefix` 示例适用于 macOS 和 Linux。
 

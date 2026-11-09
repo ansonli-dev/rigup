@@ -80,8 +80,14 @@ test('replaying_an_already_accepted_host_response_advances_the_same_run',()=>fix
  for(let i=0;i<2;i++){output='';assert.equal(await runCli(['update','--continue',id,'--response',response,'--json'],io),3);assert.equal(JSON.parse(output).phase,'generation');}
 }));
 test('onboarding_collects_all_choices_before_first_backend_request_and_masks_key',()=>fixture(async(root,cache,state)=>{
- const events:string[]=[];const answers=['2','1','3','2','2','fixture-model','temporary-secret','zh-CN','1'];let secret=false;const native=['superpowers:brainstorming','superpowers:writing-plans','superpowers:executing-plans','superpowers:verification-before-completion'];for(const name of native){const dir=join(root,'.agents','skills',name.split(':').at(-1)!);await mkdir(dir,{recursive:true});await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: fixture\n---\nNative gates\n');}
- let output='';const code=await runCli(['init'],{cwd:root,isTTY:true,write:s=>output+=s,read:async hidden=>{events.push('prompt');secret||=!!hidden;return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{events.push('backend');return {status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture-model',unknowns:[],usage:{calls:1,tokens:1}}};}}}});assert.equal(code,0);assert.equal(secret,true);assert.doesNotMatch(output,/temporary-secret/);const first=events.indexOf('backend');assert.ok(first>0);assert.ok(!events.slice(first).includes('prompt'));
+ const events:string[]=[];const answers=['2','1','3','2','zh-CN','1','1','fixture-model','','temporary-secret'];let secret=false;const native=['superpowers:brainstorming','superpowers:writing-plans','superpowers:executing-plans','superpowers:verification-before-completion'];for(const name of native){const dir=join(root,'.agents','skills',name.split(':').at(-1)!);await mkdir(dir,{recursive:true});await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: fixture\n---\nNative gates\n');}
+ const keys=['ANTHROPIC_API_KEY','OPENAI_API_KEY','RIGUP_PROVIDER','HOME','USERPROFILE'];
+ const saved=keys.map(key=>process.env[key]);for(const key of keys)delete process.env[key];
+ process.env.HOME=cache;process.env.USERPROFILE=cache;
+ try{
+  let output='';const code=await runCli(['init'],{cwd:root,isTTY:true,write:s=>output+=s,read:async hidden=>{events.push('prompt');secret||=!!hidden;return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{events.push('backend');assert.equal(r.effectiveModel?.model,'fixture-model');return {status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture-model',unknowns:[],usage:{calls:1,tokens:1}}};}}}});
+  assert.equal(code,0,output);assert.equal(secret,true);assert.doesNotMatch(output,/temporary-secret/);const first=events.indexOf('backend');assert.ok(first>0);assert.ok(!events.slice(first).includes('prompt'));
+ }finally{keys.forEach((key,index)=>{if(saved[index]===undefined)delete process.env[key];else process.env[key]=saved[index];});}
 }));
 test('technical_continuation_cannot_silently_change_execution_mode',()=>fixture(async(root,cache,state)=>{
  let output='';const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};await runCli(['init','--agents','codex','--sdd','openspec','--backend','host','--dry-run','--json'],io);const id=JSON.parse(output).nextCommand.match(/--continue ([a-f0-9]{64})/)[1];output='';assert.equal(await runCli(['update','--continue',id,'--review','--json'],io),2);assert.deepEqual(await readdir(root),[]);
@@ -122,7 +128,7 @@ test('resume finds the saved OpenSpec research after optional external entries b
   let output='',calls=0;
   const backend={run:async()=>{calls++;throw Error('simulated interrupted dispatch');}};
   const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}};
-  const args=['init','--agents','codex','--sdd','openspec','--dry-run','--json'];
+  const args=['init','--agents','codex','--sdd','openspec','--backend','codex','--dry-run','--json'];
   assert.equal(await runCli(args,io),1);
   assert.equal(calls,1);
   const records=await readdir(state+'/runs');

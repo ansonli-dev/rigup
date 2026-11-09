@@ -20,10 +20,23 @@ export interface AnalysisBackend {
  run(request:ResearchRequest,reader:RepositoryReader):Promise<StepResult<ResearchResult>>;
 }
 const searched=new WeakMap<RepositoryReader,Set<string>>();
+const guidanceLists=['scope','consumers','gaps'] as const;
+const stringArray=(value:unknown)=>Array.isArray(value)&&value.every(item=>typeof item==='string');
+
+function normalizeGuidance(output:Record<string,unknown>):Record<string,unknown>{
+ if(!Array.isArray(output.guidance))return output;
+ const guidance=output.guidance.map(source=>{
+  if(!source||typeof source!=='object'||Array.isArray(source))return source;
+  const normalized={...source};
+  for(const field of guidanceLists)if(typeof normalized[field]==='string')normalized[field]=[normalized[field]];
+  return normalized;
+ });
+ return {...output,guidance};
+}
 
 export function selectResearchOutput(request:ResearchRequest,data:unknown):unknown {
  if(!data||typeof data!=='object'||Array.isArray(data))return data;
- const output=data as Record<string,unknown>;
+ const output=normalizeGuidance(data as Record<string,unknown>);
  if(request.expectedOutput==='plan'&&Array.isArray(output.observations)){
   const observations=output.observations.map(observation=>{
    const supports=observation?.coverage?.independentSupports;
@@ -35,11 +48,11 @@ export function selectResearchOutput(request:ResearchRequest,data:unknown):unkno
   return {...output,observations};
  }
  const job=(request.input as {job?:{ruleSources?:unknown}}|undefined)?.job;
- if(!Array.isArray(job?.ruleSources))return data;
+ if(!Array.isArray(job?.ruleSources))return output;
  const {rulebook,accepted,reason,unknowns,rejectedRuleIds}=output;
  if(request.expectedOutput==='content')return {rulebook,unknowns,observations:[]};
  if(request.expectedOutput==='acceptance')return {accepted,reason,unknowns,observations:[],...(rejectedRuleIds!==undefined?{rejectedRuleIds}:{})};
- return data;
+ return output;
 }
 
 const citationKey=(path:unknown,startLine:unknown,endLine:unknown,digest:unknown)=>JSON.stringify([path,startLine,endLine,digest]);
@@ -71,7 +84,7 @@ export async function validateResearch(data:unknown,reader:RepositoryReader,expo
  const guidance=(data as Record<string,unknown>).guidance;
  if(guidance !== undefined && !Array.isArray(guidance)) throw new Error('guidance: expected array');
  for(const source of (guidance ?? []) as Record<string,unknown>[]) {
-  if(typeof source.topic !== 'string' || !['reusable','partial','missing','conflicting','unavailable'].includes(String(source.coverageStatus)) || !Array.isArray(source.scope) || !Array.isArray(source.consumers) || !Array.isArray(source.gaps)) throw new Error('guidance: invalid source assessment');
+  if(!source||typeof source.topic !== 'string'||!['reusable','partial','missing','conflicting','unavailable'].includes(String(source.coverageStatus))||!guidanceLists.every(field=>stringArray(source[field])))throw new Error('guidance: invalid source assessment');
   const derived=observations.filter(item=>item.topic === source.topic && (source.topicId===undefined||item.topicId===undefined||item.topicId===source.topicId) && item.classification !== 'explicit-rule');
   if(source.coverageStatus === 'reusable' && derived.length) throw new Error('guidance: reuse sufficient source before inference');
   if(source.coverageStatus === 'partial' && derived.some(item=>!(source.gaps as unknown[]).includes(item.gap))) throw new Error('guidance: research must address declared gap');

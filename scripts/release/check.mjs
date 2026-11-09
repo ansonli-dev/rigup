@@ -137,6 +137,14 @@ export async function checkRelease({archive}) {
     };
     assert.match((await run(['--help'])).stdout, /rigup init/);
     assert.equal((await run(['--version'])).stdout.trim(), info.version);
+    const handshake = await pipe('rigup', ['mcp', '--host', 'codex'], {cwd: project, env: cliEnv}, [
+      {jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25'}},
+      {jsonrpc:'2.0',method:'notifications/initialized'},
+      {jsonrpc:'2.0',id:2,method:'tools/list'},
+    ].map(value => JSON.stringify(value)).join('\n')+'\n');
+    const replies = handshake.trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(replies[0].result.serverInfo.version, info.version);
+    assert.deepEqual(replies[1].result.tools.map(tool => tool.name), ['rigup_begin','rigup_submit_plan','rigup_next_page','rigup_submit_page','rigup_finish']);
     const preview = JSON.parse(
       (await run(['init', '--sdd', 'none', '--tools', 'none', '--dry-run', '--json'])).stdout,
     );

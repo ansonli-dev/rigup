@@ -5,8 +5,9 @@ import {prepareNativeInitialization} from './tools/initialization.js';
 import {toolPackage} from './tools/recipes.js';
 import type {SetupOperation,SetupRequirement} from '../types.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
-import {lstat} from 'node:fs/promises';
+import {lstat,readFile} from 'node:fs/promises';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
+import {projectMcpArgs} from './tools/project-mcp-entry.js';
 import {collectCustomSkill} from './custom-skills.js';
 import {renderCustomerTemplate} from './custom-templates.js';
 import {openwiki,openwikiInitializationGuide} from './tools/openwiki.js';
@@ -54,6 +55,16 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   if(input.agents.some(a=>!options.agents.includes(a))) throw new Error('MCP target agent not selected');
   const prepared=await prepareCustomerMcp(profile.root,input);push(prepared.assets);warnings.push(...prepared.warnings);requirements.push(...prepared.requirements);
  }
+ if(options.projectRules&&options.agents.length){
+  const target='.rigup/rigup-mcp.mjs';
+  const content=await readFile(new URL('../../templates/rigup-mcp.mjs',import.meta.url),'utf8');
+  push([{logicalId:'rigup:research-launcher',target,content,ownership:{kind:'file'},source:{kind:'fixed-template',ref:'rigup-mcp',digest:digest(content)}}]);
+  for(const agent of options.agents){
+   const args=projectMcpArgs(agents[agent].mcpTarget,target,[agent]);
+   const prepared=await prepareCustomerMcp(profile.root,{id:'rigup',agents:[agent],command:{executable:'node',args,cwd:'.',envRefs:[]}},true);
+   push(prepared.assets);requirements.push(...prepared.requirements);
+  }
+ }
  for(const selection of options.tools ?? []) {
   const recipe=requireKnown(selection.id);const tool=selection.id === 'openwiki' ? openwiki : selection.id === 'codegraph' ? codegraph : undefined;
   if(!tool) throw new Error('unsupported executable adapter');
@@ -61,15 +72,10 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   const useProjectTool=selection.install||selection.initialize&&!!profile.installedTools?.[tool.id];
   const {prefix,name,entry}=toolPackage(selection.id);
   for(const agent of selection.agents) {
-   const args=tool.mcpArgs(agent);
-   let executable=tool.software;
-   if(useProjectTool){
-    if(process.platform==='win32'){
-     executable=process.execPath;
-     args.unshift(resolve(profile.root,prefix,'node_modules',name,entry));
-    }else executable=resolve(profile.root,prefix,'node_modules','.bin',tool.software);
-   }
-   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable,args,cwd:'.',envRefs:[]}});push(prepared.assets);requirements.push(...prepared.requirements);
+   const executable=useProjectTool?'node':tool.software;
+   const nativeArgs=tool.mcpArgs(agent);
+   const args=useProjectTool?projectMcpArgs(agents[agent].mcpTarget,[prefix,'node_modules',name,entry].join('/'),nativeArgs):nativeArgs;
+   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable,args,cwd:'.',envRefs:[]}},true);push(prepared.assets);requirements.push(...prepared.requirements);
   }
   warnings.push(tool.id+': binary '+recipe.version+' availability and native connection pending');
   let installed=false;

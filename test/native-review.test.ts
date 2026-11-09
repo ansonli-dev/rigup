@@ -45,7 +45,7 @@ test('public lifecycle preserves unresolved Codex identity when ordinary cache i
 test('explicit Anthropic CLI flags select their provider after default resolution',()=>fixture(async(root,cache,state)=>{
  const old=process.env.ANTHROPIC_MODEL;process.env.ANTHROPIC_MODEL='environment-choice';
  try{for(const [flags,model,reference] of [[['--model','explicit-choice'],'explicit-choice','ANTHROPIC_API_KEY'],[['--api-key-env','TEAM_KEY'],'environment-choice','TEAM_KEY']] as const){
-  let seen:any;await runCli(['init','--sdd','openspec','--dry-run',...flags],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async request=>{seen=request;throw Error('stop before model');}}}});
+  let seen:any;await runCli(['init','--sdd','openspec','--backend','native','--dry-run',...flags],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async request=>{seen=request;throw Error('stop before model');}}}});
   assert.equal(seen.options.backend,'native');assert.deepEqual(seen.effectiveModel,{provider:'anthropic',model,apiKeyEnv:reference});
  }}finally{if(old===undefined)delete process.env.ANTHROPIC_MODEL;else process.env.ANTHROPIC_MODEL=old;}
 }));
