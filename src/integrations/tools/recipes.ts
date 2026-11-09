@@ -14,7 +14,7 @@ export function isNativeTool(id:string):id is NativeTool {
 }
 
 export function toolPackage(id:NativeTool) {
- return {id,prefix:'.rigup/tools/'+id,name:id==='openwiki'?'openwiki':'@colbymchenry/codegraph'};
+ return {id,prefix:'.rigup/tools/'+id,name:id==='openwiki'?'openwiki':'@colbymchenry/codegraph',entry:id==='openwiki'?'dist/cli/cli.js':'npm-shim.js'};
 }
 
 export function softwareInstallRecipe(root:string,id:NativeTool,version:string,integrity?:string):SetupOperation {

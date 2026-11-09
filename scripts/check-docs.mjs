@@ -1,7 +1,8 @@
 import {access, readFile, readdir} from 'node:fs/promises';
-import {dirname, join, relative, resolve} from 'node:path';
+import {dirname, join, relative, resolve, sep} from 'node:path';
 
 const root = resolve(process.argv[2] ?? '.');
+const evidencePrefix = join('docs', 'compatibility', 'evidence') + sep;
 async function markdownFiles(directory) {
   const result = [];
   for (const entry of await readdir(directory, {withFileTypes: true})) {
@@ -9,7 +10,7 @@ async function markdownFiles(directory) {
     // Archived generated snippets keep links relative to their original consumer
     // project. Check their README indexes, without rewriting immutable evidence.
     if (entry.isDirectory()) result.push(...await markdownFiles(path));
-    else if (relative(root, path).startsWith('docs/compatibility/evidence/') && entry.name !== 'README.md') continue;
+    else if (relative(root, path).startsWith(evidencePrefix) && entry.name !== 'README.md') continue;
     else if (entry.isFile() && entry.name.endsWith('.md')) result.push(path);
   }
   return result;

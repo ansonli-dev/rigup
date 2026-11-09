@@ -15,6 +15,7 @@ import {preview, loadPreview} from '../src/installer/preview.js';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {generate} from '../src/generator/generate.js';
 import {signature, saveCache} from '../src/generator/cache.js';
+import {runWindowsPowerShell} from '../src/windows-powershell.js';
 
 const exec = promisify(execFile);
 const backend = {run: async ():Promise<never> => {throw Error('No model call is permitted in this regression');}};
@@ -37,13 +38,17 @@ async function skillFixture(fn:(fixture:any)=>Promise<void>) {
   });
 }
 const mode=async(path:string)=>(await stat(path)).mode&0o777;
+const posixModes={skip:process.platform==='win32'&&'requires POSIX executable and group mode bits'};
 
 test('review handoff shell command round-trips hostile directory names without expansion',()=>project(async control=>{
-  const root=join(control,'project$(touch dollar-marker)`touch tick-marker` \'" spaced\nline');
+  const root=join(control,process.platform==='win32'
+    ? "project$(Write-Output expanded)`' spaced" : 'project$(touch dollar-marker)`touch tick-marker` \'" spaced\nline');
   await mkdir(root);let report:any;
   const code=await executeLifecycle(root,{agents:['codex'],backend:'host'},{review:true},()=>{},{cacheRoot:join(control,'cache'),stateRoot:join(control,'state'),backend,report:value=>{report=value;}});
   assert.equal(code,3);assert.ok(report.nextCommand);
-  const output=await exec('sh',['-c','rigup() { printf "%s\\0" "$@"; }\n'+report.nextCommand],{cwd:control});
+  const output=process.platform==='win32'
+    ? await runWindowsPowerShell('function rigup { [Console]::Write(($args -join [char]0) + [char]0) }; '+report.nextCommand)
+    : await exec('sh',['-c','rigup() { printf "%s\\0" "$@"; }\n'+report.nextCommand],{cwd:control});
   assert.deepEqual(output.stdout.split('\0').slice(0,-1),['update',root,'--apply',report.previewId,'--sessions-ended']);
   assert.ok(!(await readdir(control)).some(name=>name==='dollar-marker'||name==='tick-marker'));
 }));
@@ -103,14 +108,29 @@ test('review binary skill resources survive repeated lifecycle and byte updates'
   const next=Buffer.from([255,0,4,5]);await writeFile(join(skill,'image.bin'),next);assert.equal(await install(),0);assert.deepEqual(await readFile(target),next);
 }));
 
-test('review upstream mode-only skill update is installed and truthfully diagnosed',()=>skillFixture(async({root,source,target,install})=>{
+test('Windows preview preserves a read-only skill target when upstream bytes change', {
+ skip:process.platform!=='win32'&&'requires the Windows read-only attribute',
+},()=>skillFixture(async({source,target,install,prepare})=>{
+ assert.equal(await install(),0);
+ const before=await readFile(target);
+ await chmod(target,0o444);
+ try{
+  await writeFile(source,'changed upstream');
+  const view=await prepare();
+  assert.equal(view.executable,false);
+  assert.ok(view.blockers.some((reason:string)=>/read-only/.test(reason)));
+  assert.deepEqual(await readFile(target),before);
+ }finally{await chmod(target,0o644);}
+}));
+
+test('review upstream mode-only skill update is installed and truthfully diagnosed',posixModes,()=>skillFixture(async({root,source,target,install})=>{
   assert.equal(await install(),0);assert.equal(await mode(target),0o644);
   await chmod(source,0o755);assert.equal(await install(),0);assert.equal(await mode(target),0o755);
   const manifest=await loadManifest(root);assert.equal(manifest!.assets.find(asset=>asset.target.endsWith('/run.sh'))!.mode,0o755);
   const health=await doctor(root);assert.equal(health.diagnostics.find(item=>item.id.endsWith('/run.sh'))?.state,'configured');
 }));
 
-test('review user chmod is preserved and diagnosed while divergent upstream chmod conflicts',()=>skillFixture(async({root,source,target,install})=>{
+test('review user chmod is preserved and diagnosed while divergent upstream chmod conflicts',posixModes,()=>skillFixture(async({root,source,target,install})=>{
   await chmod(source,0o755);assert.equal(await install(),0);
   await chmod(target,0o640);assert.equal(await install(),0);assert.equal(await mode(target),0o640);
   const health=await doctor(root);assert.equal(health.diagnostics.find(item=>item.id.endsWith('/run.sh'))?.state,'pending');
@@ -118,7 +138,7 @@ test('review user chmod is preserved and diagnosed while divergent upstream chmo
   await chmod(source,0o700);assert.equal(await install(),1);assert.equal(await mode(target),0o640);assert.equal((await loadManifest(root))!.installId,before);
 }));
 
-test('review chmod after preview invalidates apply before writes',()=>skillFixture(async({root,source,target,cache,state,install,prepare})=>{
+test('review chmod after preview invalidates apply before writes',posixModes,()=>skillFixture(async({root,source,target,cache,state,install,prepare})=>{
   await install();const before=(await loadManifest(root))!.installId;
   await chmod(source,0o755);const view=await prepare();assert.equal(view.executable,true);
   const item=view.items.find((entry:any)=>entry.target.endsWith('/run.sh'));assert.equal(item.action,'update');assert.equal(item.beforeMode,0o644);assert.equal(item.afterMode,0o755);
@@ -126,7 +146,7 @@ test('review chmod after preview invalidates apply before writes',()=>skillFixtu
   assert.equal(await mode(target),0o600);assert.equal((await loadManifest(root))!.installId,before);
 }));
 
-test('review interrupted mode-only application survives ordinary-cache loss',()=>skillFixture(async({root,source,target,cache,state,options,install,prepare})=>{
+test('review interrupted mode-only application survives ordinary-cache loss',posixModes,()=>skillFixture(async({root,source,target,cache,state,options,install,prepare})=>{
   await install();const before=(await loadManifest(root))!.installId;await chmod(source,0o755);const view=await prepare();
   await assert.rejects(apply(view.previewId,{cacheRoot:cache,stateRoot:state,hook:async point=>{if(point==='after-file')throw Error('interrupt after mode write');}}),/interrupt after mode write/);
   assert.equal(await mode(target),0o755);assert.equal((await loadManifest(root))!.installId,before);
@@ -134,14 +154,14 @@ test('review interrupted mode-only application survives ordinary-cache loss',()=
   assert.equal((await apply(view.previewId,{cacheRoot:cache,stateRoot:state,recover:true})).exitCode,0);assert.equal(await mode(target),0o755);
 }));
 
-test('review recovery rejects a user chmod even when bytes match both before and after',()=>skillFixture(async({root,source,target,cache,state,install,prepare})=>{
+test('review recovery rejects a user chmod even when bytes match both before and after',posixModes,()=>skillFixture(async({root,source,target,cache,state,install,prepare})=>{
   await install();const before=(await loadManifest(root))!.installId;await chmod(source,0o755);const view=await prepare();
   await assert.rejects(apply(view.previewId,{cacheRoot:cache,stateRoot:state,hook:async point=>{if(point==='after-file')throw Error('interrupt mode write');}}),/interrupt mode write/);
   await chmod(target,0o700);await assert.rejects(apply(view.previewId,{cacheRoot:cache,stateRoot:state,recover:true}),/mode|permission|changed/);
   assert.equal(await mode(target),0o700);assert.equal((await loadManifest(root))!.installId,before);
 }));
 
-test('review final verification and completed replay check actual modes',()=>skillFixture(async({root,source,target,cache,state,install,prepare})=>{
+test('review final verification and completed replay check actual modes',posixModes,()=>skillFixture(async({root,source,target,cache,state,install,prepare})=>{
   await install();const before=(await loadManifest(root))!.installId;await chmod(source,0o755);const view=await prepare();
   await assert.rejects(apply(view.previewId,{cacheRoot:cache,stateRoot:state,hook:async point=>{if(point==='before-manifest')await chmod(target,0o700);}}),/mode|permission|differs|changed/);
   assert.equal((await loadManifest(root))!.installId,before);
@@ -149,7 +169,7 @@ test('review final verification and completed replay check actual modes',()=>ski
   await chmod(target,0o700);await assert.rejects(apply(view.previewId,{cacheRoot:cache,stateRoot:state}),/mode|permission|changed/);
 }));
 
-test('review legacy previews without mode preconditions require regeneration',()=>skillFixture(async({source,target,cache,state,install,prepare})=>{
+test('review legacy previews without mode preconditions require regeneration',posixModes,()=>skillFixture(async({source,target,cache,state,install,prepare})=>{
   await install();await chmod(source,0o755);const view=await prepare();const data:any=await loadPreview(view.previewId,cache);
   delete data.modePolicyVersion;for(const file of data.files)delete file.observedMode;
   await saveCache(join(cache,view.previewId+'.json'),JSON.stringify({digest:signature(data),data}));

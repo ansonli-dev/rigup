@@ -1,6 +1,6 @@
 import {execFile} from 'node:child_process';
 import {access,constants,readFile,realpath,stat} from 'node:fs/promises';
-import {isAbsolute,relative,resolve} from 'node:path';
+import {isAbsolute,relative,resolve,sep} from 'node:path';
 import {promisify} from 'node:util';
 import type {ProjectProfile} from '../../analyzer/repository.js';
 import type {CheckSelector,SetupOptions} from '../../types.js';
@@ -14,7 +14,7 @@ async function hasNativeHook(root:string,name:string):Promise<boolean>{
  try{
   const path=(await exec('git',['-C',root,'rev-parse','--git-path','hooks/'+name])).stdout.trim();
   const hook=await realpath(resolve(root,path)),rel=relative(root,hook);
-  if(rel==='..'||rel.startsWith('../')||isAbsolute(rel))return false;
+  if(rel==='..'||rel.startsWith('..'+sep)||isAbsolute(rel))return false;
   const info=await stat(hook);
   if(!info.isFile()||info.size>256_000)return false;
   await access(hook,constants.X_OK);

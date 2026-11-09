@@ -4,6 +4,8 @@
 
 With Node.js 24 or later, install or upgrade from the public registry. [npm package](https://www.npmjs.com/package/@ansonli.dev/rigup)
 
+On native Windows, run the npm commands in PowerShell 7 with Windows Node.js 24 and Git for Windows on PATH. [Verified platform scope](../compatibility/status.md)
+
 ```sh
 npm install -g @ansonli.dev/rigup
 rigup --version

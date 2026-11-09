@@ -179,7 +179,7 @@ export async function prepareRelease({outDir, ...options}) {
     '',
     'Download `install.sh` and run `sh install.sh` for a user-local installation, or check your archive against `SHA256SUMS` before extracting it. Keep the complete extracted directory.',
     '',
-    'Linux requires glibc 2.35 or newer. Windows users can use a supported Linux environment inside WSL2. Installed MCP runners and hooks use the consuming environment’s Node runtime.',
+    'Linux requires glibc 2.35 or newer. On native Windows, install the npm package with Windows Node.js 24, PowerShell 7, and Git for Windows. Installed MCP runners and hooks use the consuming environment’s Node runtime.',
     '',
     `See the [installation guide](https://github.com/${repository}/blob/${sourceCommit}/docs/guides/releases.md) and [changelog](https://github.com/${repository}/blob/${sourceCommit}/CHANGELOG.md).`,
     '',

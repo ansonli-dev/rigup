@@ -3,7 +3,14 @@ import type {Evidence} from '../types.js';
 import type {ProjectRuleSource,ProjectRuleTopic,RuleRepair} from './project-rules.js';
 export interface ArtifactPage {logicalId:string;target:string;content:string}
 export interface ArtifactJob {logicalId:string;target:string;purpose:string;consumer:string;required:boolean;reason:string;sourceRefs:Evidence[];seedPaths:string[];relatedArtifacts:string[];acceptance:string[];status:'pending'|'done';ruleSources?:ProjectRuleSource[];ruleTopics?:ProjectRuleTopic[]}
-export function relativeTarget(target:string):boolean {return !!target && !target.startsWith('/') && !target.includes('\\') && !target.split('/').includes('..') && posix.normalize(target) === target && target !== '.';}
+export function relativeTarget(target:string):boolean {
+ if(!target||target.startsWith('/')||target.includes('\\')||target.includes('\0')||posix.normalize(target)!==target||target==='.')return false;
+ const parts=target.split('/');
+ if(parts.includes('..'))return false;
+ return process.platform!=='win32'||parts.every(part=>part&&
+  !/[<>:"|?*\x00-\x1f]|[ .]$/.test(part)&&
+  !/^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³]) *(?:\.|$)/i.test(part));
+}
 export function validateArtifactList(input:unknown,required:string[]):ArtifactJob[]{
  if(!Array.isArray(input)) throw new Error('artifacts: expected array');
  const ids=new Set<string>(),targets=new Set<string>();

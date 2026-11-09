@@ -119,7 +119,7 @@ test('host_symlinked_cache_cannot_create_project_directories',async()=>{
  await project(async root=>{
   const outer=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-symlink-')));
   try {
-   await fs.symlink(root,join(outer,'redirect'));
+   await fs.symlink(root,join(outer,'redirect'),process.platform==='win32'?'junction':'dir');
    await assert.rejects(hostBackend({cacheRoot:join(outer,'redirect','must-not-create')}).run({...request,root},reader),/symlink|project/);
    await assert.rejects(fs.access(join(root,'must-not-create')));
   }finally{await fs.rm(outer,{recursive:true,force:true});}

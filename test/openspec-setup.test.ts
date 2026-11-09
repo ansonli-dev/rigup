@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import {access,mkdir,readFile,writeFile} from 'node:fs/promises';
-import {delimiter,join} from 'node:path';
+import {delimiter,dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {runCli,type CliIO} from '../src/cli.js';
 import {inspectOpenSpec} from '../src/integrations/sdd/openspec-setup.js';
-import {project} from './helpers.js';
+import {project,writeOpenSpecFixture} from './helpers.js';
 
 async function fixture(run:(root:string,control:string)=>Promise<void>){
  await project(async control=>{
@@ -15,8 +15,7 @@ async function fixture(run:(root:string,control:string)=>Promise<void>){
 }
 
 async function installFakeOpenSpec(bin:string,shebang='#!'+process.execPath){
- await mkdir(bin,{recursive:true});
- await writeFile(join(bin,'openspec'),shebang+'\n'+`
+ await writeOpenSpecFixture(bin,`
 const fs = require('node:fs');
 const path = require('node:path');
 const cwd = process.cwd();
@@ -42,7 +41,7 @@ switch (process.argv[2]) {
  default:
   process.exitCode=2;
 }
-`,{mode:0o755});
+`,shebang);
 }
 
 function terminal(root:string,control:string,answers:string[]){
@@ -121,15 +120,18 @@ test('preflight accepts a declared store and prepares a missing local root with 
 }));
 
 test('OpenSpec startup uses the filtered PATH for env interpreters',()=>fixture(async(root,control)=>{
- const bin=join(control,'bin');
+ const bin=join(control,'bin with spaces');
  await installFakeOpenSpec(bin,'#!/usr/bin/env node');
- await writeFile(join(root,'node'),'#!/bin/sh\nprintf unsafe > "$PWD/node-was-invoked"\nexit 1\n',{mode:0o755});
+ const projectBin=join(root,'bin');
+ await writeOpenSpecFixture(projectBin,`require('node:fs').writeFileSync('project-openspec-was-invoked','unsafe');`);
+ await writeFile(join(projectBin,process.platform==='win32'?'node.exe':'node'),'#!/bin/sh\nprintf unsafe > "$PWD/node-was-invoked"\nexit 1\n',{mode:0o755});
  const path=process.env.PATH;
- process.env.PATH=['.',root,bin,path].join(delimiter);
+ process.env.PATH=['.',root,projectBin,bin,path].join(delimiter);
  try{
   const setup=await inspectOpenSpec(root,{agents:['codex'],backend:'host'});
   assert.equal(setup.cliVersion,'1.16.0');
   await assert.rejects(access(join(root,'node-was-invoked')),{code:'ENOENT'});
+  await assert.rejects(access(join(root,'project-openspec-was-invoked')),{code:'ENOENT'});
  }finally{process.env.PATH=path;}
 }));
 
@@ -151,5 +153,31 @@ test('portable setup checks the user PATH rather than the bundled runtime PATH',
   process.env.PATH=path;
   if(consumer===undefined)delete process.env.RIGUP_CONSUMER_PATH;
   else process.env.RIGUP_CONSUMER_PATH=consumer;
+ }
+}));
+
+test('Windows npm preflight uses the global prefix on PATH and refuses to overwrite a package', {
+ skip:process.platform!=='win32'&&'uses Windows npm shims',
+},()=>fixture(async(root,control)=>{
+ const prefix=join(control,'npm prefix');
+ const npmPackage=join(prefix,'node_modules','npm');
+ await mkdir(join(npmPackage,'bin'),{recursive:true});
+ await writeFile(join(npmPackage,'package.json'),JSON.stringify({name:'npm',bin:{npm:'bin/npm-cli.js'}}));
+ await writeFile(join(npmPackage,'bin','npm-cli.js'),"if(process.argv.slice(2).join(' ')==='prefix -g') console.log(process.env.RIGUP_TEST_NPM_PREFIX);");
+ await writeFile(join(prefix,'npm.cmd'),'@echo off\r\nnode "%~dp0node_modules\\npm\\bin\\npm-cli.js" %*\r\n');
+ const path=process.env.RIGUP_CONSUMER_PATH;
+ process.env.RIGUP_CONSUMER_PATH=[prefix,dirname(process.execPath)].join(delimiter);
+ process.env.RIGUP_TEST_NPM_PREFIX=prefix;
+ try{
+  const options={agents:['codex' as const],backend:'host' as const};
+  const setup=await inspectOpenSpec(root,options);
+  assert.equal(setup.prefix,prefix);
+  assert.equal(setup.canPrepare,true);
+  await mkdir(join(prefix,'node_modules','@fission-ai','openspec'),{recursive:true});
+  assert.equal((await inspectOpenSpec(root,options)).canPrepare,false);
+ }finally{
+  if(path===undefined)delete process.env.RIGUP_CONSUMER_PATH;
+  else process.env.RIGUP_CONSUMER_PATH=path;
+  delete process.env.RIGUP_TEST_NPM_PREFIX;
  }
 }));

@@ -1,8 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir,writeFile} from 'node:fs/promises';
+import {mkdir,symlink,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {spawnSync} from 'node:child_process';
 import {parse} from 'yaml';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {renderFixed} from '../src/generator/render.js';
@@ -17,6 +16,7 @@ test('a prepared workflow refers to native checks and emits no verification runt
  await mkdir(join(root,'src'));
  await writeFile(join(root,'package.json'),JSON.stringify({scripts:{'deps:validate':'node check.mjs'}}));
  await writeFile(join(root,'src','domain.ts'),"import './controller';\n");
+ await writeFile(join(root,'src','controller.ts'),'export const controller = true;\n');
  await writeFile(join(root,'check.mjs'),"import {readFileSync} from 'node:fs';if(readFileSync('src/domain.ts','utf8').includes('import')){console.error('error no-domain-to-api-deps: src/domain.ts → src/controller.ts');process.exitCode=7;}\n");
  const profile=await scanRepository(root,options);
  setNativeEntries(profile,{codex:['openspec-propose','openspec-apply-change','openspec-archive-change']});
@@ -28,21 +28,32 @@ test('a prepared workflow refers to native checks and emits no verification runt
   assert.doesNotMatch(context,/check-worktree|check-results|rigup:receipt|acceptance-digest|npm:\.:/);
  }
  assert.ok(assets.every(asset=>!asset.target.startsWith('.rigup/scripts/')));
- const command=()=>spawnSync('npm',['run','deps:validate'],{cwd:root,encoding:'utf8'});
- const failed=command();
- assert.equal(failed.status,7);
- assert.match(failed.stderr,/no-domain-to-api-deps: src\/domain\.ts → src\/controller\.ts/);
+ const command=()=>executeCheck({executable:'npm',args:['run','deps:validate'],cwd:'.',envRefs:[]},root);
+ const failed=await command();
+ assert.equal(failed.exitCode,7);
+ assert.deepEqual(failed.diagnostic,{rule:'no-domain-to-api-deps',path:'src/domain.ts',relatedPath:'src/controller.ts'});
  await writeFile(join(root,'src','domain.ts'),'export const domain = true;\n');
- assert.equal(command().status,0);
+ assert.equal((await command()).exitCode,0);
 }));
 
 test('optional installer checks bound inherited output when a detached child holds the pipes',()=>project(async root=>{
- await writeFile(join(root,'check.mjs'),"import {spawn} from 'node:child_process';spawn(process.execPath,['-e','setTimeout(()=>{},1100)'],{detached:true,stdio:'inherit'}).unref();\n");
- const result=await executeCheck({executable:process.execPath,args:['check.mjs'],cwd:'.',envRefs:[]},root,{timeoutMs:150});
+ const windows=process.platform==='win32';
+ const delay=windows?12_000:1_100;
+ const linger=windows?'setTimeout(()=>{},12000);':'';
+ await writeFile(join(root,'check.mjs'),"import {spawn} from 'node:child_process';spawn(process.execPath,['-e','setTimeout(()=>{},"+delay+")'],{detached:true,stdio:'inherit'}).unref();"+linger+"\n");
+ const result=await executeCheck({executable:process.execPath,args:['check.mjs'],cwd:'.',envRefs:[]},root,{timeoutMs:windows?4_000:150});
  assert.equal(result.status,'pending');
  assert.match(result.reason,/timed out/);
- assert.ok(result.durationMs<900,JSON.stringify(result));
+ assert.ok(result.durationMs<(windows?10_000:900),JSON.stringify(result));
 }));
+
+test('optional checks reject a junction or symlink outside the project',()=>project(async root=>project(async outside=>{
+ await symlink(outside,join(root,'alias'),process.platform==='win32'?'junction':'dir');
+ await assert.rejects(
+  executeCheck({executable:process.execPath,args:['-e','process.exit(0)'],cwd:'alias',envRefs:[]},root),
+  /escapes the selected project/
+ );
+})));
 
 test('native CI reuses explicitly selected npm scripts and deduplicates generic selection',()=>project(async root=>{
  await writeFile(join(root,'package.json'),JSON.stringify({scripts:{test:'node test.mjs','verify:contracts':'node verify-contracts.mjs'}}));

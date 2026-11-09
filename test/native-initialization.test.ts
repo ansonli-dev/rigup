@@ -2,8 +2,9 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {createServer} from 'node:net';
+import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
-import {mkdir,writeFile,readFile,symlink,lstat} from 'node:fs/promises';
+import {mkdir,writeFile,readFile,symlink,lstat,rename} from 'node:fs/promises';
 import {project} from './helpers.js';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
@@ -13,7 +14,8 @@ import type {SetupPlan} from '../src/types.js';
 import {initializationRecipe} from '../src/integrations/tools/initialization.js';
 import {loadUpstreamLock} from '../src/integrations/registry.js';
 import {queryOperation} from '../src/installer/operations.js';
-import {chmod} from 'node:fs/promises';
+import {nativeEnvironment,resumableNativeOperation} from '../src/integrations/tools/native-state.js';
+import {writeNativeToolFixture} from './native-tool-fixture.js';
 import {apply} from '../src/installer/apply.js';
 import {executeLifecycle} from '../src/lifecycle.js';
 import {rm} from 'node:fs/promises';
@@ -50,8 +52,8 @@ test('unowned wiki and index remain untouched and are never implicitly adopted',
  assert.equal(await readFile(root+'/.codegraph/config.json','utf8'),'Customer index configuration');
 }));
 test('native initialization rejects unsafe target and staging ancestors',()=>project(async root=>project(async outside=>{
- await symlink(outside,root+'/openwiki');
- await mkdir(root+'/.rigup',{recursive:true});await symlink(outside,root+'/.rigup/native');
+ await symlink(outside,root+'/openwiki',process.platform==='win32'?'junction':'dir');
+ await mkdir(root+'/.rigup',{recursive:true});await symlink(outside,root+'/.rigup/native',process.platform==='win32'?'junction':'dir');
  const prepared=await prepareIntegrations(await scanRepository(root,options),options);
  assert.equal(prepared.operations.filter(o=>o.kind==='initialize').length,0);
  assert.equal(prepared.requirements.length,1);
@@ -83,7 +85,7 @@ test('preview refuses missing or reordered initialization dependencies',()=>proj
  assert.equal((await preview(reordered,[],{cacheRoot:cache})).executable,false);
 })));
 test('preview refuses native scope edits and unsafe staging after planning',()=>project(async root=>project(async cache=>project(async outside=>{
- const plan=await nativePlan(root);await symlink(outside,root+'/.codegraph-rigup-init');
+ const plan=await nativePlan(root);await symlink(outside,root+'/.codegraph-rigup-init',process.platform==='win32'?'junction':'dir');
  assert.equal((await preview(plan,[],{cacheRoot:cache})).executable,false);
 }))));
 test('receipted native output is excluded from source research while unowned state stays visible',()=>project(async root=>{
@@ -102,14 +104,63 @@ test('receipted native output is excluded from source research while unowned sta
 }));
 test('native state query never executes substituted adapter commands',()=>project(async root=>{
  const recipe=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!;
- const prefix=root+'/.rigup/tools/openwiki';await mkdir(prefix+'/node_modules/openwiki',{recursive:true});await mkdir(prefix+'/node_modules/.bin');
- await writeFile(prefix+'/node_modules/openwiki/package.json',JSON.stringify({name:'openwiki',version:'0.7.3',bin:{openwiki:'cli.js'}}));
- await writeFile(prefix+'/node_modules/openwiki/cli.js','#!/usr/bin/env node\n');await chmod(prefix+'/node_modules/openwiki/cli.js',0o755);await symlink('../openwiki/cli.js',prefix+'/node_modules/.bin/openwiki');
+ const {prefix}=await writeNativeToolFixture(root,'openwiki','0.7.3');
  await writeFile(prefix+'/package-lock.json',JSON.stringify({packages:{'':{dependencies:{openwiki:'0.7.3'}},'node_modules/openwiki':{version:'0.7.3',integrity:recipe.packageIntegrity}}}));
  const op=initializationRecipe(root,'openwiki','0.7.3',recipe.packageIntegrity);
  op.parameters.args=['-e',`require('fs').writeFileSync(${JSON.stringify(root+'/substituted-command-ran')},'bad')`,'ignored','initialize'];
  await queryOperation(op);
  await assert.rejects(()=>readFile(root+'/substituted-command-ran'),{code:'ENOENT'});
+}));
+test('native CodeGraph publication promotes a staged index into an empty target',()=>project(async root=>{
+ const target=join(root,'.codegraph'),staging=join(root,'.codegraph-rigup-init');
+ await mkdir(target);
+ const {packageRoot}=await writeNativeToolFixture(root,'codegraph','1.6.2');
+ await writeFile(join(packageRoot,'index.js'),`
+  const {DatabaseSync}=require('node:sqlite');
+  const {existsSync,mkdirSync,rmSync}=require('node:fs');
+  const {join}=require('node:path');
+  module.exports.CodeGraph=class CodeGraph {
+   static isInitialized(root){return existsSync(join(root,process.env.CODEGRAPH_DIR,'codegraph.db'));}
+   static recreate(root){rmSync(join(root,process.env.CODEGRAPH_DIR),{recursive:true});return this.init(root);}
+   static init(root){
+    const index=join(root,process.env.CODEGRAPH_DIR);
+    mkdirSync(index);
+    if(existsSync(join(root,'create-destination-during-index')))mkdirSync(join(root,'.codegraph'));
+    const db=new DatabaseSync(join(index,'codegraph.db'));
+    try{
+     db.exec("CREATE TABLE project_metadata(key TEXT PRIMARY KEY,value TEXT); INSERT INTO project_metadata VALUES ('index_state','complete'),('indexed_with_version','1.6.2'); CREATE TABLE files(id TEXT); CREATE TABLE nodes(id TEXT);");
+    }finally{db.close();}
+    return new CodeGraph();
+   }
+   indexAll(){return {success:true};}
+   getIndexState(){return 'complete';}
+   close(){}
+  };
+ `);
+ const pin=(await loadUpstreamLock()).find(r=>r.integrationId==='codegraph')!;
+ const operation=initializationRecipe(root,'codegraph',pin.version,pin.packageIntegrity);
+ const {executable,args}=operation.parameters;
+ const runWorker=()=>JSON.parse(execFileSync(executable,args,{cwd:root,env:nativeEnvironment(operation),encoding:'utf8',stdio:['ignore','pipe','pipe']}));
+ const promote=async()=>{
+  const result=runWorker();
+  assert.equal(result.status,'done');
+  const info=await lstat(target);
+  assert.equal(result.nativeReceipt.identity,info.dev+':'+info.ino);
+  await assert.rejects(lstat(staging),{code:'ENOENT'});
+ };
+ await promote();
+ // Restore the filesystem shape left by a crash after Windows rmdir and
+ // before promotion. The intent and promotion marker remain on disk.
+ await rename(target,staging);
+ assert.equal(await resumableNativeOperation(operation),true);
+ await promote();
+ if(process.platform==='win32'){
+  await rename(target,staging);
+  await writeFile(join(root,'create-destination-during-index'),'');
+  assert.throws(runWorker,/Native target changed before promotion/);
+  assert.ok((await lstat(target)).isDirectory());
+  assert.ok((await lstat(join(staging,'codegraph.db'))).isFile());
+ }
 }));
 test('a live CodeGraph daemon socket preserves verified initialization', {skip:process.platform==='win32'},()=>project(async root=>{
  const index=root+'/.codegraph',control=root+'/.rigup/native/codegraph',socket=index+'/daemon.sock';

@@ -42,7 +42,7 @@ test('specialized_package_checks_are_catalogued_separately_from_automatic_checks
  await assert.rejects(access(join(root,'packages/api/marker')));
 }));
 test('symlink_escape_and_secret_files_are_denied',()=>project(async root=>{
- await symlink(tmpdir(),join(root,'escape'));await writeFile(join(root,'.env'),'TOKEN=secret');
+ await symlink(tmpdir(),join(root,'escape'),process.platform==='win32'?'junction':'dir');await writeFile(join(root,'.env'),'TOKEN=secret');
  await assert.rejects(readEvidence(root,'escape/anything',1,2));
  await assert.rejects(readEvidence(root,'../outside',1,1));await assert.rejects(readEvidence(root,'.env',1,1));
 }));

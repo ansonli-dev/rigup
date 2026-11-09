@@ -10,8 +10,11 @@ import {assertEmptyToolScopes} from '../integrations/tools/initialization.js';
 import {assertToolOperationRecipe,isNativeTool} from '../integrations/tools/recipes.js';
 import {queryNativeInitialization,resumableNativeOperation,nativeEnvironment} from '../integrations/tools/native-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
+import {startWindowsProcess,windowsJobActive} from '../integrations/tools/windows-process.mjs';
+import {npmCommand} from '../npm-command.mjs';
 export interface OperationResult {status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:{version:string;packageLockDigest:string};nativeReceipt?:import('../types.js').NativeInitializationReceipt}
-interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:ProcessIdentity;result?:OperationResult}
+type WriterIdentity=ProcessIdentity&{windowsJob?:string};
+interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult}
 export interface OperationDependencies {stateRoot?:string;authorizationRef?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
 export function operationRoot(operation:SetupOperation):string {if(operation.kind==='initialize'&&isAbsolute(operation.parameters.cwd))return operation.parameters.cwd;const i=operation.parameters.args.indexOf('--prefix');const prefix=operation.parameters.args[i+1];if(i<0||!prefix||!isAbsolute(prefix))throw new Error('operation project root unavailable');return resolve(prefix,'../../..');}
 export async function queryOperation(operation:SetupOperation):Promise<OperationResult>{
@@ -26,7 +29,8 @@ async function readOperationRecord(path:string,root:string):Promise<{operations:
    if(item.root!==undefined&&item.root!==root)return false;
    if(item.parametersDigest!==signature(item.operation)||keys.has(item.parametersDigest))return false;
    keys.add(item.parametersDigest);
-   if(item.identity!==undefined&&(!isRecord(item.identity)||!Number.isSafeInteger(item.identity.pid)||item.identity.pid<1||typeof item.identity.started!=='string'||!item.identity.started))return false;
+   if(item.identity!==undefined&&(!isRecord(item.identity)||!Number.isSafeInteger(item.identity.pid)||item.identity.pid<1||typeof item.identity.started!=='string'||!item.identity.started||
+    (item.identity.windowsJob!==undefined&&typeof item.identity.windowsJob!=='string')))return false;
    if(item.stage!=='terminal')return item.result===undefined;
    if(!isRecord(item.result)||!['done','failed','pending','unknown'].includes(item.result.status)||typeof item.result.message!=='string')return false;
    if(item.result.status!=='done')return true;
@@ -40,7 +44,13 @@ export async function pendingOperations(root:string,stateRoot=defaultStateRoot()
  const state=await privateDirectory(stateRoot,root);
  return (await readOperationRecord(join(state,signature(root)+'.operations.json'),root)).operations;
 }
-async function writerAlive(identity:ProcessIdentity):Promise<boolean>{if(await isAlive(identity))return true;try{process.kill(-identity.pid,0);throw new Error('writer process group exit cannot be confirmed');}catch(e){if((e as NodeJS.ErrnoException).code==='ESRCH')return false;throw e;}}
+async function writerAlive(identity:WriterIdentity):Promise<boolean>{
+ if(await isAlive(identity))return true;
+ if(process.platform==='win32'){
+  if(!identity.windowsJob)throw Error('Previous Windows writer process tree cannot be verified; reconcile before retrying');
+  return windowsJobActive(identity.windowsJob);
+ }
+ try{process.kill(-identity.pid,0);throw new Error('writer process group exit cannot be confirmed');}catch(e){if((e as NodeJS.ErrnoException).code==='ESRCH')return false;throw e;}}
 export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateRoot()):Promise<void>{
  for(const item of await pendingOperations(root,stateRoot)){
   if(item.identity&&await writerAlive(item.identity))throw new Error('previous writing process still active; project blocked');
@@ -107,7 +117,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  const cancelledBeforeDispatch={status:'pending',message:'Cancelled before dispatch'} as const;
  if(dependencies.signal?.aborted)return cancelledBeforeDispatch;
  const previous={stage:record.stage,result:record.result,identity:record.identity};
- const markDispatching=async(identity?:ProcessIdentity)=>{
+ const markDispatching=async(identity?:WriterIdentity)=>{
   record.identity=identity;record.stage='dispatching';delete record.result;await persist();
  };
  const restoreUndispatched=async()=>{Object.assign(record,previous);await persist();return cancelledBeforeDispatch;};
@@ -116,7 +126,33 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   if(dependencies.signal?.aborted)return restoreUndispatched();
   const result=await dependencies.launch(operation);record.stage='terminal';record.result=result;await persist();return result;
  }
- const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...operation.parameters,cwd:root,...(operation.kind==='initialize'?{env:nativeEnvironment(operation)}:{})})],{detached:true,stdio:['pipe','ignore','ignore']});
+ const finish=async(code:number|null,cancelled:boolean):Promise<OperationResult>=>{
+  const verified=await queryOperation(operation);
+  const result:OperationResult=cancelled?{status:'unknown',message:'Operation cancelled/timed out; reconcile actual state before retry'}:code===0?verified:{status:'failed',message:'External installation failed; partial effects require reconciliation'};
+  record.stage='terminal';record.result=result;await persist();return result;
+ };
+ const env=operation.kind==='initialize'?nativeEnvironment(operation):undefined;
+ if(process.platform==='win32'){
+  const command=operation.parameters.executable==='npm'?npmCommand(operation.parameters.args):operation.parameters;
+  const child=startWindowsProcess({...command,cwd:root,env,captureOutput:false});
+  let timeout:ReturnType<typeof setTimeout>|undefined;
+  try{
+   if(!child.pid)throw Error('Cannot start protected operation process');
+   await markDispatching({...await processIdentity(child.pid),windowsJob:child.job});
+   if(dependencies.signal?.aborted){child.stop();await child.completed;return restoreUndispatched();}
+   timeout=setTimeout(child.stop,operation.timeoutMs);
+   dependencies.signal?.addEventListener('abort',child.stop,{once:true});
+   child.start();
+   const outcome=await child.completed;
+   if((outcome.remaining||outcome.unavailable)&&await windowsJobActive(child.job))throw Error('Writing process exit unconfirmed; persistent record keeps project blocked');
+   return finish(outcome.code,outcome.interrupted||outcome.unavailable);
+  }finally{
+   if(timeout)clearTimeout(timeout);
+   dependencies.signal?.removeEventListener('abort',child.stop);
+   child.stop();await child.completed;
+  }
+ }
+ const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...operation.parameters,cwd:root,env})],{detached:true,stdio:['pipe','ignore','ignore']});
  if(!child.pid)throw new Error('Cannot start protected operation process');
  const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>(resolve=>{child.once('error',()=>resolve({code:1,signal:null}));child.once('exit',(code,signal)=>resolve({code,signal}));});
  try{await markDispatching(await processIdentity(child.pid));}catch(e){child.stdin.end();await completed;throw e;}
@@ -135,7 +171,5 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   do {try{alive=await writerAlive(record.identity);}catch{alive=true;}if(!alive)break;if(Date.now()<deadline)await new Promise(done=>setTimeout(done,50));}while(Date.now()<deadline);
   if(alive)throw new Error('writing process exit unconfirmed; persistent record keeps project blocked');
  }
- const verified=await queryOperation(operation);
- const result:OperationResult=cancelled||timedOut?{status:'unknown',message:'Operation cancelled/timed out; reconcile actual state before retry'}:outcome.code===0?verified:{status:'failed',message:'External installation failed; partial effects require reconciliation'};
- record.stage='terminal';record.result=result;await persist();return result;
+ return finish(outcome.code,cancelled||timedOut);
 }

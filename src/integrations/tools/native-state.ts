@@ -1,7 +1,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {lstat,readdir} from 'node:fs/promises';
-import {resolve} from 'node:path';
+import {join,resolve} from 'node:path';
 import type {NativeInitializationReceipt,SetupOperation} from '../../types.js';
 import {targetPath} from '../../installer/ownership.js';
 import {queryPinnedTool} from './installed-state.js';
@@ -21,7 +21,9 @@ async function verifiedNativeOperation(operation:SetupOperation):Promise<boolean
 export function nativeEnvironment(operation:SetupOperation):NodeJS.ProcessEnv {
  if(operation.protection.kind!=='native-staging')throw Error('Native staging required');
  const path=resolve(operation.parameters.cwd,operation.protection.control);
- const env:NodeJS.ProcessEnv={PATH:process.env.PATH,LANG:'C.UTF-8',HOME:path+'/home',TMPDIR:path+'/tmp',XDG_CONFIG_HOME:path+'/config',XDG_CACHE_HOME:path+'/cache',XDG_DATA_HOME:path+'/data',DO_NOT_TRACK:'1',OPENWIKI_TELEMETRY_DISABLED:'1',CODEGRAPH_TELEMETRY:'0',CODEGRAPH_NO_DAEMON:'1',CODEGRAPH_NO_DOWNLOAD:'1',CODEGRAPH_INSTALL_DIR:path+'/cache',CODEGRAPH_NO_FAST_INIT:'1',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_OPTIONAL_LOCKS:'0'};
+ const home=join(path,'home'),temp=join(path,'tmp'),cache=join(path,'cache');
+ const env:NodeJS.ProcessEnv={PATH:process.env.PATH,LANG:'C.UTF-8',HOME:home,TMPDIR:temp,XDG_CONFIG_HOME:join(path,'config'),XDG_CACHE_HOME:cache,XDG_DATA_HOME:join(path,'data'),DO_NOT_TRACK:'1',OPENWIKI_TELEMETRY_DISABLED:'1',CODEGRAPH_TELEMETRY:'0',CODEGRAPH_NO_DAEMON:'1',CODEGRAPH_NO_DOWNLOAD:'1',CODEGRAPH_INSTALL_DIR:cache,CODEGRAPH_NO_FAST_INIT:'1',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:process.platform==='win32'?'NUL':'/dev/null',GIT_OPTIONAL_LOCKS:'0'};
+ if(process.platform==='win32')Object.assign(env,{USERPROFILE:home,TEMP:temp,TMP:temp});
  if(process.env.SystemRoot)env.SystemRoot=process.env.SystemRoot;return env;
 }
 export async function queryNativeInitialization(operation:SetupOperation):Promise<OperationResult>{

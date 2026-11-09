@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {writeFile,mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {project} from './helpers.js';
+import {writeNativeToolFixture} from './native-tool-fixture.js';
+import {npmCommand} from '../src/npm-command.mjs';
 import {renderCustomerTemplate} from '../src/integrations/custom-templates.js';
 test('customer_template_renders_declared_scalars_and_keeps_consumer',()=>project(async root=>{
  await writeFile(join(root,'review.tmpl'),'Review {{projectName}} with {{count}} reviewers.');
@@ -115,36 +117,49 @@ test('software_install_requires_new_empty_owned_scope',()=>project(async root=>{
  await mkdir(join(root,'.rigup/tools/codegraph'),{recursive:true});await writeFile(join(root,'.rigup/tools/codegraph/user.txt'),'preserve');
  const blocked=await prepareIntegrations(profile,options);assert.equal(blocked.operations.length,0);assert.match(blocked.warnings.join(' '),/existing|nonempty|non-empty/);
 }));
-test('selected_project_install_is_the_executable_used_by_mcp',()=>project(async root=>{
- const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {chmod,readFile}=await import('node:fs/promises');
+test('selected_project_install_is_the_executable_used_by_mcp',()=>project(async workspace=>{
+ const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile}=await import('node:fs/promises');
+ const exec=promisify(execFile);
  const {parse}=await import('smol-toml');
+ const root=join(workspace,'project with spaces');await mkdir(root);
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const prepared=await prepareIntegrations(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:false,agents:['codex']}]});
  const entry=(parse(prepared.assets[0].content) as any).mcp_servers.codegraph;
- const executable=join(root,'.rigup/tools/codegraph/node_modules/.bin/codegraph');await mkdir(join(root,'.rigup/tools/codegraph/node_modules/.bin'),{recursive:true});
- await writeFile(executable,'#!/usr/bin/env node\nrequire("node:fs").writeFileSync("used-project-tool","yes");\n');await chmod(executable,0o755);
- assert.equal(entry.command,executable);
- await promisify(execFile)(entry.command,entry.args,{cwd:entry.cwd,timeout:2000});
- assert.equal(await readFile(join(root,'used-project-tool'),'utf8'),'yes');
+ const local=join(workspace,'package with spaces');await mkdir(local);
+ await writeFile(join(local,'package.json'),JSON.stringify({name:'@colbymchenry/codegraph',version:'1.6.2',bin:{codegraph:'npm-shim.js'}}));
+ await writeFile(join(local,'npm-shim.js'),'#!/usr/bin/env node\nrequire("node:fs").writeFileSync("used-project-tool",JSON.stringify(process.argv.slice(2)));\n');
+ const op=prepared.operations[0];
+ const npm=npmCommand([...op.parameters.args.slice(0,-1),local,'--offline','--install-links']);
+ await exec(npm.executable,npm.args,{cwd:root});
+ const installed=join(root,'.rigup/tools/codegraph/node_modules');
+ if(process.platform==='win32'){
+  assert.equal(entry.command,process.execPath);
+  assert.deepEqual(entry.args,[join(installed,'@colbymchenry/codegraph/npm-shim.js'),'serve','--mcp']);
+ }else assert.equal(entry.command,join(installed,'.bin/codegraph'));
+ await exec(entry.command,entry.args,{cwd:entry.cwd,timeout:10000});
+ assert.deepEqual(JSON.parse(await readFile(join(root,'used-project-tool'),'utf8')),['serve','--mcp']);
 }));
 test('npm_software_recipe_installs_local_fixture_offline_without_lifecycle',()=>project(async root=>{
  const {prepareSoftwareInstall}=await import('../src/integrations/tools/software.js');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile,access}=await import('node:fs/promises');
  const op=await prepareSoftwareInstall(root,'openwiki','0.7.3');if('pending' in op) throw new Error(op.pending);
- const local=join(root,'local-fixture');await mkdir(local);await writeFile(join(local,'package.json'),JSON.stringify({name:'rigup-local-fixture',version:'1.0.0',scripts:{install:'touch lifecycle-ran'}}));
- await promisify(execFile)('npm',[...op.parameters.args.slice(0,-1),local,'--offline'],{cwd:root,env:Object.fromEntries(Object.entries(process.env).filter(([key])=>!/^npm_/i.test(key)))});
- assert.equal(JSON.parse(await readFile(join(root,'.rigup/tools/openwiki/node_modules/rigup-local-fixture/package.json'),'utf8')).version,'1.0.0');
- await assert.rejects(access(join(local,'lifecycle-ran')));
+ const local=join(root,'local-fixture');await mkdir(local);
+ await writeFile(join(local,'package.json'),JSON.stringify({name:'rigup-local-fixture',version:'1.0.0',scripts:{install:'node lifecycle.cjs'}}));
+ await writeFile(join(local,'lifecycle.cjs'),'require("node:fs").writeFileSync("lifecycle-ran","yes");');
+ const npm=npmCommand([...op.parameters.args.slice(0,-1),local,'--offline','--install-links']);
+ await promisify(execFile)(npm.executable,npm.args,{cwd:root,env:Object.fromEntries(Object.entries(process.env).filter(([key])=>!/^npm_/i.test(key)))});
+ const installed=join(root,'.rigup/tools/openwiki/node_modules/rigup-local-fixture');
+ assert.equal(JSON.parse(await readFile(join(installed,'package.json'),'utf8')).version,'1.0.0');
+ await assert.rejects(access(join(installed,'lifecycle-ran')));
 }));
 test('software_install_canonicalizes_project_alias_before_npm',()=>project(async root=>{
  const {symlink}=await import('node:fs/promises');const {prepareSoftwareInstall}=await import('../src/integrations/tools/software.js');
- await symlink(root,join(root,'alias'));
+ await symlink(root,join(root,'alias'),process.platform==='win32'?'junction':'dir');
  const op=await prepareSoftwareInstall(join(root,'alias'),'openwiki','0.7.3');if('pending' in op) throw new Error(op.pending);
  assert.equal(op.parameters.args[op.parameters.args.indexOf('--prefix')+1],join(root,'.rigup/tools/openwiki'));
 }));
 test('unchanged_receipted_software_is_reused_without_reinstall',()=>project(async root=>{
  const {prepareSoftwareInstall}=await import('../src/integrations/tools/software.js');const {createHash}=await import('node:crypto');
- const prefix=join(root,'.rigup/tools/openwiki');await mkdir(join(prefix,'node_modules/openwiki'),{recursive:true});
- await writeFile(join(prefix,'node_modules/openwiki/package.json'),JSON.stringify({name:'openwiki',version:'0.7.3',bin:{openwiki:'cli.js'}}));const {chmod,symlink}=await import('node:fs/promises');await writeFile(join(prefix,'node_modules/openwiki/cli.js'),'#!/usr/bin/env node\n');await chmod(join(prefix,'node_modules/openwiki/cli.js'),0o755);await mkdir(join(prefix,'node_modules/.bin'));await symlink('../openwiki/cli.js',join(prefix,'node_modules/.bin/openwiki'));
+ const {prefix}=await writeNativeToolFixture(root,'openwiki','0.7.3');
  const lock=JSON.stringify({lockfileVersion:3,packages:{'':{dependencies:{openwiki:'0.7.3'}},'node_modules/openwiki':{version:'0.7.3',integrity:'fixture-integrity'}}});await writeFile(join(prefix,'package-lock.json'),lock);
  const receipt={version:'0.7.3',packageLockDigest:createHash('sha256').update(lock).digest('hex')};
  const without=await prepareSoftwareInstall(root,'openwiki','0.7.3','fixture-integrity');assert.ok('pending' in without);

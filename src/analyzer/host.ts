@@ -1,28 +1,28 @@
 import {privateDirectory,readCache,saveCache,signature,stable} from '../generator/cache.js';
-import {mkdir,realpath,readFile,writeFile,lstat,rename} from 'node:fs/promises';
-import {join,resolve,relative,isAbsolute,parse,dirname} from 'node:path';
+import {realpath,readFile,writeFile,lstat,rename} from 'node:fs/promises';
+import {join,resolve,relative,isAbsolute,dirname} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {assertPrivateAccess} from '../private-access.js';
+import {quoteShell} from '../shell-command.js';
 import {validateResearchRequest,validateResearch,selectResearchOutput,type AnalysisBackend} from './backend.js';
 import {READ_POLICY_VERSION} from './read-policy.js';
 import {PROMPT_VERSION,researchPrompt,topicEvidencePrompt} from './prompts.js';
 import {stageContext,stageEvidence,dependencyLock,STAGE_EVIDENCE_POLICY} from './stage-context.js';
 function inside(root:string,path:string):boolean {const rel=relative(root,path);return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));}
+async function readHostRecord(path:string){
+ if(process.platform==='win32'){
+  const stat=await lstat(path);
+  if(stat.isSymbolicLink()||!stat.isFile())throw Error('host record is not private');
+  await assertPrivateAccess(path,stat,'host record is not private');
+ }
+ return JSON.parse(await readFile(path,'utf8'));
+}
 export function hostBackend(options:{cacheRoot:string;responsePath?:string;requestPath?:string;omitDependencyLocks?:boolean;stageEvidence?:boolean;nativeEntryPaths?:readonly string[]}):AnalysisBackend {
  return {run:async(request,reader)=>{
   validateResearchRequest(request);if(options.requestPath&&options.responsePath)throw new Error('request and response are mutually exclusive');
   if(request.budget.maxCalls<1 || request.budget.maxTokens<1) throw new Error('host budget exhausted');
   const root=await realpath(request.root);
-  const requestedCache=resolve(options.cacheRoot);
-  if(inside(root,requestedCache)) throw new Error('host export must stay outside project');
-  let component=parse(requestedCache).root;
-  for(const part of relative(component,requestedCache).split('/').filter(Boolean)) {
-   component=join(component,part);
-   try {if((await lstat(component)).isSymbolicLink()) throw new Error('host cache symlink denied');}
-   catch(error){if((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;await mkdir(component,{mode:0o700});}
-  }
-  const cache=await realpath(requestedCache);
-  if(((await lstat(cache)).mode & 0o077) !== 0) throw new Error('private cache permissions required');
-  if(cache !== requestedCache || inside(root,cache)) throw new Error('host cache symlink or project path denied');
+  const cache=await privateDirectory(options.cacheRoot,root);
   const paths=await reader.list();
   const task=options.stageEvidence?stageContext(request,paths,options.nativeEntryPaths):undefined;
   const taskEvidence=task?await stageEvidence(reader,task.slices):undefined;
@@ -48,13 +48,13 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   };
   const verifyDelivery=async(exported:any)=>{
    verifyEvidence(exported);
-   if(exported.deliveryPath&&exported.deliveryPath!==requestPath){const target=exported.deliveryPath;if(!inside(cache,target)||await realpath(target)!==target||(await lstat(target)).isSymbolicLink())throw new Error('request export alias invalid');if(stable(JSON.parse(await readFile(target,'utf8')))!==stable(exported))throw new Error('request export alias changed');}
+   if(exported.deliveryPath&&exported.deliveryPath!==requestPath){const target=exported.deliveryPath;if(!inside(cache,target)||await realpath(target)!==target||(await lstat(target)).isSymbolicLink())throw new Error('request export alias invalid');if(stable(await readHostRecord(target))!==stable(exported))throw new Error('request export alias changed');}
   };
 
   if(!options.responsePath) {
    try {
     if((await lstat(acceptedPath)).isSymbolicLink()||(await lstat(requestPath)).isSymbolicLink())throw new Error('accepted/request path symlink denied');
-    const accepted=JSON.parse(await readFile(acceptedPath,'utf8'));const exported=JSON.parse(await readFile(requestPath,'utf8'));
+    const accepted=await readHostRecord(acceptedPath);const exported=await readHostRecord(requestPath);
     if(accepted.requestDigest!==requestDigest||stable(exported.context)!==stable(context)||exported.instructions!==instructions)throw new Error('cached host acceptance context changed');
     await verifyDelivery(exported);await validateResearch(accepted.result.data,reader,analysisCitations);return {status:'complete',value:accepted.result};
    }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
@@ -64,7 +64,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
    const response=JSON.parse(await readFile(responsePath,'utf8'));
    if(response.requestId !== requestId || response.requestDigest !== requestDigest) throw new Error('response does not match current request context digest');
    if((await lstat(requestPath)).isSymbolicLink()) throw new Error('request path symlink denied');
-   const exported=JSON.parse(await readFile(requestPath,'utf8'));
+   const exported=await readHostRecord(requestPath);
    if(exported.requestDigest !== requestDigest || exported.requestId !== requestId || stable(exported.context) !== stable(context) || exported.instructions !== instructions) throw new Error('request context or instructions changed');
    const data=selectResearchOutput(request,response.data);
    await verifyDelivery(exported);await validateResearch(data,reader,analysisCitations);
@@ -73,7 +73,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
    if(!Array.isArray(unknowns)||unknowns.some((x:unknown)=>typeof x !== 'string')) throw new Error('unknowns: required');
    const result={data,model:response.model,unknowns:[...unknowns,'host token usage unknown'],usage:{calls:'unknown' as const,tokens:'unknown' as const}};
    try {await writeFile(acceptedPath,JSON.stringify({requestDigest,result}),{flag:'wx',mode:0o600});}
-   catch(error){if((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;if((await lstat(acceptedPath)).isSymbolicLink()) throw new Error('accepted path symlink denied');const prior=JSON.parse(await readFile(acceptedPath,'utf8'));if(prior.requestDigest !== requestDigest || stable(prior.result) !== stable(result)) throw new Error('response already consumed with different result');}
+   catch(error){if((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;if((await lstat(acceptedPath)).isSymbolicLink()) throw new Error('accepted path symlink denied');const prior=await readHostRecord(acceptedPath);if(prior.requestDigest !== requestDigest || stable(prior.result) !== stable(result)) throw new Error('response already consumed with different result');}
    return {status:'complete',value:result};
   }
   const {kind,artifact,expectedOutput,input,spent,inputDigest,evidenceSelection,...runContext}=context;
@@ -82,7 +82,7 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   let state:{context:string;requests:string[];tokens:'unknown'}={context:stable(runContext),requests:[],tokens:'unknown'};
   try {
    if((await lstat(budgetPath)).isSymbolicLink()) throw new Error('budget path symlink denied');
-   state=JSON.parse(await readFile(budgetPath,'utf8'));
+   state=await readHostRecord(budgetPath);
    if(state.context !== stable(runContext) || !Array.isArray(state.requests)) throw new Error('run context changed; restart preparation');
   }catch(error){if((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;}
   if(!state.requests.includes(requestId)) {
@@ -101,8 +101,8 @@ export function hostBackend(options:{cacheRoot:string;responsePath?:string;reque
   const exported={requestId,requestDigest,context,instructions,paths,evidence:snapshot.evidence,evidenceDigest:snapshot.digest,...(protectedEvidence?{omittedEvidence}:{}),...(deliveryPath!==requestPath?{deliveryPath}:{})};
   verifyEvidence(exported);
   try {await writeFile(requestPath,JSON.stringify(exported,null,2),{flag:'wx',mode:0o600});}
-  catch(error){if((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;if((await lstat(requestPath)).isSymbolicLink()) throw new Error('request path symlink denied');const prior=JSON.parse(await readFile(requestPath,'utf8'));if(stable(prior) !== stable(exported)) throw new Error('refusing unknown or tampered request file');}
-  if(deliveryPath!==requestPath){try{await writeFile(deliveryPath,JSON.stringify(exported,null,2),{flag:'wx',mode:0o600});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;if((await lstat(deliveryPath)).isSymbolicLink()||stable(JSON.parse(await readFile(deliveryPath,'utf8')))!==stable(exported))throw new Error('refusing unknown request export target');}}
-  return {status:'pending-host',requestId,requestPath:deliveryPath,nextCommand:'rigup '+(request.kind === 'analyze' ? 'init' : 'update')+' --response '+"'"+join(cache,requestId+'.response.json').replaceAll("'","'\"'\"'")+"'"};
+  catch(error){if((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;if((await lstat(requestPath)).isSymbolicLink()) throw new Error('request path symlink denied');const prior=await readHostRecord(requestPath);if(stable(prior) !== stable(exported)) throw new Error('refusing unknown or tampered request file');}
+  if(deliveryPath!==requestPath){try{await writeFile(deliveryPath,JSON.stringify(exported,null,2),{flag:'wx',mode:0o600});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;if((await lstat(deliveryPath)).isSymbolicLink()||stable(await readHostRecord(deliveryPath))!==stable(exported))throw new Error('refusing unknown request export target');}}
+  return {status:'pending-host',requestId,requestPath:deliveryPath,nextCommand:'rigup '+(request.kind === 'analyze' ? 'init' : 'update')+' --response '+quoteShell(join(cache,requestId+'.response.json'))};
  }};
 }

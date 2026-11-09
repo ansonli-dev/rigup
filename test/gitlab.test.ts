@@ -3,6 +3,7 @@ import {project} from './helpers.js';import {writeFile,readFile} from 'node:fs/p
 import {prepareGitlab} from '../src/integrations/gitlab/ci.js';import {replaceOwned} from '../src/installer/ownership.js';import {parse} from 'yaml';
 import {execFile,spawnSync} from 'node:child_process';
 import {promisify} from 'node:util';
+import {resolve} from 'node:path';
 const exec=promisify(execFile);
 const testCommand={executable:'npm',args:['run','test'],cwd:'.',envRefs:[]};
 test('GitLab runs checks and OpenWiki through native job commands and reports',()=>project(async root=>{
@@ -40,6 +41,12 @@ test('gitlab_external_include_stages_are_not_guessed',()=>project(async root=>{
  await writeFile(root+'/.gitlab-ci.yml','include:\n  - local: customer.yml\ncustomer-job:\n  stage: customer-stage\n  script: echo customer\n');
  const result=await prepareGitlab(root,{checks:['test']},[testCommand]);const jobs=parse(result.assets.find(a=>a.target==='.rigup/gitlab-ci.yml')!.content);assert.equal(jobs['rigup:checks'].stage,'.pre');
 }));
+async function runnerShell(root:string) {
+ if(process.platform!=='win32')return 'sh';
+ // Git for Windows ships the POSIX shell used by its native hooks.
+ const {stdout}=await exec('git',['--exec-path'],{cwd:root});
+ return resolve(stdout.trim(),'../../../bin/sh.exe');
+}
 async function fixtureCommit(root:string){
  await exec('git',['init','-q'],{cwd:root});
  await exec('git',['-c','user.name=Fixture','-c','user.email=fixture@example.org','commit','-qm','fixture','--allow-empty'],{cwd:root});
@@ -47,10 +54,11 @@ async function fixtureCommit(root:string){
 }
 test('ci_preserves_exit_status_and_reports',()=>project(async root=>{
  const commit=await fixtureCommit(root);
- await writeFile(root+'/check.mjs',"import {mkdirSync,writeFileSync} from 'node:fs';mkdirSync('reports',{recursive:true});writeFileSync('reports/junit.xml','<testsuite failures=\"1\"/>');process.exit(8)");
- const prepared=await prepareGitlab(root,{checks:['test'],reportPaths:['reports/junit.xml']},[{executable:process.execPath,args:['check.mjs'],cwd:'.',envRefs:[]}]);
+ await writeFile(root+'/check.mjs',"import {mkdirSync,writeFileSync} from 'node:fs';if(process.argv[2]!==\"a'b\")process.exit(9);mkdirSync('reports',{recursive:true});writeFileSync('reports/junit.xml','<testsuite failures=\"1\"/>');process.exit(8)");
+ const prepared=await prepareGitlab(root,{checks:['test'],reportPaths:['reports/junit.xml']},[{executable:process.execPath,args:['check.mjs',"a'b"],cwd:'.',envRefs:[]}]);
  const job=parse(prepared.assets[0].content)['rigup:checks'];
- const run=(sha:string)=>spawnSync('sh',['-ec',job.script.join('\n')],{cwd:root,env:{...process.env,CI_COMMIT_SHA:sha}});
+ const shell=await runnerShell(root);
+ const run=(sha:string)=>spawnSync(shell,['-ec',job.script.join('\n')],{cwd:root,env:{...process.env,CI_COMMIT_SHA:sha}});
  assert.equal(run('wrong-revision').status,1);
  await assert.rejects(readFile(root+'/reports/junit.xml'),{code:'ENOENT'});
  assert.equal(run(commit).status,8);
@@ -60,7 +68,7 @@ test('the native wiki job reports missing environment references',()=>project(as
  const commit=await fixtureCommit(root);
  const prepared=await prepareGitlab(root,{checks:[],openwiki:{envRefs:['MODEL_SECRET'],sourcePaths:['src/**/*']}},[]);
  const job=parse(prepared.assets[0].content)['rigup:openwiki'];
- const result=spawnSync('sh',['-ec',job.script.join('\n')],{cwd:root,env:{PATH:process.env.PATH,CI_COMMIT_SHA:commit},encoding:'utf8'});
+ const result=spawnSync(await runnerShell(root),['-ec',job.script.join('\n')],{cwd:root,env:{...process.env,MODEL_SECRET:'',CI_COMMIT_SHA:commit},encoding:'utf8'});
  assert.equal(result.status,3);
  assert.equal(result.stderr.trim(),'Missing OpenWiki environment reference MODEL_SECRET');
 }));

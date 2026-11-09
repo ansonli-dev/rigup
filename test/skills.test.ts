@@ -1,5 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import {renderFixed} from '../src/generator/render.js';
 import {project,setNativeEntries} from './helpers.js';import {scanRepository} from '../src/analyzer/repository.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
@@ -70,7 +71,7 @@ test('OpenSpec resolves optional revision and sync from user skills and enabled 
   const qualified=origin==='plugin'?'openspec:':'';
   assert.deepEqual(integration.requirements,[]);
   assert.equal(integration.bindings[0]?.revise,qualified+'openspec-update-change');
-  assert.ok(profile.skillSources?.codex?.some(source=>source.name===qualified+'openspec-sync-specs'&&source.identity===skills+'/openspec-sync-specs/SKILL.md'));
+  assert.ok(profile.skillSources?.codex?.some(source=>source.name===qualified+'openspec-sync-specs'&&source.identity===join(skills,'openspec-sync-specs','SKILL.md')));
   assert.deepEqual(integration.bindings[0].projectSources,[]);
  }));
 });

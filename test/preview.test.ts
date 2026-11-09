@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {project} from './helpers.js';import {mkdir,writeFile,readFile,symlink} from 'node:fs/promises';
-import {preview} from '../src/installer/preview.js';import {ownedContent,replaceOwned} from '../src/installer/ownership.js';
+import {preview} from '../src/installer/preview.js';import {ownedContent,replaceOwned,targetPath} from '../src/installer/ownership.js';
 import type {SetupPlan,ManagedAsset} from '../src/types.js';import {digest} from '../src/analyzer/evidence.js';
 function plan(root:string,target='owned.md',content='next'):SetupPlan{return {root,fingerprint:'source',options:{agents:[],backend:'host'},assets:[{logicalId:'a',target,content,ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],dispositions:[],operations:[],warnings:[],requirements:[],versions:{}};}
 async function fixture(fn:(root:string,cache:string)=>Promise<void>){await project(async root=>project(async cache=>fn(root,cache)));}
@@ -38,7 +38,18 @@ test('protected preview treats escaped rule text as prose',()=>fixture(async(roo
  assert.equal(missing.executable,false);
 }));
 test('preview_denies_symlinked_target',()=>fixture(async(root,cache)=>{
- await symlink(cache,root+'/linked');await assert.rejects(()=>preview(plan(root,'linked/file.md'),[],{cacheRoot:cache}),/symlink/);
+ await symlink(cache,root+'/linked',process.platform==='win32'?'junction':'dir');await assert.rejects(()=>preview(plan(root,'linked/file.md'),[],{cacheRoot:cache}),/symlink/);
+}));
+test('Windows rejects drive-relative components, NTFS streams and DOS device aliases',{skip:process.platform!=='win32'},()=>project(async root=>{
+ for(const target of ['docs/D:outside.md','docs/file.md:stream','docs/NUL.md','docs/COM¹.md','docs/alias./file.md','docs/alias /file.md']){
+  await assert.rejects(()=>targetPath(root,target),/target escapes root/,target);
+ }
+}));
+test('Windows previews reject case aliases for installer metadata and planned files',{skip:process.platform!=='win32'},()=>fixture(async(root,cache)=>{
+ await assert.rejects(()=>preview(plan(root,'.RIGUP/Manifest.JSON'),[],{cacheRoot:cache}),/metadata target reserved/);
+ const p=plan(root,'docs/Readme.md');
+ p.assets.push({...p.assets[0],logicalId:'b',target:'docs/README.md'});
+ await assert.rejects(()=>preview(p,[],{cacheRoot:cache}),/target aliases/);
 }));
 import {loadPreview} from '../src/installer/preview.js';
 test('retained_candidate_cannot_silently_replace_old_baseline',()=>fixture(async(root,cache)=>{

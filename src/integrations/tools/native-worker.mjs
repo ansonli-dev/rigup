@@ -1,6 +1,6 @@
 // Runs only behind the durable operation dispatcher. Tool-owned state is written
 // by the pinned upstream APIs; Rigup owns only staging and promotion metadata.
-import {lstat,readdir,readFile,mkdir,rename,realpath,open,writeFile} from 'node:fs/promises';
+import {lstat,readdir,readFile,mkdir,rename,realpath,open,rmdir,writeFile} from 'node:fs/promises';
 import {resolve,dirname,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
@@ -24,9 +24,14 @@ async function safeTree(path,daemonSocket){
  if(info.isSymbolicLink()||!info.isDirectory()&&!info.isFile())throw Error('Unsafe native state entry');
  if(info.isDirectory())for(const name of await readdir(path))await safeTree(resolve(path,name),daemonSocket);
 }
-async function empty(path){const info=await lstat(path).catch(e=>{if(e.code==='ENOENT')return null;throw e;});if(info&&(!info.isDirectory()||(await readdir(path)).length))throw Error('Native target is no longer empty');}
-async function syncDirectory(path){const file=await open(path,'r');try{await file.sync();}finally{await file.close();}}
-async function flushTree(path){const st=await lstat(path);if(st.isDirectory()){for(const name of await readdir(path))await flushTree(resolve(path,name));await syncDirectory(path);}else{const file=await open(path,'r');try{await file.sync();}finally{await file.close();}}}
+async function nativeTarget(path){return lstat(path,{bigint:true}).catch(e=>{if(e.code==='ENOENT')return null;throw e;});}
+async function empty(path){const info=await nativeTarget(path);if(info&&(info.isSymbolicLink()||!info.isDirectory()||(await readdir(path)).length))throw Error('Native target is no longer empty');return info;}
+async function syncDirectory(path){
+ // Windows cannot flush a directory opened for reading. File writes below are still synced.
+ if(process.platform==='win32')return;
+ const file=await open(path,'r');try{await file.sync();}finally{await file.close();}
+}
+async function flushTree(path){const st=await lstat(path);if(st.isDirectory()){for(const name of await readdir(path))await flushTree(resolve(path,name));await syncDirectory(path);}else{const file=await open(path,process.platform==='win32'?'r+':'r');try{await file.sync();}finally{await file.close();}}}
 async function durable(path,value){const temp=path+'.'+randomUUID()+'.tmp';const file=await open(temp,'wx',0o600);try{await file.writeFile(JSON.stringify(value)+'\n');await file.sync();}finally{await file.close();}await rename(temp,path);await syncDirectory(dirname(path));}
 async function identity(path){const info=await lstat(path);if(!info.isDirectory()||info.isSymbolicLink())throw Error('Native target is not a directory');return String(info.dev)+':'+String(info.ino);}
 const packagePath=resolve(root,'.rigup/tools',id,'node_modules',id==='openwiki'?'openwiki':'@colbymchenry/codegraph');
@@ -59,7 +64,8 @@ async function query(){
  return {status:'done',message:id==='openwiki'?'OpenWiki initialized; Codex can resume the native page lifecycle':'Complete native CodeGraph index verified',nativeReceipt:{version,target,identity:actual},state};
 }
 async function initialize(){
- await safeTree(await safe(control));await safeTree(await safe(staging));await empty(await safe(target));
+ await safeTree(await safe(control));await safeTree(await safe(staging));
+ const initialTarget=await empty(await safe(target));
  await mkdir(await safe(control),{recursive:true,mode:0o700});
  await durable(await safe(control+'/intent.json'),{schemaVersion:1,root,id,target,staging,version,adapterDigest});
  for(const name of ['home','tmp','cache','data','config'])await mkdir(await safe(control+'/'+name),{recursive:true,mode:0o700});
@@ -93,7 +99,17 @@ async function initialize(){
  await durable(await safe(control+'/promotion.json'),receipt);
  // The marker is durable before promotion. A crash on either side of rename
  // is distinguished by the target directory identity during reconciliation.
- await empty(await safe(target));await rename(output,await safe(target));await syncDirectory(root);
+ const destination=await safe(target);
+ await empty(destination);
+ if(process.platform==='win32'){
+  // Windows rename cannot replace an existing directory. Only remove the
+  // verified directory, and let rmdir reject any newly added contents.
+  const current=await nativeTarget(destination);
+  if(current?.dev!==initialTarget?.dev||current?.ino!==initialTarget?.ino||current&&(current.isSymbolicLink()||!current.isDirectory()))throw Error('Native target changed before promotion');
+  if(current)await rmdir(destination);
+  if(await nativeTarget(destination))throw Error('Native target appeared before promotion');
+ }
+ await rename(output,destination);await syncDirectory(root);
  return query();
 }
 try{

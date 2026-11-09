@@ -18,7 +18,7 @@ import {assertToolOperationRecipe,isNativeTool} from '../integrations/tools/reci
 import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {digest} from '../analyzer/evidence.js';
-import {readFileState,readFileStates,absentDigest} from './file-state.js';
+import {readFileState,readFileStates,absentDigest,platformFileMode} from './file-state.js';
 export {absentDigest} from './file-state.js';
 import {privateDirectory,signature,readCache,saveCache} from '../generator/cache.js';
 import {markdownLinks,validateTemplateContent} from '../generator/document-policy.js';
@@ -31,6 +31,7 @@ export interface Preview {projectRules?:SetupPlan['projectRules'];previewId:stri
 export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number}
 export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
+const targetKey=(target:string)=>process.platform==='win32'?target.toLowerCase():target;
 export async function readTarget(root:string,target:string):Promise<Buffer|undefined>{return (await readFileState(root,target)).bytes;}
 export async function loadPreview(previewId:string,cacheRoot=defaultPreviewCache()):Promise<PreviewData>{
  if(!/^[a-f0-9]{64}$/.test(previewId))throw new Error('preview id invalid');
@@ -46,12 +47,15 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const inputAssets=[...plan.assets];const baselineRecords:PreviewData['baselines']=[];const nextAssets:ManagedAsset[]=[];
  const fileMap=new Map<string,{raw?:Buffer;text?:string;encoding:'utf8'|'base64';observedMode?:number;mode?:number}>();
  const allTargets=[...new Set([...inputAssets.map(a=>a.target),...old.map(a=>a.target)])];
+ const targetKeys=allTargets.map(targetKey);
+ if(new Set(targetKeys).size!==allTargets.length)throw new Error('Windows target aliases overlap');
  for await(const {target,state} of readFileStates(root,allTargets)){const raw=state.bytes;const encoding=inputAssets.find(a=>a.target===target)?.encoding??old.find(a=>a.target===target)?.encoding??'utf8';fileMap.set(target,{raw,text:raw?.toString(encoding==='base64'?'base64':'utf8'),encoding,observedMode:state.mode,mode:state.mode});}
  const usedResolutions=new Set<PreviewResolution>();
  const entries:{candidate?:PreparedAsset;old?:ManagedAsset;action:'update'|'remove'|'retain'|'pending'}[]=[];
  for(const asset of inputAssets){
   if(asset.mode!==undefined&&(!Number.isInteger(asset.mode)||asset.mode<0||asset.mode>0o777||asset.ownership.kind!=='file'))throw Error('managed file mode requires ordinary permissions and full-file ownership');
-  if(asset.target==='.rigup/manifest.json'||asset.target.startsWith('.rigup/baseline/')||asset.target==='.rigup/check-results'||asset.target.startsWith('.rigup/check-results/'))throw new Error('installer metadata target reserved');
+  const key=targetKey(asset.target);
+  if(key==='.rigup/manifest.json'||key==='.rigup/baseline'||key.startsWith('.rigup/baseline/')||key==='.rigup/check-results'||key.startsWith('.rigup/check-results/'))throw new Error('installer metadata target reserved');
   const prior=old.find(a=>a.logicalId===asset.logicalId)??old.find(a=>a.target===asset.target&&signature(a.ownership)===signature(asset.ownership)&&plan.dispositions.some(d=>d.logicalId===a.logicalId&&d.action==='retire'));
   if(prior&&(prior.target!==asset.target||signature(prior.ownership)!==signature(asset.ownership)))throw new Error('logicalId target/selector changed; explicit old retirement and new identity required');
   const disposition=plan.dispositions.find(d=>d.logicalId===asset.logicalId);
@@ -73,7 +77,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   else if(entry.action==='retain') {result=base===undefined?{action:'conflict',reason:'Retained item has no trusted baseline'}:{action:'keep',content:local};}
   else result=mergeManaged(base,local,entry.candidate?.content,{action:entry.action,binary:asset.encoding==='base64'});
   let nextMode=file.mode;
-  const localMode=file.observedMode,baseMode=entry.old?.mode,newMode=entry.candidate?.mode;
+  const localMode=file.observedMode,baseMode=platformFileMode(entry.old?.mode),newMode=platformFileMode(entry.candidate?.mode);
   let modeConflict=false;
   if(entry.action==='remove'&&baseMode!==undefined&&localMode!==undefined&&localMode!==baseMode)modeConflict=true;
   else if(newMode!==undefined){
@@ -96,6 +100,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    }
   }
   if(result.action!=='conflict'&&entry.action!=='remove'&&file.text!==undefined&&nextMode!==file.observedMode&&['keep','noop'].includes(result.action))result={action:'update',content:result.content??local};
+  if(process.platform==='win32'&&localMode===0o444&&['create','update','remove'].includes(result.action))result={action:'conflict',reason:'Windows target is read-only; review its permissions before changing it'};
   if(result.action==='conflict')blockers.push(asset.target+': '+result.reason);
   else {
    if(['create','update','remove'].includes(result.action)) {
@@ -127,7 +132,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    const prerequisites=op.kind==='initialize'?plan.operations.filter(o=>o.kind==='install'&&o.integrationId===id).map(o=>o.id):[];
    assertToolOperationRecipe(root,op,recipe,prerequisites);
    if(op.kind==='initialize'&&!prerequisites.length&&!await verifyToolInstallReceipt(root,id,recipe,oldManifest?.installedTools?.[id]))throw Error('Initialization requires receipted software');
-   if(op.declaredWrites.some(scope=>allTargets.some(target=>target===scope||target.startsWith(scope+'/')||scope.startsWith(target+'/'))))throw Error('External operation overlaps candidate');
+   if(op.declaredWrites.map(targetKey).some(scope=>targetKeys.some(target=>target===scope||target.startsWith(scope+'/')||scope.startsWith(target+'/'))))throw Error('External operation overlaps candidate');
    await assertEmptyToolScopes(root,op);
   }catch{blockers.push(op.id+': external operation protection or recipe validation failed');}
  }

@@ -5,11 +5,10 @@ import {STAGE_EVIDENCE_POLICY} from './stage-context.js';
 import {validateResearchRequest,selectResearchOutput,ResearchFailure,type AnalysisBackend,type ResearchRequest,type ResearchResult} from './backend.js';
 import {privateDirectory,readCache,signature} from '../generator/cache.js';
 import {InvalidDurableRecord,readDurableRecord,saveDurable} from '../private-record.js';
-import {isAlive,type ProcessIdentity} from '../installer/lock.js';
-import {CodexTimeoutError,codexAvailable,codexArguments,invokeCodex,type CodexInvocation,type CodexOutcome} from './codex-process.js';
+import {CodexTimeoutError,codexAvailable,codexArguments,codexProcessActive,invokeCodex,type CodexInvocation,type CodexOutcome,type CodexProcessIdentity} from './codex-process.js';
 import {CodexTokenLimit} from './budget.js';
 export interface CodexBackendOptions {cacheRoot:string;stateRoot?:string;signal?:AbortSignal;nativeEntryPaths?:readonly string[];tokenLimit?:number;onDispatch?:(stage:ResearchRequest['kind']|NonNullable<ResearchRequest['expectedOutput']>)=>void;onUsage?:(usage:{calls:number;tokens:number|'unknown'})=>Promise<void>;invoke?:(input:CodexInvocation)=>Promise<CodexOutcome>}
-interface Attempt {status:'reserved'|'observed';tokens:number|'unknown';identity?:ProcessIdentity}
+interface Attempt {status:'reserved'|'observed';tokens:number|'unknown';identity?:CodexProcessIdentity}
 interface Ledger {attempts:Record<string,Attempt>}
 const codexAdapterVersion='7';
 function totals(ledger:Ledger):{calls:number;tokens:number|'unknown'} {const items=Object.values(ledger.attempts);return {calls:items.length,tokens:items.some(a=>a.tokens==='unknown')?'unknown':items.reduce((n,a)=>n+Number(a.tokens),0)};}
@@ -21,6 +20,7 @@ function observed(outcome:CodexOutcome):number {
  const events=outcome.stdout.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
  for(const event of events){
   if(event.item?.type==='error'&&/^Under-development features enabled: skip_host_skill_discovery\./.test(event.item.message??''))continue;
+  if(event.type==='item.completed'&&event.item?.type==='error'&&/^Falling back from WebSockets to HTTPS transport\./.test(event.item.message??''))continue;
   if(event.item?.type&&!['agent_message','reasoning'].includes(event.item.type))throw Error('Codex attempted an unexpected tool or reported an error');
  }
  const usage=events.findLast(e=>e.type==='turn.completed')?.usage;
@@ -68,7 +68,8 @@ export function codexBackend(options:CodexBackendOptions):AnalysisBackend {
    (value.code===null||Number.isInteger(value.code))&&typeof value.stdout==='string'&&typeof value.lastMessage==='string');
   const recoveredOutcome=!!outcome;
   if(outcome&&!ledger.attempts[id])throw new ResearchFailure('Codex outcome lacks a durable usage reservation; reconciliation required');
-  if(ledger.attempts[id]?.identity&&await isAlive(ledger.attempts[id].identity!))throw new ResearchFailure('Prior Codex attempt is still active; reconcile before retry');
+  const previousIdentity=ledger.attempts[id]?.identity;
+  if(previousIdentity&&await codexProcessActive(previousIdentity))throw new ResearchFailure('Prior Codex attempt is still active; reconcile before retry');
   if(!outcome){
    if(ledger.attempts[id])throw new ResearchFailure('Unresolved Codex attempt; refusing to repeat it automatically',[],{calls:0,tokens:'unknown'});
    const spent=totals(ledger);if(spent.calls>=request.budget.maxCalls||spent.tokens==='unknown'||belowKnownUsage(spent,request.spent))throw new ResearchFailure('Codex request budget exhausted or usage requires reconciliation ('+spent.calls+' of '+request.budget.maxCalls+' requests; '+spent.tokens+' tokens observed)',[],{calls:0,tokens:0});
