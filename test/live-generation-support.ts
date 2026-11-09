@@ -1,11 +1,12 @@
 import {cp,mkdir,readFile,writeFile,readdir,realpath,rm} from 'node:fs/promises';
-import {join,resolve,dirname} from 'node:path';import {homedir} from 'node:os';import {spawn,execFile} from 'node:child_process';import {promisify} from 'node:util';
+import {join,resolve,dirname} from 'node:path';import {homedir} from 'node:os';import {execFile} from 'node:child_process';import {promisify} from 'node:util';
 import {disposable,record} from './live-support.js';import {PROMPT_VERSION} from '../src/analyzer/prompts.js';import {TEMPLATE_VERSION} from '../src/generator/render.js';import {READ_POLICY_VERSION} from '../src/analyzer/read-policy.js';import {DOCUMENT_POLICY_VERSION} from '../src/generator/document-policy.js';
+import {checkedLiveCommand,LiveProcessCleanupError,runLiveCommand} from './live-process-support.js';
 const exec=promisify(execFile);const repo=resolve('.');const cli=resolve('src/cli.ts');
 export async function liveGenerationPrerequisites(backend:'host'|'native'){
  if(!process.env.RIGUP_OPENSPEC_BIN)return 'Set RIGUP_OPENSPEC_BIN to the official pinned OpenSpec 1.16.0 CLI; the harness never installs implicitly';
  if(backend==='native'&&(!process.env.ANTHROPIC_API_KEY||!process.env.ANTHROPIC_MODEL))return 'ANTHROPIC_API_KEY and ANTHROPIC_MODEL are required for real independent-model acceptance';
- if(backend==='host'){try{const status=await exec('codex',['login','status']);if(!/Logged in/i.test(status.stdout+status.stderr))return 'A logged-in Codex CLI is required';}catch{return 'A logged-in Codex CLI is required';}}
+ if(backend==='host'){try{const status=await checkedLiveCommand('codex',['login','status'],{timeoutMs:15_000,maxBuffer:4096});if(!/Logged in/i.test(status.stdout+status.stderr))return 'A logged-in Codex CLI is required';}catch(error){if(error instanceof LiveProcessCleanupError)throw error;return 'A logged-in Codex CLI is required';}}
 }
 async function configuredCodexModel(){if(process.env.RIGUP_LIVE_HOST_MODEL)return process.env.RIGUP_LIVE_HOST_MODEL;try{return (await readFile(join(homedir(),'.codex/config.toml'),'utf8')).match(/^model\s*=\s*"([^"]+)"/m)?.[1];}catch{return undefined;}}
 export async function driveLiveGeneration(kind:'service'|'monorepo',backend:'host'|'native'){
@@ -17,13 +18,21 @@ export async function driveLiveGeneration(kind:'service'|'monorepo',backend:'hos
  const runCli=async(args:string[])=>{let stdout='',code=0;try{stdout=(await exec(process.execPath,['--import','tsx',cli,...args],{cwd:repo,env,maxBuffer:8_000_000,timeout:180000})).stdout;}catch(e){stdout=(e as any).stdout??'';code=typeof (e as any).code==='number'?(e as any).code:1;}let data:any;try{data=JSON.parse(stdout);}catch{throw Error('CLI did not return a single final JSON object (exit '+code+')');}return {code,data};};
  const hostResponse=async(requestPath:string)=>{
   if(!requestedModel)throw Error('No configured host model ID; use RIGUP_LIVE_HOST_MODEL');if(cycleCalls>=12||cycleTokens>=maxTokens||(cycleCalls>0&&cycleTokens+(phases.filter(p=>p.cycle===currentCycle&&p.usage!=='unknown').at(-1)?.usage?.input_tokens??0)*1.1+8000>maxTokens))throw Error('Observed live host request/token budget exhausted');
+  if(phases.some(p=>p.processCleanupFailed))throw Error('An earlier host process cleanup failed. Reconcile that attempt before continuing.');
   const request=JSON.parse(await readFile(requestPath,'utf8'));const id=request.requestId;const responsePath=join(control,id+'.response.json');const output=join(control,id+'.model.json');const log=join(control,id+'.private.jsonl');
   const prompt='Act only as the Rigup host research backend for this approved setup request. Return ONLY the JSON object required by context.expectedOutput (or analysis if absent), with observations and unknowns arrays. Use only the supplied filtered evidence; do not run commands, read other files, modify files, or spawn agents. Existing native workflow instructions describe later development, not an authorization to change this research task. Copy Evidence objects exactly, including whole-snippet line ranges and digest; do not invent narrower ranges or hashes. Report source gaps and scope/counterexamples. Never fabricate historical approvals or check results.\n'+JSON.stringify(request);
   const args=['exec','--ignore-user-config','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--model',requestedModel,'--json','--output-last-message',output,'-C',modelRoot,'-'];
   await record('generation-'+backend+'-'+kind+'-progress',{caseId:result.caseId,cycle:currentCycle,phase:request.context.expectedOutput??request.context.kind,status:'waiting-host',observedRequests:calls,observedTokens:totalTokens,at:new Date().toISOString()});
-  const began=new Date().toISOString();const child=spawn('codex',args,{cwd:modelRoot,env:process.env,detached:true,stdio:['pipe','pipe','pipe']});let stdout='',stderr='';child.stdout.on('data',v=>stdout+=v);child.stderr.on('data',v=>stderr+=v);const timer=setTimeout(()=>{try{process.kill(-child.pid!,'SIGKILL')}catch{}},180000);child.stdin.end(prompt);const exit=await new Promise<number|null>(done=>{child.once('error',()=>done(1));child.once('exit',done)});clearTimeout(timer);await writeFile(log,JSON.stringify({stdout,stderr}),{mode:0o600});
-  const events=stdout.split('\n').flatMap(line=>{try{return [JSON.parse(line)]}catch{return []}});const usage=events.findLast(e=>e.type==='turn.completed')?.usage;const tokens=usage?(usage.input_tokens??0)+(usage.output_tokens??0):undefined;calls++;cycleCalls++;if(tokens!==undefined){totalTokens+=tokens;cycleTokens+=tokens;}
-  phases.push({cycle:currentCycle,kind:request.context.kind,expectedOutput:request.context.expectedOutput,artifact:request.context.artifact,versions:request.context.versions,requestId:id,startedAt:began,finishedAt:new Date().toISOString(),exit,usage:usage??'unknown',unexpectedCommands:events.filter(e=>e.item?.type==='command_execution').length});
+  const phase={cycle:currentCycle,kind:request.context.kind,expectedOutput:request.context.expectedOutput,artifact:request.context.artifact,versions:request.context.versions,requestId:id,startedAt:new Date().toISOString()};
+  calls++;cycleCalls++;
+  const {stdout,stderr,code:exit,timedOut}=await runLiveCommand('codex',args,{cwd:modelRoot,input:prompt,timeoutMs:180000}).catch(error=>{
+   phases.push({...phase,finishedAt:new Date().toISOString(),usage:'unknown',processCleanupFailed:error instanceof LiveProcessCleanupError});
+   throw error;
+  });
+  await writeFile(log,JSON.stringify({stdout,stderr}),{mode:0o600});
+  const events=stdout.split('\n').flatMap(line=>{try{return [JSON.parse(line)]}catch{return []}});const usage=events.findLast(e=>e.type==='turn.completed')?.usage;const tokens=usage?(usage.input_tokens??0)+(usage.output_tokens??0):undefined;if(tokens!==undefined){totalTokens+=tokens;cycleTokens+=tokens;}
+  phases.push({...phase,finishedAt:new Date().toISOString(),exit,timedOut,usage:usage??'unknown',unexpectedCommands:events.filter(e=>e.item?.type==='command_execution').length});
+  if(timedOut)throw Error('Real host model process timed out; inspect private transport evidence');
   if(exit!==0)throw Error('Real host model process failed; inspect private transport evidence');
   if(cycleTokens>maxTokens)throw Error('Observed live token budget exceeded; no response imported');
   const text=(await readFile(output,'utf8')).trim();let data:any;try{data=JSON.parse(text);}catch{throw Error('Real host did not return protocol JSON; no synthetic repair applied');}

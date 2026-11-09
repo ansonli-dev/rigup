@@ -1,7 +1,7 @@
 import {mkdtemp,realpath,writeFile,readFile,mkdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {spawn,execFile} from 'node:child_process';
+import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createHash} from 'node:crypto';
 import type {Agent} from '../src/types.js';
@@ -9,6 +9,7 @@ import {scanRepository} from '../src/analyzer/repository.js';
 import {generate} from '../src/generator/generate.js';
 import {preview} from '../src/installer/preview.js';
 import {apply} from '../src/installer/apply.js';
+import {checkedLiveCommand,LiveProcessCleanupError,liveVersion,runLiveCommand,startLiveSession} from './live-process-support.js';
 const exec=promisify(execFile);
 export const live=process.env.RIGUP_LIVE==='1';
 export const evidenceRoot=resolve(process.env.RIGUP_LIVE_EVIDENCE_DIR??'docs/compatibility/evidence/2026-11-04-live');
@@ -27,52 +28,65 @@ export async function nativeCanary(agent:Agent){
 export async function nativeCodexProbe(prepared?:Awaited<ReturnType<typeof nativeCanary>>){
  const {root,control,startedAt,server,installed}=prepared??await nativeCanary('codex');
  const home=control+'/client-home';await mkdir(home,{mode:0o700});await writeFile(home+'/config.toml','model = \"gpt-6.1-sol\"\nsandbox_mode = \"read-only\"\napproval_policy = \"never\"\n[projects.'+JSON.stringify(root)+']\ntrust_level = \"trusted\"\n');
- let child:ReturnType<typeof spawn>|undefined;const pending=new Map<number,{resolve:(value:any)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>();let next=1,buffer='',stderr='';
+ const pending=new Map<number,{resolve:(value:any)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>();let next=1,buffer='',stderr='';
  try{
-  const version=(await exec('codex',['--version'])).stdout.trim();child=spawn('codex',['app-server'],{cwd:root,env:{PATH:process.env.PATH,HOME:home,CODEX_HOME:home,NO_COLOR:'1',LANG:'en_US.UTF-8'},detached:true,stdio:['pipe','pipe','pipe']});
-  child.stdout!.on('data',chunk=>{buffer+=chunk;let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const message=JSON.parse(line);const item=pending.get(message.id);if(item){clearTimeout(item.timer);pending.delete(message.id);message.error?item.reject(Error(JSON.stringify(message.error))):item.resolve(message.result);}}catch{}}});
-  child.stderr!.on('data',chunk=>stderr+=chunk);
-  const request=(method:string,params:unknown):Promise<any>=>new Promise((done,reject)=>{const id=next++;const timer=setTimeout(()=>{pending.delete(id);reject(Error('Native client timeout: '+method));},30000);pending.set(id,{resolve:done,reject,timer});child!.stdin!.write(JSON.stringify({id,method,params})+'\n');});
-  const initialized=await request('initialize',{clientInfo:{name:'rigup-live-acceptance',version:'0.1.0'},capabilities:{experimentalApi:true}});child.stdin!.write(JSON.stringify({method:'initialized',params:{}})+'\n');
+  const version=await liveVersion('codex');
+  const child=await startLiveSession('codex',['app-server'],{cwd:root,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,HOME:home,CODEX_HOME:home,NO_COLOR:'1',LANG:'en_US.UTF-8'}});
+  try{
+  child.stdout.setEncoding('utf8').on('data',chunk=>{buffer+=chunk;let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const message=JSON.parse(line);const item=pending.get(message.id);if(item){clearTimeout(item.timer);pending.delete(message.id);message.error?item.reject(Error(JSON.stringify(message.error))):item.resolve(message.result);}}catch{}}});
+  child.stderr.setEncoding('utf8').on('data',chunk=>stderr+=chunk);
+  const exited=child.completed.then(code=>{throw Error('Native client exited (code '+code+')');});
+  const request=(method:string,params:unknown):Promise<any>=>Promise.race([exited,new Promise((done,reject)=>{const id=next++;const timer=setTimeout(()=>{pending.delete(id);reject(Error('Native client timeout: '+method));},30000);pending.set(id,{resolve:done,reject,timer});child.stdin.write(JSON.stringify({id,method,params})+'\n');})]);
+  const initialized=await request('initialize',{clientInfo:{name:'rigup-live-acceptance',version:'0.1.0'},capabilities:{experimentalApi:true}});child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
   const skills=await request('skills/list',{cwds:[root],forceReload:true});const entry=skills.data?.find((d:any)=>d.cwd===root)??skills.data?.[0];const found=entry?.skills?.find((s:any)=>s.name==='rigup-live-canary');
   const thread=await request('thread/start',{cwd:root,ephemeral:true,approvalPolicy:'never',sandbox:'read-only',model:'gpt-6.1-sol'});const threadId=thread.thread?.id;
   const servers=await request('mcpServerStatus/list',{threadId,serverName:'rigup-live-canary'});const target=servers.data?.find((s:any)=>s.name==='rigup-live-canary');
   const called=await request('mcpServer/tool/call',{threadId,server:'rigup-live-canary',tool:'rigup_echo',arguments:{message:'rigup-native-canary-20261104'}});
   const echoed=JSON.stringify(called).includes('rigup-native-canary-20261104');
   return {caseId:'codex/none/customer-mcp',status:found&&target&&echoed?'passed':'failed',startedAt,finishedAt:new Date().toISOString(),version,fixture:root,fixtureDigest:createHash('sha256').update(server).digest('hex'),configuredByRigup:installed.status,skill:found?{name:found.name,path:found.path,scope:found.scope}:null,server:target?{name:target.name,toolNames:Object.keys(target.tools??{}),authStatus:target.authStatus}:null,echoed,scope:'Native app-server discovery, actual MCP initialization/list/call; no model or SDD gate inference',initialized:!!initialized};
+  }finally{
+   for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('Native probe finished'));}
+   await child.stop();
+  }
  }catch(error){return {caseId:'codex/none/customer-mcp',status:'failed',startedAt,finishedAt:new Date().toISOString(),fixture:root,reason:(error as Error).message.slice(0,1000),stderr:stderr.slice(-2000)};}
- finally{for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('Native probe finished'));}if(child?.pid){try{process.kill(-child.pid,'SIGTERM')}catch{}}}
 }
 
 export async function nativeOpenCodeProbe(){
- const {root,control,startedAt,server,installed}=await nativeCanary('opencode');const home=control+'/client-home';await mkdir(home,{mode:0o700});const env={PATH:process.env.PATH,HOME:home,XDG_CONFIG_HOME:home+'/config',XDG_DATA_HOME:home+'/data',XDG_STATE_HOME:home+'/state',XDG_CACHE_HOME:home+'/cache',NO_COLOR:'1',LANG:'en_US.UTF-8'};
+ const {root,control,startedAt,server,installed}=await nativeCanary('opencode');const home=control+'/client-home';await mkdir(home,{mode:0o700});const env={PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,HOME:home,XDG_CONFIG_HOME:home+'/config',XDG_DATA_HOME:home+'/data',XDG_STATE_HOME:home+'/state',XDG_CACHE_HOME:home+'/cache',NO_COLOR:'1',LANG:'en_US.UTF-8'};
  try{
-  const version=(await exec('opencode',['--version'])).stdout.trim();const skills=(await exec('opencode',['debug','skill'],{cwd:root,env,timeout:30000,maxBuffer:2_000_000})).stdout;const mcp=(await exec('opencode',['mcp','list'],{cwd:root,env,timeout:30000,maxBuffer:1_000_000})).stdout;
+  const version=await liveVersion('opencode');const skills=(await checkedLiveCommand('opencode',['debug','skill'],{cwd:root,env,timeoutMs:30000,maxBuffer:2_000_000})).stdout;const mcp=(await checkedLiveCommand('opencode',['mcp','list'],{cwd:root,env,timeoutMs:30000,maxBuffer:1_000_000})).stdout;
   let calls:any[]=[];try{calls=(await readFile(control+'/server-trace.jsonl','utf8')).split('\n').filter(Boolean).map(line=>JSON.parse(line));}catch{}
   const discovered=skills.includes('rigup-live-canary')&&skills.includes(root+'/.opencode/skills/');const connected=calls.some(c=>c.method==='initialize')&&calls.some(c=>c.method==='tools/list');
   return {caseId:'opencode/none/customer-mcp',status:discovered&&connected?'passed':'failed',startedAt,finishedAt:new Date().toISOString(),version,fixture:root,fixtureDigest:createHash('sha256').update(server).digest('hex'),configuredByRigup:installed.status,skillDiscovered:discovered,mcpConnected:connected,mcpMethods:calls.map(c=>c.method),commands:[{executable:'opencode',args:['debug','skill'],cwd:root},{executable:'opencode',args:['mcp','list'],cwd:root}],clientOutput:mcp.replace(/\x1b\[[0-9;]*m/g,'').slice(0,1000),scope:'Actual OpenCode native discovery and MCP initialize/list. No model or SDD gate inference'};
  }catch(error){return {caseId:'opencode/none/customer-mcp',status:'failed',startedAt,finishedAt:new Date().toISOString(),fixture:root,reason:(error as Error).message.slice(0,1200)};}
 }
 export async function nativeOmpProbe(){
- const {root,control,startedAt,installed}=await nativeCanary('omp');const home=control+'/client-home';await mkdir(home,{mode:0o700});let child:ReturnType<typeof spawn>|undefined,stderr='',buffer='',next=1;const pending=new Map<string,{resolve:(value:any)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>();
+ const {root,control,startedAt,installed}=await nativeCanary('omp');const home=control+'/client-home';await mkdir(home,{mode:0o700});let stderr='',buffer='',next=1;const pending=new Map<string,{resolve:(value:any)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>();
  try{
-  const version=(await exec('omp',['--version'])).stdout.trim();child=spawn('omp',['--mode','rpc','--no-session','--approval-mode','always-ask'],{cwd:root,env:{PATH:process.env.PATH,HOME:home,PI_CODING_AGENT_DIR:home+'/agent',NO_COLOR:'1',LANG:'en_US.UTF-8'},detached:true,stdio:['pipe','pipe','pipe']});
-  child.stdout!.on('data',chunk=>{buffer+=chunk;let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const message=JSON.parse(line);const item=pending.get(message.id);if(item){clearTimeout(item.timer);pending.delete(message.id);message.success?item.resolve(message.data):item.reject(Error(message.error??'RPC failed'));}}catch{}}});child.stderr!.on('data',chunk=>stderr+=chunk);
-  const request=(type:string):Promise<any>=>new Promise((done,reject)=>{const id=String(next++);const timer=setTimeout(()=>{pending.delete(id);reject(Error('OMP native RPC timeout: '+type));},30000);pending.set(id,{resolve:done,reject,timer});child!.stdin!.write(JSON.stringify({id,type})+'\n');});
+  const version=await liveVersion('omp');
+  const child=await startLiveSession('omp',['--mode','rpc','--no-session','--approval-mode','always-ask'],{cwd:root,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,HOME:home,PI_CODING_AGENT_DIR:home+'/agent',NO_COLOR:'1',LANG:'en_US.UTF-8'}});
+  try{
+  child.stdout.setEncoding('utf8').on('data',chunk=>{buffer+=chunk;let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const message=JSON.parse(line);const item=pending.get(message.id);if(item){clearTimeout(item.timer);pending.delete(message.id);message.success?item.resolve(message.data):item.reject(Error(message.error??'RPC failed'));}}catch{}}});child.stderr.setEncoding('utf8').on('data',chunk=>stderr+=chunk);
+  const exited=child.completed.then(code=>{throw Error('OMP native client exited (code '+code+')');});
+  const request=(type:string):Promise<any>=>Promise.race([exited,new Promise((done,reject)=>{const id=String(next++);const timer=setTimeout(()=>{pending.delete(id);reject(Error('OMP native RPC timeout: '+type));},30000);pending.set(id,{resolve:done,reject,timer});child.stdin.write(JSON.stringify({id,type})+'\n');})]);
   const commands=await request('get_available_commands');const state=await request('get_state');const skill=commands.commands?.find((c:any)=>JSON.stringify(c).includes('rigup-live-canary'));let calls:any[]=[];try{calls=(await readFile(control+'/server-trace.jsonl','utf8')).split('\n').filter(Boolean).map(line=>JSON.parse(line));}catch{}
   const connected=calls.some(c=>c.method==='initialize')&&calls.some(c=>c.method==='tools/list');
   return {caseId:'omp/none/customer-mcp',status:skill&&connected?'passed':'failed',startedAt,finishedAt:new Date().toISOString(),version,fixture:root,configuredByRigup:installed.status,skill:skill?{name:skill.name,source:skill.source}:null,mcpConnected:connected,mcpMethods:calls.map(c=>c.method),toolNames:state.dumpTools?.map((t:any)=>t.name),commands:[{executable:'omp',args:['--mode','rpc','--no-session','--approval-mode','always-ask'],cwd:root}],scope:'Actual OMP session RPC; no model request or SDD gate inference'};
- }catch(error){return {caseId:'omp/none/customer-mcp',status:'pending',startedAt,finishedAt:new Date().toISOString(),fixture:root,reason:(error as Error).message.slice(0,1000),stderr:stderr.slice(-2000),scope:'Session startup/RPC unavailable under isolated configuration; no discovery pass inferred'};}
- finally{for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('Native probe finished'));}if(child?.pid)try{process.kill(-child.pid,'SIGTERM')}catch{}}
+  }finally{
+   for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('Native probe finished'));}
+   await child.stop();
+  }
+ }catch(error){return {caseId:'omp/none/customer-mcp',status:error instanceof LiveProcessCleanupError?'failed':'pending',startedAt,finishedAt:new Date().toISOString(),fixture:root,reason:(error as Error).message.slice(0,1000),stderr:stderr.slice(-2000),scope:'Native discovery was not established under isolated configuration'};}
 }
 export async function nativeClaudeProbe(){
  const checkedAt=new Date().toISOString();let version:string|undefined;
- try{version=(await exec('claude',['--version'])).stdout.trim();let text='';try{text=(await exec('claude',['auth','status'],{timeout:15000})).stdout;}catch(error){text=(error as any).stdout??'';}let auth:any;try{auth=JSON.parse(text);}catch{}
+ try{version=await liveVersion('claude');const {stdout:authOutput,timedOut:authTimedOut}=await runLiveCommand('claude',['auth','status'],{timeoutMs:15000,maxBuffer:4096});if(authTimedOut)throw Error('Claude authentication status timed out');let auth:any;try{auth=JSON.parse(authOutput);}catch{}
   if(auth?.loggedIn!==true)return {caseId:'claude/none/customer-mcp',status:'pending',checkedAt,version,loggedIn:auth?.loggedIn,reason:'Claude authentication unavailable; native session discovery and MCP were not run'};
   const fixture=await nativeCanary('claude');await exec('git',['-C',fixture.root,'init','-q']);const args=['--print','/rigup-live-canary\nRead the installed skill and its referenced fixture guidance. Report the exact fixture marker and call the configured read-only rigup_echo with it. Do not edit files or run commands.','--setting-sources','user,project','--settings',JSON.stringify({disableAllHooks:true}),'--permission-mode','dontAsk','--permission-prompts','none','--tools','Read,Skill,ToolSearch','--allowedTools','Read,Skill,mcp__rigup-live-canary__rigup_echo','--strict-mcp-config','--mcp-config',fixture.root+'/.mcp.json','--no-session-persistence','--no-chrome','--max-budget-usd','1','--output-format','json'];
-  const child=spawn('claude',args,{cwd:fixture.root,env:process.env,detached:true,stdio:['ignore','pipe','pipe']});let stdout='',stderr='';child.stdout.on('data',c=>stdout+=c);child.stderr.on('data',c=>stderr+=c);const timer=setTimeout(()=>{if(child.pid)try{process.kill(-child.pid,'SIGTERM')}catch{}},90000);const exit=await new Promise<number|null>(done=>{child.once('error',()=>done(1));child.once('close',done)});clearTimeout(timer);
+  const {stdout,stderr,code:exit,timedOut}=await runLiveCommand('claude',args,{cwd:fixture.root,timeoutMs:90000,killSignal:'SIGTERM'});
   await writeFile(fixture.control+'/claude-private.json',JSON.stringify({stdout,stderr}),{mode:0o600});let data:any;try{data=JSON.parse(stdout);}catch{}let calls:any[]=[];try{calls=(await readFile(fixture.control+'/server-trace.jsonl','utf8')).trim().split('\n').map(v=>JSON.parse(v));}catch{}
   const loaded=typeof data?.result==='string'&&data.result.includes('RIGUP_REFERENCE_LOADED_20261104');const connected=calls.some(c=>c.method==='initialize')&&calls.some(c=>c.method==='tools/list');const called=calls.some(c=>c.method==='tools/call'&&c.tool==='rigup_echo');
-  return {caseId:'claude/none/customer-mcp',status:exit===0&&loaded&&connected&&called?'passed':'pending',checkedAt,finishedAt:new Date().toISOString(),version,loggedIn:true,fixture:fixture.root,commands:[{executable:'claude',args,cwd:fixture.root}],budget:{maxUsd:1,maxWallMs:90000},exit,loadedReferenceMarker:loaded,mcpConnected:connected,echoCalled:called,mcpMethods:calls,apiErrorStatus:data?.api_error_status,terminalReason:data?.terminal_reason,modelUsage:data?.modelUsage,totalCostUsd:data?.total_cost_usd,resultDigest:createHash('sha256').update(String(data?.result??'')).digest('hex'),reason:loaded&&connected&&called?undefined:'Native bounded session did not establish every discovery/reference/MCP claim; inspect fixture-local private transport evidence',scope:'Actual native skill/reference use with existing user authentication settings, hooks disabled and only Read/Skill/ToolSearch builtins and read-only customer MCP; no SDD gate inference'};
- }catch(error){return {caseId:'claude/none/customer-mcp',status:'pending',checkedAt,version,reason:'Native probe unavailable: '+(error as Error).message.slice(0,400)};}
+  const status=timedOut?'failed':exit===0&&loaded&&connected&&called?'passed':'pending';
+  return {caseId:'claude/none/customer-mcp',status,checkedAt,finishedAt:new Date().toISOString(),version,loggedIn:true,fixture:fixture.root,commands:[{executable:'claude',args,cwd:fixture.root}],budget:{maxUsd:1,maxWallMs:90000},exit,timedOut,loadedReferenceMarker:loaded,mcpConnected:connected,echoCalled:called,mcpMethods:calls,apiErrorStatus:data?.api_error_status,terminalReason:data?.terminal_reason,modelUsage:data?.modelUsage,totalCostUsd:data?.total_cost_usd,resultDigest:createHash('sha256').update(String(data?.result??'')).digest('hex'),reason:timedOut?'Claude native session timed out':status==='passed'?undefined:'Native bounded session did not establish every discovery/reference/MCP claim; inspect fixture-local private transport evidence',scope:'Actual native skill/reference use with existing user authentication settings, hooks disabled and only Read/Skill/ToolSearch builtins and read-only customer MCP; no SDD gate inference'};
+ }catch(error){return {caseId:'claude/none/customer-mcp',status:error instanceof LiveProcessCleanupError?'failed':'pending',checkedAt,version,reason:(error as Error).message.slice(0,400)};}
 }

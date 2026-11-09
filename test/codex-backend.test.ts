@@ -199,13 +199,23 @@ test('Codex process is stopped if its durable process identity cannot be recorde
   return;
  }
  await writeFile(control+'/bin/ps','#!/bin/sh\nexit 1\n',{mode:0o755});
- await writeFile(control+'/bin/codex','#!'+process.execPath+'\nrequire("fs").writeFileSync('+JSON.stringify(control+'/pid')+',String(process.pid));process.stdin.resume();setInterval(()=>{},1000);\n',{mode:0o755});
+ const release=join(control,'release');
+ await writeFile(control+'/bin/codex','#!'+process.execPath+'\n'+
+  `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(control+'/pid')},String(process.pid));process.stdin.resume();
+  setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0);},25);setTimeout(()=>process.exit(0),5000);\n`,{mode:0o755});
  const old=process.env.PATH;process.env.PATH=control+'/bin:'+old;let pid:number|undefined;
  try{
   await assert.rejects(()=>invokeCodex({cwd:control+'/workspace',args:[],prompt:'must not be delivered',output:control+'/output',onStart:async()=>{}}));
   for(let i=0;i<50;i++){try{pid=Number(await readFile(control+'/pid','utf8'));break;}catch{await new Promise(done=>setTimeout(done,10));}}
   if(pid){await new Promise(done=>setTimeout(done,50));assert.throws(()=>process.kill(pid!,0),{code:'ESRCH'});}
- }finally{process.env.PATH=old;if(pid)try{process.kill(-pid,'SIGKILL');}catch{}}
+ }finally{
+  if(old===undefined)delete process.env.PATH;else process.env.PATH=old;
+  await writeFile(release,'');
+  for(let i=0;pid&&i<40;i++){
+   try{process.kill(pid,0);}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')break;throw error;}
+   await new Promise(done=>setTimeout(done,25));
+  }
+ }
 }));
 
 test('Codex recovery requires a well-formed saved outcome and its existing reservation',()=>fixture(async(_root,cache,request,reader)=>{

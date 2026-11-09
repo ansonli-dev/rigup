@@ -16,7 +16,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test:live": "RIGUP_LIVE=1 node --import tsx --test --test-concurrency=1 test/live-*.test.ts",
+    "test:live": "node test/run-live-tests.mjs",
     "prepack": "npm run build",
     "check": "npm run typecheck && npm test && npm run build && npm run check:docs && npm run test:package",
     "check:docs": "node scripts/check-docs.mjs",

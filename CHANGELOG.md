@@ -7,6 +7,7 @@
 - Compare managed MCP configuration by value during diagnostics and previews, so formatting alone does not block updates.
 - Restore approved installation previews after interruption and retry verified tool installs from journal-owned staging.
 - Report Windows ACL policy denials separately from temporary inspection failures and retry transient atomic renames.
+- Bound live probe shutdown and verify that Windows and POSIX process trees have exited.
 
 ## 0.2.4 · 2026-11-09 · Development preview
 
