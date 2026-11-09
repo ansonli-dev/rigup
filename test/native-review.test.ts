@@ -91,7 +91,7 @@ test('interrupted native output cannot become research after source drift reject
  // operation queries, journals, preview/apply and repository-reader boundaries.
  await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache+'/previews',stateRoot:state,operation:{launch:async op=>{
   if(op.kind==='install'){
-   const {prefix:base}=await writeNativeToolFixture(root,'codegraph','1.6.2');
+   const {prefix:base}=await writeNativeToolFixture(root,'codegraph','1.6.2','commonjs',op.protection.target);
    await writeFile(base+'/package-lock.json',JSON.stringify({packages:{'':{dependencies:{'@colbymchenry/codegraph':'1.6.2'}},'node_modules/@colbymchenry/codegraph':{version:'1.6.2',integrity:op.query.integrity}}}));
   }else{
    await mkdir(root+'/.codegraph');const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(root+'/.codegraph/codegraph.db');

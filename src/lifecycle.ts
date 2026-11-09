@@ -73,9 +73,14 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   }else if(flags.resume){const interrupted=await restoreInterruptedPreview(root,options,previews,lock.stateRoot);if(interrupted){
    const restored=(await loadPreview(interrupted,previews)).preview;
    if(flags.deferResearch&&restored.projectRules!=='pending')throw Error('Interrupted preview belongs to full setup; resume without --defer-research');
+   if(restored.projectRules==='pending'||(await loadManifest(root))?.projectRules==='pending')review=true;
    if(flags.dryRun){services.report?.({phase:'preview',...restored,installStatus:'pending',message:'Durable interrupted preview restored. Run resume with --review for the apply command.'});return 3;}
-   await handoff(restored,true);
-   return 3;
+   if(await handoff(restored,!!flags.review))return 3;
+   const installed=await apply(interrupted,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,recover:true,signal:services.signal,onProgress:emit,runChecks:services.runChecks});
+   services.report?.({phase:'apply',installStatus:installed.status,...installed});
+   if(installed.nextCommand)write('Project rules pending. Continue with '+installed.nextCommand+'\n');
+   write('Resumed protected installation '+installed.status+'\n');
+   return installed.exitCode;
   }}
  if(needsResearch&&options.backend==='native'&&!services.backend&&(!(options.model?.model??services.credentials?.model??process.env.ANTHROPIC_MODEL)||!(services.credentials?.apiKey??process.env[options.model?.apiKeyEnv??'ANTHROPIC_API_KEY']))){write('model: model ID and API-key environment reference required before research\n');services.report?.({phase:'preflight',installStatus:'pending',requiredInput:[{field:'model',sources:['effective configuration','ANTHROPIC_MODEL','API-key environment reference'],provide:'Configure model.model and model.apiKeyEnv; set the referenced variable outside project configuration'}]});return 3;}
   const [profile,old,config]=await Promise.all([scanRepository(root,options),loadManifest(root),readTarget(root,'.rigup/config.yaml')]);

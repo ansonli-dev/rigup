@@ -89,7 +89,7 @@ test('independent installs overlap, retain the lock on failure and reconcile bot
   if(launches.length===2)otherStarted.resolve();
   if(op.integrationId==='codegraph')await resumeOther.promise;
   const {name,version,integrity,packageLock}=op.query;
-  await writeNativeToolFixture(root,op.integrationId==='codegraph'?'codegraph':'openwiki',version);
+  await writeNativeToolFixture(root,op.integrationId==='codegraph'?'codegraph':'openwiki',version,'commonjs',op.protection.target);
   await writeFile(root+'/'+packageLock,JSON.stringify({packages:{'':{dependencies:{[name]:version}},['node_modules/'+name]:{version,integrity}}}));
   if(op.integrationId==='openwiki')throw Error('lost install result');
   return queryOperation(op);

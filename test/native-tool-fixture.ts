@@ -2,9 +2,9 @@ import {mkdir,symlink,writeFile} from 'node:fs/promises';
 import {dirname,join,relative} from 'node:path';
 import {toolPackage,type NativeTool} from '../src/integrations/tools/recipes.js';
 
-export async function writeNativeToolFixture(root:string,id:NativeTool,version:string,type:'commonjs'|'module'='commonjs'){
- const {prefix:relativePrefix,name,entry}=toolPackage(id);
- const prefix=join(root,relativePrefix),packageRoot=join(prefix,'node_modules',name),binary=join(packageRoot,entry);
+export async function writeNativeToolFixture(root:string,id:NativeTool,version:string,type:'commonjs'|'module'='commonjs',target=toolPackage(id).prefix){
+ const {name,entry}=toolPackage(id);
+ const prefix=join(root,target),packageRoot=join(prefix,'node_modules',name),binary=join(packageRoot,entry);
  await mkdir(dirname(binary),{recursive:true});
  await writeFile(join(packageRoot,'package.json'),JSON.stringify({name,version,type,bin:{[id]:'./'+entry}}));
  await writeFile(binary,'#!/usr/bin/env node\n',{mode:0o755});

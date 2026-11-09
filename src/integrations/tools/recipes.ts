@@ -17,8 +17,8 @@ export function toolPackage(id:NativeTool) {
  return {id,prefix:'.rigup/tools/'+id,name:id==='openwiki'?'openwiki':'@colbymchenry/codegraph',entry:id==='openwiki'?'dist/cli/cli.js':'npm-shim.js'};
 }
 
-export function softwareInstallRecipe(root:string,id:NativeTool,version:string,integrity?:string):SetupOperation {
- const {prefix,name}=toolPackage(id);
+export function softwareInstallRecipe(root:string,id:NativeTool,version:string,integrity?:string,prefix=toolPackage(id).prefix):SetupOperation {
+ const {name}=toolPackage(id);
  return {id:'install:'+id,integrationId:id,kind:'install',parameters:{executable:'npm',args:['install','--prefix',resolve(root,prefix),'--cache',resolve(root,prefix,'.npm-cache'),'--ignore-scripts','--save-exact','--no-audit','--no-fund','--userconfig',resolve(root,prefix,'.npmrc.user'),'--globalconfig',resolve(root,prefix,'.npmrc.global'),'--registry','https://registry.npmjs.org/',name+'@'+version],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],version,timeoutMs:300000,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity}};
 }
 

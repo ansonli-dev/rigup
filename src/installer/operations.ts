@@ -2,6 +2,7 @@ import {queryInstalledTool,queryPinnedTool} from '../integrations/tools/installe
 import {isRecord,readDurableRecord,saveDurable} from '../private-record.js';
 import {join,resolve,isAbsolute} from 'node:path';
 import {spawn} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
 import type {SetupOperation} from '../types.js';
 import {privateDirectory,signature} from '../generator/cache.js';
 import {defaultStateRoot,processIdentity,isAlive,type ProcessIdentity} from './lock.js';
@@ -12,13 +13,19 @@ import {queryNativeInitialization,resumableNativeOperation,nativeEnvironment} fr
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {startWindowsProcess,windowsJobActive} from '../integrations/tools/windows-process.mjs';
 import {npmCommand} from '../npm-command.mjs';
+import {assertInstallDestination,clearInstallStage,createInstallStage,installDirectoryIdentity,ownedInstallStage,publishInstallStage,stagedInstall,validInstallStage,type InstallStage} from './install-staging.js';
 export interface OperationResult {status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:{version:string;packageLockDigest:string};nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 type WriterIdentity=ProcessIdentity&{windowsJob?:string};
-interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult}
+interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult;installStage?:InstallStage}
 export interface OperationDependencies {stateRoot?:string;authorizationRef?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
 export function operationRoot(operation:SetupOperation):string {if(operation.kind==='initialize'&&isAbsolute(operation.parameters.cwd))return operation.parameters.cwd;const i=operation.parameters.args.indexOf('--prefix');const prefix=operation.parameters.args[i+1];if(i<0||!prefix||!isAbsolute(prefix))throw new Error('operation project root unavailable');return resolve(prefix,'../../..');}
 export async function queryOperation(operation:SetupOperation):Promise<OperationResult>{
  try{if(operation.kind==='initialize')return await queryNativeInitialization(operation);return await queryInstalledTool(operationRoot(operation),{prefix:operation.protection.target,id:operation.integrationId,name:operation.query.name,version:operation.query.version,integrity:operation.query.integrity});}catch{return {status:'unknown',message:'Cannot prove external operation result; manual reconciliation required'};}
+}
+async function queryPublishedInstall(root:string,operation:SetupOperation,stage?:InstallStage):Promise<OperationResult>{
+ const result=await queryOperation(operation);
+ if(result.status==='done'&&stage&&(!stage.identity||await installDirectoryIdentity(root,operation.protection.target)!==stage.identity))throw Error(operation.id+' installation directory identity changed at '+operation.protection.target);
+ return result;
 }
 async function readOperationRecord(path:string,root:string):Promise<{operations:PendingOperation[]}>{
  const record=await readDurableRecord<{operations:PendingOperation[]}>(path,'Durable operation record',value=>{
@@ -27,6 +34,7 @@ async function readOperationRecord(path:string,root:string):Promise<{operations:
   return value.operations.every(item=>{
    if(!isRecord(item)||!isRecord(item.operation)||!['prepared','dispatching','terminal'].includes(item.stage))return false;
    if(item.root!==undefined&&item.root!==root)return false;
+   if(item.installStage!==undefined&&(item.operation.kind!=='install'||!validInstallStage(item.installStage)))return false;
    if(item.parametersDigest!==signature(item.operation)||keys.has(item.parametersDigest))return false;
    keys.add(item.parametersDigest);
    if(item.identity!==undefined&&(!isRecord(item.identity)||!Number.isSafeInteger(item.identity.pid)||item.identity.pid<1||typeof item.identity.started!=='string'||!item.identity.started||
@@ -54,9 +62,17 @@ async function writerAlive(identity:WriterIdentity):Promise<boolean>{
 export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateRoot()):Promise<void>{
  for(const item of await pendingOperations(root,stateRoot)){
   if(item.identity&&await writerAlive(item.identity))throw new Error('previous writing process still active; project blocked');
-  if(item.stage!=='prepared'&&item.result?.status!=='done') {
-   const result=await queryOperation(item.operation);if(result.status!=='done'&&!await resumableNativeOperation(item.operation))throw new Error('unresolved durable operation; manual reconciliation required');
-  }
+  if(item.stage==='prepared'||item.result?.status==='done')continue;
+  const operation=item.operation;
+  if(operation.kind==='install'){
+   if(operationRoot(operation)!==root)throw Error('Interrupted installation project root changed');
+   const pin=(await loadUpstreamLock()).find(entry=>entry.integrationId===operation.integrationId);
+   if(!pin)throw Error('Interrupted installation recipe is unavailable for '+operation.integrationId);
+   assertToolOperationRecipe(root,operation,pin,[]);
+   if((await queryPublishedInstall(root,operation,item.installStage)).status==='done')continue;
+   await assertInstallDestination(root,operation);
+   if(item.installStage)await ownedInstallStage(root,stagedInstall(root,operation,item.installStage).protection.target,item.installStage);
+  }else if((await queryOperation(operation)).status!=='done'&&!await resumableNativeOperation(operation))throw new Error('unresolved durable operation; manual reconciliation required');
  }
 }
 const bootstrap=`const {spawn}=require('node:child_process');let started=false,child;for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{if(!started)process.exit(1);if(child)child.kill(signal);});process.stdin.once('data',()=>{started=true;const spec=JSON.parse(process.argv[1]);child=spawn(spec.executable,spec.args,{cwd:spec.cwd,stdio:'ignore',shell:false,env:spec.env??process.env});child.once('error',()=>process.exit(1));child.once('exit',(code)=>process.exit(code??1));});process.stdin.once('end',()=>{if(!started)process.exit(1)});`;
@@ -97,8 +113,9 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  if(record){
   if(record.identity&&await writerAlive(record.identity))return {status:'unknown',message:'Previous writing process has not exited; project remains blocked'};
   if(record.stage!=='prepared') {
-   const result=await queryOperation(operation);if(result.status==='done'){record.stage='terminal';record.result=result;await persist();return result;}
-   if(!await resumableNativeOperation(operation))return {status:'unknown',message:'Prior dispatch may have happened; manual reconciliation required before retry'};
+   const result=operation.kind==='install'?await queryPublishedInstall(root,operation,record.installStage):await queryOperation(operation);
+   if(result.status==='done'){record.stage='terminal';record.result=result;await persist();return result;}
+   if(operation.kind!=='install'&&!await resumableNativeOperation(operation))return {status:'unknown',message:'Prior dispatch may have happened; manual reconciliation required before retry'};
   }
  }
  // Previously accepted OpenWiki effects can still be queried above. Starting
@@ -108,7 +125,10 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   const installed=await queryPinnedTool(root,operation.integrationId,recipe);
   if(installed.status!=='done')return {status:'pending',message:'Pinned installation must be verified before native initialization'};
  }
- if(!record||record.stage==='prepared'){
+ if(operation.kind==='install'){
+  try{await assertInstallDestination(root,operation);}
+  catch(error){return {status:'pending',message:(error as Error).message};}
+ }else if(!record||record.stage==='prepared'){
   try{await assertEmptyToolScopes(root,operation);}
   catch{return {status:'pending',message:'Tool scope changed before dispatch; preserve content and re-preview'};}
  }
@@ -116,6 +136,34 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  await persist(); // Durable intent exists BEFORE any child can perform writes.
  const cancelledBeforeDispatch={status:'pending',message:'Cancelled before dispatch'} as const;
  if(dependencies.signal?.aborted)return cancelledBeforeDispatch;
+ const terminal=async(result:OperationResult)=>{
+  record.stage='terminal';record.result=result;await persist();return result;
+ };
+ const acceptInstall=async(staged:SetupOperation,stage:InstallStage,verified:OperationResult):Promise<OperationResult>=>{
+  if(verified.status!=='done')return verified;
+  await publishInstallStage(root,operation,staged,stage);
+  const published=await queryPublishedInstall(root,operation,stage);
+  if(published.status!=='done'||published.receipt?.packageLockDigest!==verified.receipt?.packageLockDigest)throw Error('Published installation differs from verified staging');
+  return published;
+ };
+ let dispatched=operation;
+ let stage=record.installStage;
+ if(operation.kind==='install'){
+  if(stage){
+   const staged=stagedInstall(root,operation,stage);
+   if(await ownedInstallStage(root,staged.protection.target,stage)){
+    const verified=await queryOperation(staged);
+    if(verified.status==='done')return terminal(await acceptInstall(staged,stage,verified));
+    await clearInstallStage(root,staged.protection.target,stage);
+   }
+  }
+  stage={token:randomUUID()};
+  dispatched=stagedInstall(root,operation,stage);
+  record.stage='prepared';delete record.identity;delete record.result;record.installStage=stage;
+  await persist(); // Reserve a unique scope before touching the project.
+  stage.identity=await createInstallStage(root,dispatched.protection.target);
+  await persist();
+ }
  const previous={stage:record.stage,result:record.result,identity:record.identity};
  const markDispatching=async(identity?:WriterIdentity)=>{
   record.identity=identity;record.stage='dispatching';delete record.result;await persist();
@@ -124,16 +172,18 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  if(dependencies.launch){
   await markDispatching();
   if(dependencies.signal?.aborted)return restoreUndispatched();
-  const result=await dependencies.launch(operation);record.stage='terminal';record.result=result;await persist();return result;
+  const result=await dependencies.launch(dispatched);
+  return terminal(stage&&result.status==='done'?await acceptInstall(dispatched,stage,await queryOperation(dispatched)):result);
  }
  const finish=async(code:number|null,cancelled:boolean):Promise<OperationResult>=>{
-  const verified=await queryOperation(operation);
-  const result:OperationResult=cancelled?{status:'unknown',message:'Operation cancelled/timed out; reconcile actual state before retry'}:code===0?verified:{status:'failed',message:'External installation failed; partial effects require reconciliation'};
-  record.stage='terminal';record.result=result;await persist();return result;
+  if(cancelled)return terminal({status:'unknown',message:'Operation cancelled or timed out. Resume the approved preview after confirming writer exit.'});
+  if(code!==0)return terminal({status:'failed',message:'External operation failed. Review the approved preview before retrying.'});
+  const verified=await queryOperation(dispatched);
+  return terminal(stage?await acceptInstall(dispatched,stage,verified):verified);
  };
  const env=operation.kind==='initialize'?nativeEnvironment(operation):undefined;
  if(process.platform==='win32'){
-  const command=operation.parameters.executable==='npm'?npmCommand(operation.parameters.args):operation.parameters;
+  const command=dispatched.parameters.executable==='npm'?npmCommand(dispatched.parameters.args):dispatched.parameters;
   const child=startWindowsProcess({...command,cwd:root,env,captureOutput:false});
   let timeout:ReturnType<typeof setTimeout>|undefined;
   try{
@@ -152,7 +202,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
    child.stop();await child.completed;
   }
  }
- const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...operation.parameters,cwd:root,env})],{detached:true,stdio:['pipe','ignore','ignore']});
+ const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...dispatched.parameters,cwd:root,env})],{detached:true,stdio:['pipe','ignore','ignore']});
  if(!child.pid)throw new Error('Cannot start protected operation process');
  const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>(resolve=>{child.once('error',()=>resolve({code:1,signal:null}));child.once('exit',(code,signal)=>resolve({code,signal}));});
  try{await markDispatching(await processIdentity(child.pid));}catch(e){child.stdin.end();await completed;throw e;}
