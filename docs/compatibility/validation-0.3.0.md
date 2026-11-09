@@ -13,9 +13,11 @@
 
 ## Rigup 本体
 
+- v0.3.0 的 macOS 默认检查通过 **519 项**，26 项按平台或 opt-in 条件跳过。类型检查、编译、文档链接和 npm 包检查均通过。npm audit 报告 0 项漏洞。ARM64 便携包通过自身运行时的 MCP 握手和锁定工具安装验证。
 - 在 macOS 上用打包安装物跑过基础预览、独立 apply、doctor、进程中断恢复和零写入重放。真实 OpenWiki 0.7.3 安装在模拟 npm 部分写入和 controller 被终止后恢复。同一审批先被仍存活的 writer 阻止，writer 退出后才通过真实 npm 安装发布并核验回执。真实 CodeGraph 安装、索引、业务符号查询、取消和重新初始化另行验证。
+- 用公开 npm v0.2.4 在 CodeGraph 软件安装后、索引初始化前中断，删除普通预览缓存，再从另一安装路径用 v0.3.0 恢复原审批。复核后完成索引初始化并核验回执，重放写入为零。
 - Claude Code 2.1.319 从 Unicode 和空格项目的根目录、子目录，以及对应的新 clone 连接 Rigup MCP。Codex、OpenCode 接线也通过实际 stdio 握手。新 clone 的共享接线可启动服务，研究需先建立本机归属。首次预览保护了七个无可信基线的现有文件。留存后按新的本机预览重建，接线字节一致。
-- 通过 JSONL 驱动真实 MCP 进程，验证不同根路径和排除引用被拒绝、阶段可续跑、写入前必须独立应用。自动测试另外覆盖生效 `scope`、语言、验收任务、缓存丢失后重建和无变化更新。CLI provider 使用本地合成响应验证路由、多工具调用、用量预留、模型覆盖和密钥隔离。
+- 通过 JSONL 驱动实际安装的 v0.3.0 MCP，验证不同根路径和排除引用被拒绝、阶段可续跑，提交内容后须通过单独验收任务，写入前必须独立应用。自动测试另外覆盖生效 `scope`、语言、缓存丢失后重建和无变化更新。CLI provider 使用本地合成响应验证路由、多工具调用、用量预留、模型覆盖和密钥隔离。
 - 原生 Codex 0.166.0 和 OpenCode 1.18.5 的技能及 MCP 发现通过。真实 Codex app-server 连接隔离 HTTPS MCP，未认证请求返回 401，专用变量认证后读取版本 0 并写到版本 1，进程正常清理。它使用合成服务和 RPC，适用于确认传输与授权引用。
 - CodeGraph 1.6.2 是当时的 npm latest，完整性与锁一致。macOS ARM64 与 Windows 11 ARM64 各运行五个直接及接线形态的用例。两边均能查询 `createOrder`，EOF 后接线代理分别约 5 ms 和 10 ms 退出。3.5 秒空闲配置下，EOF 和强制客户端退出后 daemon 与 watchdog 均在 4.1 秒内退出。禁用 daemon 的对照没有残留。使用的是受控客户端和缩短的空闲窗口。[CodeGraph v1.6.2](https://github.com/colbymchenry/codegraph/releases/tag/v1.6.2)
 
