@@ -1,13 +1,13 @@
 import{readFile,readdir,realpath,stat}from'node:fs/promises';import{join,isAbsolute,relative}from'node:path';import{homedir}from'node:os';import{parse}from'yaml';import{parse as toml}from'smol-toml';import{digest,safePath}from'./evidence.js';import type{Agent,SetupOptions}from'../types.js';import {sddDiscoveryNames,unqualifiedSkillName,type SkillSource} from '../integrations/sdd/binding.js';
 import {loadUpstreamLock} from '../integrations/upstream.js';
-export interface NativeDiscoveryOptions{home?:string;env?:Record<string,string|undefined>;legacyOpenSpecDiscovery?:true}
+export interface NativeDiscoveryOptions{home?:string;env?:Record<string,string|undefined>;requiredOpenSpecEntriesOnly?:true}
 export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean}|undefined{const front=text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);if(!front)return;const value=parse(front[1]);if(!value||typeof value.name!=='string'||typeof value.description!=='string')return;return{name:value.name,satisfies:value.dependencies===undefined||Array.isArray(value.dependencies)&&value.dependencies.length===0};}
 export async function discoverNativeSources(root:string,options:SetupOptions,dependencies:NativeDiscoveryOptions={}){
  const result:Partial<Record<Agent,SkillSource[]>>={};if(!options.sdd&&!options.customSkills?.length)return result;
  const metadataText=async(path:string)=>{if((await stat(path)).size>256000)throw Error('Native manager metadata exceeds budget');return readFile(path,'utf8');};
  const home=dependencies.home??homedir();const env=dependencies.env??(dependencies.home?{}:process.env);
  const pinned=options.sdd?(await loadUpstreamLock()).find(recipe=>recipe.integrationId===options.sdd)?.version:undefined;
- const wanted=new Set(options.sdd?sddDiscoveryNames(options.sdd,options.sdd!=='openspec'||!dependencies.legacyOpenSpecDiscovery):[]);
+ const wanted=new Set(options.sdd?sddDiscoveryNames(options.sdd,options.sdd!=='openspec'||!dependencies.requiredOpenSpecEntriesOnly):[]);
  for(const item of options.customSkills??[]){try{const text=await readFile(join(isAbsolute(item.source)?item.source:join(root,item.source),'SKILL.md'),'utf8');const m=nativeSkillMetadata(text);if(m)wanted.add(unqualifiedSkillName(m.name));}catch{}}
  const inside=(base:string,path:string)=>{const rel=relative(base,path);return rel===''||!rel.startsWith('..')&&!isAbsolute(rel);};
  for(const agent of options.agents){

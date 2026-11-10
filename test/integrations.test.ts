@@ -2,7 +2,9 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {writeFile,mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
 import {project} from './helpers.js';
+import {scanRepository} from '../src/analyzer/repository.js';
 import {writeNativeToolFixture} from './native-tool-fixture.js';
 import {npmCommand} from '../src/npm-command.mjs';
 import {renderCustomerTemplate} from '../src/integrations/custom-templates.js';
@@ -19,7 +21,7 @@ test('template_expressions_missing_values_and_fixed_flows_are_rejected',()=>proj
  await assert.rejects(renderCustomerTemplate(root,{source:'review.tmpl',target:'../escape.md',values:{projectName:'x'}},['docs/rigup'],'review'),/target/);
  await assert.rejects(renderCustomerTemplate(root,{source:'review.tmpl',target:'.agents/skills/change-deliver/SKILL.md',values:{projectName:'x'}},['.agents/skills'],'review'),/target|flow/);
 }));
-import {requireRecipeEvidence,selectUpdateVersion,type Recipe} from '../src/integrations/registry.js';
+import {prepareIntegrations,requireRecipeEvidence,selectUpdateVersion,type Recipe} from '../src/integrations/registry.js';
 const unverified:Recipe={integrationId:'fixture',kind:'tool',version:'1.0.0',sources:[],evidenceStatus:{source:false,contract:false,live:false}};
 test('unverified_recipe_cannot_execute_and_version_change_requires_evidence',()=>{
  assert.throws(()=>requireRecipeEvidence(unverified),/evidence|unverified/);
@@ -29,6 +31,18 @@ test('unverified_recipe_cannot_execute_and_version_change_requires_evidence',()=
 test('ordinary_update_keeps_locked_version',()=>{
  assert.equal(selectUpdateVersion(unverified,'0.9.0'),'0.9.0');
 });
+test('project Git ignores check results created after preparation',()=>project(async root=>{
+ execFileSync('git',['init','-q',root]);
+ const options={agents:['codex' as const],backend:'host' as const,mcp:[{id:'docs',agents:['codex' as const],url:'https://example.test/mcp'}]};
+ const prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ const ignore=prepared.assets.find(asset=>asset.target==='.rigup/.gitignore');
+ assert.ok(ignore);
+ const result='.rigup/check-results/local.json';
+ await mkdir(join(root,'.rigup','check-results'),{recursive:true});
+ await writeFile(join(root,ignore.target),ignore.content);
+ await writeFile(join(root,result),'{}');
+ assert.equal(execFileSync('git',['-C',root,'check-ignore',result],{encoding:'utf8'}).trim(),result);
+}));
 import {collectCustomSkill} from '../src/integrations/custom-skills.js';
 test('custom_skill_copies_resources_without_execution',()=>project(async root=>{
  const {access}=await import('node:fs/promises');
@@ -90,8 +104,6 @@ test('skill_source_conflicts_require_choice_and_satisfied_source_is_reused',()=>
  assert.equal(resolveSkillSource('review',[plugin,local],'plugin:review').identity,'plugin:review');
  assert.throws(()=>resolveSkillSource('review',[{...plugin,origin:'unknown'}]),/unknown|verify/);
 });
-import {prepareIntegrations} from '../src/integrations/registry.js';
-import {scanRepository} from '../src/analyzer/repository.js';
 test('prepare_plans_protected_tool_initialization_and_rejects_unknown_adapter',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const prepared=await prepareIntegrations(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}]});

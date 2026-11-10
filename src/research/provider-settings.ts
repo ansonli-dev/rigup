@@ -33,11 +33,11 @@ async function privateProvider(root:string):Promise<PrivateProvider|undefined>{
  return await readDurableRecord<PrivateProvider>(path,'Private research provider configuration',validate);
 }
 
-export async function resolveResearchProvider(root:string,modelOverride?:string,legacy?:Model):Promise<ResearchProvider|undefined>{
+export async function resolveResearchProvider(root:string,modelOverride?:string,projectModel?:Model):Promise<ResearchProvider|undefined>{
  const settings=await privateProvider(root);
  const selected=process.env.RIGUP_PROVIDER?.trim();
  if(selected&&!providers.includes(selected as Provider))throw Error('RIGUP_PROVIDER must be anthropic or openai-compatible');
- const configured=(selected as Provider|undefined)||settings?.provider||legacy?.provider;
+ const configured=(selected as Provider|undefined)||settings?.provider||projectModel?.provider;
  const candidates=configured?[]:providers.filter(provider=>{
   const names=envNames[provider];
   return process.env[names.key]?.trim()&&(modelOverride||process.env.RIGUP_MODEL_ID?.trim()||process.env[names.model]?.trim());
@@ -46,9 +46,9 @@ export async function resolveResearchProvider(root:string,modelOverride?:string,
  const provider=configured||candidates[0];
  if(!provider)return;
  const defaults=envNames[provider],privateSettings=settings?.provider===provider?settings:undefined;
- const legacySettings=legacy?.provider===provider?legacy:undefined;
- const model=(modelOverride??process.env.RIGUP_MODEL_ID??process.env[defaults.model]??privateSettings?.model??legacySettings?.model)?.trim();
- const apiKeyEnv=process.env.RIGUP_API_KEY_ENV??privateSettings?.apiKeyEnv??legacySettings?.apiKeyEnv??defaults.key;
+ const projectSettings=projectModel?.provider===provider?projectModel:undefined;
+ const model=(modelOverride??process.env.RIGUP_MODEL_ID??process.env[defaults.model]??privateSettings?.model??projectSettings?.model)?.trim();
+ const apiKeyEnv=process.env.RIGUP_API_KEY_ENV??privateSettings?.apiKeyEnv??projectSettings?.apiKeyEnv??defaults.key;
  if(!envRef.test(apiKeyEnv))throw Error('RIGUP_API_KEY_ENV must name an environment variable');
  const url=process.env.RIGUP_BASE_URL??process.env[defaults.url]??privateSettings?.baseURL??defaults.defaultURL;
  const baseURL=validateProviderBaseURL(url).href;

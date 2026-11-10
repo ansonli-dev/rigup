@@ -1,7 +1,6 @@
 import {parseDocument} from 'yaml';
 import {filterContent} from '../analyzer/read-policy.js';
 import {scanInstallationSources} from '../analyzer/repository.js';
-import type {NativeDiscoveryOptions} from '../analyzer/native-sources.js';
 import {realpath} from 'node:fs/promises';
 import {join,posix,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
@@ -182,17 +181,18 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
+ // Older CLI readers use the discovery marker to verify the full approved scope.
  const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:2,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan,allTargets),files,assets:nextAssets,baselines:baselineRecords};
  if(dependencies.skipUnchanged&&publicPreview.executable&&unchangedInstallation(data))return {...publicPreview,previewId:'',noChanges:true};
  const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
  return publicPreview;
 }
 
-export async function installationInput(root:string,plan:SetupPlan,managedTargets:string[],discovery:NativeDiscoveryOptions={}):Promise<string>{
+export async function installationInput(root:string,plan:SetupPlan,managedTargets:string[]):Promise<string>{
  // The apply journal verifies whole managed files, including customer content.
  // Keep those files out of the source snapshot so partial writes can resume.
  const scopes=[...plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites),...managedTargets];
- const profile=await scanInstallationSources(root,plan.options,discovery,scopes);
+ const profile=await scanInstallationSources(root,plan.options,scopes);
  const values:string[]=[];
  for await(const {target:path,state} of readFileStates(root,profile.files)) {
   if(!state.bytes)throw Error('source input changed while preparing installation');

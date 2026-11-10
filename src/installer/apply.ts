@@ -19,7 +19,6 @@ import {assertNoUnknownWriters,operationExecutor,queryOperation,type OperationDe
 import {privateDirectory,signature,saveCache} from '../generator/cache.js';
 import {digest} from '../analyzer/evidence.js';
 import {scanRepository} from '../analyzer/repository.js';
-import type {NativeDiscoveryOptions} from '../analyzer/native-sources.js';
 import {atomicProjectWrite} from './manifest.js';
 import {targetPath,ownedContent} from './ownership.js';
 import {loadManifest,type Manifest} from './baseline.js';
@@ -130,16 +129,10 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    completed=total;step('verified completed installation','reused');return {...tx.report!,written:[]};
   }
   if((currentManifest?digest(currentManifest):absentDigest)!==data.manifestDigest)throw new Error('manifest changed since preview');
-  let discovery:NativeDiscoveryOptions={};
   const managedTargets=data.files.map(file=>file.target);
-  if(await installationInput(root,data.plan,managedTargets,discovery)!==data.inputSnapshot){
-   if(data.nativeDiscoveryVersion||data.plan.options.sdd!=='openspec')throw Error('source input changed since preview');
-   // Older approvals never observed optional external OpenSpec entries.
-   discovery={legacyOpenSpecDiscovery:true};
-   if(await installationInput(root,data.plan,managedTargets,discovery)!==data.inputSnapshot)throw Error('source input changed since preview');
-  }
+  if(await installationInput(root,data.plan,managedTargets)!==data.inputSnapshot)throw Error('source input changed since preview');
   if(!tx) {
-   if((await scanRepository(root,data.plan.options,discovery)).fingerprint!==data.plan.fingerprint)throw new Error('research input changed since generation');
+   if((await scanRepository(root,data.plan.options)).fingerprint!==data.plan.fingerprint)throw new Error('research input changed since generation');
    const files=previewFileTransitions(data);
    for(const f of data.files){
     const actual=await readFileState(root,f.target);

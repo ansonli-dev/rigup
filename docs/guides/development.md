@@ -36,6 +36,14 @@ Use `$env:TEMP` for Windows scratch paths. Git Bash's `/tmp` can resolve to a di
 - `src/installer/` handles preview, ownership, apply, and recovery. `src/integrations/` binds native entry points and pinned tools.
 - `templates/` contains installed skills and their references. `scripts/release/` builds and verifies portable distributions.
 
+## Compatibility checks
+
+- Research resume detects saved v0.1.1 ledgers and current OpenSpec runs whose fingerprints changed after optional skills appeared. Detecting the earlier run preserves its ledger and prevents a new provider dispatch.
+- Apply checks the full approved discovery scope. The implementation version checks already reject released previews that predate the discovery marker. New previews still carry the marker so older CLI readers check the same scope.
+- Current research results can omit topic IDs. Matching guidance by topic name in that case prevents duplicate rules. Provider selection still reads model and credential references from project configuration.
+- The managed `.rigup/.gitignore` always covers `/check-results/`, so results created later stay out of Git. Installed projects can see this entry added on their next update.
+- Windows cache creation and validation enforce private ACLs for new and existing state. Unsafe directories need manual reconciliation. [Windows cache recovery](usage.md#应用与恢复)
+
 ## Opt-in integrations
 
 Use a named scenario and a new private evidence directory. Read its limits before enabling model requests and retain usage across retries.

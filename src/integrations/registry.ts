@@ -5,7 +5,7 @@ import {prepareNativeInitialization} from './tools/initialization.js';
 import {toolPackage} from './tools/recipes.js';
 import type {SetupOperation,SetupRequirement} from '../types.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
-import {lstat,readFile} from 'node:fs/promises';
+import {readFile} from 'node:fs/promises';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
 import {projectMcpArgs} from './tools/project-mcp-entry.js';
 import {collectCustomSkill} from './custom-skills.js';
@@ -114,8 +114,7 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
  if(profile.git.available&&(assets.length||bindings.length)){
   const ownership={kind:'block' as const,start:'# rigup:start',end:'# rigup:end'};
-  const legacyResults=await lstat(resolve(profile.root,'.rigup/check-results')).then(()=>true).catch(error=>{if(error.code!=='ENOENT')throw error;return false;});
-  const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/',...(legacyResults?['/check-results/']:[]),ownership.end,''].join('\n');
+  const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/','/check-results/',ownership.end,''].join('\n');
   push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
  }
  for(let i=operations.length-1;i>=0;i--) {
