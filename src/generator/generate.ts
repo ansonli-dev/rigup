@@ -32,8 +32,11 @@ export async function prepareGeneration(profile:ProjectProfile,options:SetupOpti
  return {integration,fixedTemplates};
 }
 
-function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,assets:PreparedAsset[],dispositions:AssetDisposition[],projectRules?:SetupPlan['projectRules']):SetupPlan{
- validateNavigation(assets,profile.files);
+function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,assets:PreparedAsset[],dispositions:AssetDisposition[],previousAssets:ManagedAsset[],projectRules?:SetupPlan['projectRules']):SetupPlan{
+ const retainedIds=new Set(dispositions.filter(d=>d.action==='retain').map(d=>d.logicalId));
+ const retainedTargets=previousAssets.filter(a=>retainedIds.has(a.logicalId)).map(a=>a.target);
+ // The research inventory excludes managed files. Preview checks retained targets on disk.
+ validateNavigation(assets,[...profile.files,...retainedTargets]);
  const seen=new Set<string>();
  for(const asset of assets){
   const key=asset.target+signature(asset.ownership);
@@ -51,7 +54,7 @@ export async function generateFoundation(profile:ProjectProfile,options:SetupOpt
  const candidates=await renderFixed(profile,options,integration,[],[],fixedTemplates,true);
  const assets=preserveWorkflowContext?candidates.filter(candidate=>integration.assets.includes(candidate)||candidate.target.endsWith('/SKILL.md')||!previousAssets.some(asset=>asset.logicalId===candidate.logicalId)):candidates;
  const dispositions:AssetDisposition[]=previousAssets.map(asset=>({logicalId:asset.logicalId,action:assets.some(candidate=>candidate.logicalId===asset.logicalId)?'update':'retain',reason:'Refresh fixed configuration while preserving existing project guidance'}));
- return setupPlan(profile,options,integration,assets,dispositions,'pending');
+ return setupPlan(profile,options,integration,assets,dispositions,previousAssets,'pending');
 }
 
 export async function generate(profile:ProjectProfile,options:SetupOptions,backend:AnalysisBackend,previousAssets:ManagedAsset[]=[],dependencies:GenerationDependencies={}):Promise<StepResult<SetupPlan>> {
@@ -199,7 +202,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  });
  // After installation the inventory changes from the input to these accepted candidates.
  const retained=previousAssets.filter(a=>dispositions.some(d=>d.logicalId===a.logicalId&&d.action==='retain')&&!assets.some(n=>n.logicalId===a.logicalId));
- const plan=setupPlan(profile,options,integration,assets,dispositions,wantsRules?'ready':undefined);
+ const plan=setupPlan(profile,options,integration,assets,dispositions,previousAssets,wantsRules?'ready':undefined);
  state.resultInventory=inventorySignature([...assets.map(a=>({...a,digest:digest(a.encoding==='base64'?Buffer.from(a.content,'base64'):a.content)})),...retained]);await persist();
  return {status:'complete',value:plan};
 }

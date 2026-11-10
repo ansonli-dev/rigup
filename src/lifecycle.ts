@@ -195,7 +195,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(flags.configure){const candidate=await configurationCandidate(root,options);plan.assets.push(candidate);const raw=await readTarget(root,candidate.target);resolutions.push({target:candidate.target,selector:candidate.ownership,observedDigest:raw?digest(raw):absentDigest,action:'replace'});}
   for(const id of flags.retireIds??[]){const disposition=plan.dispositions.find(d=>d.logicalId===id);if(!disposition)throw new Error('retirement id not in old inventory');if(plan.assets.some(a=>a.logicalId===id))throw new Error('retirement contradicts selected capability');disposition.action='retire';disposition.reason='Explicit retirement authorized before research';}
   for(const d of plan.dispositions)if(d.action==='retire'&&!flags.retireIds?.includes(d.logicalId))plan.requirements.push({integrationId:d.logicalId,reason:'Retirement is outside current consent; rerun with --retire '+d.logicalId});
-  emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,next:'apply or explicit review',waiting:'ownership and virtual-tree checks'});
+  emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,waiting:'ownership and virtual-tree checks'});
   plan.runChecks=flags.runChecks??[];
   const result=await preview(plan,resolutions,{cacheRoot:previews,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review});
   if(result.noChanges){
@@ -211,12 +211,21 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    write('Installation is up to date.\n');
    return 0;
   }
-  services.report?.({phase:'preview',installStatus:'not-installed',...result,pending:plan.requirements,conflicts:result.items.filter(i=>i.action==='conflict'),...(recovery?.nextCommand?{nextCommand:recovery.nextCommand}:{})});
+  const conflicts=result.items.filter(i=>i.action==='conflict');
+  const failed=!result.executable&&(conflicts.length>0||!plan.requirements.length);
+  const reviewCommand=old&&conflicts.length?'rigup update '+quote(root)+' --review':undefined;
+  const nextCommand=reviewCommand??recovery?.nextCommand;
+  const installStatus=conflicts.length?'conflict':failed?'failed':result.executable?'not-installed':'pending';
+  services.report?.({phase:'preview',installStatus,...result,pending:plan.requirements,conflicts,nextCommand:nextCommand??null,...(failed?{error:result.blockers.join('\n')}:{})});
   write('Preview '+result.previewId+'\n');for(const item of result.items){write(item.action+' '+item.target+(item.reason?' — '+item.reason:'')+'\n');if(item.beforeMode!==item.afterMode){const format=(value:number|undefined)=>value===undefined?'absent':value.toString(8).padStart(4,'0');write('mode '+format(item.beforeMode)+' -> '+format(item.afterMode)+'\n');}if(item.before!==undefined)write('--- owned before (filtered, max 4000 chars)\n'+item.before+'\n');if(item.after!==undefined)write('+++ owned after (filtered, max 4000 chars)\n'+item.after+'\n');}for(const operation of result.operations)write('operation '+operation.id+' '+operation.version+' scope '+operation.declaredWrites.join(', ')+'\n');
   for(const blocker of result.blockers)write('Blocked: '+blocker+'\n');
   for(const requirement of plan.requirements)if(requirement.nextCommand)write('Initialize the native workflow, then repeat the Rigup command:\n'+requirement.nextCommand+'\n');
-  emit({stage:'preview',completed:result.items.length,total:result.items.length,status:result.executable?'complete':result.items.some(i=>i.action==='conflict')?'failed':'waiting',requiresUserAction:!result.executable,next:flags.dryRun?'dry-run preview finished; not installed':'apply'});
-  if(!result.executable)return result.items.some(i=>i.action==='conflict')||!plan.requirements.length?1:3;
+  if(reviewCommand)write('After resolving the conflicts, run:\n'+reviewCommand+'\n');
+  if(!result.executable){
+   emit({stage:'preview',completed:result.items.length,total:result.items.length,status:failed?'failed':'waiting',requiresUserAction:true,next:'resolve blockers and review again'});
+   return failed?1:3;
+  }
+  emit({stage:'preview',completed:result.items.length,total:result.items.length,status:'complete',next:flags.dryRun?'dry-run preview finished; not installed':'apply'});
   if(flags.dryRun)return 0;
   if(await handoff(result))return 3;
   const installed=await apply(result.previewId,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,onProgress:emit,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});

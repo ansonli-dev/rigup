@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 · 2026-11-10 · Development preview
+
+- Resolve retained OpenSpec workflow references when reviewing an update after applying project rules. An unchanged review returns exit code 0.
+- Report managed entry block conflicts with the actual cause and a command to run after resolving the conflict. Preserve local edits and block apply until a new preview is ready.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.3.2) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.2)
+
 ## 0.3.1 · 2026-11-10 · Development preview
 
 - Create Windows private state and cache directories with protected NTFS permissions. Include the account name and SID when an ACL blocks access.
