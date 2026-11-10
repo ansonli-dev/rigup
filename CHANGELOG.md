@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3 · 2026-11-10 · Development preview
+
+- Exclude generated Spec Kit files from host research requests while retaining the constitution, authored specifications, and native skill discovery. Pending requests whose evidence changed need a new review.
+- Require the current source snapshot format for apply. Published previews that already required regeneration still do, and supported interrupted approvals retain their recovery path.
+- Document Windows test setup and Superpowers version rejection. Record Claude MCP connections on macOS and Windows using the public v0.3.2 package.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.3.3) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.3)
+
 ## 0.3.2 · 2026-11-10 · Development preview
 
 - Resolve retained OpenSpec workflow references when reviewing an update after applying project rules. An unchanged review returns exit code 0.

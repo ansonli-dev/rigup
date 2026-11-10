@@ -1,6 +1,6 @@
 import {parseDocument} from 'yaml';
 import {filterContent} from '../analyzer/read-policy.js';
-import {scanRepository} from '../analyzer/repository.js';
+import {scanInstallationSources} from '../analyzer/repository.js';
 import type {NativeDiscoveryOptions} from '../analyzer/native-sources.js';
 import {realpath} from 'node:fs/promises';
 import {join,posix,isAbsolute} from 'node:path';
@@ -192,7 +192,7 @@ export async function installationInput(root:string,plan:SetupPlan,managedTarget
  // The apply journal verifies whole managed files, including customer content.
  // Keep those files out of the source snapshot so partial writes can resume.
  const scopes=[...plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites),...managedTargets];
- const profile=await scanRepository(root,plan.options,discovery,scopes);
+ const profile=await scanInstallationSources(root,plan.options,discovery,scopes);
  const values:string[]=[];
  for await(const {target:path,state} of readFileStates(root,profile.files)) {
   if(!state.bytes)throw Error('source input changed while preparing installation');

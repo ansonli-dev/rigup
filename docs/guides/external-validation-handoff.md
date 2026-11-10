@@ -86,7 +86,7 @@ JS
 
 原生 Windows 使用 `rigup init --agents claude --sdd openspec --defer-research --prepare-openspec` 准备 OpenSpec。下面的 `npm install --prefix` 示例适用于 macOS 和 Linux。
 
-验证 Spec Kit 时，用 `specify init --here --integration claude` 准备原生技能，核对 `speckit-constitution` 和 `speckit-specify` 等入口。验证 Superpowers 时，记录插件版本和 Rigup 预览中报告的版本冲突。
+验证 Spec Kit 时，用 `specify init --here --integration claude` 准备原生技能，核对 `speckit-constitution` 和 `speckit-specify` 等入口。验证 Superpowers 时，记录插件版本。插件版本和 `upstream-lock.json` 的锁定版本不一致时，Rigup 会阻止绑定和应用，预览显示 `Native superpowers version X differs from verified Y`。切换到锁定版本后重新预览。 [上游锁](../compatibility/upstream-lock.json)
 
 ```sh
 cd "$RIGUP_SOURCE"
@@ -179,6 +179,8 @@ uname -a
 ## W2 · 原生 Windows
 
 用 PowerShell 7、Windows Node.js 24.x 和 Git for Windows，在 NTFS 私有目录做源码探针。记录 Windows build 与架构。POSIX `ps`、进程组、mode/ACL 和 shell hooks 是当前平台移植验证点。CLI help 与 installer 验收分开记录。[PowerShell 安装](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)
+
+用单独的 PowerShell 终端跑下面的默认测试，先清除 `ANTHROPIC*`、`CLAUDE*`、`CODEX*` 和 `OPENAI*` 环境变量。需要登录的 live 探针在另一个已配置的终端运行。 [Windows 测试准备](development.md#windows-and-agent-sessions)
 
 ```powershell
 $CaseRoot = Join-Path $env:USERPROFILE ('.rigup-validation\' + [guid]::NewGuid())

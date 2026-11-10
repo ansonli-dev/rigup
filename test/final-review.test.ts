@@ -1,6 +1,7 @@
 import{test}from'node:test';import assert from'node:assert/strict';import{mkdir,writeFile,readFile,readdir,rm,rename}from'node:fs/promises';import{join}from'node:path';import{execFile}from'node:child_process';import{promisify}from'node:util';import{project}from'./helpers.js';
 import{scanRepository,repositoryReader}from'../src/analyzer/repository.js';import{hostBackend}from'../src/analyzer/host.js';import{validateOptions}from'../src/config.js';import{prepareIntegrations}from'../src/integrations/registry.js';import{runCli}from'../src/cli.js';import{digest}from'../src/analyzer/evidence.js';import{prepareSoftwareInstall}from'../src/integrations/tools/software.js';
-import{generate}from'../src/generator/generate.js';
+import{generate,generateFoundation,prepareGeneration}from'../src/generator/generate.js';
+import{preview}from'../src/installer/preview.js';
 import {writeNativeToolFixture} from './native-tool-fixture.js';
 const exec=promisify(execFile);const opts={agents:['codex' as const],backend:'host' as const};
 const openspec=['openspec-propose','openspec-apply-change','openspec-archive-change'];const powers=['brainstorming','writing-plans','executing-plans','verification-before-completion'];
@@ -21,6 +22,27 @@ test('review_superpowers_local_unprefixed_native_names_satisfy_binding',()=>proj
 test('review_enabled_global_plugin_sources_are_discovered_with_native_identity',()=>project(async root=>project(async home=>{
  const base=home+'/.codex/plugins/cache/fixture-market/superpowers/7.0.1';await mkdir(base+'/.claude-plugin',{recursive:true});await writeFile(base+'/.claude-plugin/plugin.json',JSON.stringify({name:'superpowers',version:'7.0.1'}));for(const name of powers)await skill(base+'/skills',name);await writeFile(home+'/.codex/config.toml','[plugins."superpowers@fixture-market"]\nenabled = true\n');const selected={...opts,sdd:'superpowers' as const};const profile=await scanRepository(root,selected,{home});const prepared=await prepareIntegrations(profile,selected);assert.deepEqual(prepared.requirements,[]);assert.ok(profile.skillSources?.codex?.some(s=>s.origin==='plugin'));
 })));
+for(const [version,accepted] of [['7.0.1',true],['7.0.2',false]] as const){
+ test('Claude Superpowers '+version+(accepted?' matches the verified lock':' blocks preview because it differs from the verified lock'),()=>project(async root=>project(async home=>project(async cache=>{
+  const pluginId='superpowers@fixture-market';
+  const plugin=join(home,'.claude','plugins','cache','fixture-market','superpowers',version);
+  await mkdir(join(plugin,'.claude-plugin'),{recursive:true});
+  await writeFile(join(plugin,'.claude-plugin','plugin.json'),JSON.stringify({name:'superpowers',version}));
+  for(const name of powers)await skill(join(plugin,'skills'),name);
+  await writeFile(join(home,'.claude','settings.json'),JSON.stringify({enabledPlugins:{[pluginId]:true}}));
+  await writeFile(join(home,'.claude','plugins','installed_plugins.json'),JSON.stringify({version:2,plugins:{[pluginId]:[{scope:'user',installPath:plugin,version}]}}));
+
+  const options={agents:['claude' as const],backend:'host' as const,sdd:'superpowers' as const};
+  const profile=await scanRepository(root,options,{home});
+  const prepared=await prepareGeneration(profile,options);
+  const plan=await generateFoundation(profile,options,prepared);
+  const result=await preview(plan,[],{cacheRoot:cache});
+  assert.equal(result.executable,accepted);
+  assert.equal(prepared.integration.bindings.length,accepted?1:0);
+  if(accepted)assert.deepEqual(result.blockers,[]);
+  else assert.match(result.blockers.join('\n'),/Native superpowers version 7\.0\.2 differs from verified 7\.0\.1/);
+ }))));
+}
 test('review_sdd_dependencies_and_conflicting_identities_are_not_name_only_bindings',()=>project(async root=>{
  for(const name of openspec)await skill(root+'/.agents/skills',name,true);const selected={...opts,sdd:'openspec' as const};let prepared=await prepareIntegrations(await scanRepository(root,selected),selected);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements.map(r=>r.reason).join(' '),/dependency|verification/);
  for(const name of openspec)await skill(root+'/.agents/skills',name);await skill(root+'/.agents/skills/duplicate','openspec-propose');await writeFile(root+'/.agents/skills/duplicate/openspec-propose/SKILL.md','---\nname: openspec-propose\ndescription: Different native implementation\n---\nDifferent behavior.\n');prepared=await prepareIntegrations(await scanRepository(root,selected),selected);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements.map(r=>r.reason).join(' '),/conflict/);
