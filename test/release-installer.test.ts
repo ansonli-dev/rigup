@@ -119,14 +119,14 @@ async function fixture(run: (f: any) => Promise<void>) {
 test('installer verifies then installs repeats and upgrades without deleting the old version', portableInstallerOnly, () =>
   fixture(async (f) => {
     f.add('0.1.0');
-    f.add('0.1.1');
+    f.add('0.1.2');
     assert.equal((await f.install()).code, 0);
     const bin = join(f.env.RIGUP_BIN_DIR, 'rigup');
     assert.equal((await exec(bin, ['--version'])).stdout.trim(), '0.1.0');
     assert.equal((await f.install()).code, 0);
-    assert.equal((await f.install('0.1.1')).code, 0);
-    assert.equal((await exec(bin, ['--version'])).stdout.trim(), '0.1.1');
-    assert.equal(await readlink(bin), join(f.env.RIGUP_INSTALL_DIR, 'versions/v0.1.1/rigup'));
+    assert.equal((await f.install('0.1.2')).code, 0);
+    assert.equal((await exec(bin, ['--version'])).stdout.trim(), '0.1.2');
+    assert.equal(await readlink(bin), join(f.env.RIGUP_INSTALL_DIR, 'versions/v0.1.2/rigup'));
     assert.equal((await stat(join(f.env.RIGUP_INSTALL_DIR, 'versions/v0.1.0/rigup'))).isFile(), true);
     assert.equal((await f.install()).code, 0);
     assert.equal((await exec(bin, ['--version'])).stdout.trim(), '0.1.0');
@@ -135,15 +135,15 @@ test('checksum failure preserves the installed command and never promotes the ne
   fixture(async (f) => {
     f.add('0.1.0');
     assert.equal((await f.install()).code, 0);
-    f.add('0.1.1', {badHash: true});
-    const failed = await f.install('0.1.1');
+    f.add('0.1.2', {badHash: true});
+    const failed = await f.install('0.1.2');
     assert.notEqual(failed.code, 0);
     assert.match(failed.stderr, /checksum/i);
     assert.equal(
       await readlink(join(f.env.RIGUP_BIN_DIR, 'rigup')),
       join(f.env.RIGUP_INSTALL_DIR, 'versions/v0.1.0/rigup'),
     );
-    await assert.rejects(stat(join(f.env.RIGUP_INSTALL_DIR, 'versions/v0.1.1')));
+    await assert.rejects(stat(join(f.env.RIGUP_INSTALL_DIR, 'versions/v0.1.2')));
   }));
 test('an unrelated rigup command is never replaced or executed', portableInstallerOnly, () =>
   fixture(async (f) => {
@@ -215,9 +215,9 @@ test('an installed command replaced by a directory cannot receive the next versi
     const prior = join(f.env.RIGUP_INSTALL_DIR, 'versions/v0.1.0/rigup');
     await rm(prior);
     await mkdir(prior);
-    f.add('0.1.1');
+    f.add('0.1.2');
     const before = f.requests();
-    const result = await f.install('0.1.1');
+    const result = await f.install('0.1.2');
     assert.notEqual(result.code, 0);
     assert.match(result.stderr, /unrelated|refus/i);
     assert.equal(f.requests(), before);

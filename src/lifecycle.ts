@@ -128,7 +128,6 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    if(!run&&flags.resume&&options.sdd){
     // Older evidence and discovery contracts use different consent keys for the same project.
     const priorContracts=[
-     {versions:{prompt:'4',template:'1',document:'1',read:'6'},label:'v0.1.1 evidence contract',build:'v0.1.1'},
      {versions:{prompt:'7',template:'2',document:'1',read:'6'},label:'single-document evidence contract',build:'the previous Rigup build'},
      {versions:{prompt:'8',template:'2',document:'1',read:'6'},label:'previous topic evidence contract',build:'the previous Rigup build'},
      {versions:{prompt:'9',template:'2',document:'1',read:'6'},label:'previous evidence and template contract',build:'the previous Rigup build'},
