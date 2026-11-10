@@ -103,7 +103,7 @@ test('complete release is bound to four targets and a single verified npm packag
 test('tag version mismatch and incomplete artifact sets fail before staging a release', async (t) => {
   const {validateReleaseAssets} = await import('../scripts/release/publish.mjs');
   const {options} = await fixture(t);
-  await assert.rejects(validateReleaseAssets({...options, tag: 'v0.1.1'}), /tag.*version/i);
+  await assert.rejects(validateReleaseAssets({...options, tag: 'v0.1.2'}), /tag.*version/i);
   await rm(join(options.artifactsDir, 'rigup-linux-arm64'), {recursive: true});
   await assert.rejects(validateReleaseAssets(options), /artifact.*set/i);
 });

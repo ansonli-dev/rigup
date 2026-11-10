@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.5 · 2026-11-10 · Development preview
+
+- Remove detection of saved v0.1.1 research ledgers during resume.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.3.5) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.5)
+
 ## 0.3.4 · 2026-11-10 · Development preview
 
 - Apply verifies the full OpenSpec discovery scope even when a preview lacks a discovery marker. Interrupted approvals from supported releases can still resume.

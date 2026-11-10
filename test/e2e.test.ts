@@ -3,8 +3,7 @@ import {join} from 'node:path';import assert from 'node:assert/strict';
 import {openspecFixturePath,project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
 import {runCli} from '../src/cli.js';
 import {scanRepository} from '../src/analyzer/repository.js';
-import {signature} from '../src/generator/cache.js';
-import {absentDigest,preview} from '../src/installer/preview.js';
+import {preview} from '../src/installer/preview.js';
 import {apply} from '../src/installer/apply.js';
 import {loadContinuation} from '../src/lifecycle.js';
 import {CodexTokenLimit} from '../src/analyzer/budget.js';
@@ -108,18 +107,6 @@ test('research_reader_budget_survives_lifecycle_pause_and_new_cli_instance',()=>
  const backend={run:async(_r:any,reader:any)=>{await reader.read('source.txt',1);return {status:'pending-host' as const,requestId:'fixture',requestPath:cache+'/fixture.json',nextCommand:'continue'};}};
  let output='';const io=()=>({cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}});
  assert.equal(await runCli(['init','--json'],io()),3);output='';assert.equal(await runCli(['update','--json'],io()),1);assert.match(JSON.parse(output).error,/reader.*budget/);
-}));
-test('resume after upgrading refuses to silently replace a v0.1.1 research ledger',()=>fixture(async(root,cache,state)=>{
- const options={agents:['codex' as const],backend:'codex' as const,sdd:'openspec' as const};
- const {fingerprint}=await scanRepository(root,options);
- const consent=signature({root,options,configDigest:absentDigest,retireIds:[],runChecks:[],configure:false,executionMode:'dry-run',versions:{prompt:'4',template:'1',document:'1',read:'6'},fingerprint});
- const stored=JSON.stringify({root,options,mode:{dryRun:true},runId:'interrupted-research',spent:{calls:1,tokens:'unknown'},consent});
- await mkdir(state+'/runs',{mode:0o700});await writeFile(state+'/runs/'+consent+'.json',stored,{mode:0o600});
- let output='',calls=0;
- const backend={run:async()=>{calls++;throw Error('unexpected dispatch');}};
- const code=await runCli(['init','--agents','codex','--sdd','openspec','--dry-run','--resume','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}});
- assert.equal(code,1);assert.match(JSON.parse(output).error,/v0\.1\.1 evidence contract/);assert.equal(calls,0);
- assert.equal(await readFile(state+'/runs/'+consent+'.json','utf8'),stored);assert.deepEqual(await readdir(state+'/runs'),[consent+'.json']);
 }));
 test('resume finds the saved OpenSpec research after optional external entries become visible',()=>fixture(async(root,cache,state)=>project(async home=>{
  const previousHome=process.env.CODEX_HOME;

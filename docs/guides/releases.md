@@ -16,20 +16,20 @@ To pin or roll back the CLI, install a specific version such as `npm install -g 
 If the original v0.1.0 GitHub `.tgz` is installed in the same npm prefix, run `npm uninstall -g rigup` there before installing the scoped package. The GitHub archive is also available as a direct download for Node.js users.
 
 ```sh
-npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.3.4/rigup-0.3.4.tgz
+npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.3.5/rigup-0.3.5.tgz
 ```
 
 ## Portable installer
 
-Use the v0.3.4 release on macOS or Linux (ARM64 or x64). The portable archive includes Node.js. Keep Git and standard POSIX tools, including `ps`, on PATH. Linux needs glibc 2.35 or later. macOS launchers are ad-hoc signed. Windows users can run the Linux build inside WSL2. [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.4) · [Platform checks](../compatibility/status.md) · [Windows handoff](external-validation-handoff.md)
+Use the v0.3.5 release on macOS or Linux (ARM64 or x64). The portable archive includes Node.js. Keep Git and standard POSIX tools, including `ps`, on PATH. Linux needs glibc 2.35 or later. macOS launchers are ad-hoc signed. Windows users can run the Linux build inside WSL2. [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.5) · [Platform checks](../compatibility/status.md) · [Windows handoff](external-validation-handoff.md)
 
 ```sh
-curl -fsSL --proto '=https' https://github.com/ansonli-dev/rigup/releases/download/v0.3.4/install.sh | sh
+curl -fsSL --proto '=https' https://github.com/ansonli-dev/rigup/releases/download/v0.3.5/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 rigup --version
 ```
 
-The versioned installer checks the archive checksum and links `rigup` into `~/.local/bin`. The public entry point selects the latest verified portable release. [v0.3.4 installer](https://github.com/ansonli-dev/rigup/releases/download/v0.3.4/install.sh) · [Entry point source](https://github.com/ansonli-dev/rigup/blob/main/install.sh)
+The versioned installer checks the archive checksum and links `rigup` into `~/.local/bin`. The public entry point selects the latest verified portable release. [v0.3.5 installer](https://github.com/ansonli-dev/rigup/releases/download/v0.3.5/install.sh) · [Entry point source](https://github.com/ansonli-dev/rigup/blob/main/install.sh)
 
 Run `rigup init` from your project directory. Generate rules through Rigup MCP in the selected agent or configure a CLI provider. The npm CLI and project-local MCP launchers share the runtime requirements above. The launchers use Node from the agent's PATH. The portable CLI bundles Node.js 24. The runtime needs built-in SQLite for CodeGraph index verification and consistent Windows file identities for protected writes. [Node 22 libuv update](https://nodejs.org/en/blog/release/v22.17.0) · [Node 24 libuv update](https://nodejs.org/en/blog/release/v24.2.0)
 
@@ -39,10 +39,10 @@ Run `rigup init` from your project directory. Generate rules through Rigup MCP i
 
 ## Manual download
 
-Choose `rigup-0.3.4-<target>.tar.gz` and `SHA256SUMS` from the same release. Use `darwin-arm64` for Apple Silicon, `darwin-x64` for Intel Mac, and `linux-arm64` or `linux-x64` for Linux. Check `uname -m` if unsure.
+Choose `rigup-0.3.5-<target>.tar.gz` and `SHA256SUMS` from the same release. Use `darwin-arm64` for Apple Silicon, `darwin-x64` for Intel Mac, and `linux-arm64` or `linux-x64` for Linux. Check `uname -m` if unsure.
 
 ```sh
-archive=rigup-0.3.4-darwin-arm64.tar.gz
+archive=rigup-0.3.5-darwin-arm64.tar.gz
 awk -v name="$archive" '$2 == name {print; found++} END {if (found != 1) exit 1}' SHA256SUMS > "$archive.sha256" &&
   shasum -a 256 -c "$archive.sha256" &&
   tar -xzf "$archive" &&

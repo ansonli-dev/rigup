@@ -9,7 +9,7 @@ import {test, type TestContext} from 'node:test';
 const name = '@ansonli.dev/rigup';
 const registry = 'https://registry.npmjs.org/';
 
-async function fixture(t: TestContext, version = '0.1.1', manifest = {name, version}) {
+async function fixture(t: TestContext, version = '0.1.2', manifest = {name, version}) {
   const directory = await mkdtemp(join(tmpdir(), 'rigup-npm-release-'));
   t.after(() => rm(directory, {recursive: true, force: true}));
   await mkdir(join(directory, 'package'));
@@ -22,7 +22,7 @@ async function fixture(t: TestContext, version = '0.1.1', manifest = {name, vers
 
 test('npm publishes the verified tarball with latest by default and next for prereleases', async (t) => {
   const {publishNpmArchive} = await import('../scripts/release/publish-npm.mjs');
-  for (const [version, tags] of [['0.1.1', []], ['0.2.0-rc.1', ['--tag', 'next']]] as const) {
+  for (const [version, tags] of [['0.1.2', []], ['0.2.0-rc.1', ['--tag', 'next']]] as const) {
     const options = await fixture(t, version);
     const commands: string[][] = [];
     const result = await publishNpmArchive({
@@ -62,9 +62,9 @@ test('the npm job rejects changed bytes or a different package identity before r
   };
   const options = await fixture(t);
   await assert.rejects(publishNpmArchive({...options, ...refuse, expectedIntegrity: ''}), /archive integrity/i);
-  const wrongName = await fixture(t, '0.1.1', {name: 'rigup', version: '0.1.1'});
+  const wrongName = await fixture(t, '0.1.2', {name: 'rigup', version: '0.1.2'});
   await assert.rejects(publishNpmArchive({...wrongName, ...refuse}), /package name/i);
-  const wrongVersion = await fixture(t, '0.1.1', {name, version: '0.1.0'});
+  const wrongVersion = await fixture(t, '0.1.2', {name, version: '0.1.0'});
   await assert.rejects(publishNpmArchive({...wrongVersion, ...refuse}), /package version/i);
 });
 
