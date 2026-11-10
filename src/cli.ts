@@ -294,7 +294,7 @@ export async function runCli(argv:string[],io:CliIO):Promise<number>{
  if(!argv.includes('--json'))return runCliInternal(argv,io);
  let actual:Record<string,unknown>={};let last='';const report=(value:Record<string,unknown>)=>{actual=value;io.services?.report?.(value);};
  const code=await runCliInternal(argv.filter(a=>a!=='--json'),{...io,isTTY:false,read:undefined,write:text=>{last=text;io.writeError?.(text);},services:{...io.services,report}});
- const result={phase:actual.phase??'preflight',installStatus:actual.installStatus??(code===0?'complete':code===3?'pending':'failed'),checks:[],pending:[],conflicts:[],requiredInput:[],nextCommand:null,...actual,exitCode:code,...((code===1||code===2)?{error:last.trim()}:{} )};io.write(JSON.stringify(result)+'\n');return code;
+ const result={phase:actual.phase??'preflight',installStatus:actual.installStatus??(code===0?'complete':code===3?'pending':'failed'),checks:[],pending:[],conflicts:[],requiredInput:[],nextCommand:null,...actual,exitCode:code,...((code===1||code===2)?{error:actual.error??last.trim()}:{})};io.write(JSON.stringify(result)+'\n');return code;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(await realpath(resolve(process.argv[1]))).href){
  const argv=process.argv.slice(2);

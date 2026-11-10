@@ -1,18 +1,19 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile,rm,writeFile} from 'node:fs/promises';
-import {join} from 'node:path';
-import {project} from './helpers.js';
+import {mkdir,readFile,rm,writeFile} from 'node:fs/promises';
+import {dirname,join} from 'node:path';
+import {openspecFixturePath,project} from './helpers.js';
 import {runCli} from '../src/cli.js';
 import {openResearchMcp} from '../src/research/mcp-workflow.js';
+import {quoteShell} from '../src/shell-command.js';
 
 async function fixture(run:(root:string,cacheRoot:string,stateRoot:string)=>Promise<void>){
  await project(root=>project(cache=>project(state=>run(root,cache,state))));
 }
-function cli(root:string,cacheRoot:string,stateRoot:string){
+function cli(root:string,cacheRoot:string,stateRoot:string,writeError?:(text:string)=>void){
  return async(args:string[],expected:number)=>{
   let output='';
-  const result=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot,stateRoot}});
+  const result=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:s=>output+=s,writeError,services:{cacheRoot,stateRoot}});
   assert.equal(result,expected,output);
   return JSON.parse(output);
  };
@@ -93,22 +94,71 @@ test('MCP rejects excluded citations, a different root, and source drift',()=>fi
  assert.equal(narrowed.job?.options.documentLanguage,'zh-CN');
 }));
 
-test('review reports a locally edited owned entry block before pending research',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+test('provider-free OpenSpec review resolves retained references after applying project rules',()=>fixture(async(root,cacheRoot,stateRoot)=>{
  const run=cli(root,cacheRoot,stateRoot);
+ await writeFile(join(root,'README.md'),'# Store\nUse the narrow check for the changed path.\n');
+ for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
+  const target=join(root,'.claude','skills',name,'SKILL.md');
+  await mkdir(dirname(target),{recursive:true});
+  await writeFile(target,`---\nname: ${name}\ndescription: OpenSpec fixture.\n---\n`);
+ }
+ const path=process.env.PATH;
+ process.env.PATH=await openspecFixturePath(root,cacheRoot);
+ try{
+  const foundation=await run(['init','--agents','claude','--sdd','openspec','--tools','none','--defer-research','--review'],3);
+  await run(['update','--apply',foundation.previewId,'--sessions-ended'],0);
+  assert.equal((await run(['update','--review'],3)).projectRules,'pending');
+  const mcp=await openResearchMcp(root,'claude',{cacheRoot,stateRoot});
+  const begin=await mcp.call('rigup_begin',{root,mode:'init'});
+  const {runId}=begin;
+  const plan=await mcp.call('rigup_submit_plan',{runId,jobId:begin.job?.id,data:{...empty,guidance:[]}});
+  await mcp.call('rigup_submit_plan',{runId,jobId:plan.job?.id,data:{...empty,artifacts:[],dispositions:[]}});
+  const finished=await mcp.call('rigup_finish',{runId});
+  const applied=await run(['update','--apply',finished.previewId!,'--sessions-ended'],0);
+  assert.equal(applied.projectRules,'ready');
+
+  const reference=join(root,'.claude','skills','change-prepare','references','project.md');
+  const installed=await readFile(reference,'utf8');
+  assert.doesNotMatch(installed,/Project rules are pending/);
+  const unchanged=await run(['update','--review'],0);
+  assert.equal(unchanged.installStatus,'up-to-date');
+  assert.equal(unchanged.projectRules,'ready');
+  assert.equal(unchanged.nextCommand,null);
+  assert.equal(await readFile(reference,'utf8'),installed);
+
+  await rm(reference);
+  const missing=await run(['update','--review'],1);
+  assert.equal(missing.executable,false);
+  assert.ok(missing.blockers.some((message:string)=>message.includes('navigation link unavailable: references/project.md')));
+ }finally{
+  process.env.PATH=path;
+ }
+}));
+
+test('review reports a locally edited owned entry block before pending research',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ let stderr='';
+ const run=cli(root,cacheRoot,stateRoot,text=>stderr+=text);
  const foundation=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
  await run(['update','--apply',foundation.previewId,'--sessions-ended'],0);
  const entry=join(root,'CLAUDE.md');
  const baseline=await readFile(entry,'utf8');
  const local=baseline.replace('Project rules are pending.','Keep this local instruction.');
  await writeFile(entry,local);
+ stderr='';
  const conflict=await run(['update','--review'],1);
  assert.equal(conflict.executable,false);
- assert.equal(conflict.nextCommand,null);
+ assert.match(conflict.error,/CLAUDE\.md: Local edit in the Rigup-owned block was preserved/);
+ assert.equal(conflict.installStatus,'conflict');
+ assert.equal(conflict.nextCommand,'rigup update '+quoteShell(root)+' --review');
  assert.match(conflict.conflicts.find((item:{logicalId:string})=>item.logicalId==='entry:CLAUDE.md')?.reason,/outside the managed block/);
+ assert.ok(stderr.includes('After resolving the conflicts, run:\n'+conflict.nextCommand));
+ assert.doesNotMatch(stderr,/next apply/);
+ const blocked=await run(['update','--apply',conflict.previewId,'--sessions-ended'],1);
+ assert.match(blocked.error,/preview is blocked; prepare a new preview/);
  assert.equal(await readFile(entry,'utf8'),local);
 
  await writeFile(entry,baseline+'\nKeep this local instruction.\n');
- const pending=await run(['update','--review'],3);
+ const pending=await run(['update',root,'--review'],3);
  assert.deepEqual(pending.conflicts,[]);
  assert.equal(pending.phase,'research');
  assert.equal(pending.nextCommand,null);
