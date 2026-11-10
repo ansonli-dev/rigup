@@ -1,6 +1,6 @@
 # Development and testing
 
-Use Node.js 24, npm, Git, a C compiler, and POSIX tools including `ps`. Install Xcode Command Line Tools on macOS or `build-essential` and `procps` on a minimal Debian/Ubuntu system.
+Use a supported Node.js version, npm, and Git. On macOS and Linux, use a C compiler and POSIX tools including `ps`. Install Xcode Command Line Tools on macOS or `build-essential` and `procps` on a minimal Debian/Ubuntu system.
 
 ```sh
 npm ci
@@ -9,6 +9,25 @@ npm audit --audit-level=low
 ```
 
 `check` runs type checking, tests, build, documentation links, and an isolated package install. A cold package cache may need registry access. Model requests require opt-in live tests.
+
+## Windows and agent sessions
+
+Run the default checks in a fresh PowerShell 7 terminal with Git for Windows. Windows release tests pass absolute drive paths to `tar`. In Git Bash, GNU `tar` can read `C:\...` as a remote path. If you use Git Bash, put the directory containing Windows system `tar.exe` (`C:\Windows\System32`) first on `PATH` and check which `tar` resolves.
+
+Use Node.js 22.19 or later in the 22.x line, or 24.2 or later. Record `node --version` with the results. To select another Node version in PowerShell, prepend its directory to a `PATH` built from the Machine and User values so Windows tools and Git remain available. Check `Get-Command tar.exe` after the change.
+
+In a Claude Code or Codex terminal, provider and session variables can affect default tests, especially on older branches. Clear them in the test terminal. Keep live model probes in a separate configured terminal.
+
+```powershell
+Get-ChildItem Env: |
+  Where-Object { $_.Name -match '^(ANTHROPIC|CLAUDE|CODEX|OPENAI)' } |
+  ForEach-Object { Remove-Item "Env:$($_.Name)" }
+node --version
+npm ci
+npm run check
+```
+
+Use `$env:TEMP` for Windows scratch paths. Git Bash's `/tmp` can resolve to a directory at a drive root. Keep test temp directories outside the source checkout. For an isolated HOME, use a private subdirectory under `%USERPROFILE%` because `%LOCALAPPDATA%` and drive roots can inherit extra group permissions. [Native Windows handoff notes](external-validation-handoff.md#w2-实测要点)
 
 ## Architecture
 

@@ -1,8 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir,symlink,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,symlink,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {project} from './helpers.js';
+import {hostBackend} from '../src/analyzer/host.js';
 import {repositoryReader,scanRepository} from '../src/analyzer/repository.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
 import type {SetupOptions} from '../src/types.js';
@@ -46,6 +47,69 @@ test('workflow entrypoints stay bindable without becoming project rule evidence'
  assert.deepEqual((await reader.list()).sort(),['.specify/memory/constitution.md','openspec/specs/orders/spec.md']);
  assert.ok((await prepareIntegrations(profile,options)).bindings[0]?.projectSources?.includes(entry));
  await assert.rejects(()=>reader.read(entry,1,1),/outside reader inventory/);
+}));
+
+for(const [mode,projectRules] of [['explicit project rules',true],['legacy host research',undefined],['project rules disabled',false]] as const){
+ test('Spec Kit host request stays below 20 KB with '+mode,()=>project(async root=>project(async cache=>{
+  const options:SetupOptions={agents:['claude'],backend:'host',sdd:'spec-kit',projectRules};
+  const generatedFiles=[
+   '.specify/scripts/bash/common.sh',
+   '.specify/templates/tasks-template.md',
+   '.specify/extensions/extension/README.md',
+   '.specify/presets/preset/README.md',
+   '.specify/workflows/speckit/workflow.yml',
+   '.specify/workflows/workflow-registry.json',
+   '.specify/integrations/claude.manifest.json',
+   '.specify/integrations/speckit.manifest.json',
+   '.specify/integrations/packages.json',
+   '.specify/integrations/packages/adapter/package.json',
+   '.specify/.gitignore',
+   '.specify/feature.json',
+   '.specify/init-options.json',
+   '.specify/integration.json',
+   '.specify/bundle-records.json',
+   '.specify/memory/.constitution-template.json',
+   '.claude/skills/speckit-plan/references/plan.md',
+  ];
+  for(const path of generatedFiles)await put(root,path,'Upstream scaffold.\n'.repeat(1600));
+  const skill='.claude/skills/speckit-plan/SKILL.md';
+  await put(root,skill,'---\nname: speckit-plan\ndescription: Native planner\n---\n'+'Native instructions.\n'.repeat(1600));
+  const constitution='.specify/memory/constitution.md';
+  const spec='specs/001-orders/spec.md';
+  const plan='specs/001-orders/plan.md';
+  const openSpecPlan='openspec/changes/orders/tasks.md';
+  await put(root,constitution,'Only reviewed migrations may be run.\n');
+  await put(root,spec,'An order can be canceled before shipment.\n');
+  await put(root,plan,'Check shipment state before canceling.\n');
+  await put(root,openSpecPlan,'Review OpenSpec change separately.\n');
+  const profile=await scanRepository(root,options);
+  const reader=await repositoryReader(root,options);
+  const result=await hostBackend({cacheRoot:cache}).run({
+   kind:'analyze',runId:'spec-kit-size',root,fingerprint:profile.fingerprint,options,
+   versions:{prompt:'4',read:'4'},budget:{maxCalls:12,maxTokens:1_200_000},
+   previousInventoryDigest:'none',templateSourcesDigest:'none',
+  },reader);
+  assert.equal(result.status,'pending-host');
+  const bytes=await readFile(result.requestPath);
+  assert.ok(bytes.length<20_000,`Spec Kit host request was ${bytes.length} bytes`);
+  const request=JSON.parse(bytes.toString('utf8'));
+  const expectedPaths=[constitution,plan,spec,...(projectRules?[]:[openSpecPlan])].sort();
+  assert.deepEqual(request.paths.sort(),expectedPaths);
+  assert.deepEqual(request.evidence.map((item:{evidence:{path:string}})=>item.evidence.path).sort(),expectedPaths);
+  assert.ok(profile.skillSources?.claude?.some(source=>source.identity===skill));
+ })));
+}
+
+test('an entry-only legacy Spec Kit project invalidates earlier full-evidence fingerprints',()=>project(async root=>{
+ const options:SetupOptions={agents:['claude'],backend:'host'};
+ const skill='.claude/skills/speckit-plan/SKILL.md';
+ await put(root,skill,'---\nname: speckit-plan\ndescription: Native planner\n---\n');
+ await put(root,'.specify/memory/team-notes.md','Keep local review notes available.\n');
+ const full=await scanRepository(root,options);
+ const filtered=await scanRepository(root,{...options,sdd:'spec-kit'});
+ assert.deepEqual(filtered.files,full.files);
+ assert.deepEqual(filtered.researchFiles,['.specify/memory/team-notes.md']);
+ assert.notEqual(filtered.fingerprint,full.fingerprint);
 }));
 
 test('a symlinked research ignore file is rejected',()=>project(async root=>{

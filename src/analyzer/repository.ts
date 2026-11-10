@@ -18,7 +18,11 @@ export interface ProjectProfile {research?:import('./backend.js').ResearchResult
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
-async function inventory(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]){
+export async function scanInstallationSources(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions,generatedScopes:string[]):Promise<ProjectProfile>{
+ // Keep installation snapshot coverage stable when research evidence rules change.
+ return (await inventory(root,options,discovery,generatedScopes,'installation')).profile;
+}
+async function inventory(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[],purpose:'research'|'installation'='research'){
  root=await realpath(root);
  if(options.scope?.some(s=>s.startsWith('/')||s.split('/').includes('..')||s.includes('\\'))) throw new Error('scope: invalid relative path');
  const profile:ProjectProfile={root,fingerprint:'',files:[],git:{available:false},commands:{build:[],lint:[],test:[],environment:[],eval:[]},specializedChecks:[],unknowns:[],truncated:false,readPolicyVersion:READ_POLICY_VERSION};
@@ -31,7 +35,9 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
  const inputs:string[]=[];let bytes=0;
  const ignored=await loadResearchIgnore(root);
  if(ignored.fingerprint){profile.ignoreFingerprint=ignored.fingerprint;inputs.push('.rigupignore\0'+ignored.fingerprint);}
- if(options.projectRules||ignored.fingerprint)profile.researchFiles=[];
+ const workflowScope=options.projectRules?(purpose==='installation'?'installation':'all'):
+  purpose==='research'&&options.sdd==='spec-kit'?'spec-kit':undefined;
+ if(workflowScope||ignored.fingerprint)profile.researchFiles=[];
  const quality=options.quality;
  const configuredScripts=[...(quality?.preCommit??[]),...(quality?.prePush??[]),...(quality?.gitlab?.checks??[])]
   .filter(ref=>typeof ref!=='string');
@@ -45,7 +51,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    if(path==='.rigupignore')continue;
    const outsideScope=!!options.scope?.length&&!options.scope.some(s=>path === s || path.startsWith(s+'/') || s.startsWith(path+'/'));
    const excluded=ignored.excludes(path,entry.isDirectory())||outsideScope;
-   const workflow=options.projectRules?workflowEvidenceKind(path,entry.isDirectory()):undefined;
+   const workflow=workflowScope?workflowEvidenceKind(path,entry.isDirectory(),workflowScope):undefined;
    if(workflow==='generated')continue;
    if(outsideScope&&!options.projectRules)continue;
    if((managed.get(path)??[]).some(o=>o.kind==='file')) continue;
@@ -86,7 +92,9 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
      profile.nativeEntries ??= {};profile.nativeEntries[agent] ??= [];const name=path.slice(commandDir.length,-3);profile.nativeEntries[agent]!.push(name);profile.skillSources??={};profile.skillSources[agent]??=[];profile.skillSources[agent]!.push({name,origin:'local',identity:path,digest:digest(raw),satisfies:!/^dependencies:/m.test(visible)});
     }
    }
-   inputs.push(path+'\0'+digest(ownership.length?filterContent(path,projected):visible));
+   // Invalidate legacy Spec Kit requests that included an entry still needed for binding.
+   const evidenceRole=workflowScope==='spec-kit'&&workflow==='entry'&&!excluded?'\0native-entry':'';
+   inputs.push(path+'\0'+digest(ownership.length?filterContent(path,projected):visible)+evidenceRole);
    if(/\.[cm]?[jt]s$/.test(entry.name)&&hasTestDatabaseGuard(visible))testGuards.add(path);
    if(/jest.*\.json$/i.test(entry.name)){
     try{

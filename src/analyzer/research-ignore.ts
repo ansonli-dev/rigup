@@ -7,13 +7,28 @@ import {digest,safePath} from './evidence.js';
 
 const maxIgnoreBytes=64_000;
 const controlFile='.rigupignore';
-const generated=ignore({ignorecase:process.platform==='win32'}).add([
+const ignoreOptions={ignorecase:process.platform==='win32'};
+const specKitRoot='/'+specKit.artifacts[0]+'/';
+const specKitSnapshotPaths=['scripts/','templates/','extensions/','presets/'].map(path=>specKitRoot+path);
+const specKitResearchPaths=[
+ 'workflows/',
+ 'integrations/*.manifest.json','integrations/packages/','integrations/packages.json',
+ '.gitignore','feature.json','init-options.json','integration.json','bundle-records.json',
+ 'memory/.constitution-template.json',
+].map(path=>specKitRoot+path);
+const snapshotPaths=[
  '/'+openspec.artifacts[1]+'/',
- ...['scripts','templates','extensions','presets'].map(name=>'/'+specKit.artifacts[0]+'/'+name+'/'),
+ ...specKitSnapshotPaths,
  '/.claude/commands/opsx/',
-]);
+];
+const generated={
+ all:ignore(ignoreOptions).add([...snapshotPaths,...specKitResearchPaths]),
+ 'spec-kit':ignore(ignoreOptions).add([...specKitSnapshotPaths,...specKitResearchPaths]),
+ installation:ignore(ignoreOptions).add(snapshotPaths),
+};
 const skillDirectories=Object.values(agents).map(agent=>agent.skillDirectory);
 const workflowPrefix=/^(?:openspec-|speckit[.-])/;
+const specKitPrefix=/^speckit[.-]/;
 
 export async function loadResearchIgnore(root:string){
  const rules=ignore({ignorecase:process.platform==='win32'});
@@ -33,13 +48,18 @@ export async function loadResearchIgnore(root:string){
  };
 }
 
-export function workflowEvidenceKind(path:string,directory:boolean):'entry'|'generated'|undefined{
- if(generated.ignores(path+(directory?'/':'')))return 'generated';
+export function workflowEvidenceKind(path:string,directory:boolean,scope:keyof typeof generated):'entry'|'generated'|undefined{
+ if(generated[scope].ignores(path+(directory?'/':'')))return 'generated';
+ const prefix=scope==='spec-kit'?specKitPrefix:workflowPrefix;
  for(const parent of skillDirectories){
   if(!path.startsWith(parent+'/'))continue;
   const [name,...inside]=path.slice(parent.length+1).split('/');
-  if(!workflowPrefix.test(name)||!inside.length)continue;
+  if(!prefix.test(name)||!inside.length)continue;
   return !directory&&inside.length===1&&inside[0]==='SKILL.md'?'entry':'generated';
  }
- if(!directory&&/^(?:\.claude|\.opencode|\.omp)\/commands\/(?:openspec-|speckit[.-])[^/]+\.md$/.test(path))return 'entry';
+ if(!directory){
+  const command=/^(?:\.claude|\.opencode|\.omp)\/commands\/([^/]+)\.md$/.exec(path)?.[1];
+  const match=command&&prefix.exec(command);
+  if(match&&command.length>match[0].length)return 'entry';
+ }
 }
