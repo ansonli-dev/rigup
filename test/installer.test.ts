@@ -16,6 +16,16 @@ test('apply_saves_generated_baseline_and_second_apply_is_idempotent',()=>fixture
 test('stale_preview_is_rejected_before_any_writes',()=>fixture(async(root,cache,state)=>{
  const p=await preview(await plan(root),[],{cacheRoot:cache});await writeFile(root+'/guide.md','user new');await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache,stateRoot:state}),/stale|changed/);assert.equal(await readFile(root+'/guide.md','utf8'),'user new');
 }));
+test('apply refuses a preview without the current source snapshot version',()=>fixture(async(root,cache,state)=>{
+ const approved=await preview(await plan(root),[],{cacheRoot:cache});
+ const path=cache+'/'+approved.previewId+'.json';
+ const record=JSON.parse(await readFile(path,'utf8'));
+ delete record.data.inputSnapshotVersion;
+ record.digest=signature(record.data);
+ await writeFile(path,JSON.stringify(record));
+ await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,stateRoot:state}),/source snapshot version changed/);
+ assert.deepEqual(await readdir(root),[]);
+}));
 test('manifest_failure_keeps_old_baseline_valid_and_recovery_does_not_overwrite',()=>fixture(async(root,cache,state)=>{
  let p=await preview(await plan(root,'base'),[],{cacheRoot:cache});await apply(p.previewId,{cacheRoot:cache,stateRoot:state});const old=await loadManifest(root);const next=await plan(root,'next');next.dispositions=[{logicalId:'guide',action:'update',reason:'next'}];p=await preview(next,[],{cacheRoot:cache});await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache,stateRoot:state,hook:async(point:string)=>{if(point==='before-manifest')throw Error('manifest failure');}}),/manifest failure/);assert.equal((await loadManifest(root))!.installId,old!.installId);assert.equal(await readFile(root+'/'+old!.assets[0].baseline,'utf8'),'base');
  assert.equal((await apply(p.previewId,{cacheRoot:cache,stateRoot:state})).status,'complete');assert.equal(await readFile(root+'/guide.md','utf8'),'next');

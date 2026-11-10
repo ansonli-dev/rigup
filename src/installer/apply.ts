@@ -94,6 +94,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    if(key==='prompt'&&approved==='10'&&restoringApproval)continue;
    throw new Error('implementation version changed; regenerate preview');
   }
+  if(data.inputSnapshotVersion!==2)throw new Error('source snapshot version changed; regenerate preview without discarding durable state');
   if(data.plan.assets.some(a=>['customer-template','customer-skill'].includes(a.source.kind))){const fresh=await prepareIntegrations(await scanRepository(root,data.plan.options),data.plan.options);for(const a of data.plan.assets.filter(a=>['customer-template','customer-skill'].includes(a.source.kind))){const current=fresh.assets.find(n=>n.logicalId===a.logicalId);if(!current||signature(current)!==signature(a))throw new Error('customer source/template changed since preview');}}
   if(tx&&tx.previewId!==previewId&&tx.status!=='complete'){if(!dependencies.recover)throw new Error('different interrupted installation requires reconciliation with a fresh preview and --resume');await saveDurable(statePath+'.reconciled-'+tx.previewId+'.json',JSON.stringify(tx));}
   if(tx?.previewId!==previewId)tx=undefined;
@@ -130,12 +131,12 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   }
   if((currentManifest?digest(currentManifest):absentDigest)!==data.manifestDigest)throw new Error('manifest changed since preview');
   let discovery:NativeDiscoveryOptions={};
-  const managedTargets=data.inputSnapshotVersion===2?data.files.map(file=>file.target):undefined;
-  if(await installationInput(root,data.plan,discovery,managedTargets)!==data.inputSnapshot){
+  const managedTargets=data.files.map(file=>file.target);
+  if(await installationInput(root,data.plan,managedTargets,discovery)!==data.inputSnapshot){
    if(data.nativeDiscoveryVersion||data.plan.options.sdd!=='openspec')throw Error('source input changed since preview');
    // Older approvals never observed optional external OpenSpec entries.
    discovery={legacyOpenSpecDiscovery:true};
-   if(await installationInput(root,data.plan,discovery,managedTargets)!==data.inputSnapshot)throw Error('source input changed since preview');
+   if(await installationInput(root,data.plan,managedTargets,discovery)!==data.inputSnapshot)throw Error('source input changed since preview');
   }
   if(!tx) {
    if((await scanRepository(root,data.plan.options,discovery)).fingerprint!==data.plan.fingerprint)throw new Error('research input changed since generation');
