@@ -18,9 +18,9 @@ export interface ProjectProfile {research?:import('./backend.js').ResearchResult
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
-export async function scanInstallationSources(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions,generatedScopes:string[]):Promise<ProjectProfile>{
+export async function scanInstallationSources(root:string,options:SetupOptions,generatedScopes:string[]):Promise<ProjectProfile>{
  // Keep installation snapshot coverage stable when research evidence rules change.
- return (await inventory(root,options,discovery,generatedScopes,'installation')).profile;
+ return (await inventory(root,options,{},generatedScopes,'installation')).profile;
 }
 async function inventory(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[],purpose:'research'|'installation'='research'){
  root=await realpath(root);

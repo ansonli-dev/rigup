@@ -153,7 +153,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
   const {classification,scope,supportingEvidence,counterEvidence}=observation;
   const topic=singleLine(observation.topic);
   if(!topic||topic.length>1000)continue;
-  const key=claimKey(observation.topicId,topic),legacyKey=claimKey(undefined,topic);
+  const key=claimKey(observation.topicId,topic),keyWithoutTopicId=claimKey(undefined,topic);
   const scopes=verifiedScopes(scope,files);
   const sameScope=(binding:GuidanceBinding)=>claimKey(binding.topicId,binding.topic)===key&&binding.scope.length===scopes.length&&scopes.every(path=>binding.scope.includes(path));
   const bind=(status:string,refs:Evidence[])=>{
@@ -170,7 +170,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
    bind('needs-decision',[...supportingEvidence,...counterEvidence]);
    continue;
   }
-  if((classification!=='explicit-rule'&&classification!=='convention')||!scopes.length||scopes.length!==scope.length||covered.has(key)||covered.has(legacyKey)||unresolved.has(key)||unresolved.has(legacyKey))continue;
+  if((classification!=='explicit-rule'&&classification!=='convention')||!scopes.length||scopes.length!==scope.length||covered.has(key)||covered.has(keyWithoutTopicId)||unresolved.has(key)||unresolved.has(keyWithoutTopicId))continue;
   const exceptions=Array.isArray(observation.exceptions)?observation.exceptions.map(singleLine).filter(Boolean):[];
   if(counterEvidence.length&&!exceptions.length||exceptions.some(exception=>exception.length>1000)){
    bind('needs-decision',[...supportingEvidence,...counterEvidence]);

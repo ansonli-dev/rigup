@@ -231,7 +231,7 @@ test('a damaged completed apply report is rejected instead of being replayed',()
  assert.equal(await readFile(root+'/guide.md','utf8'),'new');
 }));
 
-test('existing OpenSpec previews retain their discovery scope across an upgrade',()=>fixture(async(root,cache,state)=>project(async home=>{
+test('apply rejects changed optional OpenSpec entries even without a discovery marker',()=>fixture(async(root,cache,state)=>project(async home=>{
  const previousHome=process.env.CODEX_HOME;
  process.env.CODEX_HOME=home;
  try{
@@ -240,20 +240,17 @@ test('existing OpenSpec previews retain their discovery scope across an upgrade'
   candidate.fingerprint=(await scanRepository(root,candidate.options)).fingerprint;
   const approved=await preview(candidate,[],{cacheRoot:cache});
   const cached=cache+'/'+approved.previewId+'.json';
-  const legacy=JSON.parse(await readFile(cached,'utf8'));
-  delete legacy.data.nativeDiscoveryVersion;
-  legacy.digest=signature(legacy.data);
+  const markerless=JSON.parse(await readFile(cached,'utf8'));
+  delete markerless.data.nativeDiscoveryVersion;
+  markerless.digest=signature(markerless.data);
   const lock={root,stateRoot:state,id:'fixture',release:async()=>{}};
   const external=home+'/skills/openspec-update-change';
   await mkdir(external,{recursive:true});
   await writeFile(external+'/SKILL.md','---\nname: openspec-update-change\ndescription: Fixture revision\n---\n');
   await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,lock}),/source input changed/);
-  await writeFile(cached,JSON.stringify(legacy));
-  const interrupted=await apply(approved.previewId,{cacheRoot:cache,lock,signal:AbortSignal.abort()});
-  assert.equal(interrupted.exitCode,130);
-  assert.equal(await restoreInterruptedPreview(root,candidate.options,cache,state),approved.previewId);
-  assert.equal((await apply(approved.previewId,{cacheRoot:cache,lock,recover:true})).status,'complete');
-  assert.equal(await readFile(root+'/guide.md','utf8'),'new');
+  await writeFile(cached,JSON.stringify(markerless));
+  await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,lock}),/source input changed/);
+  assert.deepEqual(await readdir(root),[]);
  }finally{
   if(previousHome===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previousHome;
  }

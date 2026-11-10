@@ -136,7 +136,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
      {versions:{prompt:'10',template:'4',document:'1',read:'6'},label:'v0.2.1 evidence and template contract',build:'v0.2.1'},
      {versions:{...versions,prompt:'10'},label:'v0.2.4 research prompt',build:'v0.2.4'},
     ];
-    const priorFingerprint=options.sdd==='openspec'?(await scanRepository(root,options,{legacyOpenSpecDiscovery:true})).fingerprint:input.fingerprint;
+    const priorFingerprint=options.sdd==='openspec'?(await scanRepository(root,options,{requiredOpenSpecEntriesOnly:true})).fingerprint:input.fingerprint;
     const candidates=priorFingerprint===input.fingerprint?[input]:[input,{...input,fingerprint:priorFingerprint}];
     for(const previousInput of candidates){
      for(const previous of priorContracts){

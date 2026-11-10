@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4 · 2026-11-10 · Development preview
+
+- Apply verifies the full OpenSpec discovery scope even when a preview lacks a discovery marker. Interrupted approvals from supported releases can still resume.
+- Ignore local `.rigup/check-results/` output in Git even when the directory is created after setup. Existing projects can see the managed ignore entry added on update.
+- Document which research recovery, project settings, and Windows cache checks remain in use.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.3.4) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.4)
+
 ## 0.3.3 · 2026-11-10 · Development preview
 
 - Exclude generated Spec Kit files from host research requests while retaining the constitution, authored specifications, and native skill discovery. Pending requests whose evidence changed need a new review.
