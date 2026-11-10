@@ -25,7 +25,7 @@ import {mergeManaged,type MergeResult} from './merge.js';
 import {equalOwnedContent,ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
-export interface Preview {projectRules?:SetupPlan['projectRules'];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
+export interface Preview {noChanges?:true;projectRules?:SetupPlan['projectRules'];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number}
 export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
@@ -36,7 +36,18 @@ export async function loadPreview(previewId:string,cacheRoot=defaultPreviewCache
  const value=await readCache<{digest:string;data:PreviewData}>(join(cacheRoot,previewId+'.json'));
  if(!value||value.digest!==signature(value.data)||value.data.preview.previewId!==previewId)throw new Error('private preview missing or corrupted');return value.data;
 }
-export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],dependencies:{cacheRoot?:string}={}):Promise<Preview>{
+export function unchangedInstallation(data:PreviewData):boolean{
+ const {oldManifest:old,plan}=data;
+ if(!old?.options||!old.versions||plan.operations.length||plan.runChecks?.length||old.projectRules!==plan.projectRules)return false;
+ if(signature(old.options)!==signature(plan.options)||signature(old.versions)!==signature(plan.versions))return false;
+ const assets=(items:Manifest['assets'])=>items.map(({baseline,...item})=>item).sort((a,b)=>a.logicalId.localeCompare(b.logicalId));
+ return signature(assets(old.assets))===signature(assets(data.assets))&&data.files.every(file=>{
+  const after=file.next===undefined?absentDigest:digest(Buffer.from(file.next,file.encoding));
+  return file.observedDigest===after&&file.observedMode===file.mode;
+ });
+}
+
+export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],dependencies:{cacheRoot?:string;skipUnchanged?:boolean;reviewEntryBlocks?:boolean}={}):Promise<Preview>{
  const root=await realpath(plan.root);if(root!==plan.root)throw new Error('plan root must be canonical');
  const oldManifest=await loadManifest(root);const old=oldManifest?.assets??[];
  const blockers=plan.requirements.map(r=>r.integrationId+': '+r.reason);const items:PreviewItem[]=[];
@@ -74,6 +85,10 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   if(entry.action==='pending'){result={action:'conflict',reason:'Unresolved old asset disposition'};}
   else if(entry.action==='retain') {result=base===undefined?{action:'conflict',reason:'Retained item has no trusted baseline'}:{action:'keep',content:local};}
   else result=mergeManaged(base,local,entry.candidate?.content,{action:entry.action,binary:asset.encoding==='base64',equals:(left,right)=>equalOwnedContent(asset.ownership,left,right)});
+  if(dependencies.reviewEntryBlocks&&entry.old&&asset.ownership.kind==='block'&&asset.logicalId.startsWith('entry:')&&base!==undefined&&
+     (local===undefined||!equalOwnedContent(asset.ownership,local,base))){
+   result={action:'conflict',reason:'Local edit in the Rigup-owned block was preserved. Keep the file as it is, or move your local text outside the managed block and restore the managed text before retrying.'};
+  }
   let nextMode=file.mode;
   const localMode=file.observedMode,baseMode=platformFileMode(entry.old?.mode),newMode=platformFileMode(entry.candidate?.mode);
   let modeConflict=false;
@@ -169,6 +184,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
  const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:2,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan,{},allTargets),files,assets:nextAssets,baselines:baselineRecords};
+ if(dependencies.skipUnchanged&&publicPreview.executable&&unchangedInstallation(data))return {...publicPreview,previewId:'',noChanges:true};
  const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
  return publicPreview;
 }

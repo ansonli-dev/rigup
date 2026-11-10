@@ -74,7 +74,8 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   for(const agent of selection.agents) {
    const executable=useProjectTool?'node':tool.software;
    const nativeArgs=tool.mcpArgs(agent);
-   const args=useProjectTool?projectMcpArgs(agents[agent].mcpTarget,[prefix,'node_modules',name,entry].join('/'),nativeArgs):nativeArgs;
+   const windowsDefaults=tool.id==='codegraph'?{CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS:'3500'}:undefined;
+   const args=useProjectTool?projectMcpArgs(agents[agent].mcpTarget,[prefix,'node_modules',name,entry].join('/'),nativeArgs,windowsDefaults):nativeArgs;
    const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable,args,cwd:'.',envRefs:[]}},true);push(prepared.assets);requirements.push(...prepared.requirements);
   }
   warnings.push(tool.id+': binary '+recipe.version+' availability and native connection pending');

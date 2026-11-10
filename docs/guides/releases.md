@@ -2,9 +2,9 @@
 
 ## npm
 
-With Node.js 24 or later, install or upgrade from the public registry. [npm package](https://www.npmjs.com/package/@ansonli.dev/rigup)
+Use Node.js 22.19 or later in the 22.x line, or Node.js 24.2 or later, to install or upgrade from the public registry. [npm package](https://www.npmjs.com/package/@ansonli.dev/rigup)
 
-On native Windows, run the npm commands in PowerShell 7 with Windows Node.js 24 and Git for Windows on PATH. [Verified platform scope](../compatibility/status.md)
+On native Windows, run the npm commands in PowerShell 7 with a supported Windows Node.js version and Git for Windows on PATH. [Verified platform scope](../compatibility/status.md)
 
 ```sh
 npm install -g @ansonli.dev/rigup
@@ -16,12 +16,12 @@ To pin or roll back the CLI, install a specific version such as `npm install -g 
 If the original v0.1.0 GitHub `.tgz` is installed in the same npm prefix, run `npm uninstall -g rigup` there before installing the scoped package. The GitHub archive is also available as a direct download for Node.js users.
 
 ```sh
-npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.3.0/rigup-0.3.0.tgz
+npm install -g --ignore-scripts https://github.com/ansonli-dev/rigup/releases/download/v0.3.1/rigup-0.3.1.tgz
 ```
 
 ## Portable installer
 
-Use the v0.3.0 release on macOS or Linux (ARM64 or x64). The portable archive includes Node.js. Keep Git and standard POSIX tools, including `ps`, on PATH. Linux needs glibc 2.35 or later. macOS launchers are ad-hoc signed. Windows users can run the Linux build inside WSL2. [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.0) · [Platform checks](../compatibility/status.md) · [Windows handoff](external-validation-handoff.md)
+Use the v0.3.1 release on macOS or Linux (ARM64 or x64). The portable archive includes Node.js. Keep Git and standard POSIX tools, including `ps`, on PATH. Linux needs glibc 2.35 or later. macOS launchers are ad-hoc signed. Windows users can run the Linux build inside WSL2. [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.1) · [Platform checks](../compatibility/status.md) · [Windows handoff](external-validation-handoff.md)
 
 ```sh
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
@@ -29,16 +29,20 @@ export PATH="$HOME/.local/bin:$PATH"
 rigup --version
 ```
 
-The public entry point downloads a versioned installer. That installer checks the archive checksum and links `rigup` into `~/.local/bin`. Use the versioned installer to pin this release or inspect it before running. [v0.3.0 installer](https://github.com/ansonli-dev/rigup/releases/download/v0.3.0/install.sh) · [Entry point source](https://github.com/ansonli-dev/rigup/blob/main/install.sh)
+The public entry point downloads a versioned installer. That installer checks the archive checksum and links `rigup` into `~/.local/bin`. Use the versioned installer to pin this release or inspect it before running. [v0.3.1 installer](https://github.com/ansonli-dev/rigup/releases/download/v0.3.1/install.sh) · [Entry point source](https://github.com/ansonli-dev/rigup/blob/main/install.sh)
 
-Run `rigup init` from your project directory. Generate rules through Rigup MCP in the selected agent or configure a CLI provider. Project-local MCP launchers use Node.js 24 on the agent's PATH. Automatic OpenSpec setup uses Node.js 22.12 or later and npm from your terminal's PATH. [Usage reference](usage.md)
+Run `rigup init` from your project directory. Generate rules through Rigup MCP in the selected agent or configure a CLI provider. The npm CLI and project-local MCP launchers share the runtime requirements above. The launchers use Node from the agent's PATH. The portable CLI bundles Node.js 24. The runtime needs built-in SQLite for CodeGraph index verification and consistent Windows file identities for protected writes. [Node 22 libuv update](https://nodejs.org/en/blog/release/v22.17.0) · [Node 24 libuv update](https://nodejs.org/en/blog/release/v24.2.0)
+
+- OpenSpec 1.16.0 auto-setup uses Node.js 22.12 or later and npm from the terminal's PATH. This is OpenSpec’s own floor.
+- OpenWiki 0.7.3 declares Node.js 22.22.0 or later. Put that version or later on the agent's PATH when using OpenWiki.
+- CodeGraph 1.6.2 uses Node for its npm shim and ships its own platform runtime. [Usage reference](usage.md)
 
 ## Manual download
 
-Choose `rigup-0.3.0-<target>.tar.gz` and `SHA256SUMS` from the same release. Use `darwin-arm64` for Apple Silicon, `darwin-x64` for Intel Mac, and `linux-arm64` or `linux-x64` for Linux. Check `uname -m` if unsure.
+Choose `rigup-0.3.1-<target>.tar.gz` and `SHA256SUMS` from the same release. Use `darwin-arm64` for Apple Silicon, `darwin-x64` for Intel Mac, and `linux-arm64` or `linux-x64` for Linux. Check `uname -m` if unsure.
 
 ```sh
-archive=rigup-0.3.0-darwin-arm64.tar.gz
+archive=rigup-0.3.1-darwin-arm64.tar.gz
 awk -v name="$archive" '$2 == name {print; found++} END {if (found != 1) exit 1}' SHA256SUMS > "$archive.sha256" &&
   shasum -a 256 -c "$archive.sha256" &&
   tar -xzf "$archive" &&
@@ -58,4 +62,4 @@ Before removing a version, resolve pending operations with the original executab
 
 ## Build from source
 
-Run `npm ci`, `npm run build`, and `npm link` from a source checkout with Node.js 24 or later. Keep the linked checkout available. [Development guide](development.md)
+Run `npm ci`, `npm run build`, and `npm link` from a source checkout with a supported Node.js version. Keep the linked checkout available. [Development guide](development.md)

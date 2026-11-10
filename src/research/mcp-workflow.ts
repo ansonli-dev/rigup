@@ -30,7 +30,8 @@ const hostPrompt=researchPrompt
  .replace('using ONLY the supplied read tools','using your authorized native read tools for this project')
  .replace('Cite only the supplied ranges','Cite only the repository path and line ranges')
  .replace('arrays of {path,startLine,endLine,digest}','arrays of {path,startLine,endLine}')
- .replace('Claims must cite exact visible snippet digests returned by the tools.','Submit repository-relative path, startLine and endLine for each citation. Rigup computes the digest from allowed evidence.');
+ .replace('Claims must cite exact visible snippet digests returned by the tools.','Submit repository-relative path, startLine and endLine for each citation. Rigup computes the digest from allowed evidence.')
+ + '\nStart with the supplied seed paths. Scope Glob and Grep to relevant project source or test directories. Exclude .rigup/tools/ and dependency trees from searches, and ignore any matches there.';
 const maxSubmissionBytes=256_000;
 type JobStage='analysis'|'plan'|'page'|'acceptance';
 interface Job {id:string;stage:JobStage;expectedOutput:'analysis'|'plan'|'content'|'acceptance';options:{documentLanguage:string};artifact?:string;input?:unknown;seedPaths?:string[]}

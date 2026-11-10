@@ -51,9 +51,9 @@ test('the CLI applies a provider-free foundation, then uses private provider set
   await cli(['update','--apply',review.previewId,'--sessions-ended'],0);
   const manifest=await readFile(join(root,'.rigup','manifest.json'),'utf8');
   assert.doesNotMatch(manifest,/override-model|FIXTURE_PROVIDER_TOKEN|private-fixture-token|127\.0\.0\.1/);
-  const unchanged=await cli(['update','--review','--model','override-model'],3);
+  const unchanged=await cli(['update','--review','--model','override-model'],0);
   assert.equal(calls.length,2);assert.ok(unchanged.items.every((item:{action:string})=>['noop','keep'].includes(item.action)),JSON.stringify(unchanged.items));
-  assert.deepEqual((await cli(['update','--apply',unchanged.previewId,'--sessions-ended'],0)).written,[]);
+  assert.equal(unchanged.installStatus,'up-to-date');assert.equal(unchanged.nextCommand,null);assert.ok(!unchanged.previewId);
   assert.equal(await readFile(join(root,'.rigup','manifest.json'),'utf8'),manifest);
  }finally{
   server.close();server.closeAllConnections();

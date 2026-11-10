@@ -14,7 +14,14 @@ $trusted = @(
 $replacementRights = 0x500d0142
 
 function New-AclDenial([string]$candidate, [string]$reason, [string]$principal = '') {
- return @{status = 'denied'; path = $candidate; reason = $reason; principal = $principal}
+ $denial = @{status = 'denied'; path = $candidate; reason = $reason; principal = $principal}
+ if ($principal) {
+  try {
+   $denial.account = [Security.Principal.SecurityIdentifier]::new($principal).Translate([Security.Principal.NTAccount]).Value
+  } catch { # Display the SID if the account cannot be resolved.
+  }
+ }
+ return $denial
 }
 
 function Assert-SafeAcl($candidate, [bool]$isDirectory, [bool]$privateLeaf) {
@@ -77,16 +84,27 @@ foreach ($ancestor in $ancestors) {
  $denial = Assert-SafeAcl $ancestor $true $false
  if ($null -ne $denial) { return $denial }
 }
+if ($create) {
+ $acl = [Security.AccessControl.DirectorySecurity]::new()
+ $acl.SetAccessRuleProtection($true, $false)
+ foreach ($id in $trusted[0..2]) {
+  $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+   [Security.Principal.SecurityIdentifier]::new($id), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+  $acl.AddAccessRule($rule)
+ }
+ # Apply the protected DACL at creation. An existing directory keeps its ACL.
+ [void][IO.Directory]::CreateDirectory($path, $acl)
+}
 if (-not $ancestorsOnly) { Assert-SafeAcl $path $directory $true }
 `;
 
-async function assertWindowsAcl(path:string,directory:boolean,ancestorsOnly:boolean,message:string):Promise<void>{
+async function assertWindowsAcl(path:string,directory:boolean,ancestorsOnly:boolean,message:string,create=false):Promise<void>{
  const normalized=win32.resolve(path);
  const root=win32.parse(normalized).root;
  const unsafe=normalized.slice(root.length).split(win32.sep).some(part=>
   /[ .]$/.test(part)||part.includes(':')||/^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:[. ]|$)/i.test(part));
  if(!/^[a-z]:\\$/i.test(root)||unsafe)throw new Error(message+': unsafe Windows path');
- try{await checkWindowsAccess(checkWindowsAcl,normalized,directory,ancestorsOnly);}
+ try{await checkWindowsAccess(checkWindowsAcl,normalized,directory,ancestorsOnly,create);}
  catch(cause){
   const detail=cause instanceof WindowsAclCheckError?cause.message:'Windows ACL worker unavailable';
   throw new Error(`${message}: ${detail}`,{cause});
@@ -95,6 +113,10 @@ async function assertWindowsAcl(path:string,directory:boolean,ancestorsOnly:bool
 
 export async function assertSafeWindowsAncestors(path:string,message:string):Promise<void>{
  if(process.platform==='win32')await assertWindowsAcl(path,true,true,message);
+}
+
+export async function createWindowsPrivateDirectory(path:string,message:string):Promise<void>{
+ await assertWindowsAcl(path,true,false,message,true);
 }
 
 export async function assertPrivateAccess(path:string,stat:Stats,message:string):Promise<void>{

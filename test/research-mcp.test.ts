@@ -32,6 +32,7 @@ test('provider-free MCP setup, job replay and finish require independent apply',
  let mcp=await openResearchMcp(root,'claude',dependencies);
  const begin=await mcp.call('rigup_begin',{root,mode:'init'});
  assert.equal(begin.status,'planning');
+ assert.match(begin.instructions??'',/Glob and Grep.*\.rigup\/tools\//);
  const runId=begin.runId;
  const analysis={runId,jobId:begin.job?.id,data:{...empty,guidance:[]}};
  const plan=await mcp.call('rigup_submit_plan',analysis);
@@ -62,6 +63,11 @@ test('provider-free MCP setup, job replay and finish require independent apply',
  assert.match(await readFile(join(root,artifact.target),'utf8'),/narrow project check/);
  assert.equal((await mcp.call('rigup_begin',{root,mode:'update'})).status,'noop');
  assert.equal((await mcp.call('rigup_finish',{runId})).status,'noop');
+ const unchanged=await run(['update','--review'],0);
+ assert.equal(unchanged.projectRules,'ready');
+ assert.equal(unchanged.installStatus,'up-to-date');
+ assert.equal(unchanged.nextCommand,null);
+ assert.ok(!unchanged.previewId);
 }));
 
 test('MCP rejects excluded citations, a different root, and source drift',()=>fixture(async(root,cacheRoot,stateRoot)=>{
@@ -85,4 +91,25 @@ test('MCP rejects excluded citations, a different root, and source drift',()=>fi
  assert.notEqual(narrowed.runId,begin.runId);
  assert.deepEqual(narrowed.job?.seedPaths,['README.md']);
  assert.equal(narrowed.job?.options.documentLanguage,'zh-CN');
+}));
+
+test('review reports a locally edited owned entry block before pending research',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ const run=cli(root,cacheRoot,stateRoot);
+ const foundation=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',foundation.previewId,'--sessions-ended'],0);
+ const entry=join(root,'CLAUDE.md');
+ const baseline=await readFile(entry,'utf8');
+ const local=baseline.replace('Project rules are pending.','Keep this local instruction.');
+ await writeFile(entry,local);
+ const conflict=await run(['update','--review'],1);
+ assert.equal(conflict.executable,false);
+ assert.equal(conflict.nextCommand,null);
+ assert.match(conflict.conflicts.find((item:{logicalId:string})=>item.logicalId==='entry:CLAUDE.md')?.reason,/outside the managed block/);
+ assert.equal(await readFile(entry,'utf8'),local);
+
+ await writeFile(entry,baseline+'\nKeep this local instruction.\n');
+ const pending=await run(['update','--review'],3);
+ assert.deepEqual(pending.conflicts,[]);
+ assert.equal(pending.phase,'research');
+ assert.equal(pending.nextCommand,null);
 }));

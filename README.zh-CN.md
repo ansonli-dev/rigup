@@ -27,11 +27,17 @@ AGENTS.md                               # 托管区块中的流程入口
 
 ### 1. 安装
 
-已有 Node.js 24 或更新版本时，可以通过 npm 安装。
+通过 npm 安装时，使用 Node.js 22.x（22.19 起）或 24.2 及以上版本。
 
 ```sh
 npm install -g @ansonli.dev/rigup
 rigup --version
+```
+
+在 PowerShell 中，用引号包住逗号分隔列表，也可以为每个值重复选项。
+
+```powershell
+rigup init . --agents claude --sdd none --tools 'openwiki,codegraph' --defer-research --review --json
 ```
 
 macOS 和 Linux 也可以通过安装器下载内置 Node.js 的便携版。安装器会将 `rigup` 链接到 `~/.local/bin`。
@@ -40,7 +46,7 @@ macOS 和 Linux 也可以通过安装器下载内置 Node.js 的便携版。安�
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
 ```
 
-原生 Windows 使用 npm 安装，需准备 Windows Node.js 24、PowerShell 7 和 Git for Windows。便携版安装器需要 Git 和 `ps` 等 POSIX 工具，Linux（含 WSL2）需要 glibc 2.35 或更新版本。[安装、升级与固定版本](docs/guides/releases.md)
+原生 Windows 使用 npm 安装，需准备 受支持的 Windows Node.js、PowerShell 7 和 Git for Windows。便携版安装器需要 Git 和 `ps` 等 POSIX 工具，Linux（含 WSL2）需要 glibc 2.35 或更新版本。[安装、升级与固定版本](docs/guides/releases.md)
 
 ### 2. 初始化项目
 

@@ -49,7 +49,7 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
 export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false):Promise<SetupPlan>{
  const {integration,fixedTemplates}=prepared;
  const candidates=await renderFixed(profile,options,integration,[],[],fixedTemplates,true);
- const assets=preserveWorkflowContext?candidates.filter(candidate=>integration.assets.includes(candidate)||!previousAssets.some(asset=>asset.logicalId===candidate.logicalId)):candidates;
+ const assets=preserveWorkflowContext?candidates.filter(candidate=>integration.assets.includes(candidate)||candidate.target.endsWith('/SKILL.md')||!previousAssets.some(asset=>asset.logicalId===candidate.logicalId)):candidates;
  const dispositions:AssetDisposition[]=previousAssets.map(asset=>({logicalId:asset.logicalId,action:assets.some(candidate=>candidate.logicalId===asset.logicalId)?'update':'retain',reason:'Refresh fixed configuration while preserving existing project guidance'}));
  return setupPlan(profile,options,integration,assets,dispositions,'pending');
 }
