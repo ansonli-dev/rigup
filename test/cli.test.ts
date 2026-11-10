@@ -60,7 +60,7 @@ test('init_existing_manifest_uses_update_rules_and_doctor_is_read_only', async (
   }
  } finally {await rm(root,{recursive:true,force:true});}
 });
-import {project} from './helpers.js';
+import {project,writeOpenSpecFixture} from './helpers.js';
 test('tools flag keeps OpenWiki generation separate from protected CodeGraph initialization',()=>project(async root=>project(async cache=>project(async state=>{
  let output='';const code=await runCli(['init','--tools','openwiki,codegraph','--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
  assert.equal(code,0,output);const report=JSON.parse(output);assert.equal(report.executable,true);assert.deepEqual(report.operations.map((o:any)=>o.id),['install:openwiki','install:codegraph','initialize:codegraph']);assert.ok(report.warnings.some((w:string)=>/openwiki_begin/.test(w)));assert.deepEqual(await readdir(root),[]);
@@ -121,4 +121,66 @@ test('partial_native_api_key_reference_reaches_the_tty_model_and_secret_guide',(
   const code=await runCli(['init','--agents','claude','--sdd','openspec','--tools','none','--api-key-env','RIGUP_TEST_NAMED_API_KEY','--dry-run'],{cwd:root,isTTY:true,write:s=>output+=s,read:async secret=>{reads.push(!!secret);return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state}});
   assert.equal(code,130,output);assert.deepEqual(reads,[false,true]);assert.match(output,/RIGUP_TEST_NAMED_API_KEY/);assert.deepEqual(await readdir(root),[]);
  }finally{if(previousModel===undefined)delete process.env.ANTHROPIC_MODEL;else process.env.ANTHROPIC_MODEL=previousModel;if(previousKey===undefined)delete process.env.RIGUP_TEST_NAMED_API_KEY;else process.env.RIGUP_TEST_NAMED_API_KEY=previousKey;}
+}))));
+
+test('OpenSpec preparation reports the required session acknowledgement in JSON',t=>project(root=>project(async bin=>{
+ const {delimiter}=await import('node:path');
+ await writeOpenSpecFixture(bin,'console.log(process.argv.includes("--version")?"1.16.0":JSON.stringify({root:null}));');
+ const path=process.env.PATH;
+ process.env.PATH=bin+delimiter+path;
+ t.after(()=>{process.env.PATH=path;});
+ const original=process.env.CLAUDECODE;
+ process.env.CLAUDECODE='1';
+ t.after(()=>{if(original===undefined)delete process.env.CLAUDECODE;else process.env.CLAUDECODE=original;});
+ t.mock.method(process,'cwd',()=>root);
+ let output='';
+ const code=await runCli(['init','--agents','claude','--sdd','openspec','--prepare-openspec','--json'],{
+  cwd:root,isTTY:false,write:s=>output+=s,
+ });
+ const report=JSON.parse(output);
+ assert.equal(code,3,output);
+ assert.equal(report.nextCommand,report.resumeCommand);
+ assert.match(report.nextCommand,/--prepare-openspec --sessions-ended$/);
+ assert.ok(report.requiredInput.some((item:string)=>item.includes('--sessions-ended')));
+ assert.deepEqual(await readdir(root),[]);
+})));
+
+test('CLI list options accept PowerShell array strings, split args and repeated flags',()=>project(root=>project(cache=>project(async state=>{
+ for(const args of [
+  ['--agents','claude codex','--tools','openwiki codegraph'],
+  ['--agents','claude','codex','--tools','openwiki','codegraph'],
+  ['--agents=claude,codex','--tools=openwiki','--tools','codegraph'],
+ ]){
+  let output='';
+  const code=await runCli(['init','.',...args,'--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
+  assert.equal(code,0,output);
+  const report=JSON.parse(output);
+  assert.deepEqual(report.operations.map((op:{id:string})=>op.id),['install:openwiki','install:codegraph','initialize:codegraph']);
+  assert.ok(report.items.some((item:{target:string})=>item.target==='.mcp.json'));
+  assert.ok(report.items.some((item:{target:string})=>item.target==='.codex/config.toml'));
+ }
+ let output='';
+ const code=await runCli(['init','--tools','unknown','--json'],{cwd:root,isTTY:false,write:s=>output+=s});
+ assert.equal(code,2);
+ assert.match(JSON.parse(output).error,/--tools.*PowerShell.*quotes/);
+}))));
+
+test('review returns up-to-date for an unchanged rules-disabled installation',()=>project(root=>project(cache=>project(async state=>{
+ const {mkdir,readFile,writeFile}=await import('node:fs/promises');
+ const invoke=async(...args:string[])=>{
+  let output='';
+  const code=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
+  return {code,...JSON.parse(output)};
+ };
+ await mkdir(join(root,'.rigup'));
+ await writeFile(join(root,'.rigup','config.yaml'),'agents: [claude]\nprojectRules: false\n');
+ assert.equal((await invoke('init')).code,0);
+ const manifestPath=join(root,'.rigup','manifest.json');
+ const current=await readFile(manifestPath,'utf8');
+ const unchanged=await invoke('update','--review');
+ assert.equal(unchanged.code,0,JSON.stringify(unchanged));
+ assert.equal(unchanged.installStatus,'up-to-date');
+ assert.equal(unchanged.nextCommand,null);
+ assert.ok(!unchanged.previewId);
+ assert.equal(await readFile(manifestPath,'utf8'),current);
 }))));

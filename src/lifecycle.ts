@@ -117,6 +117,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const previousAssets=(old?.assets??[]).filter(asset=>asset.logicalId!=='rigup:configuration');
    const preserveWorkflowContext=old?.projectRules==='ready'&&old.options?.sdd===options.sdd&&signature(old.options?.agents??[])===signature(options.agents)&&signature(old.options?.customSkills??[])===signature(options.customSkills??[]);
    plan=await generateFoundation(profile,options,prepared,previousAssets,preserveWorkflowContext);
+   if(preserveWorkflowContext&&!flags.configure&&signature(old?.options)===signature(options))plan.projectRules='ready';
   }else{
    const input={root,options,effectiveModel,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,executionMode:flags.dryRun?'dry-run':review?'review':'continuous',fingerprint:profile.fingerprint,researchSessionId};
    const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
@@ -196,9 +197,22 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   for(const d of plan.dispositions)if(d.action==='retire'&&!flags.retireIds?.includes(d.logicalId))plan.requirements.push({integrationId:d.logicalId,reason:'Retirement is outside current consent; rerun with --retire '+d.logicalId});
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,next:'apply or explicit review',waiting:'ownership and virtual-tree checks'});
   plan.runChecks=flags.runChecks??[];
-  const result=await preview(plan,resolutions,{cacheRoot:previews});
+  const result=await preview(plan,resolutions,{cacheRoot:previews,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review});
+  if(result.noChanges){
+   emit({stage:'preview',completed:result.items.length,total:result.items.length,status:'complete'});
+   const {previewId,...summary}=result;
+   if(options.projectRules&&result.projectRules==='pending'){
+    const message='Open the project in a selected agent and call rigup_begin, or configure a CLI provider and retry with --review.';
+    services.report?.({...summary,phase:'research',installStatus:'pending',researchNextStep:message});
+    write(message+'\n');
+    return 3;
+   }
+   services.report?.({...summary,phase:'preview',installStatus:'up-to-date'});
+   write('Installation is up to date.\n');
+   return 0;
+  }
   services.report?.({phase:'preview',installStatus:'not-installed',...result,pending:plan.requirements,conflicts:result.items.filter(i=>i.action==='conflict'),...(recovery?.nextCommand?{nextCommand:recovery.nextCommand}:{})});
-  write('Preview '+result.previewId+'\n');for(const item of result.items){write(item.action+' '+item.target+'\n');if(item.beforeMode!==item.afterMode){const format=(value:number|undefined)=>value===undefined?'absent':value.toString(8).padStart(4,'0');write('mode '+format(item.beforeMode)+' -> '+format(item.afterMode)+'\n');}if(item.before!==undefined)write('--- owned before (filtered, max 4000 chars)\n'+item.before+'\n');if(item.after!==undefined)write('+++ owned after (filtered, max 4000 chars)\n'+item.after+'\n');}for(const operation of result.operations)write('operation '+operation.id+' '+operation.version+' scope '+operation.declaredWrites.join(', ')+'\n');
+  write('Preview '+result.previewId+'\n');for(const item of result.items){write(item.action+' '+item.target+(item.reason?' — '+item.reason:'')+'\n');if(item.beforeMode!==item.afterMode){const format=(value:number|undefined)=>value===undefined?'absent':value.toString(8).padStart(4,'0');write('mode '+format(item.beforeMode)+' -> '+format(item.afterMode)+'\n');}if(item.before!==undefined)write('--- owned before (filtered, max 4000 chars)\n'+item.before+'\n');if(item.after!==undefined)write('+++ owned after (filtered, max 4000 chars)\n'+item.after+'\n');}for(const operation of result.operations)write('operation '+operation.id+' '+operation.version+' scope '+operation.declaredWrites.join(', ')+'\n');
   for(const blocker of result.blockers)write('Blocked: '+blocker+'\n');
   for(const requirement of plan.requirements)if(requirement.nextCommand)write('Initialize the native workflow, then repeat the Rigup command:\n'+requirement.nextCommand+'\n');
   emit({stage:'preview',completed:result.items.length,total:result.items.length,status:result.executable?'complete':result.items.some(i=>i.action==='conflict')?'failed':'waiting',requiresUserAction:!result.executable,next:flags.dryRun?'dry-run preview finished; not installed':'apply'});

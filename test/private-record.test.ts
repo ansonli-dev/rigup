@@ -51,12 +51,12 @@ const statePath=deniedAncestor+'\\run';
 const checkAncestors=()=>assertSafeWindowsAncestors(statePath,'cache requires private permissions');
 
 test('an ACL denial identifies the checked ancestor and untrusted SID',async t=>{
- useAclWorker(t,{status:'denied',reason:'untrusted-grant',path:deniedAncestor,principal:'S-1-1-0'},{status:'ok'});
+ useAclWorker(t,{status:'denied',reason:'untrusted-grant',path:deniedAncestor,principal:'S-1-1-0',account:'BUILTIN\\Sandbox Readers'},{status:'ok'});
  await assert.rejects(checkAncestors,error=>{
   assert.ok(error instanceof Error);
   assert.match(error.message,/cache requires private permissions: Windows ACL denied.*untrusted access grant/i);
   assert.ok(error.message.includes(deniedAncestor));
-  assert.match(error.message,/S-1-1-0/);
+  assert.ok(error.message.includes('"BUILTIN\\Sandbox Readers" (S-1-1-0)'));
   return true;
  });
 });
@@ -245,4 +245,22 @@ test('Windows private state rejects an NTFS grant to Everyone', {
  });
  await assert.rejects(access(nested), {code:'ENOENT'});
  await assert.rejects(privateDirectory(join(cache,'ambiguous '),root), /unsafe Windows path/);
+})));
+
+test('Windows creates a private leaf below an ancestor with inherited read grants', {
+ skip: process.platform !== 'win32' && 'requires NTFS access control',
+}, () => project(root => project(async cache => {
+ const icacls = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe');
+ const parent = join(cache, 'sandbox readers');
+ await mkdir(parent);
+ await promisify(execFile)(icacls, [parent, '/grant', '*S-1-1-0:(OI)(CI)(RX)']);
+ const leaf = await privateDirectory(join(parent, '.cache', 'rigup'), root);
+ const record = join(leaf, 'preview.json');
+ await writeFile(record, '{"private":true}');
+ assert.deepEqual(await readPrivateJson(record), {private:true});
+ assert.equal(await privateDirectory(leaf, root), leaf);
+
+ const existing = join(parent, 'existing');
+ await mkdir(existing);
+ await assert.rejects(privateDirectory(existing, root), /untrusted access grant.*S-1-1-0/);
 })));

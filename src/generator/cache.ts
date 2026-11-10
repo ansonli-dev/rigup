@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {renameWithRetry} from '../atomic-rename.js';
 import {digest} from '../analyzer/evidence.js';
 import {readPrivateJson} from '../private-record.js';
-import {assertPrivateAccess,assertSafeWindowsAncestors} from '../private-access.js';
+import {assertPrivateAccess,assertSafeWindowsAncestors,createWindowsPrivateDirectory} from '../private-access.js';
 export function stable(value:unknown):string {
  if(Array.isArray(value)) return '['+value.map(stable).join(',')+']';
  if(value && typeof value==='object') return '{'+Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).filter(([,v])=>v!==undefined).map(([k,v])=>JSON.stringify(k)+':'+stable(v)).join(',')+'}';
@@ -21,9 +21,13 @@ export async function privateDirectory(path:string,project:string):Promise<strin
    if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
   });
   if(!stat){
-   await assertSafeWindowsAncestors(current,'cache requires private permissions');
-   try{await mkdir(current,{mode:0o700});}catch(error){
-    if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;
+   if(process.platform==='win32'&&current===path){
+    await createWindowsPrivateDirectory(current,'cache requires private permissions');
+   }else{
+    await assertSafeWindowsAncestors(current,'cache requires private permissions');
+    try{await mkdir(current,{mode:0o700});}catch(error){
+     if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;
+    }
    }
    stat=await lstat(current);
   }

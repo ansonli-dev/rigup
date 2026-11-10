@@ -13,7 +13,7 @@ import {randomUUID} from 'node:crypto';
 import {unlink} from 'node:fs/promises';
 import {readFileState,readFileStates,matchesFileState} from './file-state.js';
 import type {CommandSpec,SetupOptions,SetupPlan} from '../types.js';
-import {loadPreview,readTarget,installationInput,absentDigest,type PreviewData} from './preview.js';
+import {loadPreview,readTarget,installationInput,unchangedInstallation,absentDigest,type PreviewData} from './preview.js';
 import {acquireLock,defaultStateRoot,type ProjectLock} from './lock.js';
 import {assertNoUnknownWriters,operationExecutor,queryOperation,type OperationDependencies,type OperationResult} from './operations.js';
 import {privateDirectory,signature,saveCache} from '../generator/cache.js';
@@ -48,14 +48,6 @@ function previewFileTransitions(data:PreviewData):Transaction['files']{
 }
 function assertPreviewFileTransitions(tx:Transaction,data:PreviewData):void{
  if(signature(tx.files)!==signature(previewFileTransitions(data)))throw Error('Durable apply record differs from the approved preview; reconciliation required');
-}
-function unchangedInstallation(data:PreviewData,files:Transaction['files']):boolean{
- const old=data.oldManifest;
- if(!old||data.plan.operations.length||data.plan.runChecks?.length||old.projectRules!==data.plan.projectRules)return false;
- if(signature(old.options)!==signature(data.plan.options)||signature(old.versions)!==signature(data.plan.versions))return false;
- const assets=(items:Manifest['assets'])=>items.map(({baseline,...item})=>item).sort((a,b)=>a.logicalId.localeCompare(b.logicalId));
- return signature(assets(old.assets))===signature(assets(data.assets))&&
-  Object.values(files).every(file=>file.before===file.after&&file.beforeMode===file.afterMode);
 }
 export async function interruptedApplyId(root:string,stateRoot:string):Promise<string|undefined>{
  const tx=await readApplyRecord(join(stateRoot,signature(root)+'.apply.json'));
@@ -152,7 +144,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     const actual=await readFileState(root,f.target);
     if(!matchesFileState(actual,f.observedDigest,f.observedMode))throw new Error('stale preview: target content or mode changed');
    }
-   if(!dependencies.runChecks&&unchangedInstallation(data,files)){
+   if(!dependencies.runChecks&&unchangedInstallation(data)){
     for(const asset of data.oldManifest!.assets){const bytes=await readTarget(root,asset.baseline!);if(!bytes||digest(bytes)!==asset.digest)throw Error('installed baseline changed since preview');}
     completed=total;step('verified unchanged installation','reused');
     return {...report,...pendingRules,status:'complete',exitCode:0};

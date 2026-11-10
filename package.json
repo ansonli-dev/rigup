@@ -1,13 +1,13 @@
 {
   "name": "@ansonli.dev/rigup",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
   "engines": {
-    "node": ">=24"
+    "node": "^22.19.0 || >=24.2.0"
   },
   "bin": {
     "rigup": "dist/cli.js"

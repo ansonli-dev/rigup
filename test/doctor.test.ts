@@ -57,3 +57,38 @@ test('doctor observes a completed external OpenWiki baseline without claiming ow
  await writeFile(marker,'invalid JSON');
  assert.equal((await initialization())?.state,'pending');
 }));
+
+test('Claude health probe requires connected project-scoped MCP and keeps output private',()=>project(root=>project(bin=>project(cacheRoot=>project(async stateRoot=>{
+ const {runCli}=await import('../src/cli.js');
+ const cli=async(args:string[],expected:number)=>{
+  let output='';
+  const code=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot,stateRoot}});
+  assert.equal(code,expected,output);
+  return JSON.parse(output);
+ };
+ const foundation=await cli(['init','--agents','claude','--defer-research'],3);
+ await cli(['update','--apply',foundation.previewId,'--sessions-ended'],0);
+ const script="const [command,sub,id]=process.argv.slice(2); if(command!=='mcp'||sub!=='get'||id!=='rigup')process.exit(1); console.log('rigup:\\n  Scope: '+process.env.RIGUP_TEST_CLAUDE_SCOPE+'\\n  Status: \\u221a Connected\\n  Private: fixture-token');";
+ if(process.platform==='win32'){
+  const packageRoot=join(bin,'node_modules','@anthropic-ai','claude-code');
+  await mkdir(packageRoot,{recursive:true});
+  await writeFile(join(bin,'claude.cmd'),'@echo off\r\n');
+  await writeFile(join(packageRoot,'cli.js'),script);
+ }else await writeFile(join(bin,'claude'),'#!'+process.execPath+'\n'+script,{mode:0o700});
+ const path=process.env.PATH;
+ try{
+  process.env.PATH=bin+delimiter+path;
+  process.env.RIGUP_TEST_CLAUDE_SCOPE='Project config (shared via .mcp.json)';
+  const plain=await cli(['doctor'],3);
+  assert.equal(plain.diagnostics.find((d:{id:string})=>d.id==='claude:load')?.state,'reload-required');
+  const connected=await cli(['doctor','--check-host','claude'],3);
+  assert.equal(connected.diagnostics.find((d:{id:string})=>d.id==='claude:load')?.state,'passed');
+  assert.doesNotMatch(JSON.stringify(connected),/fixture-token/);
+  process.env.RIGUP_TEST_CLAUDE_SCOPE='User config';
+  const shadowed=await cli(['doctor','--check-host','claude'],3);
+  assert.equal(shadowed.diagnostics.find((d:{id:string})=>d.id==='claude:load')?.state,'reload-required');
+ }finally{
+  process.env.PATH=path;
+  delete process.env.RIGUP_TEST_CLAUDE_SCOPE;
+ }
+})))));

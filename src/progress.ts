@@ -17,9 +17,22 @@ export function createProgressReporter(options:{runId:string;phases:string[];isT
  const render=(live=false,changed?:string)=>{
   if(!current)return;const now=clock(),index=options.phases.indexOf(current.stage);const count=current.total===undefined?String(current.completed):current.completed+'/'+current.total;
   const human=current.requiresUserAction;const canEstimate=current.eta&&current.allStagesKnown&&!human&&current.status!=='retry'&&!failed&&now-etaAt<current.eta.maxMs;
-  const eta=canEstimate?Math.max(0,Math.ceil((current.eta!.minMs-(now-etaAt))/1000))+'–'+Math.max(0,Math.ceil((current.eta!.maxMs-(now-etaAt))/1000))+'s ('+current.eta!.basis+')':'待估算';
-  const state=failed?'失败/仍有失败项':human?'等待人工处理':current.status==='reused'?'复用已核验项':current.status==='retry'?'有限重试':current.status==='complete'?'本阶段完成':live?'仍在运行':current.status??'running';
-  options.write('阶段 '+(index>=0?String(index+1)+'/'+options.phases.length:'待确定')+' '+current.stage+(current.task?' / '+current.task:'')+' '+count+'；'+state+'；已用 '+Math.floor((now-start)/1000)+'s；整体 ETA '+eta+(changed?'；清单变更 '+changed:'')+(current.waiting?'；等待 '+current.waiting:'')+(now-lastProgress>=60000?'；'+Math.floor((now-lastProgress)/1000)+'s 无有效进展，等待对象 '+(current.waiting??current.task??current.stage):'')+(current.next?'；下一步 '+current.next:'')+'\n');lastEmit=now;
+  const eta=canEstimate?Math.max(0,Math.ceil((current.eta!.minMs-(now-etaAt))/1000))+'–'+Math.max(0,Math.ceil((current.eta!.maxMs-(now-etaAt))/1000))+'s ('+current.eta!.basis+')':'unknown';
+  const state=failed?'failed':human?'waiting for user action':current.status==='reused'?'reused verified results':current.status==='retry'?'retrying':current.status==='complete'?'complete':live?'still running':current.status??'running';
+  const phase=index>=0?String(index+1)+'/'+options.phases.length:'unknown';
+  const stalled=Math.floor((now-lastProgress)/1000);
+  const fields=[
+   'Stage '+phase+' '+current.stage+(current.task?' / '+current.task:'')+' '+count,
+   state,
+   'elapsed '+Math.floor((now-start)/1000)+'s',
+   'ETA '+eta,
+   ...(changed?['plan changed '+changed]:[]),
+   ...(current.waiting?['waiting for '+current.waiting]:[]),
+   ...(stalled>=60?[stalled+'s without progress, waiting for '+(current.waiting??current.task??current.stage)]:[]),
+   ...(current.next?['next '+current.next]:[]),
+  ];
+  options.write(fields.join(' · ')+'\n');
+  lastEmit=now;
  };
  return {
   event:(event:RunProgressEvent)=>{

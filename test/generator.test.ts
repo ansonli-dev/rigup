@@ -502,3 +502,13 @@ test('invalid_navigation_is_repaired_before_acceptance_and_never_cached_done',()
 test('fixed_inventory_dispositions_follow_actual_candidates_without_model_prediction',()=>fixture(async(root,cache)=>{
  const backend:AnalysisBackend={run:async r=>({status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:((r.input as any).previousInventory??[]).map((a:any)=>({logicalId:a.logicalId,action:'retain',reason:'Keep installed asset'}))},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}})};let profile=await scanRepository(root,opts);const first=await generate(profile,opts,backend,[],{cacheRoot:cache});if(first.status!=='complete')throw Error('pending');const old=first.value.assets.map(a=>({...a,digest:digest(a.content)}));await writeFile(root+'/package.json',JSON.stringify({scripts:{test:'node --test'}}));profile=await scanRepository(root,opts);const next=await generate(profile,opts,backend,old,{cacheRoot:cache});if(next.status!=='complete')throw Error('pending');assert.equal(next.value.dispositions.find(d=>d.logicalId==='codex:change-deliver:context')?.action,'update');assert.equal(next.value.dispositions.find(d=>d.logicalId==='codex:change-deliver')?.action,'retain');
 }));
+
+test('delivery skill requires an active OpenSpec change and scoped human approval before writes', async()=>{
+ const skill=await readFile(new URL('../templates/skills/change-deliver/SKILL.md',import.meta.url),'utf8');
+ const gate=skill.slice(skill.indexOf('\n1.'),skill.indexOf('\n2.'));
+ assert.match(gate,/openspec list --json/);
+ assert.match(gate,/openspec status --change <id> --json/);
+ assert.match(gate,/openspec instructions apply --change <id> --json/);
+ assert.match(gate,/human approval.*same change ID and scope/);
+ assert.match(gate,/stop before editing/i);
+});

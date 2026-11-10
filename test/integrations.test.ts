@@ -127,7 +127,7 @@ test('selected_project_install_is_the_executable_used_by_mcp after relocation',(
  const entry=(parse(prepared.assets[0].content) as any).mcp_servers.codegraph;
  const local=join(workspace,'package with spaces');await mkdir(local);
  await writeFile(join(local,'package.json'),JSON.stringify({name:'@colbymchenry/codegraph',version:'1.6.2',bin:{codegraph:'npm-shim.js'}}));
- await writeFile(join(local,'npm-shim.js'),'#!/usr/bin/env node\nrequire("node:fs").writeFileSync("used-project-tool",JSON.stringify(process.argv.slice(2)));\n');
+ await writeFile(join(local,'npm-shim.js'),'#!/usr/bin/env node\nrequire("node:fs").writeFileSync("used-project-tool",JSON.stringify({args:process.argv.slice(2),idle:process.env.CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS}));\n');
  const op=prepared.operations[0];
  const npm=npmCommand([...op.parameters.args.slice(0,-1),local,'--offline','--install-links']);
  await exec(npm.executable,npm.args,{cwd:root});
@@ -137,8 +137,12 @@ test('selected_project_install_is_the_executable_used_by_mcp after relocation',(
  await mkdir(join(root,'.codex'));await writeFile(join(root,'.codex/config.toml'),prepared.assets[0].content);
  await mkdir(join(root,'nested'));
  const moved=join(workspace,'迁移 project');await rename(root,moved);
- await exec(entry.command,entry.args,{cwd:join(moved,'nested',entry.cwd),timeout:10000});
- assert.deepEqual(JSON.parse(await readFile(join(moved,'used-project-tool'),'utf8')),['serve','--mcp']);
+ const env={...process.env};delete env.CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS;
+ await exec(entry.command,entry.args,{cwd:join(moved,'nested',entry.cwd),timeout:10000,env});
+ assert.deepEqual(JSON.parse(await readFile(join(moved,'used-project-tool'),'utf8')),{
+  args:['serve','--mcp'],...(process.platform==='win32'?{idle:'3500'}:{})
+ });
+ assert.match(entry.args[1],/process\.platform==='win32'.*CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS/s);
 }));
 test('npm_software_recipe_installs_local_fixture_offline_without_lifecycle',()=>project(async root=>{
  const {prepareSoftwareInstall}=await import('../src/integrations/tools/software.js');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile,access}=await import('node:fs/promises');

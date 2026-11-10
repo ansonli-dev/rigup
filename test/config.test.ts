@@ -103,3 +103,17 @@ test('interpreter_flags_remain_usable_while_curl_short_auth_flags_require_refere
  assert.throws(()=>validateOptions(options('python3',['server.py','-u','private-value'])),/credential|reference/);
  assert.doesNotThrow(()=>validateOptions(options('curl',['-u${CREDS}','-b','${COOKIE}'],['CREDS','COOKIE'])));
 });
+
+test('sdd none overrides a profile and survives saving project settings',async()=>{
+ await fixture('agents: [claude]\nprojectRules: false\nprofile: profile.yaml\nsdd: none\n',async root=>{
+  const {configurationCandidate}=await import('../src/config.js');
+  await writeFile(join(root,'profile.yaml'),'sdd: openspec\n');
+  const options=await loadOptions(root,{});
+  assert.equal(options.sdd,undefined);
+  assert.equal((await loadOptions(root,{sdd:'superpowers'})).sdd,'superpowers');
+  const config=await configurationCandidate(root,options);
+  assert.match(config.content,/^sdd: none$/m);
+  await writeFile(join(root,config.target),config.content);
+  assert.equal((await loadOptions(root,{})).sdd,undefined);
+ });
+});

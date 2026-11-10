@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 · 2026-11-10 · Development preview
+
+- Create Windows private state and cache directories with protected NTFS permissions. Include the account name and SID when an ACL blocks access.
+- Accept PowerShell lists and saved `sdd: none`. Include the required session acknowledgement in the JSON handoff for OpenSpec preparation.
+- Return exit code 0 for an unchanged update review. Report edits inside managed host entry blocks and preserve the local text.
+- Check active OpenSpec artifacts and scoped human approval before delivery. Scope host research searches to project sources and use English CLI progress messages.
+- Add an opt-in Claude Code MCP probe to `rigup doctor`. Shorten the idle timeout for project-local CodeGraph on Windows.
+- Support Node 22.x from 22.19 and Node 24.2 or later. Document the separate runtime requirement for OpenWiki.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.3.1) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.3.1)
+
 ## 0.3.0 · 2026-11-09 · Development preview
 
 - Install Rigup MCP and prepare a provider-free foundation, including projects without an SDD workflow. Resume scoped analysis, planning, writing, and acceptance before independent apply.

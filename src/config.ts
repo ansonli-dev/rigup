@@ -52,7 +52,7 @@ export function validateOptions(value: Record<string, unknown>): void {
    if(c.deployment!==undefined){const d=c.deployment as Record<string,unknown>;if(!d||typeof d!=='object'||Object.keys(d).some(k=>!['adapter','target','authorizationReference','recoveryRunbook'].includes(k))||['adapter','target','authorizationReference','recoveryRunbook'].some(k=>typeof d[k]!=='string'||!d[k]))throw new Error('customer.deployment: target, authorization and recovery reference required');}
   }
   if(value.researchBudget!==undefined){const b=value.researchBudget as Record<string,unknown>;if(!b||typeof b!=='object'||Object.keys(b).some(k=>!['maxCalls','maxTokens'].includes(k))||['maxCalls','maxTokens'].some(k=>!Number.isSafeInteger(b[k])||Number(b[k])<1))throw new Error('researchBudget: positive maxCalls/maxTokens required');}
-  if(value.sdd !== undefined && !['superpowers','openspec','spec-kit'].includes(String(value.sdd))) throw new Error('sdd: unsupported selection');
+  if(value.sdd !== undefined && !['none','superpowers','openspec','spec-kit'].includes(value.sdd as string)) throw new Error('sdd: unsupported selection');
   if(value.tools !== undefined) {
    if(!Array.isArray(value.tools)) throw new Error('tools: expected list');
    for(const [i,tool] of value.tools.entries()) {
@@ -151,7 +151,9 @@ export function validateOptions(value: Record<string, unknown>): void {
   if (value.profile !== undefined && typeof value.profile !== 'string') throw new Error('profile: expected path');
 }
 
-export async function loadOptions(root: string, overrides: Partial<SetupOptions>, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions}={}): Promise<SetupOptions> {
+export type SetupOverrides=Partial<Omit<SetupOptions,'sdd'>>&{sdd?:SetupOptions['sdd']|'none'};
+
+export async function loadOptions(root: string, overrides: SetupOverrides, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions}={}): Promise<SetupOptions> {
   const project = approvedOptions ? {...approvedOptions} : await readConfig(join(root,'.rigup','config.yaml'));
   validateOptions(project); validateOptions(overrides);
   const profilePath = approvedOptions ? undefined : overrides.profile ?? project.profile ?? defaults.fallback?.profile;
@@ -160,7 +162,9 @@ export async function loadOptions(root: string, overrides: Partial<SetupOptions>
   const fallback:Partial<SetupOptions>=approvedOptions?{}:defaults.fallback??{};
   const layers=[fallback,profile,project,overrides];
   const modern=defaults.projectRules&&!layers.some(layer=>layer.backend!==undefined||layer.model!==undefined);
-  const options={...{agents: ['codex'], backend:modern?'host':'codex',...(modern?{projectRules:true}:{})}, ...fallback, ...profile, ...project, ...overrides} as SetupOptions;
+  const merged={...{agents: ['codex'], backend:modern?'host':'codex',...(modern?{projectRules:true}:{})}, ...fallback, ...profile, ...project, ...overrides};
+  const {sdd,...effective}=merged;
+  const options={...effective,...(sdd===undefined||sdd==='none'?{}:{sdd})} as SetupOptions;
   if (options.documentLanguage !== undefined) options.documentLanguage = normalizeDocumentLanguage(options.documentLanguage);
   const backendLayer=layers.findLastIndex(layer=>layer.backend!==undefined),modelLayer=layers.findLastIndex(layer=>layer.model!==undefined);
   if(options.model&&modelLayer>backendLayer)options.backend='native';
@@ -172,7 +176,8 @@ export async function loadOptions(root: string, overrides: Partial<SetupOptions>
 export async function configurationCandidate(root:string,options:SetupOptions):Promise<import('./integrations/registry.js').PreparedAsset>{
  const {parseDocument}=await import('yaml');let source='';try{source=await readFile(join(root,'.rigup/config.yaml'),'utf8');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
  const doc=parseDocument(source);if(doc.errors.length)throw new Error('config: invalid YAML syntax');const previous=doc.toJS()??{};
- for(const key of Object.keys(previous))if(!(key in options))doc.delete(key);
- for(const [key,value] of Object.entries(options))if(value!==undefined&&JSON.stringify(previous[key])!==JSON.stringify(value))doc.set(key,value);
+ const persisted={...options,sdd:options.sdd??'none'};
+ for(const key of Object.keys(previous))if(!(key in persisted))doc.delete(key);
+ for(const [key,value] of Object.entries(persisted))if(value!==undefined&&JSON.stringify(previous[key])!==JSON.stringify(value))doc.set(key,value);
  return {logicalId:'rigup:configuration',target:'.rigup/config.yaml',content:doc.toString(),ownership:{kind:'file'},source:{kind:'configuration',ref:'1'}};
 }

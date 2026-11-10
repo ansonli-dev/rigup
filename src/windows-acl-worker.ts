@@ -17,7 +17,7 @@ const denialReasons:Record<string,string>={
 const sid=/^S-1-(?:\d{1,15}|0x[0-9a-f]{12})(?:-\d{1,10}){0,15}$/i;
 
 type Result={status:'ok'|'io-error'|'busy'}|
- {status:'denied';reason:string;path:string;principal?:string};
+ {status:'denied';reason:string;path:string;principal?:string;account?:string};
 
 interface Request {
  path:string;
@@ -39,10 +39,10 @@ function parseResponse(line:string):{id:number;result:Result}|undefined{
  if(!Number.isSafeInteger(response?.id))return;
  const {id,status}=response;
  if(status==='ok'||status==='io-error'||status==='busy')return {id,result:{status}};
- const {reason,path,principal}=response;
+ const {reason,path,principal,account}=response;
  if(status!=='denied'||typeof reason!=='string'||!Object.hasOwn(denialReasons,reason)||typeof path!=='string'||
   (principal!==undefined&&principal!==''&&(typeof principal!=='string'||!sid.test(principal))))return;
- return {id,result:{status,reason:denialReasons[reason],path,principal:principal||undefined}};
+ return {id,result:{status,reason:denialReasons[reason],path,principal:principal||undefined,account:typeof account==='string'&&account.length<=256?account:undefined}};
 }
 
 function checkedPath({path,ancestorsOnly}:Request,reported:string):string|undefined{
@@ -68,13 +68,13 @@ function startWorker(check:string){
   "$ErrorActionPreference = 'Stop'",
   '[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)',
   '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)',
-  'function Test-RigupAcl([string]$path, [bool]$directory, [bool]$ancestorsOnly) {',
+  'function Test-RigupAcl([string]$path, [bool]$directory, [bool]$ancestorsOnly, [bool]$create) {',
   check,
   '}',
   'while ($null -ne ($line = [Console]::ReadLine())) {',
   ' $request = ConvertFrom-Json -InputObject $line',
   ' try {',
-  '  $response = Test-RigupAcl $request.path $request.directory $request.ancestorsOnly',
+  '  $response = Test-RigupAcl $request.path $request.directory $request.ancestorsOnly $request.create',
   "  if ($null -eq $response) { $response = @{status = 'ok'} }",
   ' } catch {',
   "  $status = 'io-error'",
@@ -144,13 +144,13 @@ function startWorker(check:string){
  child.on('exit',()=>stop(new Error('Windows ACL process exited')));
 
  const client={
-  request(path:string,directory:boolean,ancestorsOnly:boolean,timeoutMs:number):Promise<Result>{
+  request(path:string,directory:boolean,ancestorsOnly:boolean,create:boolean,timeoutMs:number):Promise<Result>{
    clearTimeout(idle);
    const id=++sequence;
    return new Promise((resolve,reject)=>{
     const timeout=setTimeout(()=>stop(new Error('Windows ACL check timed out')),timeoutMs);
     pending.set(id,{path,ancestorsOnly,resolve,reject,timeout});
-    child.stdin.write(JSON.stringify({id,path,directory,ancestorsOnly})+'\n');
+    child.stdin.write(JSON.stringify({id,path,directory,ancestorsOnly,create})+'\n');
    });
   },
  };
@@ -158,7 +158,7 @@ function startWorker(check:string){
 }
 
 // Every request re-reads the ACL. Reusing the process only avoids PowerShell startup.
-export async function checkWindowsAccess(check:string,path:string,directory:boolean,ancestorsOnly:boolean):Promise<void>{
+export async function checkWindowsAccess(check:string,path:string,directory:boolean,ancestorsOnly:boolean,create:boolean):Promise<void>{
  const deadline=performance.now()+30_000;
  for(const wait of [0,25,50,100]){
   if(performance.now()+wait>=deadline)break;
@@ -168,14 +168,16 @@ export async function checkWindowsAccess(check:string,path:string,directory:bool
   let result:Result;
   try{
    worker??=startWorker(check);
-   result=await worker.request(path,directory,ancestorsOnly,remaining);
+   result=await worker.request(path,directory,ancestorsOnly,create,remaining);
   }catch(cause){
    throw new WindowsAclCheckError(`Windows ACL worker unavailable checking ${describePath(path)}`,{cause});
   }
   if(result.status==='ok')return;
   if(result.status==='io-error')throw new WindowsAclCheckError(`Windows ACL I/O failed checking ${describePath(path)}`);
   if(result.status==='denied'){
-   const principal=result.principal?` for ${result.principal}`:'';
+   const principal=result.principal
+    ? ` for ${result.account?describePath(result.account)+' ('+result.principal+')':result.principal}`
+    : '';
    throw new WindowsAclCheckError(`Windows ACL denied ${result.reason}${principal} at ${describePath(result.path)}`);
   }
  }

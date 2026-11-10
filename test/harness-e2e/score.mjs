@@ -68,7 +68,7 @@ async function scoreHidden(project, judge, taskId, checkpoint, ids, timeoutMs) {
 
 async function runVisible(project, timeoutMs) {
   const {exitCode, stdout, stderr} = await runNode(
-    ['--permission', `--allow-fs-read=${project}`, '--test', '--test-isolation=none', '--test-reporter=tap'],
+    ['--permission', `--allow-fs-read=${project}`, '--test', process.versions.node.startsWith('22.')?'--experimental-test-isolation=none':'--test-isolation=none', '--test-reporter=tap'],
     project,
     timeoutMs,
   );

@@ -16,7 +16,8 @@ import {agents} from '../integrations/agents/index.js';
 import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import {verifyToolInitializationReceipt} from '../integrations/tools/native-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
-export interface DoctorOptions {runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
+import {probeClaudeProjectMcp} from '../integrations/agents/claude-health.js';
+export interface DoctorOptions {checkHost?:'claude';runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
 export interface Diagnostic {category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
 
 async function hostExecutableAvailable(name:string):Promise<boolean>{
@@ -82,9 +83,24 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
  }
  for(const agent of selected.agents){
   const available=await hostExecutableAvailable(agent);
-  add('host',agent+':binary',available?'available':'pending',available?'Executable present; version and loaded session not asserted':'Executable not found on current PATH');
+  add('host',agent+':binary',available?'available':'pending',available?'Executable found on current PATH':'Executable not found on current PATH');
   const host=agents[agent];const wired=manifest.assets.some(a=>a.target.startsWith(host.skillDirectory+'/')||a.target===host.mcpTarget||a.target===host.entry);
-  add('host',agent+':load',wired?'reload-required':'pending',wired?'Reload affected sessions; current native loading has not been observed':'No native assets configured for this selected host');
+  let state:Diagnostic['state']=wired?'reload-required':'pending';
+  let reason=wired?'Reload affected sessions and verify loading in the host':'No native assets configured for this selected host';
+  if(agent==='claude'&&wired){
+   const servers=manifest.assets.filter(asset=>asset.target===host.mcpTarget&&asset.logicalId.startsWith('mcp:claude:'));
+   if(options.checkHost===agent&&servers.length){
+    const ids=servers.map(asset=>asset.logicalId.slice('mcp:claude:'.length));
+    if(servers.every(asset=>diagnostics.some(d=>d.category==='config'&&d.id===asset.logicalId&&d.state==='configured'))){
+     const connected=await probeClaudeProjectMcp(root,ids,options.signal);
+     if(connected.length===ids.length){
+      state='passed';
+      reason='A fresh Claude Code probe connected to the managed project MCP servers: '+connected.join(', ');
+     }else reason='Claude Code did not confirm project-scoped connections for: '+ids.filter(id=>!connected.includes(id)).join(', ')+'. Check approvals and connection status in /mcp.';
+    }else reason='Review the managed MCP configuration before probing Claude Code';
+   }else if(servers.length)reason+=' or run rigup doctor --check-host claude for a fresh MCP probe';
+  }
+  add('host',agent+':load',state,reason);
  }
  const mcpRefs=(selected.mcp??[]).flatMap(m=>[...(m.envRefs??[]),...(m.command?.envRefs??[]),...(m.bearerTokenEnv?[m.bearerTokenEnv]:[])]);
  const envRefs=new Set([...(selected.customer?.envRefs??[]),...mcpRefs,...(selected.quality?.gitlab?.openwiki?.envRefs??[])]);
