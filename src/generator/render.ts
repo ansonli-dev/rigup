@@ -8,6 +8,7 @@ import {digest} from '../analyzer/evidence.js';
 import {isOriginalGuidance,isProjectRulesId,isProjectRulesIndex,verifiedScopes,type GuidanceBinding} from './project-rules.js';
 import {markdownLinks} from './document-policy.js';
 import {projectChecks} from '../integrations/tools/check-catalog.js';
+import {declaredAuthority} from './harness.js';
 export const TEMPLATE_VERSION='7';
 const inline=(value:string)=>value.replace(/[\x00-\x1f\x7f]+/g,' ').replace(/[\\`*_\[\]<>]/g,'\\$&');
 const link=(from:string,to:string,label=to)=>`[${inline(label)}](${posix.relative(posix.dirname(from),to).split('/').map(part=>encodeURIComponent(part).replaceAll('(','%28').replaceAll(')','%29')).join('/')})`;
@@ -31,7 +32,8 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
  templates=hasWorkflow?(templates??await readWorkflowTemplates()):[];
  const refs=[...new Set([...integration.assets.filter(a=>a.consumer==='change-deliver:review').map(a=>a.target),...semantic.filter(a=>!isProjectRulesId(a.logicalId)).map(a=>a.target)])];
  const reused=new Map<string,string[]>();
- for(const binding of guidance.filter(isOriginalGuidance)){
+ const declared=declaredAuthority(profile,options,guidance).filter(binding=>['reusable','partial'].includes(binding.coverageStatus));
+ for(const binding of [...guidance.filter(isOriginalGuidance),...declared]){
   const path=binding.sourceRef.path;
   reused.set(path,[...new Set([...(reused.get(path)??[]),...verifiedScopes(binding.scope,profile.files)])]);
  }
@@ -91,7 +93,10 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
   const skills=options.agents.filter(a=>agents[a].entry===target).flatMap(a=>templates.map(({name})=>agents[a].skillDirectory+'/'+name+'/SKILL.md'));
   const sources=[...reused.keys()].filter(path=>path!==target);
   const pending=projectRulesPending&&options.projectRules?['Project rules are pending. Use the Rigup MCP research tools when asked to prepare a rules preview.']:[];
-  add('entry:'+target,target,[marker.start,hasWorkflow?'## Project workflow':'## Project guidance',...pending,...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,'Project development rules')]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>'- '+link(target,path)),marker.end].join('\n')+'\n',marker);
+  add('entry:'+target,target,[marker.start,hasWorkflow?'## Project workflow':'## Project guidance',...pending,...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,'Project development rules')]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>{
+   const scope=reused.get(path)!;
+   return '- '+link(target,path)+(scope.length&&!scope.includes('.')?' · '+inline(scope.join(', ')):'');
+  }),marker.end].join('\n')+'\n',marker);
  }
  return result;
 }

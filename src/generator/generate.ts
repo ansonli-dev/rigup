@@ -20,8 +20,8 @@ import {validateDocumentJob,validateDocumentTarget,validateDocumentContent,valid
 import {readWorkflowTemplates,renderFixed,validateNavigation,TEMPLATE_VERSION} from './render.js';
 import {isProjectRulesId,isProjectRulesJob,planWithProjectRules,prepareProjectRules,projectRuleDraftPolicy,PROJECT_RULES_CONSUMER,type GuidanceBinding,type RuleEvidenceState,type RuleRepair} from './project-rules.js';
 import {signature,privateDirectory,readCache,saveCache} from './cache.js';
-import {projectChecks} from '../integrations/tools/check-catalog.js';
 import {isGitlabWiring} from '../integrations/gitlab/ci.js';
+import {declaredAuthority,planHarness} from './harness.js';
 export interface GenerationDependencies {prepared?:GenerationPreparation;effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
 interface Candidate extends ArtifactContent {job:ArtifactJob;digest:string;accepted:boolean}
 interface State extends RuleEvidenceState {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];referenceIndex?:ArtifactPage;dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;ruleRepairs?:Record<string,RuleRepair>;spent:{calls:number;tokens:number|'unknown'}}
@@ -34,7 +34,7 @@ export async function prepareGeneration(profile:ProjectProfile,options:SetupOpti
  return {integration,fixedTemplates};
 }
 
-function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,assets:PreparedAsset[],dispositions:AssetDisposition[],previousAssets:ManagedAsset[],projectRules?:SetupPlan['projectRules'],guidance:GuidanceBinding[]=[]):SetupPlan{
+function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,assets:PreparedAsset[],dispositions:AssetDisposition[],previousAssets:ManagedAsset[],harness:SetupPlan['harness'],projectRules?:SetupPlan['projectRules']):SetupPlan{
  const retainedIds=new Set(dispositions.filter(d=>d.action==='retain').map(d=>d.logicalId));
  const retainedTargets=previousAssets.filter(a=>retainedIds.has(a.logicalId)).map(a=>a.target);
  // The research inventory excludes managed files. Preview checks retained targets on disk.
@@ -47,7 +47,7 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
  }
  const gitlabReviewRequired=profile.gitlabReviewRequired&&(!!options.quality?.gitlab||previousAssets.some(a=>isGitlabWiring(a.logicalId)));
  return {root:profile.root,fingerprint:profile.fingerprint,options,assets,operations:integration.operations,dispositions,
-  harness:{guidance,checks:projectChecks(profile),ci:profile.gitlabJobs??[]},
+  harness,
   ...(gitlabReviewRequired?{gitlabReviewRequired:true as const}:{}),
   warnings:[...profile.unknowns,...integration.warnings,...(gitlabReviewRequired?['GitLab wiring was left as-is. A complete root review is required to verify and change the selection.']:[])],requirements:integration.requirements,
   versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},
@@ -56,10 +56,11 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
 
 export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false):Promise<SetupPlan>{
  const {integration,fixedTemplates}=prepared;
- const candidates=await renderFixed(profile,options,integration,[],[],fixedTemplates,true);
+ const {summary}=planHarness(profile,options,[]);
+ const candidates=await renderFixed(profile,options,integration,[],summary.guidance,fixedTemplates,true);
  const assets=preserveWorkflowContext?candidates.filter(candidate=>integration.assets.includes(candidate)||candidate.target.endsWith('/SKILL.md')||!previousAssets.some(asset=>asset.logicalId===candidate.logicalId)):candidates;
  const dispositions:AssetDisposition[]=previousAssets.map(asset=>({logicalId:asset.logicalId,action:assets.some(candidate=>candidate.logicalId===asset.logicalId)?'update':'retain',reason:'Refresh fixed configuration while preserving existing project guidance'}));
- return setupPlan(profile,options,integration,assets,dispositions,previousAssets,'pending');
+ return setupPlan(profile,options,integration,assets,dispositions,previousAssets,summary,'pending');
 }
 
 export async function generate(profile:ProjectProfile,options:SetupOptions,backend:AnalysisBackend,previousAssets:ManagedAsset[]=[],dependencies:GenerationDependencies={}):Promise<StepResult<SetupPlan>> {
@@ -125,7 +126,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
    if(planned.status==='pending-host')return planned;
    const data=planned.value;
    const jobs=validateArtifactList(data.artifacts,[]);
-   const {job:rules,referenceIndex,guidance}=prepareProjectRules(data,evidenceFiles,allowedRoots[0],jobs);
+   const {job:rules,referenceIndex,guidance}=prepareProjectRules(data,evidenceFiles,allowedRoots[0],jobs,declaredAuthority(profile,options,data.guidance as GuidanceBinding[]|undefined));
    if(rules)jobs.unshift(rules);
    for(const job of jobs)validateDocumentJob(job,allowedRoots,profile.files.length===0);
    if(referenceIndex){validateDocumentTarget(referenceIndex.target,allowedRoots);validateTemplateContent(referenceIndex.content);}
@@ -186,10 +187,11 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   job.status='done';await persist();dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:job.logicalId,completed:completed(),total:state.plan.jobs.length,status:reused?'reused':'running',next:'fixed assembly after all required jobs'});
   semantic.push(...candidateAssets(job,candidate!.content,candidate!.pages));
  }
- const guidanceRefs=state.plan.guidance.flatMap(binding=>binding.sourceRef?[binding.sourceRef]:[]);
+ const {summary}=planHarness(profile,options,state.plan.guidance);
+ const guidanceRefs=summary.guidance.flatMap(binding=>binding.sourceRef?[binding.sourceRef]:[]);
  if(guidanceRefs.some(ref=>semantic.some(asset=>asset.target===ref.path)))throw new Error('reused source must remain unowned');
  await stageEvidence(reader,guidanceRefs);
- const assets=await renderFixed(profile,options,integration,semantic,state.plan.guidance,fixedTemplates);
+ const assets=await renderFixed(profile,options,integration,semantic,summary.guidance,fixedTemplates);
  const effectiveDispositions=state.resultInventory===inv||state.artifactRefreshInventory===inv ? previousAssets.map(a=>{
   const current=assets.find(asset=>asset.logicalId===a.logicalId);
   const refreshed=state.artifactRefreshInventory===inv&&current?.source.kind==='semantic'&&current.target===a.target&&signature(current.ownership)===signature(a.ownership)&&digest(current.content)!==a.digest;
@@ -208,7 +210,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  });
  // After installation the inventory changes from the input to these accepted candidates.
  const retained=previousAssets.filter(a=>dispositions.some(d=>d.logicalId===a.logicalId&&d.action==='retain')&&!assets.some(n=>n.logicalId===a.logicalId));
- const plan=setupPlan(profile,options,integration,assets,dispositions,previousAssets,wantsRules?'ready':undefined,state.plan.guidance);
+ const plan=setupPlan(profile,options,integration,assets,dispositions,previousAssets,summary,wantsRules?'ready':undefined);
  state.resultInventory=inventorySignature([...assets.map(a=>({...a,digest:digest(a.encoding==='base64'?Buffer.from(a.content,'base64'):a.content)})),...retained]);await persist();
  return {status:'complete',value:plan};
 }

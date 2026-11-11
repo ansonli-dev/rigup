@@ -1,8 +1,9 @@
 import {readFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {parse} from 'yaml';
-import type {SetupOptions} from './types.js';
+import {validateTopicId,type SetupOptions} from './types.js';
 import {isCheckSelector} from './integrations/tools/check-catalog.js';
+import {projectRelativePath} from './integrations/tools/project-check.mjs';
 import {validateRemoteMcp} from './integrations/tools/customer-mcp.js';
 
 async function readConfig(path: string, required = false): Promise<Record<string, unknown>> {
@@ -71,8 +72,25 @@ export function validateOptions(value: Record<string, unknown>): void {
   if(value.projectConventions !== undefined) {
    const c=value.projectConventions;
    if(!c || typeof c !== 'object' || Array.isArray(c)) throw new Error('projectConventions: expected object');
-   for(const key of Object.keys(c)) if(!['tracker','documentRoutes','labelMapping'].includes(key)) throw new Error('projectConventions.'+key+': unknown field');
+   for(const key of Object.keys(c)) if(!['tracker','documentRoutes','labelMapping','topics'].includes(key)) throw new Error('projectConventions.'+key+': unknown field');
    const record=c as Record<string,unknown>;
+   if(record.topics!==undefined){
+    if(!Array.isArray(record.topics)||record.topics.length>12)throw Error('projectConventions.topics: expected at most twelve topics');
+    const seen=new Set<string>();
+    const relative=(path:unknown):path is string=>typeof path==='string'&&projectRelativePath(path)&&!path.includes(':');
+    for(const topic of record.topics){
+     if(!topic||typeof topic!=='object'||Array.isArray(topic)||Object.keys(topic).some(key=>!['id','title','scope','source'].includes(key)))throw Error('projectConventions.topics: invalid topic');
+     const id=validateTopicId(topic.id);
+     if(typeof topic.title!=='string'||!topic.title.trim()||topic.title.length>1000||/[\x00-\x1f\x7f]/.test(topic.title))throw Error('projectConventions.topics: a single-line title is required');
+     if(!Array.isArray(topic.scope)||!topic.scope.length||topic.scope.some((path:unknown)=>path!=='.'&&!relative(path)))throw Error('projectConventions.topics.scope: expected repository-relative paths');
+     if(topic.source!==undefined&&!relative(topic.source))throw Error('projectConventions.topics.source: expected a repository-relative file');
+     for(const scope of new Set(topic.scope)){
+      const key=JSON.stringify([id,scope]);
+      if(seen.has(key))throw Error('projectConventions.topics: duplicate topic and scope');
+      seen.add(key);
+     }
+    }
+   }
    if(record.tracker !== undefined) {
     const tracker=record.tracker as Record<string,unknown>;
     if(!tracker || typeof tracker !== 'object' || !['gitlab','github','local','other'].includes(String(tracker.system))) throw new Error('projectConventions.tracker.system: invalid');
@@ -170,6 +188,8 @@ export async function loadOptions(root: string, overrides: SetupOverrides, appro
   if(options.model&&modelLayer>backendLayer)options.backend='native';
   else if(options.backend==='codex'&&options.model)delete options.model;
   validateOptions(options as unknown as Record<string,unknown>);
+  if(options.projectConventions?.topics)options.projectConventions={...options.projectConventions,
+   topics:options.projectConventions.topics.map(topic=>({...topic,scope:[...new Set(topic.scope)]}))};
   return options;
 }
 

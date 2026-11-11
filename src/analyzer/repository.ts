@@ -5,7 +5,7 @@ import {readdir,readFile,realpath,stat,lstat} from 'node:fs/promises';
 import {join,relative,posix} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {scopeContains,type SetupOptions,type CommandSpec,type GitlabJobBinding} from '../types.js';
+import {scopeContains,type SetupOptions,type CommandSpec,type GitlabJobBinding,type Evidence} from '../types.js';
 import {discoverGitlabJobs} from '../integrations/gitlab/ci.js';
 import {projectChecks,npmScript} from '../integrations/tools/check-catalog.js';
 import {projectInput,type Ownership} from '../managed-input.js';
@@ -16,7 +16,7 @@ import {loadResearchIgnore,workflowEvidenceKind} from './research-ignore.js';
 import {checkPrerequisites,hasTestDatabaseGuard,jestSetupPath,linkDatabaseGuards,type SpecializedCheck} from './check-prerequisites.js';
 const exec=promisify(execFile);
 const specializedScripts=['test:e2e','test-e2e','check-types','typecheck','deps:validate','test'];
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
@@ -38,6 +38,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
  const ignored=await loadResearchIgnore(root);
  if(ignored.fingerprint){profile.ignoreFingerprint=ignored.fingerprint;inputs.push('.rigupignore\0'+ignored.fingerprint);}
  const gitlabPath='.gitlab-ci.yml';
+ const declaredSources=new Set(options.projectConventions?.topics?.map(topic=>topic.source).filter(Boolean));
  const selectedScope=(path:string)=>!options.scope?.length||options.scope.some(scope=>scopeContains(scope,path));
  if(purpose==='research'&&(!selectedScope(gitlabPath)||ignored.excludes(gitlabPath,false))){
   profile.gitlabReviewRequired=true;
@@ -88,6 +89,14 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    try{visible=visibleText(path,text,ownership);}catch{profile.unknowns.push(path+': unreadable or denied by policy');continue;}
    profile.files.push(path);
    if(workflow!=='entry'&&!excluded)profile.researchFiles?.push(path);
+   if(purpose==='research'&&workflow!=='entry'&&!excluded&&declaredSources.has(path)){
+    const lines=visible.split('\n');
+    const start=lines.findIndex(line=>line.trim())+1;
+    if(start){
+     profile.declaredSources??=Object.create(null) as Record<string,Evidence>;
+     profile.declaredSources[path]=sliceEvidence(path,lines,start,Math.min(lines.length,start+47)).evidence;
+    }
+   }
    for(const agent of Object.keys(agents) as Agent[]) {
     const host=agents[agent];
     if(path.startsWith(host.skillDirectory+'/') && path.endsWith('/SKILL.md')) {

@@ -117,3 +117,16 @@ test('sdd none overrides a profile and survives saving project settings',async()
   assert.equal((await loadOptions(root,{})).sdd,undefined);
  });
 });
+
+test('harness validates topics and scopes',async()=>{
+ const {validateOptions}=await import('../src/config.js');
+ const topic={id:'api-errors',title:'API errors',scope:['api'],source:'docs/api.md'};
+ for(const topics of [
+  [{...topic,id:'INVALID'}],[{...topic,id:'con'}],[{...topic,scope:['../outside']}],
+  [{...topic,source:'/tmp/secret.md'}],[topic,{...topic,source:'docs/other.md'}],
+  Array.from({length:13},(_,i)=>({...topic,id:'topic-'+i})),
+ ])assert.throws(()=>validateOptions({projectConventions:{topics}}),/topic|scope|source/i);
+ await fixture('projectConventions:\n  topics:\n    - {id: api-errors, title: API errors, scope: [api, api], source: docs/api.md}\n    - {id: api-errors, title: Root policy, scope: [.] }\n',async root=>{
+  assert.deepEqual((await loadOptions(root,{})).projectConventions?.topics?.map(topic=>topic.scope),[['api'],['.']]);
+ });
+});

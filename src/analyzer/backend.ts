@@ -1,5 +1,5 @@
 import {validateOptions} from '../config.js';
-import type {Evidence,StepResult} from '../types.js';
+import {scopeContains,scopesOverlap,type Evidence,type StepResult} from '../types.js';
 import type {EvidenceRead,ReadEvidence} from './evidence.js';
 export interface SearchSelection {paths:ReadonlySet<string>;limit:number}
 export interface RepositoryReader {
@@ -85,7 +85,11 @@ export async function validateResearch(data:unknown,reader:RepositoryReader,expo
  if(guidance !== undefined && !Array.isArray(guidance)) throw new Error('guidance: expected array');
  for(const source of (guidance ?? []) as Record<string,unknown>[]) {
   if(!source||typeof source.topic !== 'string'||!['reusable','partial','missing','conflicting','unavailable'].includes(String(source.coverageStatus))||!guidanceLists.every(field=>stringArray(source[field])))throw new Error('guidance: invalid source assessment');
-  const derived=observations.filter(item=>item.topic === source.topic && (source.topicId===undefined||item.topicId===undefined||item.topicId===source.topicId) && item.classification !== 'explicit-rule');
+  const scopes=source.scope as string[];
+  const derived=observations.filter(item=>item?.topic === source.topic && (source.topicId===undefined||item.topicId===undefined||item.topicId===source.topicId) &&
+   item.classification !== 'explicit-rule'&&stringArray(item.scope)&&scopesOverlap(scopes,item.scope));
+  if(['reusable','partial','conflicting','unavailable'].includes(String(source.coverageStatus))&&
+   derived.some(item=>item.scope.some((scope:string)=>!scopes.some(parent=>scopeContains(parent,scope)))))throw Error('guidance: narrow or split the overlapping observation scope');
   if(source.coverageStatus === 'reusable' && derived.length) throw new Error('guidance: reuse sufficient source before inference');
   if(source.coverageStatus === 'partial' && derived.some(item=>!(source.gaps as unknown[]).includes(item.gap))) throw new Error('guidance: research must address declared gap');
   if(['conflicting','unavailable'].includes(String(source.coverageStatus)) && derived.some(item=>item.guidanceDisposition === 'follow-existing')) throw new Error('guidance: unresolved source requires decision');
