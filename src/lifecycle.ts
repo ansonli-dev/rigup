@@ -27,7 +27,7 @@ import {privateDirectory,signature,readCache,saveCache} from './generator/cache.
 import {applyRecordPath,loadManifest,readApplyRecord,sourceReview} from './installer/baseline.js';
 import {acquireLock,defaultStateRoot} from './installer/lock.js';
 import {assertNoUnknownWriters} from './installer/operations.js';
-import {installationInput,preview,loadPreview,type Preview} from './installer/preview.js';
+import {installationInput,preview,loadPreview,restoredReviewMatches,type Preview,type PreviewData} from './installer/preview.js';
 import {sessionHandoffRequired} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
@@ -123,23 +123,29 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   }
   if(needsResearch&&backendKind==='host'&&recovery)write('Native workflow must be initialized before apply:\n'+recovery.nextCommand+'\n');
   let plan:SetupPlan;
+ let restoredReview:PreviewData|undefined;
   if(foundationOnly){
    emit({stage:'generation',completed:0,task:'assemble project workflow',next:'preview'});
    const previousAssets=(old?.assets??[]).filter(asset=>asset.logicalId!=='rigup:configuration');
    const preserveWorkflowContext=old?.projectRules==='ready'&&old.options?.sdd===options.sdd&&signature(old.options?.agents??[])===signature(options.agents)&&signature(old.options?.customSkills??[])===signature(options.customSkills??[]);
    let previousGuidance:import('./generator/project-rules.js').GuidanceBinding[]=[];
-   if(preserveWorkflowContext&&!authorityReview&&signature(old?.options??null)===signature(options)){
+   if(preserveWorkflowContext&&signature(old?.options??null)===signature(options)){
     const tx=await readApplyRecord(applyRecordPath(root,lock.stateRoot)),approved=tx?.preview;
     if(tx?.status==='complete'&&tx.installId===old?.installId&&approved&&approved.digest===signature(approved.data)){
      const {data}=approved;
      const targets=data.files.map(file=>file.target);
-     if(data.inputSnapshotVersion===3&&await installationInput(root,data.plan,targets).catch(()=>undefined)===data.inputSnapshot){
+     const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
+     const reusable=data.inputSnapshotVersion===3&&(authorityReview?
+      data.plan.projectRules==='ready'&&signature(data.plan.versions)===signature(versions)&&await restoredReviewMatches(root,data).catch(()=>false):
+      await installationInput(root,data.plan,targets).catch(()=>undefined)===data.inputSnapshot);
+     if(reusable){
+      if(authorityReview)restoredReview=data;
       previousGuidance=tx.report?.harness?.guidance.filter(binding=>binding.sourceRef&&!targets.includes(binding.sourceRef.path)&&['reusable','partial'].includes(binding.coverageStatus))??[];
      }
     }
    }
    plan=await generateFoundation(profile,options,prepared,previousAssets,preserveWorkflowContext,previousGuidance);
-   if(authorityReview)plan.projectRules='pending';
+   if(authorityReview&&!restoredReview)plan.projectRules='pending';
   }else{
    const authority=sourceGuidance(profile,options);
    const scopedAuthority=authority.length?{sourceGuidance:authority}:{};
@@ -231,7 +237,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,waiting:'ownership and virtual-tree checks'});
   plan.runChecks=flags.runChecks??[];
   if(authorityReview&&profile.truncated)plan.projectRules='pending';
-  const result=await preview(plan,resolutions,{cacheRoot:previews,stateRoot:lock.stateRoot,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review});
+  const result=await preview(plan,resolutions,{cacheRoot:previews,stateRoot:lock.stateRoot,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review,restoredReview});
   if(plan.gitlabReviewRequired)for(const warning of result.warnings)if(warning.startsWith('GitLab wiring'))write(warning+'\n');
   if(result.noChanges){
    emit({stage:'preview',completed:result.items.length,total:result.items.length,status:'complete'});

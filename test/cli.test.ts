@@ -60,7 +60,7 @@ test('init_existing_manifest_uses_update_rules_and_doctor_is_read_only', async (
   }
  } finally {await rm(root,{recursive:true,force:true});}
 });
-import {project,writeOpenSpecFixture} from './helpers.js';
+import {confirmedHarnessSource,project,writeOpenSpecFixture} from './helpers.js';
 test('tools flag keeps OpenWiki generation separate from protected CodeGraph initialization',()=>project(async root=>project(async cache=>project(async state=>{
  let output='';const code=await runCli(['init','--tools','openwiki,codegraph','--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
  assert.equal(code,0,output);const report=JSON.parse(output);assert.equal(report.executable,true);assert.deepEqual(report.operations.map((o:any)=>o.id),['install:openwiki','install:codegraph','initialize:codegraph']);assert.ok(report.warnings.some((w:string)=>/openwiki_begin/.test(w)));assert.deepEqual(await readdir(root),[]);
@@ -183,4 +183,41 @@ test('review returns up-to-date for an unchanged rules-disabled installation',()
  assert.equal(unchanged.nextCommand,null);
  assert.ok(!unchanged.previewId);
  assert.equal(await readFile(manifestPath,'utf8'),current);
+}))));
+
+test('harness CLI reviews restored approved authority without provider or file changes',()=>project(root=>project(cache=>project(async state=>{
+ const {readFile,writeFile}=await import('node:fs/promises');
+ const options={agents:['codex' as const],backend:'host' as const,projectRules:true,scope:['api']};
+ const {path,body}=await confirmedHarnessSource(root,options);
+ await writeFile(join(root,'profile.json'),JSON.stringify({...options,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['api'],source:path}]}}));
+ const invoke=async(args:string[],backend?:import('../src/analyzer/backend.js').AnalysisBackend)=>{
+  let output='';
+  const code=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}});
+  return {code,...JSON.parse(output)};
+ };
+ const prepared=await invoke(['init','--profile','profile.json','--backend','host','--sdd','none','--review'],{run:async()=>({status:'complete',value:{
+  model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{observations:[],guidance:[],artifacts:[],dispositions:[]},
+ }})});
+ assert.equal(prepared.projectRules,'ready',JSON.stringify(prepared));
+ const applyPreview=(id:string)=>invoke(['update','--apply',id,'--sessions-ended']);
+ assert.equal((await applyPreview(prepared.previewId)).code,0);
+ const original=await readFile(join(root,path),'utf8');
+ await writeFile(join(root,path),original.replace(body,'Use a different response contract.'));
+ assert.equal((await applyPreview(prepared.previewId)).projectRules,'pending');
+ const changed=await invoke(['update','--review']);
+ assert.equal(changed.projectRules,'pending');
+ await writeFile(join(root,path),original);
+ const reconciled=await invoke(['update','--review']);
+ assert.ok(reconciled.previewId);
+ assert.notEqual(reconciled.previewId,prepared.previewId);
+ assert.equal(reconciled.projectRules,'ready');
+ assert.equal((await applyPreview(changed.previewId)).code,1);
+ const approved=await applyPreview(reconciled.previewId);
+ assert.equal(approved.code,0,JSON.stringify(approved));
+ assert.deepEqual(approved.written,[]);
+ assert.equal((await invoke(['doctor'])).projectRules,'ready');
+ const unchanged=await invoke(['update','--review']);
+ assert.equal(unchanged.installStatus,'up-to-date');
+ assert.equal(unchanged.previewId,undefined);
+ assert.equal(await readFile(join(root,path),'utf8'),original);
 }))));

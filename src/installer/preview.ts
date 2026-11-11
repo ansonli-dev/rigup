@@ -14,7 +14,7 @@ import {assertToolOperationRecipe,isNativeTool} from '../integrations/tools/reci
 import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {digest} from '../analyzer/evidence.js';
-import {readFileState,readFileStates,absentDigest,platformFileMode} from './file-state.js';
+import {readFileState,readFileStates,absentDigest,matchesFileState,platformFileMode} from './file-state.js';
 export {absentDigest} from './file-state.js';
 import {privateDirectory,signature,readCache,saveCache} from '../generator/cache.js';
 import {markdownLinks,validateTemplateContent} from '../generator/document-policy.js';
@@ -65,7 +65,7 @@ function reviewedSources(plan:SetupPlan,pending:SourceReview):boolean{
  })));
 }
 
-export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],dependencies:{cacheRoot?:string;stateRoot?:string;skipUnchanged?:boolean;reviewEntryBlocks?:boolean}={}):Promise<Preview>{
+export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],dependencies:{cacheRoot?:string;stateRoot?:string;skipUnchanged?:boolean;reviewEntryBlocks?:boolean;restoredReview?:PreviewData}={}):Promise<Preview>{
  const root=await realpath(plan.root);if(root!==plan.root)throw new Error('plan root must be canonical');
  const oldManifest=await loadManifest(root);const old=oldManifest?.assets??[];
  const pendingReview=await sourceReview(root,oldManifest,dependencies.stateRoot??defaultStateRoot());
@@ -268,11 +268,26 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644,...(creates.has(target)?{seed:creates.get(target)}:{})}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
+ const inputSnapshot=await installationInput(root,plan,allTargets);
+ if(dependencies.restoredReview&&plan.projectRules==='ready'&&
+   (!await restoredReviewMatches(root,dependencies.restoredReview)||inputSnapshot!==await installationInput(root,plan,allTargets))){
+  throw Error('Previously approved inputs changed during source reconciliation; prepare a new review');
+ }
  // Older CLI readers use the discovery marker to verify the full approved scope.
- const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:3,...(pendingReview?{sourceReview:pendingReview}:{}),preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan,allTargets),files,assets:nextAssets,baselines:baselineRecords};
+ const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:3,...(pendingReview?{sourceReview:pendingReview}:{}),preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot,files,assets:nextAssets,baselines:baselineRecords};
  if(dependencies.skipUnchanged&&publicPreview.executable&&unchangedInstallation(data))return {...publicPreview,previewId:'',noChanges:true};
  const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
  return publicPreview;
+}
+
+export async function restoredReviewMatches(root:string,data:PreviewData):Promise<boolean>{
+ const files=new Map(data.files.map(file=>[file.target,file]));
+ for await(const {target,state} of readFileStates(root,[...files.keys()])){
+  const file=files.get(target)!;
+  const hash=file.next===undefined?absentDigest:digest(Buffer.from(file.next,file.encoding));
+  if(!matchesFileState(state,hash,file.mode))return false;
+ }
+ return await installationInput(root,data.plan,[...files.keys()])===data.inputSnapshot;
 }
 
 export async function installationInput(root:string,plan:SetupPlan,managedTargets:string[]):Promise<string>{

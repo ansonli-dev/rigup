@@ -132,7 +132,9 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
  const topicDirectory=target.slice(0,-3)+'/';
  if(otherJobs.some(job=>isProjectRulesId(job.logicalId)||job.target===target||job.target.startsWith(topicDirectory)))throw new Error('Development rules targets are reserved for verified project rules');
  const observations=data.observations as RuleObservation[];
- const guidance=[...(data.guidance??[]) as GuidanceBinding[],...authority];
+ const assessed=(data.guidance??[]) as GuidanceBinding[];
+ const guidance=[...assessed.filter(binding=>!binding.sourceRef||!conventionPaths.has(binding.sourceRef.path)||
+  !['reusable','partial'].includes(binding.coverageStatus)),...authority];
  const covered=guidance.filter(source=>isOriginalGuidance(source)&&source.coverageStatus==='reusable');
  const unresolved=[...guidance.filter(needsDecision),...observations.filter(item=>item.guidanceDisposition==='needs-decision')];
  const topics=parseRuleTopics(data.ruleTopics);
@@ -172,8 +174,8 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
    const sourceKey=claimKey(source.topicId,source.topic);
    return (sourceKey===key||sourceKey===keyWithoutTopicId)&&scopesOverlap(scopes,verifiedScopes(source.scope,files));
   };
-  const authorityOverlaps=authority.some(source=>source.topicId===observation.topicId&&scopesOverlap(source.scope,scopes)&&
-   (source.coverageStatus!=='partial'||scopes.some(scope=>!source.scope.some(parent=>scopeContains(parent,scope)))));
+  const authorityOverlaps=authority.some(source=>(observation.topicId===undefined?source.topic===topic:source.topicId===observation.topicId)&&scopesOverlap(source.scope,scopes)&&
+   (source.coverageStatus!=='partial'||!source.gaps.includes(observation.gap??'')||scopes.some(scope=>!source.scope.some(parent=>scopeContains(parent,scope)))));
   if((classification!=='explicit-rule'&&classification!=='convention')||!scopes.length||scopes.length!==scope.length||authorityOverlaps||covered.some(overlaps)||unresolved.some(overlaps))continue;
   const exceptions=Array.isArray(observation.exceptions)?observation.exceptions.map(singleLine).filter(Boolean):[];
   if(counterEvidence.length&&!exceptions.length||exceptions.some(exception=>exception.length>1000)){

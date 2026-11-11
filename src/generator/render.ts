@@ -197,7 +197,7 @@ export async function reconcileHarnessNavigation(profile:ProjectProfile,options:
  const inherited=new Map<string,string>(),targets:string[]=[],warnings:string[]=[],retainIds=new Set<string>();
  const knownPaths=new Set(profile.conventionPaths);
  const pages=new Map(profile.conventions?.map(page=>[page.path,page]));
- const confirmed=guidance.filter(binding=>binding.coverageStatus==='reusable'&&binding.sourceRef&&binding.consumers.length&&pages.get(binding.sourceRef.path)?.status==='confirmed');
+ const confirmed=guidance.filter(binding=>['reusable','partial'].includes(binding.coverageStatus)&&binding.sourceRef&&binding.consumers.length&&pages.get(binding.sourceRef.path)?.status==='confirmed');
  const applicable=options.scope?.length?options.scope:['.'];
  const visible=new Set(profile.researchFiles??profile.files);
  const conflicted=new Set(guidance.flatMap(binding=>binding.coverageStatus==='conflicting'&&binding.sourceRef?[binding.sourceRef.path]:[]));

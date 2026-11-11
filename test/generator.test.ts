@@ -13,7 +13,7 @@ import {generate} from '../src/generator/generate.js';
 import {prepareProjectRules} from '../src/generator/project-rules.js';
 import {repositoryReader,scanRepository} from '../src/analyzer/repository.js';
 import {digest} from '../src/analyzer/evidence.js';
-import {project,setNativeEntries} from './helpers.js';
+import {confirmedHarnessSource,project,setNativeEntries} from './helpers.js';
 import {writeFile,readFile,readdir,rm,mkdir} from 'node:fs/promises';
 import type {AnalysisBackend,ResearchRequest} from '../src/analyzer/backend.js';
 const options={agents:['codex'] as const,backend:'host' as const,sdd:'openspec' as const};
@@ -693,6 +693,30 @@ test('harness keeps verified partial coverage for a declared authority',()=>fixt
  assert.equal(result.summary.guidance.some(binding=>binding.coverageStatus==='reusable'),false);
  assert.deepEqual(result.drafts.map(draft=>draft.questions),[['Agree response fields']]);
 }));
+
+for(const scope of ['api','api/handler.ts']){
+ test('harness keeps verified partial coverage for a confirmed page in '+scope,()=>fixture(async(root,cache)=>{
+  const settings={...opts,sdd:undefined,projectRules:true};
+  const {path,sourceGuidance}=await confirmedHarnessSource(root,settings);
+  const gaps=['Decide retry semantics.'];
+  const assessment={...sourceGuidance[0],scope:[scope],coverageStatus:'partial',gaps};
+  const otherScopes=scope==='api'?[]:[sourceGuidance[0],{...sourceGuidance[0],scope:['api/neighbor.ts']}];
+  await writeFile(root+'/api/neighbor.ts','export const neighbor = true;\n');
+  const profile=await scanRepository(root,settings);
+  const backend:AnalysisBackend={run:async()=>({status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},
+   data:{observations:[],artifacts:[],dispositions:[],guidance:[assessment,...otherScopes]}}})};
+  const result=await generate(profile,settings,backend,[],{cacheRoot:cache});
+  if(result.status!=='complete')throw Error('pending');
+  assert.deepEqual(result.value.harness?.guidance.filter(binding=>binding.sourceRef?.path===path)
+   .map(binding=>[binding.scope,binding.coverageStatus,binding.gaps]),
+   [[[scope],'partial',gaps],...(otherScopes.length?[[['api/neighbor.ts'],'reusable',[]]]:[])]);
+  const {renderConventionSeed}=await import('../src/project-conventions.js');
+  const seed=renderConventionSeed({topicId:'api-errors',title:'API errors',scope,questions:gaps});
+  assert.deepEqual(result.value.projectDocuments?.map(document=>document.target),['docs/rigup/'+seed.target]);
+  assert.match(result.value.projectDocuments?.[0]?.content??'',/Decide retry semantics/);
+  assert.match(result.value.assets.find(asset=>asset.target==='AGENTS.md')?.content??'',/rigup:harness:start[\s\S]*knowledge\/api-errors\.md/);
+ }));
+}
 
 test('harness confirms one scope while another stays draft',()=>fixture(async(root,cache)=>{
  const {renderConventionSeed}=await import('../src/project-conventions.js');
