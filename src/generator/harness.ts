@@ -25,6 +25,18 @@ export function declaredAuthority(profile:ProjectProfile,options:SetupOptions,as
  });
 }
 
+export function sourceGuidance(profile:ProjectProfile,options:SetupOptions,assessed:GuidanceBinding[]=[]):(GuidanceBinding&{topicId:string;sourceRef:Evidence})[]{
+ const files=profile.researchFiles??profile.files;
+ const confirmed=(profile.conventions??[]).filter(page=>page.status==='confirmed'&&page.sourceRef&&verifiedScopes([page.scope],files).length);
+ const bindings=[...declaredAuthority(profile,options,assessed),...confirmed.map(page=>{
+  const conflicting=confirmed.some(other=>other.topicId===page.topicId&&other.bodyDigest!==page.bodyDigest&&scopesOverlap([page.scope],[other.scope]));
+  return {topicId:page.topicId,topic:page.title,scope:[page.scope],sourceRef:page.sourceRef!,coverageStatus:conflicting?'conflicting':'reusable',
+   consumers:conventionConsumers(options),gaps:conflicting?['Resolve the differing confirmed sources for their overlapping scope.']:[]};
+ })];
+ const key=(binding:typeof bindings[number])=>JSON.stringify([binding.topicId,binding.scope,binding.sourceRef.path,binding.sourceRef.startLine,binding.sourceRef.endLine]);
+ return bindings.sort((a,b)=>key(a).localeCompare(key(b),'en'));
+}
+
 export function planHarness(profile:ProjectProfile,options:SetupOptions,guidance:GuidanceBinding[]):{summary:HarnessSummary;drafts:ConventionDraft[]}{
  const selected=selectedScopes(options);
  const files=profile.researchFiles??profile.files;
@@ -32,6 +44,7 @@ export function planHarness(profile:ProjectProfile,options:SetupOptions,guidance
  const incomplete=profile.truncated||!!profile.ignoreFingerprint||
   profile.unknowns.some(note=>/unreadable|denied by policy|symlink skipped/.test(note));
  const bindings=guidance.flatMap(binding=>{
+  if(binding.sourceRef&&profile.conventionPaths?.includes(binding.sourceRef.path)&&['reusable','partial'].includes(binding.coverageStatus))return [];
   const scope=[...new Set(verifiedScopes(binding.scope,files))].filter(path=>scopesOverlap(selected,[path]));
   if(!scope.length)return [];
   const coverageStatus=binding.coverageStatus==='missing'&&(incomplete||scope.some(path=>!selected.some(parent=>scopeContains(parent,path))))
@@ -40,7 +53,7 @@ export function planHarness(profile:ProjectProfile,options:SetupOptions,guidance
  });
  const drafts=new Map<string,ConventionDraft>();
  const applies=(scope:string)=>selected.some(parent=>scopeContains(parent,scope))&&verifiedScopes([scope],files).length>0;
- const authority=declaredAuthority(profile,options,bindings);
+ const authority=sourceGuidance(profile,options,bindings);
  const topicAuthority=new Set<GuidanceBinding>(authority);
  const related=(id:string,title:string,scope:string,wholeTopic=false)=>bindings.filter(binding=>
   (binding.topicId===id&&(wholeTopic||binding.topic===title||topicAuthority.has(binding))||
@@ -50,6 +63,7 @@ export function planHarness(profile:ProjectProfile,options:SetupOptions,guidance
   ['partial','reusable'].includes(binding.coverageStatus)&&!covered(binding,scope);
  const putDraft=(topicId:string,title:string,scope:string,questions:string[])=>{
   if(!questions.length||!applies(scope))return;
+  if(profile.conventions?.some(page=>page.topicId===topicId&&page.status==='not-applicable'&&scopeContains(page.scope,scope)))return;
   const key=JSON.stringify([topicId,scope]),previous=drafts.get(key);
   drafts.set(key,{topicId,title,scope,questions:[...new Set([...(previous?.questions??[]),...questions])].sort()});
  };
@@ -61,11 +75,11 @@ export function planHarness(profile:ProjectProfile,options:SetupOptions,guidance
   else bindings.push(source);
  }
  for(const topic of options.projectConventions?.topics??[])for(const scope of new Set(topic.scope)){
-  if(!scopesOverlap(selected,[scope]))continue;
+  if(!scopesOverlap(selected,[scope])||profile.conventions?.some(page=>page.topicId===topic.id&&page.status==='not-applicable'&&scopeContains(page.scope,scope)))continue;
   const sources=related(topic.id,topic.title,scope,true);
   const question='Confirm whether this scope already has guidance for '+topic.title+' and record the decisions still needed.';
   const sufficient=sources.some(binding=>binding.coverageStatus==='reusable'&&covered(binding,scope));
-  const unknownSource=topic.source&&!profile.declaredSources?.[topic.source]&&!sources.some(binding=>binding.scope.includes(scope)&&binding.coverageStatus==='unavailable');
+  const unknownSource=topic.source&&!sources.some(binding=>binding.sourceRef?.path===topic.source||binding.scope.includes(scope)&&binding.coverageStatus==='unavailable');
   if(unknownSource||!sources.some(binding=>covered(binding,scope))){
    bindings.push({topicId:topic.id,topic:topic.title,scope:[scope],consumers,coverageStatus:'unavailable',gaps:[question]});
   }

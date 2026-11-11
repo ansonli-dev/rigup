@@ -3,7 +3,8 @@ import {realpath} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {selectResearchOutput,validateResearch,type AnalysisBackend,type RepositoryReader,type ResearchRequest} from '../analyzer/backend.js';
-import {digest} from '../analyzer/evidence.js';
+import {digest,type EvidenceRead} from '../analyzer/evidence.js';
+import {stageSourceGuidance} from '../analyzer/stage-context.js';
 import {PROMPT_VERSION,researchPrompt} from '../analyzer/prompts.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
 import {scanRepository} from '../analyzer/repository.js';
@@ -11,6 +12,7 @@ import {loadOptions,normalizeDocumentLanguage} from '../config.js';
 import {privateDirectory,signature} from '../generator/cache.js';
 import {DOCUMENT_POLICY_VERSION} from '../generator/document-policy.js';
 import {inventorySignature} from '../generator/generate.js';
+import {sourceGuidance} from '../generator/harness.js';
 import {TEMPLATE_VERSION} from '../generator/render.js';
 import {interruptedApplyId} from '../installer/apply.js';
 import {loadManifest,sourceReview,trustedBaseline,type Manifest} from '../installer/baseline.js';
@@ -34,7 +36,7 @@ const hostPrompt=researchPrompt
  + '\nStart with the supplied seed paths. Scope Glob and Grep to relevant project source or test directories. Exclude .rigup/tools/ and dependency trees from searches, and ignore any matches there.';
 const maxSubmissionBytes=256_000;
 type JobStage='analysis'|'plan'|'page'|'acceptance';
-interface Job {id:string;stage:JobStage;expectedOutput:'analysis'|'plan'|'content'|'acceptance';options:{documentLanguage:string};artifact?:string;input?:unknown;seedPaths?:string[]}
+interface Job {id:string;stage:JobStage;expectedOutput:'analysis'|'plan'|'content'|'acceptance';options:{documentLanguage:string};artifact?:string;input?:unknown;seedPaths?:string[];sourceGuidance?:ResearchRequest['sourceGuidance'];sourceEvidence?:EvidenceRead[]}
 interface Submission {id:string;digest:string;stage:JobStage|'planning';data:Record<string,unknown>}
 interface ResearchState {
  version:1;id:string;scope:string;startingInventory:string;language?:string;
@@ -131,7 +133,7 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
    if(!options.projectRules||!options.agents.includes(host))throw Error('Enable project rules and apply the selection for this host before starting research');
    const profile=await scanRepository(root,options);
    if(profile.researchBlocked)throw Error(profile.researchBlocked);
-   const scope=signature({root,host,options,fingerprint:profile.fingerprint,config:config&&digest(config),policy});
+   const scope=signature({root,host,options,fingerprint:profile.fingerprint,sourceGuidance:sourceGuidance(profile,options),config:config&&digest(config),policy});
    const currentInventory=inventorySignature(manifest.assets);
    const pendingSourceReview=await sourceReview(root,manifest,lock.stateRoot);
    const lastResultApplied=!pendingSourceReview&&state?.scope===scope&&state.result?.inventory===currentInventory&&manifest.projectRules==='ready'&&signature(manifest.options)===signature(options);
@@ -179,16 +181,17 @@ async function advanceResearch(root:string,host:Agent,state:ResearchState,path:s
   }
   if(submission&&state.accepted[submission.id]!==submission.digest)throw Error('The submitted job is not the pending research job');
  };
- const backend:AnalysisBackend={artifactContextVersion:'mcp-2',run:async(request:ResearchRequest,reader)=>{
+ const backend:AnalysisBackend={artifactContextVersion:'mcp-3',run:async(request:ResearchRequest,reader)=>{
   const model='host-agent/'+host;
   const expectedOutput=request.expectedOutput??'analysis';
   const stage:JobStage=expectedOutput==='content'?'page':expectedOutput;
-  const id=signature({run:state.id,stage,artifact:request.artifact,input:request.input});
+  const id=signature({run:state.id,stage,artifact:request.artifact,input:request.input,sourceGuidance:request.sourceGuidance});
+  const sourceEvidence=await stageSourceGuidance(reader,request.sourceGuidance);
   if(submission&&!consumed&&submission.id===id){
    if((stage==='page'||stage==='acceptance')!==(submission.stage==='page'))throw Error('Use the submission tool for this job stage');
    if(state.inFlight?.id===id&&state.inFlight.digest!==submission.digest)throw Error('Retry the in-flight job with the same data');
    const data=selectResearchOutput(request,await hydrateEvidence(submission.data,reader));
-   await validateResearch(data,reader);
+   await validateResearch(data,reader,undefined,sourceEvidence);
    const unknowns=(data as {unknowns?:unknown}).unknowns;
    if(!Array.isArray(unknowns)||unknowns.some(item=>typeof item!=='string'))throw Error('unknowns: string array required');
    state.inFlight={id,digest:submission.digest};
@@ -196,7 +199,9 @@ async function advanceResearch(root:string,host:Agent,state:ResearchState,path:s
    consumed=true;
    return {status:'complete',value:{model,data,unknowns,usage:{calls:1,tokens:'unknown'}}};
   }
-  throw new AwaitingJob({id,stage,expectedOutput,options:{documentLanguage:options.documentLanguage??'auto'},artifact:request.artifact,input:request.input,...(stage==='analysis'?{seedPaths:(await reader.list()).slice(0,200)}:{})});
+  throw new AwaitingJob({id,stage,expectedOutput,options:{documentLanguage:options.documentLanguage??'auto'},artifact:request.artifact,input:request.input,
+   ...(request.sourceGuidance?.length?{sourceGuidance:request.sourceGuidance,sourceEvidence}:{}),
+   ...(stage==='analysis'?{seedPaths:(await reader.list()).slice(0,200)}:{})});
  }};
  let report:Record<string,unknown>|undefined;
  try{

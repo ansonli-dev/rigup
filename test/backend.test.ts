@@ -295,3 +295,74 @@ test('backend_cannot_export_literal_mcp_credentials_in_request_options',async()=
  const invalid={...request,options:{mcp:[{id:'customer',agents:['claude'],url:'https://name:literal@example.test/mcp'}]}};
  await assert.rejects(backend.run(invalid,reader),/credential|url/);assert.equal(sent,false);
 });
+
+test('harness rejects cross-scope counterevidence even for a needs-decision observation',async()=>{
+ const {project}=await import('./helpers.js');
+ const {mkdir,writeFile}=await import('node:fs/promises');
+ const {repositoryReader}=await import('../src/analyzer/repository.js');
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ await project(async root=>{
+  for(const scope of ['api','web']){
+   await mkdir(root+'/'+scope);
+   await writeFile(root+'/'+scope+'/a.ts','throw problem(422, issue);\n');
+   await writeFile(root+'/'+scope+'/b.ts','return problem(422, errors);\n');
+  }
+  const path='api-guide.md',body='Use 400 for invalid input.\n';
+  const header=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'api',questions:['Decide']}).content;
+  await writeFile(root+'/'+path,header.replace('status: draft','status: confirmed')+body);
+  const repo=await repositoryReader(root,{agents:[],backend:'host'});
+  const authority=(await repo.search('Use 400'))[0].evidence;
+  const observation=async(scope:string)=>({topicId:'api-errors',topic:'HTTP errors',scope:[scope],classification:'convention',statement:'422 responses differ from guidance.',
+   supportingEvidence:await Promise.all(['a.ts','b.ts'].map(async file=>(await repo.read(scope+'/'+file,1,1)).evidence)),
+   counterEvidence:[authority],guidanceDisposition:'needs-decision',
+   coverage:{independentSupports:2,counterexampleSearched:true,counterexampleQueries:['problem(400']},
+  });
+  await assert.rejects(validateResearch({observations:[await observation('web')]},repo),/claim scope exceeds/);
+  await assert.rejects(validateResearch({observations:[await observation('api')]},repo,undefined,[]),/body was not exported/);
+  await validateResearch({observations:[await observation('api')]},repo,undefined,[authority]);
+ });
+});
+
+test('harness provider request supplies verified source bodies and rejects metadata-only citations',async()=>{
+ const {project,confirmedHarnessSource}=await import('./helpers.js');
+ await project(async root=>{
+  const options={agents:['codex' as const],backend:'native' as const,projectRules:true};
+  const authority=await confirmedHarnessSource(root,options);
+  for(const include of [true,false]){
+   const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async(url,init)=>{
+    const input=JSON.parse(JSON.parse(String(init?.body)).messages[0].content);
+    assert.deepEqual(input.sourceGuidance,include?authority.sourceGuidance:undefined);
+    assert.equal(JSON.stringify(input.sourceEvidence??[]).includes(authority.body),include);
+    if(String(url).endsWith('/count_tokens'))return Response.json({input_tokens:10});
+    return Response.json({id:'fixture',type:'message',role:'assistant',model:'fixture',
+     content:[{type:'text',text:JSON.stringify({observations:[],unknowns:[],guidance:authority.sourceGuidance})}],
+     stop_reason:'end_turn',usage:{input_tokens:10,output_tokens:10}});
+   }});
+   const run=backend.run({...request,root,options,fingerprint:authority.profile.fingerprint,sourceGuidance:include?authority.sourceGuidance:undefined},authority.reader);
+   if(include)assert.equal((await run).status,'complete');
+   else await assert.rejects(run,/invalid research evidence/);
+  }
+ });
+});
+
+test('harness rejects provider citations to replacement bytes at an exported source range',async()=>{
+ const {project,confirmedHarnessSource}=await import('./helpers.js');
+ const {readFile,writeFile}=await import('node:fs/promises');
+ await project(async root=>{
+  const options={agents:['codex' as const],backend:'native' as const,projectRules:true};
+  const authority=await confirmedHarnessSource(root,options);
+  const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async(url,init)=>{
+   const input=JSON.parse(JSON.parse(String(init?.body)).messages[0].content);
+   assert.ok(input.sourceEvidence[0].content.includes(authority.body));
+   if(String(url).endsWith('/count_tokens'))return Response.json({input_tokens:10});
+   const path=root+'/'+authority.path;
+   await writeFile(path,(await readFile(path,'utf8')).replace(authority.body,'Use a different response envelope.'));
+   const binding=authority.sourceGuidance[0];
+   const sourceRef=(await authority.reader.read(authority.path,binding.sourceRef.startLine,binding.sourceRef.endLine)).evidence;
+   return Response.json({id:'fixture',type:'message',role:'assistant',model:'fixture',
+    content:[{type:'text',text:JSON.stringify({observations:[],unknowns:[],guidance:[{...binding,sourceRef}]})}],
+    stop_reason:'end_turn',usage:{input_tokens:10,output_tokens:10}});
+  }});
+  await assert.rejects(backend.run({...request,root,options,fingerprint:authority.profile.fingerprint,sourceGuidance:authority.sourceGuidance},authority.reader),/invalid research evidence/);
+ });
+});

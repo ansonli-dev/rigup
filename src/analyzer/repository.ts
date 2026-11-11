@@ -17,7 +17,7 @@ import {loadResearchIgnore,workflowEvidenceKind} from './research-ignore.js';
 import {checkPrerequisites,hasTestDatabaseGuard,jestSetupPath,linkDatabaseGuards,type SpecializedCheck} from './check-prerequisites.js';
 const exec=promisify(execFile);
 const specializedScripts=['test:e2e','test-e2e','check-types','typecheck','deps:validate','test'];
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;conventions?:ConventionPage[];conventionPaths?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;conventions?:ConventionPage[];conventionPaths?:string[];extraSourcePaths?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
@@ -48,6 +48,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
   ...[...declaredSources].filter(([,scope])=>scopesOverlap(scopes,scope)).map(([path])=>path),
   ...receipts.filter(receipt=>!profile.researchBlocked&&scopesOverlap(scopes,[receipt.scope])).map(receipt=>receipt.target),
  ];
+ if(extraSources.length)profile.extraSourcePaths=extraSources;
  const registered=new Map(receipts.map(receipt=>[documentTargetKey(receipt.target),receipt]));
  const projection=(path:string,raw:string)=>projectSource(path,raw,managed.get(path)??[],scopes,registered.get(documentTargetKey(path)),declaredSources.get(path));
  const selectedScope=(path:string)=>!options.scope?.length||options.scope.some(scope=>scopeContains(scope,path));
@@ -176,7 +177,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    job.reason='Command could not be verified against scanned project checks';
   }
  }
- const external=await discoverNativeSources(root,options,discovery);for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,projection};
+ const external=await discoverNativeSources(root,options,discovery);for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,projection,declaredSources,scopes};
 }
 
 function projectSource(path:string,raw:string,ownership:Ownership[],selected:string[],registered?:ConventionReceipt,declared?:string[]):ReturnType<typeof readConventionDocument> {
@@ -194,11 +195,19 @@ function projectSource(path:string,raw:string,ownership:Ownership[],selected:str
 
 export interface ReaderDependencies {budget?:{calls:number;bytes:number};persist?:()=>Promise<void>;expectedFingerprint?:string}
 export async function repositoryReader(root:string,options:SetupOptions,dependencies:ReaderDependencies={}){
- const {profile,projection}=await inventory(root,options);
+ const {profile,projection,declaredSources,scopes}=await inventory(root,options);
  root=profile.root;
  if(dependencies.expectedFingerprint&&profile.fingerprint!==dependencies.expectedFingerprint)throw new Error('reader source fingerprint changed during preparation');
  if(profile.researchBlocked)throw new Error(profile.researchBlocked);
  const allowed=new Set(profile.researchFiles??profile.files);
+ const pages=new Map(profile.conventions?.map(page=>[page.path,page]));
+ const conventionPaths=new Set(profile.conventionPaths);
+ const sourceScopes=new Map<string,readonly string[]>();
+ for(const [path,declared] of declaredSources)if(allowed.has(path))sourceScopes.set(path,declared.filter(scope=>scopesOverlap(scopes,[scope])));
+ for(const path of conventionPaths){
+  const page=pages.get(path);
+  sourceScopes.set(path,page?.status==='confirmed'?[page.scope]:[]);
+ }
  const spent=dependencies.budget??{bytes:0,calls:0};if(!Number.isSafeInteger(spent.bytes)||spent.bytes<0||!Number.isSafeInteger(spent.calls)||spent.calls<0)throw new Error('reader budget state invalid');
  const maxBytes=options.readBudget?.maxBytes ?? 8_000_000;const maxCalls=options.readBudget?.maxFiles ?? 2000;
  let budgetWrites=Promise.resolve();
@@ -211,7 +220,13 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
   if(!allowed.has(path)) throw new Error('path outside reader inventory');
   await charge((await stat(await safePath(root,path))).size);
   const raw=await readFile(await safePath(root,path),'utf8');
-  return projection(path,raw).researchText.split('\n');
+  const source=projection(path,raw);
+  const expected=pages.get(path),page=source.page;
+  if(conventionPaths.has(path)||page||source.warnings.length){
+   if(expected?.status!==page?.status||expected?.scope!==page?.scope||expected?.topicId!==page?.topicId||
+    conventionPaths.has(path)&&!page&&!source.warnings.length)throw Error('convention source changed during research');
+  }
+  return source.researchText.split('\n');
  };
  const cacheLines=()=>{
   const files=new Map<string,Promise<string[]>>();
@@ -225,7 +240,7 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
  // Searches share filtered files while loading only the paths they need.
  const searchLines=cacheLines();
  return {
-  list:async()=>[...allowed],read,
+  list:async()=>[...allowed],read,sourceScopes,
   evidencePass:():ReadEvidence=>{
    const passLines=cacheLines();
    return async(path,start,end)=>sliceEvidence(path,await passLines(path),start,end);

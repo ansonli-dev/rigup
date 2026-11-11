@@ -1,15 +1,19 @@
 import {validateOptions} from '../config.js';
 import {scopeContains,scopesOverlap,type Evidence,type StepResult} from '../types.js';
 import type {EvidenceRead,ReadEvidence} from './evidence.js';
+import {digest} from './evidence.js';
+import {isConventionScope} from '../project-conventions.js';
+import type {GuidanceBinding} from '../generator/project-rules.js';
 export interface SearchSelection {paths:ReadonlySet<string>;limit:number}
 export interface RepositoryReader {
  list():Promise<string[]>;
  read:ReadEvidence;
  /** A fresh reader that can share file loads within a single verification. */
  evidencePass?():ReadEvidence;
+ readonly sourceScopes?:ReadonlyMap<string,readonly string[]>;
  search(query:string,selection?:SearchSelection):Promise<EvidenceRead[]>;
 }
-export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;effectiveModel?:import('../types.js').SetupOptions['model'];versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;expectedOutput?:'plan'|'content'|'acceptance';input?:unknown;previousInventoryDigest:string;templateSourcesDigest:string}
+export interface ResearchRequest {kind:'analyze'|'artifact-plan'|'artifact-content';runId:string;root:string;fingerprint:string;options:unknown;sourceGuidance?:GuidanceBinding[];effectiveModel?:import('../types.js').SetupOptions['model'];versions:Record<string,string>;budget:{maxCalls:number;maxTokens:number};spent?:{calls:number;tokens:number|'unknown'};artifact?:string;expectedOutput?:'plan'|'content'|'acceptance';input?:unknown;previousInventoryDigest:string;templateSourcesDigest:string}
 export interface ResearchResult {data:unknown;model:string;unknowns:string[];usage:{calls:number|'unknown';tokens:number|'unknown'}}
 export interface AnalysisBackend {
  /** Revision of content/acceptance evidence; does not reset run accounting or the unchanged plan. */
@@ -57,7 +61,7 @@ export function selectResearchOutput(request:ResearchRequest,data:unknown):unkno
 
 const citationKey=(path:unknown,startLine:unknown,endLine:unknown,digest:unknown)=>JSON.stringify([path,startLine,endLine,digest]);
 
-export async function validateResearch(data:unknown,reader:RepositoryReader,exportedEvidence?:readonly Evidence[]):Promise<void>{
+export async function validateResearch(data:unknown,reader:RepositoryReader,exportedEvidence?:readonly Evidence[],exportedSourceEvidence?:readonly (EvidenceRead|Evidence)[]):Promise<void>{
  if(!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('research: expected object');
  const verified=new Set<string>();
  const exported=exportedEvidence&&new Set(exportedEvidence.map(e=>citationKey(e.path,e.startLine,e.endLine,e.digest)));
@@ -71,6 +75,14 @@ export async function validateResearch(data:unknown,reader:RepositoryReader,expo
    const key=citationKey(obj.path,obj.startLine,obj.endLine,obj.digest);
    if(verified.has(key))return;
    if(exported&&!exported.has(key))throw new Error('evidence: citation was not exported for this analysis');
+   if(exportedSourceEvidence&&reader.sourceScopes?.has(obj.path)&&!exportedSourceEvidence.some(item=>{
+    const ref='evidence' in item?item.evidence:item;
+    if(ref.path!==obj.path)return false;
+    if(!('content' in item))return citationKey(ref.path,ref.startLine,ref.endLine,ref.digest)===key;
+    const start=Number(obj.startLine),end=Number(obj.endLine);
+    return ref.startLine<=start&&ref.endLine>=end&&start<=end&&
+     digest(item.content.split('\n').slice(start-ref.startLine,end-ref.startLine+1).join('\n'))===obj.digest;
+   }))throw Error('evidence: scoped source body was not exported for this request');
    const real=await read(obj.path,Number(obj.startLine),Number(obj.endLine));
    if(real.evidence.digest !== obj.digest) throw new Error('evidence: digest mismatch');
    verified.add(key);
@@ -83,9 +95,18 @@ export async function validateResearch(data:unknown,reader:RepositoryReader,expo
  if(!Array.isArray(observations)) throw new Error('observations: required');
  const guidance=(data as Record<string,unknown>).guidance;
  if(guidance !== undefined && !Array.isArray(guidance)) throw new Error('guidance: expected array');
+ const checkScope=(scope:unknown,refs:unknown[])=>{
+  for(const ref of refs){
+   const path=ref&&typeof ref==='object'?(ref as Partial<Evidence>).path:undefined;
+   const authorized=path&&reader.sourceScopes?.get(path);
+   if(authorized&&(!Array.isArray(scope)||!scope.length||scope.some(child=>typeof child!=='string'||
+    !isConventionScope(child.replace(/\/+$/,''))||!authorized.some(parent=>scopeContains(parent,child)))))throw Error('evidence: claim scope exceeds the source authorization');
+  }
+ };
  for(const source of (guidance ?? []) as Record<string,unknown>[]) {
   if(!source||typeof source.topic !== 'string'||!['reusable','partial','missing','conflicting','unavailable'].includes(String(source.coverageStatus))||!guidanceLists.every(field=>stringArray(source[field])))throw new Error('guidance: invalid source assessment');
   const scopes=source.scope as string[];
+  checkScope(scopes,[source.sourceRef]);
   const derived=observations.filter(item=>item?.topic === source.topic && (source.topicId===undefined||item.topicId===undefined||item.topicId===source.topicId) &&
    item.classification !== 'explicit-rule'&&stringArray(item.scope)&&scopesOverlap(scopes,item.scope));
   if(['reusable','partial','conflicting','unavailable'].includes(String(source.coverageStatus))&&
@@ -100,6 +121,7 @@ export async function validateResearch(data:unknown,reader:RepositoryReader,expo
  }
  for(const item of observations) {
   if(!item || typeof item !== 'object' || typeof item.statement !== 'string' || !Array.isArray(item.scope) || !Array.isArray(item.supportingEvidence) || !Array.isArray(item.counterEvidence)) throw new Error('observation: required fields');
+  checkScope(item.scope,[...item.supportingEvidence,...item.counterEvidence]);
   if(!['explicit-rule','convention','local-pattern','suggestion'].includes(item.classification)) throw new Error('classification: invalid');
   if(item.classification === 'convention' && (!Number.isInteger(item.coverage?.independentSupports) || item.coverage.independentSupports < 2 || item.coverage?.counterexampleSearched !== true || new Set(item.supportingEvidence.map((e:Evidence)=>e.digest)).size < 2)) throw new Error('convention: independent support and counterexample search required');
   if(item.classification === 'convention') {

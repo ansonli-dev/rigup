@@ -693,3 +693,77 @@ test('harness keeps verified partial coverage for a declared authority',()=>fixt
  assert.equal(result.summary.guidance.some(binding=>binding.coverageStatus==='reusable'),false);
  assert.deepEqual(result.drafts.map(draft=>draft.questions),[['Agree response fields']]);
 }));
+
+test('harness confirms one scope while another stays draft',()=>fixture(async(root,cache)=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ for(const scope of ['api','web']){
+  await mkdir(root+'/'+scope);
+  await writeFile(root+'/'+scope+'/main.ts','export const ready = true;\n');
+ }
+ await mkdir(root+'/knowledge');
+ const api='knowledge/api-errors.md',web='knowledge/ui-states.md';
+ const confirmed=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'api',questions:['Decide the envelope']}).content.replace('status: draft','status: confirmed')+'API approved response contract.\n';
+ const draft=renderConventionSeed({topicId:'ui-states',title:'UI states',scope:'web',questions:['Decide loading states']}).content+'UI unapproved state rules.\n';
+ await writeFile(root+'/'+api,confirmed);
+ await writeFile(root+'/'+web,draft);
+ const settings={...opts,sdd:undefined,projectRules:true};
+ const profile=await scanRepository(root,settings);
+ const reader=await repositoryReader(root,settings);
+ assert.equal((await reader.search('API approved response')).length,1);
+ assert.equal((await reader.search('UI unapproved state')).length,0);
+ const requests:ResearchRequest[]=[];
+ const backend:AnalysisBackend={run:async request=>{
+  requests.push(request);
+  return {status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{observations:[],artifacts:[],dispositions:[]}}};
+ }};
+ const result=await generate(profile,settings,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.deepEqual(requests[0].sourceGuidance?.[0]?.scope,['api']);
+ assert.equal(requests[0].sourceGuidance?.[0]?.sourceRef?.path,api);
+ assert.equal(result.value.harness?.guidance.find(binding=>binding.topicId==='api-errors')?.coverageStatus,'reusable');
+ const entry=result.value.assets.find(asset=>asset.target==='AGENTS.md')?.content??'';
+ assert.match(entry,/rigup:harness:start[\s\S]*knowledge\/api-errors\.md[\s\S]*rigup:harness:end/);
+ assert.doesNotMatch(entry,/ui-states\.md/);
+ assert.equal(await readFile(root+'/'+api,'utf8'),confirmed);
+}));
+
+test('harness validates confirmation and keeps conflicting confirmed sources visible for review',()=>fixture(async(root,cache)=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const {planHarness}=await import('../src/generator/harness.js');
+ await mkdir(root+'/api');await writeFile(root+'/api/index.ts','export const api = true;\n');
+ const topic={id:'api-errors',title:'API errors',scope:['api']};
+ const settings={...opts,sdd:undefined,projectRules:true,projectConventions:{topics:[topic]}};
+ const seed=renderConventionSeed({topicId:topic.id,title:topic.title,scope:'api',questions:['Decide the contract']}).content;
+ const one=root+'/one.md',two=root+'/two.md';
+ await writeFile(one,seed.replace('status: draft','status: confirmed')+'# API errors\n\nTODO: fill in\n');
+ const placeholder=await scanRepository(root,settings);
+ assert.ok(placeholder.unknowns.some(note=>note.startsWith('one.md:')));
+ assert.deepEqual(await (await repositoryReader(root,settings)).search('TODO: fill in'),[]);
+ await writeFile(one,seed.replace('status: draft','status: not-applicable')+'This module only processes events.\n');
+ const notApplicable=await scanRepository(root,settings);
+ assert.notEqual(notApplicable.fingerprint,placeholder.fingerprint);
+ assert.deepEqual(planHarness(notApplicable,settings,[]).drafts,[]);
+ await writeFile(one,seed.replace('status: draft','status: confirmed')+'Use HTTP 400.\n');
+ await writeFile(two,seed.replace('status: draft','status: confirmed')+'Use HTTP 422.\n');
+ const conflict=await generate(await scanRepository(root,settings),settings,fake([]).backend,[],{cacheRoot:cache});
+ if(conflict.status!=='complete')throw Error('pending');
+ assert.deepEqual(conflict.value.harness?.guidance.map(binding=>[binding.sourceRef?.path,binding.coverageStatus]),[['one.md','conflicting'],['two.md','conflicting']]);
+ const entry=conflict.value.assets.find(asset=>asset.target==='AGENTS.md')?.content??'';
+ assert.doesNotMatch(entry,/one\.md|two\.md/);
+ assert.equal(conflict.value.projectDocuments,undefined);
+}));
+
+test('harness enforces authorized source scope before accepting planning observations',()=>fixture(async(root,cache)=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ await mkdir(root+'/api');
+ await writeFile(root+'/api/route.ts','export const api = true;\n');
+ await writeFile(root+'/policy.md',renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'api',questions:['Decide']}).content.replace('status: draft','status: confirmed')+'Use 400 responses.\n');
+ const settings={...opts,sdd:undefined,projectRules:true};
+ const profile=await scanRepository(root,settings);
+ const backend:AnalysisBackend={run:async request=>{
+  const source=request.sourceGuidance?.[0];
+  assert.deepEqual(source?.scope,['api']);
+  return {status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{observations:[],artifacts:[],dispositions:[],guidance:[{...source,scope:['.']}]}}};
+ }};
+ await assert.rejects(generate(profile,settings,backend,[],{cacheRoot:cache}),/claim scope exceeds/);
+}));

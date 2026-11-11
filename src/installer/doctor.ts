@@ -9,7 +9,7 @@ import {readTarget} from './preview.js';
 import {readFileState,platformFileMode} from './file-state.js';
 import {scanRepository} from '../analyzer/repository.js';
 import {runProjectChecks} from '../integrations/tools/quality.js';
-import {projectChecks} from '../integrations/tools/check-catalog.js';
+import {planHarness} from '../generator/harness.js';
 import {loadUpstreamLock} from '../integrations/upstream.js';
 import {assertNoUnknownWriters} from './operations.js';
 import {acquireLock,defaultStateRoot} from './lock.js';
@@ -138,7 +138,7 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   catch{report.warnings.push('Harness discovery unavailable under the current repository read policy.');}
  }
  if(profile){
-  report.harness={guidance:[],checks:projectChecks(profile),ci:profile.gitlabJobs??[]};
+  report.harness=planHarness(profile,selected,[]).summary;
   report.warnings.push(...profile.unknowns);
  }
  for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??'Actual selected command result; separate from installation status');

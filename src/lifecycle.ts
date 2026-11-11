@@ -1,5 +1,5 @@
 import {createProgressReporter,type RunProgressEvent} from './progress.js';
-import {readFile} from 'node:fs/promises';
+import {readFile,readdir} from 'node:fs/promises';
 import {readDurableRecord,saveDurable} from './private-record.js';
 import {configurationCandidate} from './config.js';
 import {validateResearch,ResearchFailure} from './analyzer/backend.js';
@@ -19,6 +19,8 @@ import {codexBackend} from './analyzer/codex.js';
 import {PROMPT_VERSION} from './analyzer/prompts.js';
 import {READ_POLICY_VERSION} from './analyzer/read-policy.js';
 import {generate,generateFoundation,inventorySignature,prepareGeneration} from './generator/generate.js';
+import {sourceGuidance} from './generator/harness.js';
+import {STAGE_EVIDENCE_POLICY} from './analyzer/stage-context.js';
 import {DOCUMENT_POLICY_VERSION} from './generator/document-policy.js';
 import {TEMPLATE_VERSION} from './generator/render.js';
 import {privateDirectory,signature,readCache,saveCache} from './generator/cache.js';
@@ -32,7 +34,7 @@ import {digest} from './analyzer/evidence.js';
 import {apply,interruptedApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
 export interface LifecycleFlags {deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
 export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:()=>Promise<boolean>;report?:(value:Record<string,unknown>)=>void;researchSessionId?:string;expectedFingerprint?:string}
-interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string}
+interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string;versions?:SetupPlan['versions']}
 async function readRun(path:string,root:string,consent:string):Promise<Run|undefined>{
  const run=await readDurableRecord<Run>(path,'Durable research run');
  if(!run)return;
@@ -126,9 +128,11 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const previousAssets=(old?.assets??[]).filter(asset=>asset.logicalId!=='rigup:configuration');
    const preserveWorkflowContext=old?.projectRules==='ready'&&old.options?.sdd===options.sdd&&signature(old.options?.agents??[])===signature(options.agents)&&signature(old.options?.customSkills??[])===signature(options.customSkills??[]);
    plan=await generateFoundation(profile,options,prepared,previousAssets,preserveWorkflowContext);
-   if(preserveWorkflowContext&&!authorityReview&&!flags.configure&&signature(old?.options)===signature(options))plan.projectRules='ready';
+   if(authorityReview)plan.projectRules='pending';
   }else{
-   const input={root,options,effectiveModel,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,executionMode:flags.dryRun?'dry-run':review?'review':'continuous',fingerprint:profile.fingerprint,researchSessionId};
+   const authority=sourceGuidance(profile,options);
+   const scopedAuthority=authority.length?{sourceGuidance:authority}:{};
+   const input={root,options,...scopedAuthority,effectiveModel,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,executionMode:flags.dryRun?'dry-run':review?'review':'continuous',fingerprint:profile.fingerprint,researchSessionId};
    const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
    const consent=signature({...input,versions});
    if(flags.continuation&&flags.continuation!==consent)throw new Error('continuation input/configuration changed; restart preparation');
@@ -153,7 +157,17 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     }
     if(priorFingerprint!==input.fingerprint&&await savedRun(signature({...input,fingerprint:priorFingerprint,versions})))throw Error('Saved research uses the previous OpenSpec discovery contract. Resume or reconcile it with the previous Rigup build, or explicitly start a new preview without --resume.');
    }
-   if(!run)run={root,options,effectiveModel,mode:{dryRun:flags.dryRun,yes:!review&&flags.yes,review,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent};
+   if(!run&&flags.resume&&needsResearch&&!services.researchSessionId){
+    for(const directory of new Set([runs,join(base,'runs')])){
+     const entries=await readdir(directory).catch(error=>{if(error.code==='ENOENT')return [];throw error;});
+     for(const file of entries.filter(name=>/^[a-f0-9]{64}\.json$/.test(name))){
+      const prior=await readDurableRecord<Run>(join(directory,file),'Durable research run').catch(()=>undefined);
+      if(prior?.root!==root||!prior.options||signature(prior.options)!==signature(options)||!prior.spent?.calls)continue;
+      if(signature(prior.versions??null)!==signature(versions))throw Error('Saved research uses an earlier evidence contract. Resume with its original Rigup version or explicitly start a new review without --resume.');
+     }
+    }
+   }
+   if(!run)run={root,options,effectiveModel,mode:{dryRun:flags.dryRun,yes:!review&&flags.yes,review,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent,versions};
    if(signature(run.options)!==signature(options))throw Error('durable research options changed; reconciliation required');
    if(flags.researchTokens!==undefined)run.researchTokens=flags.researchTokens;
    await saveDurable(runPath,JSON.stringify(run));researchResumeId=consent;let responseConsumed=false;
@@ -161,7 +175,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    run.readSpent??={calls:0,bytes:0};const reader=await repositoryReader(root,options,{budget:run.readSpent,persist:()=>saveDurable(runPath,JSON.stringify(run)),expectedFingerprint:profile.fingerprint});
    const durableNative=!services.backend&&backendKind==='native';let activeNativeBase=run.spent;
    const providerBackend=openAI?openAICompatibleBackend:nativeBackend;
-   const rawBackend:AnalysisBackend=services.backend??(backendKind==='host'?{run:async(request,reader)=>{
+   const rawBackend:AnalysisBackend=services.backend??(backendKind==='host'?{artifactContextVersion:STAGE_EVIDENCE_POLICY,run:async(request,reader)=>{
     if(flags.response&&!responseConsumed){
      const response=JSON.parse(await readFile(flags.response,'utf8'));if(typeof response.requestId!=='string'||!/^[a-f0-9]{64}$/.test(response.requestId))throw new Error('host response request identity invalid');
      const original=await readCache<any>(join(requests,response.requestId+'.request.json'));if(!original)throw new Error('original host request missing');
@@ -180,13 +194,13 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     catch(error){if(!durableNative&&error instanceof ResearchFailure&&error.usage)await addUsage(error.usage);throw error;}
    }}:rawBackend;
    const previousAssets=(old?.assets??[]).filter(a=>a.logicalId!=='rigup:configuration');
-   const analysisPath=join(runs,signature({kind:'analysis',root,fingerprint:profile.fingerprint,options,effectiveModel,templates:signature(prepared.integration.assets),prompt:PROMPT_VERSION,read:READ_POLICY_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,researchSessionId})+'.analysis.json');
+   const analysisPath=join(runs,signature({kind:'analysis',root,fingerprint:profile.fingerprint,options,...scopedAuthority,effectiveModel,templates:signature(prepared.integration.assets),prompt:PROMPT_VERSION,read:READ_POLICY_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,researchSessionId})+'.analysis.json');
    if(needsResearch&&!run.research){const cached=await readCache<ResearchResult>(analysisPath);if(cached){try{await validateResearch(cached.data,reader);run.research=cached;write('Research: reuse accepted evidence for unchanged inputs\n');}catch{/* Invalidated accepted evidence is researched again. */}}}
    let newResearch=false;
    if(needsResearch&&!run.research){
     newResearch=true;write('Research: reading bounded project evidence\n');
     if(backendKind!=='codex'||services.backend)emit({...active,task:'project evidence analysis',waiting:backendKind==='host'?'host research exchange':'provider response or evidence requests',next:'validate analysis result'});
-    const result=await backend.run({kind:'analyze',runId:run.runId,root,fingerprint:profile.fingerprint,options,effectiveModel,versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},budget,previousInventoryDigest:inventorySignature(previousAssets),templateSourcesDigest:signature(prepared.integration.assets)},reader);
+    const result=await backend.run({kind:'analyze',runId:run.runId,root,fingerprint:profile.fingerprint,options,...scopedAuthority,effectiveModel,versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},budget,previousInventoryDigest:inventorySignature(previousAssets),templateSourcesDigest:signature(prepared.integration.assets)},reader);
     if(result.status==='pending-host'){emit({stage:'research',completed:0,status:'waiting',requiresUserAction:true,waiting:'host response',next:continuation(result.requestPath)});services.report?.({phase:'research',installStatus:'pending',pending:[result.requestId],requestPath:result.requestPath,nextCommand:continuation(result.requestPath),...nativeSetup});write('Pending host research: '+result.requestPath+'\nResume: '+continuation(result.requestPath)+'\n');return 3;}
     run.research=result.value;await saveCache(analysisPath,JSON.stringify(result.value));if(backendKind==='host')run.spent={calls:typeof result.value.usage.calls==='number'?result.value.usage.calls:1,tokens:result.value.usage.tokens};await saveDurable(runPath,JSON.stringify(run));
    }

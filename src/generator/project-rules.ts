@@ -125,7 +125,7 @@ export async function planWithProjectRules(input:Record<string,unknown>&{invento
  }
 }
 
-export function prepareProjectRules(data:Record<string,unknown>,files:string[],root:string,otherJobs:ArtifactJob[]=[],authority:GuidanceBinding[]=[]):{job?:ArtifactJob;referenceIndex?:ArtifactPage;guidance:GuidanceBinding[]} {
+export function prepareProjectRules(data:Record<string,unknown>,files:string[],root:string,otherJobs:ArtifactJob[]=[],authority:GuidanceBinding[]=[],conventionPaths:ReadonlySet<string>=new Set()):{job?:ArtifactJob;referenceIndex?:ArtifactPage;guidance:GuidanceBinding[]} {
  const target=root+'/'+RULES_FILE;
  const topicDirectory=target.slice(0,-3)+'/';
  if(otherJobs.some(job=>isProjectRulesId(job.logicalId)||job.target===target||job.target.startsWith(topicDirectory)))throw new Error('Development rules targets are reserved for verified project rules');
@@ -206,6 +206,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
  });
  if(!ruleSources.length&&!hasDeclaredTopics)return {guidance};
  for(const binding of guidance.filter(isOriginalGuidance)){
+  if(conventionPaths.has(binding.sourceRef.path))continue;
   topicFor(binding.topicId)?.guidance.push({source:binding.sourceRef,scope:verifiedScopes(binding.scope,files)});
  }
  const logicalId=root==='docs/rigup'?PROJECT_RULES_ID:PROJECT_RULES_ID+':'+digest(target);

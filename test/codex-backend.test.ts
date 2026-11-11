@@ -243,3 +243,17 @@ test('Codex recovery requires a well-formed saved outcome and its existing reser
  assert.equal(await readFile(ledger,'utf8'),previousLedger);
  assert.equal(calls,1);
 }));
+
+test('harness exports confirmed authority and scope in the actual Codex request',()=>fixture(async(root,cache,request)=>{
+ const {confirmedHarnessSource}=await import('./helpers.js');
+ const options={agents:['codex' as const],backend:'codex' as const,projectRules:true};
+ const authority=await confirmedHarnessSource(root,options);
+ const backend=await createBackend({cacheRoot:cache,invoke:async(input:any)=>{
+  const payload=JSON.parse(input.prompt.slice(input.prompt.indexOf('{')));
+  assert.deepEqual(payload.context.sourceGuidance,authority.sourceGuidance);
+  assert.ok(payload.evidence.some((item:any)=>item.evidence.path===authority.path&&item.content.includes(authority.body)));
+  assert.ok(payload.evidence.every((item:any)=>!item.content.includes('status: confirmed')));
+  return result({observations:[],unknowns:[],guidance:authority.sourceGuidance});
+ }});
+ assert.equal((await backend.run({...request,options,fingerprint:authority.profile.fingerprint,sourceGuidance:authority.sourceGuidance},authority.reader)).status,'complete');
+}));

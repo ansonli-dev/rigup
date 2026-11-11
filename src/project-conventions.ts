@@ -12,6 +12,7 @@ export interface ConventionPage {
  scope:string;
  status:'draft'|'confirmed'|'not-applicable';
  sourceRef?:Evidence;
+ bodyDigest?:string;
 }
 
 export const conventionKey=(topicId:string,scope:string)=>JSON.stringify([topicId,scope]);
@@ -67,16 +68,24 @@ export function readConventionDocument(path:string,raw:string,registered=false):
   const value=document.toJS();
   if(value?.rigup!=='team-convention'||value.version!==1||typeof value.title!=='string'||!value.title.trim()||
    value.title.length>1000||/[\x00-\x1f\x7f]/.test(value.title)||!isConventionScope(value.scope)||
-   !['draft','confirmed','not-applicable'].includes(value.status))return invalid();
+   !['draft','confirmed','not-applicable'].includes(value.status)||
+   value.questions!==undefined&&(!Array.isArray(value.questions)||value.questions.some((question:unknown)=>typeof question!=='string'))||
+   ['verification','result'].some(key=>value[key]!==undefined&&typeof value[key]!=='string'))return invalid();
   const page:ConventionPage={path,topicId:validateTopicId(value.topicId),title:value.title,scope:value.scope,status:value.status};
   if(page.status==='draft')return {page,researchText:blank,warnings:[]};
-  const body=lines.slice(closing+1).join('\n').trim();
-  if(!body||/^(?:\s|[-_*#>.])*(?:TODO|TBD|placeholder|待填写|待确认|待补充)[.!。\s]*$/i.test(body))return invalid();
+  const body=lines.slice(closing+1).join('\n').replace(/<!--[^]*?-->/g,'');
+  const meaningful=body.split('\n').some(line=>{
+   if(/^\s*(?:`{3,}|~{3,}|#)/.test(line))return false;
+   const text=line.trim().replace(/^(?:[-+*]|\d+[.)])\s+(?:\[[ xX]\]\s*)?/,'').replace(/^[\s_*>`]+|[\s`]+$/g,'');
+   return /[\p{L}\p{N}]/u.test(text)&&!/^(?:TODO\b|TBD\b|placeholder\b|待填写|待确认|待补充)/i.test(text);
+  });
+  if(!meaningful)return invalid();
   if(page.status==='not-applicable')return {page,researchText:blank,warnings:[]};
   const researchLines=lines.map((line,index)=>index<=closing?'':line);
   const start=researchLines.findIndex(line=>line.trim())+1;
   const end=Math.min(lines.length,start+47);
   page.sourceRef=sliceEvidence(path,researchLines,start,end).evidence;
+  page.bodyDigest=digest(researchLines.slice(closing+1).join('\n').trim());
   return {page,researchText:researchLines.join('\n'),warnings:[]};
  }catch{return invalid();}
 }

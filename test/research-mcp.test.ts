@@ -203,3 +203,26 @@ test('harness MCP reconciles effective pending before returning noop or a cached
  assert.equal((await doctor(root,{stateRoot})).projectRules,'ready');
  assert.equal((await mcp.call('rigup_begin',{root,mode:'update'})).status,'noop');
 }));
+
+test('harness MCP exports scoped confirmation and rejects cross-scope citations and old jobs',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ const {confirmedHarnessSource}=await import('./helpers.js');
+ const settings={agents:['claude' as const],backend:'host' as const,projectRules:true};
+ const authority=await confirmedHarnessSource(root,settings);
+ const run=cli(root,cacheRoot,stateRoot);
+ const initial=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',initial.previewId,'--sessions-ended'],0);
+ const mcp=await openResearchMcp(root,'claude',{cacheRoot,stateRoot});
+ const first=await mcp.call('rigup_begin',{root,mode:'update'});
+ assert.deepEqual(first.job?.sourceGuidance?.[0]?.scope,['api']);
+ assert.ok(first.job?.sourceEvidence?.some(item=>item.evidence.path===authority.path&&item.content.includes(authority.body)));
+ const source=first.job!.sourceGuidance![0];
+ await assert.rejects(mcp.call('rigup_submit_plan',{runId:first.runId,jobId:first.job?.id,data:{...empty,guidance:[{...source,scope:['.']}]}}),/claim scope exceeds/);
+ const accepted=await mcp.call('rigup_submit_plan',{runId:first.runId,jobId:first.job?.id,data:{...empty,guidance:[source]}});
+ assert.deepEqual(accepted.job?.sourceGuidance,first.job?.sourceGuidance);
+ const file=join(root,authority.path);
+ await writeFile(file,(await readFile(file,'utf8')).replace('status: confirmed','status: draft'));
+ await assert.rejects(mcp.call('rigup_submit_plan',{runId:first.runId,jobId:accepted.job?.id,data:{...empty,guidance:[source],artifacts:[],dispositions:[]}}),/source|run/i);
+ const next=await mcp.call('rigup_begin',{root,mode:'update'});
+ assert.notEqual(next.job?.id,first.job?.id);
+ assert.equal(next.job?.sourceGuidance,undefined);
+}));

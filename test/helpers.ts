@@ -46,3 +46,18 @@ export async function harnessPlan(root:string,cacheRoot:string,options:import('.
  if(result.status!=='complete')throw Error('Fixture must generate a complete plan');
  return result.value;
 }
+
+export async function confirmedHarnessSource(root:string,options:import('../src/types.js').SetupOptions){
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const {scanRepository,repositoryReader}=await import('../src/analyzer/repository.js');
+ const {sourceGuidance}=await import('../src/generator/harness.js');
+ await mkdir(join(root,'api'),{recursive:true});
+ await mkdir(join(root,'knowledge'),{recursive:true});
+ await writeFile(join(root,'api','handler.ts'),'export const handler = true;\n');
+ const path='knowledge/api-errors.md',body='Use the approved Problem Details envelope.';
+ const {content}=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'api',questions:['Decide the contract']});
+ await writeFile(join(root,path),content.replace('status: draft','status: confirmed')+body+'\n');
+ const profile=await scanRepository(root,options);
+ const reader=await repositoryReader(root,options,{expectedFingerprint:profile.fingerprint});
+ return {path,body,profile,reader,sourceGuidance:sourceGuidance(profile,options)};
+}

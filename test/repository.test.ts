@@ -188,3 +188,14 @@ test('harness quarantines draft and malformed pages through every reader entry',
  assert.ok(profile.unknowns.some(note=>note.startsWith('duplicate.md:')));
  assert.ok(profile.unknowns.some(note=>note.startsWith('broken.md:')));
 }));
+
+test('harness confirmation rejects pure checklist, numbered and punctuation placeholders',async()=>{
+ const {readConventionDocument,renderConventionSeed}=await import('../src/project-conventions.js');
+ const {content}=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'.',questions:['Decide']});
+ for(const status of ['confirmed','not-applicable'])for(const body of ['- [ ] TODO\n','1. TBD\n','...\n','```md\nTODO\n```\n']){
+  const result=readConventionDocument('policy.md',content.replace('status: draft','status: '+status)+body);
+  assert.equal(result.page,undefined);
+  assert.equal(result.researchText.trim(),'');
+  assert.ok(result.warnings.length);
+ }
+});

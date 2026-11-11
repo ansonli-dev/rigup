@@ -18,6 +18,7 @@ import {readFileState,readFileStates,absentDigest,platformFileMode} from './file
 export {absentDigest} from './file-state.js';
 import {privateDirectory,signature,readCache,saveCache} from '../generator/cache.js';
 import {markdownLinks,validateTemplateContent} from '../generator/document-policy.js';
+import {conventionLinksOutsideHarness,conventionNavigationMatches} from '../generator/render.js';
 import {loadManifest,sourceReview,trustedBaseline,type Manifest,type SourceReview} from './baseline.js';
 import {defaultStateRoot} from './lock.js';
 import {mergeManaged,type MergeResult} from './merge.js';
@@ -131,7 +132,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   if(entry.action==='pending'){result={action:'conflict',reason:'Unresolved old asset disposition'};}
   else if(entry.action==='retain') {result=base===undefined?{action:'conflict',reason:'Retained item has no trusted baseline'}:{action:'keep',content:local};}
   else result=mergeManaged(base,local,entry.candidate?.content,{action:entry.action,binary:asset.encoding==='base64',equals:(left,right)=>equalOwnedContent(asset.ownership,left,right)});
-  if(dependencies.reviewEntryBlocks&&entry.old&&asset.ownership.kind==='block'&&asset.logicalId.startsWith('entry:')&&base!==undefined&&
+  if(dependencies.reviewEntryBlocks&&!plan.harnessNavigation?.targets.includes(asset.target)&&entry.old&&asset.ownership.kind==='block'&&asset.logicalId.startsWith('entry:')&&base!==undefined&&
      (local===undefined||!equalOwnedContent(asset.ownership,local,base))){
    result={action:'conflict',reason:'Local edit in the Rigup-owned block was preserved. Keep the file as it is, or move your local text outside the managed block and restore the managed text before retrying.'};
   }
@@ -197,17 +198,39 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  }
  // Validate selected owned content in the final virtual tree, including preserved local edits.
  const available=async(target:string)=>fileMap.has(target)?fileMap.get(target)!.text!==undefined:(await readTarget(root,target))!==undefined;
+ const conventionPaths=new Set(plan.harnessNavigation?.conventionPaths);
  for(const entry of entries.filter(e=>e.action!=='remove')){
   const asset=entry.candidate??entry.old!;const file=fileMap.get(asset.target)!;if(file.encoding==='base64')continue;
   let text:string|undefined;try{text=ownedContent(file.text,asset.ownership);}catch{continue;}
   if(text===undefined){blockers.push(asset.target+': required owned binding missing');continue;}
   if(entry.candidate&&['quality-template','customer-runtime'].includes(entry.candidate.source.kind)&&text!==entry.candidate.content)blockers.push(asset.target+': fixed executable/configuration binding changed; resolve against the deterministic candidate');
   if(asset.target.endsWith('.md')) {
+   const rulesNavigation=asset.logicalId.startsWith('entry:')||asset.target.endsWith('/references/project.md')||asset.logicalId.startsWith('project-development-rules');
    try{validateTemplateContent(text);}catch{blockers.push(asset.target+': local content conflicts with mandatory workflow gate; regenerate or resolve');}
+   if(plan.harnessNavigation?.targets.includes(asset.target)&&rulesNavigation){
+    try{
+     const expected=entry.candidate?.content??(entry.old&&await trustedBaseline(root,entry.old));
+     if(expected===undefined||!conventionNavigationMatches(asset.target,text,expected))throw Error('Convention navigation changed');
+    }catch{
+     if(plan.projectRules==='ready')plan={...plan,projectRules:'pending'};
+     blockers.push(asset.target+': local convention navigation differs from the approved bindings');
+    }
+   }
+   if(conventionPaths.size&&plan.projectRules==='ready'&&rulesNavigation){
+    try{
+     if(conventionLinksOutsideHarness(asset.target,text,conventionPaths).length)throw Error('Legacy reference');
+    }catch{
+     plan={...plan,projectRules:'pending'};
+     blockers.push(asset.target+': review convention links outside the verified harness navigation');
+    }
+   }
    for(const match of markdownLinks(text)){
     const raw=match[1].split('#')[0];if(!raw||/^(?:https?:|mailto:)/.test(raw))continue;
     try {const target=posix.normalize(posix.join(posix.dirname(asset.target),decodeURIComponent(raw)));if(raw.startsWith('/')||target.startsWith('../')||!await available(target))throw new Error('missing');}
-    catch{blockers.push(asset.target+': navigation link unavailable: '+raw);}
+    catch{
+     if(rulesNavigation&&plan.projectRules==='ready')plan={...plan,projectRules:'pending'};
+     blockers.push(asset.target+': navigation link unavailable: '+raw);
+    }
    }
    if(entry.candidate?.source.kind==='fixed-template')for(const match of markdownLinks(entry.candidate.content))if(!text.includes(match[0]))blockers.push(asset.target+': required consumer binding removed; regenerate or resolve');
   }else if(asset.ownership.kind==='json-key'||asset.ownership.kind==='toml-table'){

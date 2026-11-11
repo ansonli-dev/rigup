@@ -63,3 +63,53 @@ test('omitting dependency bodies does not hide lock changes from the source fing
  await writeFile(root+'/yarn.lock','Changed dependency resolution\n');
  const changed=await scanRepository(root,request.options as any);assert.notEqual(changed.fingerprint,request.fingerprint);assert.ok(changed.files.includes('yarn.lock'));
 }));
+
+test('harness host exports scoped authority and rejects an omitted body',()=>fixture(async(root,cache,request)=>{
+ const {confirmedHarnessSource}=await import('./helpers.js');
+ const options={agents:['codex' as const],backend:'host' as const,projectRules:true};
+ const authority=await confirmedHarnessSource(root,options);
+ const current={...request,options,fingerprint:authority.profile.fingerprint,sourceGuidance:authority.sourceGuidance};
+ const item=await exported(cache,current,authority.reader);
+ assert.deepEqual(item.body.context.sourceGuidance,authority.sourceGuidance);
+ assert.ok(item.body.evidence.some((e:any)=>e.evidence.path===authority.path&&e.content.includes(authority.body)));
+ const plan={...current,kind:'artifact-plan' as const,expectedOutput:'plan' as const,sourceGuidance:undefined,runId:'omitted-source'};
+ const backend=hostBackend({cacheRoot:cache,stageEvidence:true});
+ const omitted=await backend.run(plan,authority.reader);
+ if(omitted.status!=='pending-host')throw Error('expected pending');
+ const requestFile=JSON.parse(await readFile(omitted.requestPath,'utf8'));
+ assert.equal(requestFile.evidence.some((item:any)=>item.evidence.path===authority.path),false);
+ const responsePath=cache+'/response.json';
+ await writeFile(responsePath,JSON.stringify({requestId:omitted.requestId,requestDigest:requestFile.requestDigest,model:'fixture',
+  data:{observations:[],unknowns:[],guidance:authority.sourceGuidance},
+ }));
+ await assert.rejects(hostBackend({cacheRoot:cache,stageEvidence:true,responsePath}).run(plan,authority.reader),/scoped source body was not exported/);
+}));
+
+test('harness does not reset the budget of an older research run on resume',()=>fixture(async(root,cache)=>{
+ const {executeLifecycle}=await import('../src/lifecycle.js');
+ const {readdir,rename}=await import('node:fs/promises');
+ const settings={agents:['codex' as const],backend:'host' as const,projectRules:true};
+ const stateRoot=cache+'/state',cacheRoot=cache+'/cache';
+ let requests=0;
+ const backend:import('../src/analyzer/backend.js').AnalysisBackend={run:async request=>{
+  requests++;
+  if(request.kind==='analyze')return {status:'complete',value:{model:'fixture',usage:{calls:1,tokens:15},unknowns:[],data:{observations:[],unknowns:[]}}};
+  return {status:'pending-host',requestId:'fixture',requestPath:cacheRoot+'/host/plan.request.json',nextCommand:'resume'};
+ }};
+ const services={backend,stateRoot,cacheRoot};
+ assert.equal(await executeLifecycle(root,settings,{review:true},()=>{},services),3);
+ assert.equal(requests,2);
+ const directory=stateRoot+'/runs';
+ const run=(await readdir(directory)).find(file=>/^[a-f0-9]{64}\.json$/.test(file))!;
+ const record=JSON.parse(await readFile(directory+'/'+run,'utf8'));
+ assert.deepEqual(record.spent,{calls:1,tokens:15});
+ const older='f'.repeat(64);
+ await rename(directory+'/'+run,directory+'/'+older+'.json');
+ record.consent=older;
+ record.versions={...record.versions,prompt:'11',template:'7'};
+ const original=JSON.stringify(record);
+ await writeFile(directory+'/'+older+'.json',original);
+ await assert.rejects(executeLifecycle(root,settings,{review:true,resume:true},()=>{},services),/earlier evidence contract/);
+ assert.equal(requests,2);
+ assert.equal(await readFile(directory+'/'+older+'.json','utf8'),original);
+}));
