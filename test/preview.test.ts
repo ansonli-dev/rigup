@@ -150,7 +150,7 @@ test('kept_local_gitlab_include_cannot_remove_required_ci_binding',()=>fixture(a
 test('harness preserves global CI during scoped updates',()=>fixture(async(root,cache)=>project(async state=>{
  const {generateFoundation,prepareGeneration}=await import('../src/generator/generate.js');
  const {loadManifest,trustedBaseline}=await import('../src/installer/baseline.js');
- const {mkdir}=await import('node:fs/promises');
+ const {mkdir,rename,unlink}=await import('node:fs/promises');
  const {parse}=await import('yaml');
  const ci='.gitlab-ci.yml',jobs='.rigup/gitlab-ci.yml';
  const original='customer:\n  script: echo customer\n';
@@ -161,7 +161,7 @@ test('harness preserves global CI during scoped updates',()=>fixture(async(root,
  }
  const settings={agents:[],backend:'host' as const,quality:{gitlab:{checks:[{cwd:'api',script:'build'},{cwd:'web',script:'build'}]}}};
  const backend={run:async()=>{throw Error('no model');}};
- async function review(options:typeof settings & {scope?:string[]},foundation=false){
+ async function review(options:import('../src/types.js').SetupOptions,foundation=false){
   const profile=await scanRepository(root,options);
   const old=(await loadManifest(root))?.assets??[];
   const plan=foundation
@@ -173,7 +173,7 @@ test('harness preserves global CI during scoped updates',()=>fixture(async(root,
   return preview(plan,[],{cacheRoot:cache});
  }
  const commands=async()=>parse(await readFile(root+'/'+jobs,'utf8'))['rigup:checks'].script.slice(1);
- const install=async(options:typeof settings & {scope?:string[]},foundation=false)=>{
+ const install=async(options:import('../src/types.js').SetupOptions,foundation=false)=>{
   const result=await review(options,foundation);
   assert.deepEqual(result.blockers,[]);
   return apply(result.previewId,{cacheRoot:cache,stateRoot:state});
@@ -198,6 +198,17 @@ test('harness preserves global CI during scoped updates',()=>fixture(async(root,
   assert.equal(await readFile(root+'/'+jobs,'utf8'),edited);
   assert.equal(await trustedBaseline(root,(await loadManifest(root))!.assets.find(asset=>asset.target===jobs)!),base);
  }
+ await rename(root+'/web',state+'/web');
+ await symlink(state+'/web',root+'/web',process.platform==='win32'?'junction':'dir');
+ for(const options of [settings,{...settings,quality:{gitlab:{checks:['build' as const]}}}]){
+  const applied=await install(options);
+  assert.ok(applied.warnings.some(note=>/root review/.test(note)));
+  assert.deepEqual(applied.written,[]);
+  assert.equal(await readFile(root+'/'+ci,'utf8'),ciBytes);
+  assert.equal(await readFile(root+'/'+jobs,'utf8'),edited);
+ }
+ await unlink(root+'/web');
+ await rename(state+'/web',root+'/web');
  const reviewed={...settings,quality:{gitlab:{checks:[{cwd:'api',script:'build'}]}}};
  await install(reviewed);
  assert.deepEqual(await commands(),["(cd 'api' && 'npm' 'run' 'build')"]);

@@ -200,17 +200,21 @@ export async function reconcileHarnessNavigation(profile:ProjectProfile,options:
  const confirmed=guidance.filter(binding=>['reusable','partial'].includes(binding.coverageStatus)&&binding.sourceRef&&binding.consumers.length&&pages.get(binding.sourceRef.path)?.status==='confirmed');
  const applicable=options.scope?.length?options.scope:['.'];
  const visible=new Set(profile.researchFiles??profile.files);
- const conflicted=new Set(guidance.flatMap(binding=>binding.coverageStatus==='conflicting'&&binding.sourceRef?[binding.sourceRef.path]:[]));
+ const conflicts=guidance.filter(binding=>binding.coverageStatus==='conflicting'&&binding.sourceRef);
+ const conflictingScope=(path:string,scope:string)=>conflicts.some(binding=>binding.sourceRef?.path===path&&scopesOverlap(binding.scope,[scope]));
  const migratable=new Set([...knownPaths].filter(path=>applicable.includes('.')||pages.has(path)||profile.extraSourcePaths?.includes(path)));
  const ignored=await loadResearchIgnore(profile.root);
  const candidates=new Map(assets.map(asset=>[asset.logicalId,asset]));
  const pending=(target:string,reason:string)=>warnings.push(target+': '+reason+'; review project rules.');
  const confirmedRows=(target:string)=>confirmed.flatMap(binding=>{
   const page=pages.get(binding.sourceRef!.path)!;
-  if(page.path===target||!applicable.some(scope=>scopeContains(scope,page.scope)))return [];
-  const identity={topicId:page.topicId,scope:page.scope,path:page.path};
-  const token=Buffer.from(JSON.stringify([identity.topicId,identity.scope,identity.path])).toString('base64url');
-  return [{...identity,line:'- '+link(target,page.path,page.title)+' · '+inline(page.scope)+' <!-- rigup:convention '+token+' -->'}];
+  if(page.path===target)return [];
+  return binding.scope.flatMap(scope=>{
+   if(!isConventionScope(scope)||!scopeContains(page.scope,scope)||!applicable.some(parent=>scopeContains(parent,scope))||conflictingScope(page.path,scope))return [];
+   const identity={topicId:page.topicId,scope,path:page.path};
+   const token=Buffer.from(JSON.stringify([identity.topicId,identity.scope,identity.path])).toString('base64url');
+   return [{...identity,line:'- '+link(target,page.path,page.title)+' · '+inline(scope)+' <!-- rigup:convention '+token+' -->'}];
+  });
  });
  const absent=async(path:string)=>{
   try{await lstat(await targetPath(profile.root,path));return false;}
@@ -255,7 +259,11 @@ export async function reconcileHarnessNavigation(profile:ProjectProfile,options:
      if(rows.has(key))continue;
      const affected=scopesOverlap(applicable,[row.scope]);
      const current=pages.get(row.path);
-     const revoked=visible.has(row.path)&&(!current||current.status!=='confirmed'||current.topicId!==row.topicId||current.scope!==row.scope||conflicted.has(row.path));
+     const currentScopes=confirmed.filter(binding=>binding.sourceRef?.path===row.path&&binding.topicId===row.topicId).flatMap(binding=>binding.scope);
+     const narrowed=!profile.truncated&&applicable.some(scope=>scopeContains(scope,row.scope))&&
+      currentScopes.some(scope=>scopeContains(row.scope,scope))&&!currentScopes.some(scope=>scopeContains(scope,row.scope));
+     const revoked=visible.has(row.path)&&(!current||current.status!=='confirmed'||current.topicId!==row.topicId||!scopeContains(current.scope,row.scope)||
+      conflictingScope(row.path,row.scope)||narrowed);
      const canVerifyAbsence=affected&&!profile.truncated&&!ignored.excludes(row.path,false)&&
       applicable.some(scope=>scopeContains(scope,row.scope))&&
       (applicable.some(scope=>scopeContains(scope,row.path))||profile.extraSourcePaths?.includes(row.path));

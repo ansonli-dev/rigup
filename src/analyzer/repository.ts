@@ -79,7 +79,11 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    if(outsideScope&&!options.projectRules)continue;
    if((managed.get(path)??[]).some(o=>o.kind==='file')) continue;
    if(path.startsWith('.rigup/baseline/')||path === '.rigup/manifest.json'||path === '.rigup/config.yaml'||path.startsWith('.rigup/tools/')||path==='.rigup/check-results') continue;
-   if(entry.isSymbolicLink()){profile.unknowns.push(path+': symlink skipped');continue;}
+   if(entry.isSymbolicLink()){
+    profile.unknowns.push(path+': symlink skipped');
+    if(purpose==='research'&&!outsideBusinessScope)profile.checkCoverageIncomplete=true;
+    continue;
+   }
    if(entry.isDirectory()){
     try{await walk(file);}catch(error){
      if(!excluded||!['EACCES','EPERM'].includes((error as NodeJS.ErrnoException).code??''))throw error;

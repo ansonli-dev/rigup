@@ -140,7 +140,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
       await installationInput(root,data.plan,targets).catch(()=>undefined)===data.inputSnapshot);
      if(reusable){
       if(authorityReview)restoredReview=data;
-      previousGuidance=tx.report?.harness?.guidance.filter(binding=>binding.sourceRef&&!targets.includes(binding.sourceRef.path)&&['reusable','partial'].includes(binding.coverageStatus))??[];
+      previousGuidance=tx.report?.harness?.guidance.filter(binding=>binding.sourceRef&&!targets.includes(binding.sourceRef.path)&&
+       ['reusable','partial','conflicting','unavailable'].includes(binding.coverageStatus))??[];
      }
     }
    }

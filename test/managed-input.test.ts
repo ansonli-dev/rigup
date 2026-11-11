@@ -216,6 +216,56 @@ test('harness scoped navigation cannot newly publish a broader conflicting polic
  })));
 });
 
+test('harness narrows existing convention navigation to assessed coverage',async()=>{
+ const {project,harnessPlan}=await import('./helpers.js');
+ const {mkdir,readFile,writeFile}=await import('node:fs/promises');
+ const {scanRepository}=await import('../src/analyzer/repository.js');
+ const {generate}=await import('../src/generator/generate.js');
+ const {loadManifest}=await import('../src/installer/baseline.js');
+ const {preview}=await import('../src/installer/preview.js');
+ const {apply}=await import('../src/installer/apply.js');
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const {executeLifecycle}=await import('../src/lifecycle.js');
+ await project(root=>project(cache=>project(async state=>{
+  const settings={agents:['codex' as const],backend:'host' as const,projectRules:true};
+  for(const scope of ['api','web']){
+   await mkdir(root+'/'+scope);await writeFile(root+'/'+scope+'/main.ts','export const ready = true;\n');
+  }
+  const entry=root+'/AGENTS.md',source='policy.md';
+  const {content}=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'.',questions:[]});
+  await writeFile(root+'/'+source,content.replace('status: draft','status: confirmed')+'Use Problem Details.\n');
+  const dependencies={cacheRoot:cache,stateRoot:state};
+  const install=async(plan:Awaited<ReturnType<typeof harnessPlan>>)=>{
+   const reviewed=await preview(plan,[],dependencies);
+   assert.deepEqual(reviewed.blockers,[]);
+   assert.equal((await apply(reviewed.previewId,dependencies)).projectRules,'ready');
+  };
+  await install(await harnessPlan(root,cache+'/initial',settings));
+  assert.match(await readFile(entry,'utf8'),/\(policy\.md\) · \. /);
+  const planWith=async(reuseWeb:boolean)=>{
+   const profile=await scanRepository(root,settings),page=profile.conventions![0];
+   const shared={topicId:page.topicId,topic:page.title,sourceRef:page.sourceRef,consumers:['agent-entry']};
+   const guidance=[{...shared,scope:[reuseWeb?'api':'.'],coverageStatus:'conflicting',gaps:['Resolve the API contract.']}];
+   if(reuseWeb)guidance.push({...shared,scope:['web'],coverageStatus:'reusable',gaps:[]});
+   const result=await generate(profile,settings,{run:async()=>({status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},
+    data:{observations:[],guidance,artifacts:[],dispositions:[]}}})},(await loadManifest(root))!.assets,{cacheRoot:cache+(reuseWeb?'/scoped':'/conflict')});
+   if(result.status!=='complete')throw Error('pending');
+   return result.value;
+  };
+  await install(await planWith(true));
+  const narrowed=await readFile(entry,'utf8');
+  assert.match(narrowed,/\(policy\.md\) · web /);
+  assert.doesNotMatch(narrowed,/\(policy\.md\) · (?:\.|api) /);
+  await install(await planWith(false));
+  let current:Record<string,unknown>|undefined;
+  await executeLifecycle(root,settings,{foundationOnly:true,review:true,dryRun:true},()=>{},
+   {...dependencies,report:report=>current=report});
+  assert.ok(current);
+  assert.doesNotMatch(JSON.stringify(current.items),/policy\.md/);
+  assert.doesNotMatch(await readFile(entry,'utf8'),/policy\.md/);
+ })));
+});
+
 test('harness preserves a removed local block and reports that its approved links are missing',async()=>{
  const {project,harnessPlan,confirmedHarnessSource}=await import('./helpers.js');
  const {readFile,writeFile}=await import('node:fs/promises');
