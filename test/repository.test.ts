@@ -24,6 +24,24 @@ test('monorepo_commands_keep_cwd_and_never_execute',()=>project(async root=>{
  assert.equal(p.commands.test[0].cwd,'packages/a');assert.deepEqual(p.commands.test[0].args,['run','test']);
  await assert.rejects(access(join(root,'packages/a/marker')));
 }));
+
+test('harness reads an extra authority manifest without executing its checks',()=>project(async root=>{
+ const {runProjectChecks}=await import('../src/integrations/tools/quality.js');
+ for(const scope of ['api','web']){
+  await mkdir(join(root,scope));
+  await writeFile(join(root,scope,'package.json'),JSON.stringify({scripts:{build:'node build.cjs'},engines:{node:'>=24'}}));
+  await writeFile(join(root,scope,'build.cjs'),"require('node:fs').writeFileSync('ran.txt','built')\n");
+ }
+ const settings={agents:[],backend:'host' as const,scope:['api'],projectConventions:{topics:[{id:'runtime',title:'Runtime version',scope:['api'],source:'web/package.json'}]}};
+ const profile=await scanRepository(root,settings);
+ const reader=await repositoryReader(root,settings);
+ assert.deepEqual(reader.sourceScopes?.get('web/package.json'),['api']);
+ assert.equal((await reader.read('web/package.json',1,1)).evidence.digest,profile.declaredSources?.['web/package.json']?.digest);
+ const results=await runProjectChecks(profile,['build']);
+ await access(join(root,'api','ran.txt'));
+ await assert.rejects(access(join(root,'web','ran.txt')),{code:'ENOENT'});
+ assert.deepEqual(results.map(result=>[result.command?.cwd,result.status]),[['api','passed']]);
+}));
 test('specialized_package_checks_are_catalogued_separately_from_automatic_checks',()=>project(async root=>{
  await mkdir(join(root,'packages/api'),{recursive:true});
  await writeFile(join(root,'package.json'),JSON.stringify({scripts:{'test:e2e':'touch marker',typecheck:'tsc --noEmit','deps:validate':'node validate.js','test:dev':'vitest'}}));

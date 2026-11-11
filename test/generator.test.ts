@@ -694,6 +694,46 @@ test('harness keeps verified partial coverage for a declared authority',()=>fixt
  assert.deepEqual(result.drafts.map(draft=>draft.questions),[['Agree response fields']]);
 }));
 
+test('harness keeps a narrower assessment of a declared authority',()=>fixture(async(root,cache)=>{
+ const settings={...opts,sdd:undefined,projectRules:true,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['.'],source:'policy.md'}]}};
+ await mkdir(root+'/api');
+ await writeFile(root+'/api/handler.ts','export const handler = true;\n');
+ await writeFile(root+'/policy.md','Use 400 status codes. Response fields still need agreement.\n');
+ const profile=await scanRepository(root,settings);
+ const sourceRef=(await (await repositoryReader(root,settings)).read('policy.md',1,1)).evidence;
+ const shared={topicId:'api-errors',topic:'API errors',sourceRef,consumers:['agent-entry']};
+ const gaps=['Agree API response fields.'];
+ const guidance=[{...shared,scope:['.'],coverageStatus:'reusable',gaps:[]},{...shared,scope:['api'],coverageStatus:'partial',gaps}];
+ const backend:AnalysisBackend={run:async()=>({status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},
+  data:{observations:[],artifacts:[],dispositions:[],guidance}}})};
+ const result=await generate(profile,settings,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.deepEqual(result.value.harness?.guidance.filter(binding=>binding.sourceRef?.path==='policy.md')
+  .map(binding=>[binding.scope,binding.coverageStatus,binding.gaps]),[[['api'],'partial',gaps]]);
+ assert.match(result.value.projectDocuments?.[0]?.content??'',/Agree API response fields/);
+ assert.match(result.value.assets.find(asset=>asset.target==='AGENTS.md')?.content??'',/\[policy\.md\]\(policy\.md\) · api/);
+}));
+
+test('harness does not generate rules outside business scope from an extra authority file',()=>fixture(async(root,cache)=>{
+ const settings={...opts,sdd:undefined,projectRules:true,scope:['api'],projectConventions:{topics:[{id:'runtime',title:'Runtime version',scope:['.'],source:'web/package.json'}]}};
+ await mkdir(root+'/api');await mkdir(root+'/web');
+ await writeFile(root+'/api/handler.ts','export const handler = true;\n');
+ await writeFile(root+'/web/package.json',JSON.stringify({scripts:{build:'node build.cjs'},engines:{node:'>=24'}}));
+ const profile=await scanRepository(root,settings),reader=await repositoryReader(root,settings);
+ const source=(await reader.read('web/package.json',1,1)).evidence;
+ const topic={id:'web-build',title:'Web build'};
+ const observation={topicId:topic.id,topic:topic.title,scope:['web'],statement:'Build the web package using Node 24.',classification:'explicit-rule',
+  supportingEvidence:[source],counterEvidence:[],guidanceDisposition:'follow-existing'};
+ const backend:AnalysisBackend={run:async request=>{
+  assert.equal(request.expectedOutput,'plan','a web-only rule must not become an artifact job');
+  return {status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{observations:[observation],ruleTopics:[topic],artifacts:[],dispositions:[]}}};
+ }};
+ const result=await generate(profile,settings,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.ok(result.value.harness?.guidance.some(binding=>binding.topicId==='runtime'&&binding.sourceRef?.path==='web/package.json'));
+ assert.ok(result.value.assets.every(asset=>!asset.target.includes('development-rules')));
+}));
+
 for(const scope of ['api','api/handler.ts']){
  test('harness keeps verified partial coverage for a confirmed page in '+scope,()=>fixture(async(root,cache)=>{
   const settings={...opts,sdd:undefined,projectRules:true};

@@ -1,51 +1,51 @@
 import type {ProjectProfile} from '../analyzer/repository.js';
 import {projectChecks} from '../integrations/tools/check-catalog.js';
 import {scopeContains,scopesOverlap,validateTopicId,type ConventionDraft,type Evidence,type HarnessSummary,type SetupOptions} from '../types.js';
-import {verifiedScopes,type GuidanceBinding} from './project-rules.js';
+import {replacedSourceAssessment,sameAuthoritySource,verifiedScopes,type GuidanceBinding} from './project-rules.js';
 
 const selectedScopes=(options:SetupOptions)=>options.scope?.length?options.scope:['.'];
+type SourceBinding=GuidanceBinding&{topicId:string;sourceRef:Evidence};
 function conventionConsumers(options:SetupOptions):string[]{
  const workflow=options.sdd||options.customSkills?.some(skill=>skill.position==='prepare'||skill.position==='deliver');
  return options.agents.length&&(options.projectRules||workflow)?['agent-entry',...(workflow?['prepare','deliver','review']:[])]:[];
 }
 
-export function declaredAuthority(profile:ProjectProfile,options:SetupOptions,assessed:GuidanceBinding[]=[]):(GuidanceBinding&{topicId:string;sourceRef:Evidence})[]{
- return (options.projectConventions?.topics??[]).flatMap(topic=>{
-  const sourceRef=topic.source&&profile.declaredSources?.[topic.source];
-  if(!sourceRef)return [];
-  return [...new Set(verifiedScopes(topic.scope,profile.researchFiles??profile.files))]
-   .filter(scope=>scopesOverlap(selectedScopes(options),[scope]))
-   .map(scope=>{
-    const assessments=assessed.filter(binding=>binding.sourceRef?.path===sourceRef.path&&
-     (binding.topicId===topic.id||binding.topicId===undefined&&binding.topic===topic.title)&&binding.scope.some(parent=>scopeContains(parent,scope)));
-    const decision=['conflicting','unavailable','partial'].find(status=>assessments.some(binding=>binding.coverageStatus===status));
-    return {topicId:topic.id,topic:topic.title,scope:[scope],sourceRef,coverageStatus:decision??'reusable',consumers:conventionConsumers(options),
-     gaps:[...new Set(assessments.filter(binding=>binding.coverageStatus===decision).flatMap(binding=>binding.gaps))]};
-   });
+function assessedAuthority(source:SourceBinding,assessed:GuidanceBinding[],files:string[],selected:string[]):SourceBinding[]{
+ const authorized=source.scope[0];
+ const decisions=['conflicting','unavailable','partial','reusable'];
+ const assessments=assessed.flatMap(binding=>{
+  if(!sameAuthoritySource(binding,source)||!decisions.includes(binding.coverageStatus))return [];
+  const scope=verifiedScopes(binding.scope,files).flatMap(path=>scopeContains(authorized,path)?[path]:scopeContains(path,authorized)?[authorized]:[])
+   .filter(path=>scopesOverlap(selected,[path]));
+  return scope.length?[{...binding,scope}]:[];
+ });
+ if(!assessments.length)return [source];
+ return [...new Set(assessments.flatMap(binding=>binding.scope))].flatMap(scope=>{
+  const applicable=assessments.filter(binding=>binding.scope.some(parent=>scopeContains(parent,scope)));
+  const coverageStatus=decisions.find(status=>applicable.some(binding=>binding.coverageStatus===status))!;
+  if(coverageStatus==='reusable'&&assessments.some(binding=>binding.coverageStatus!=='reusable'&&binding.scope.some(child=>scopeContains(scope,child))))return [];
+  return [{...source,scope:[scope],coverageStatus,gaps:[...new Set(applicable.filter(binding=>binding.coverageStatus===coverageStatus).flatMap(binding=>binding.gaps))]}];
  });
 }
 
-export function sourceGuidance(profile:ProjectProfile,options:SetupOptions,assessed:GuidanceBinding[]=[]):(GuidanceBinding&{topicId:string;sourceRef:Evidence})[]{
+export function declaredAuthority(profile:ProjectProfile,options:SetupOptions,assessed:GuidanceBinding[]=[]):SourceBinding[]{
+ const files=profile.researchFiles??profile.files,selected=selectedScopes(options);
+ return (options.projectConventions?.topics??[]).flatMap(topic=>{
+  const sourceRef=topic.source&&profile.declaredSources?.[topic.source];
+  if(!sourceRef)return [];
+  return [...new Set(verifiedScopes(topic.scope,files))].filter(scope=>scopesOverlap(selected,[scope])).flatMap(scope=>
+   assessedAuthority({topicId:topic.id,topic:topic.title,scope:[scope],sourceRef,coverageStatus:'reusable',consumers:conventionConsumers(options),gaps:[]},assessed,files,selected));
+ });
+}
+
+export function sourceGuidance(profile:ProjectProfile,options:SetupOptions,assessed:GuidanceBinding[]=[]):SourceBinding[]{
  const files=profile.researchFiles??profile.files;
  const confirmed=(profile.conventions??[]).filter(page=>page.status==='confirmed'&&page.sourceRef&&verifiedScopes([page.scope],files).length);
  const bindings=[...declaredAuthority(profile,options,assessed),...confirmed.flatMap(page=>{
   const source={topicId:page.topicId,topic:page.title,scope:[page.scope],sourceRef:page.sourceRef!,consumers:conventionConsumers(options)};
   const conflicting=confirmed.some(other=>other.topicId===page.topicId&&other.bodyDigest!==page.bodyDigest&&scopesOverlap([page.scope],[other.scope]));
   if(conflicting)return [{...source,coverageStatus:'conflicting',gaps:['Resolve the differing confirmed sources for their overlapping scope.']}];
-  const decisions=['conflicting','unavailable','partial','reusable'];
-  const assessments=assessed.flatMap(binding=>{
-   const sameTopic=binding.topicId===page.topicId||binding.topicId===undefined&&binding.topic===page.title;
-   if(binding.sourceRef?.path!==page.path||!sameTopic||!decisions.includes(binding.coverageStatus))return [];
-   const scope=verifiedScopes(binding.scope,files).filter(path=>scopeContains(page.scope,path)&&scopesOverlap(selectedScopes(options),[path]));
-   return scope.length?[{...binding,scope}]:[];
-  });
-  if(!assessments.length)return [{...source,coverageStatus:'reusable',gaps:[]}];
-  return [...new Set(assessments.flatMap(binding=>binding.scope))].flatMap(scope=>{
-   const applicable=assessments.filter(binding=>binding.scope.some(parent=>scopeContains(parent,scope)));
-   const coverageStatus=decisions.find(status=>applicable.some(binding=>binding.coverageStatus===status))!;
-   if(coverageStatus==='reusable'&&assessments.some(binding=>binding.coverageStatus!=='reusable'&&binding.scope.some(child=>scopeContains(scope,child))))return [];
-   return [{...source,scope:[scope],coverageStatus,gaps:[...new Set(applicable.filter(binding=>binding.coverageStatus===coverageStatus).flatMap(binding=>binding.gaps))]}];
-  });
+  return assessedAuthority({...source,coverageStatus:'reusable',gaps:[]},assessed,files,selectedScopes(options));
  })];
  const key=(binding:typeof bindings[number])=>JSON.stringify([binding.topicId,binding.scope,binding.sourceRef.path,binding.sourceRef.startLine,binding.sourceRef.endLine]);
  return bindings.sort((a,b)=>key(a).localeCompare(key(b),'en'));
@@ -57,8 +57,10 @@ export function planHarness(profile:ProjectProfile,options:SetupOptions,guidance
  const consumers=conventionConsumers(options);
  const incomplete=profile.truncated||!!profile.ignoreFingerprint||
   profile.unknowns.some(note=>/unreadable|denied by policy|symlink skipped/.test(note));
+ const authority=sourceGuidance(profile,options,guidance);
+ const conventionPaths=new Set(profile.conventionPaths);
  const bindings=guidance.flatMap(binding=>{
-  if(binding.sourceRef&&profile.conventionPaths?.includes(binding.sourceRef.path)&&['reusable','partial'].includes(binding.coverageStatus))return [];
+  if(replacedSourceAssessment(binding,authority,conventionPaths))return [];
   const scope=[...new Set(verifiedScopes(binding.scope,files))].filter(path=>scopesOverlap(selected,[path]));
   if(!scope.length)return [];
   const coverageStatus=binding.coverageStatus==='missing'&&(incomplete||scope.some(path=>!selected.some(parent=>scopeContains(parent,path))))
@@ -67,7 +69,6 @@ export function planHarness(profile:ProjectProfile,options:SetupOptions,guidance
  });
  const drafts=new Map<string,ConventionDraft>();
  const applies=(scope:string)=>selected.some(parent=>scopeContains(parent,scope))&&verifiedScopes([scope],files).length>0;
- const authority=sourceGuidance(profile,options,guidance);
  const topicAuthority=new Set<GuidanceBinding>(authority);
  const related=(id:string,title:string,scope:string,wholeTopic=false)=>bindings.filter(binding=>
   (binding.topicId===id&&(wholeTopic||binding.topic===title||topicAuthority.has(binding))||

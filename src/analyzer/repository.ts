@@ -140,6 +140,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    const metadata=source.page&&{topicId:source.page.topicId,title:source.page.title,scope:source.page.scope,status:source.page.status};
    inputs.push(path+'\0'+digest(convention?(source.page?.status==='confirmed'?visible:''):ownership.length?filterContent(path,projected):visible)+
     evidenceRole+(metadata?'\0'+JSON.stringify(metadata):''));
+   if(outsideBusinessScope)continue;
    if(/\.[cm]?[jt]s$/.test(entry.name)&&hasTestDatabaseGuard(visible))testGuards.add(path);
    if(/jest.*\.json$/i.test(entry.name)){
     try{

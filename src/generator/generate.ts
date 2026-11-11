@@ -142,7 +142,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
    const data=planned.value;
    const jobs=validateArtifactList(data.artifacts,[]);
    const {job:rules,referenceIndex,guidance}=prepareProjectRules(data,evidenceFiles,allowedRoots[0],jobs,
-    sourceGuidance(profile,options,data.guidance as GuidanceBinding[]|undefined),new Set(profile.conventionPaths));
+    sourceGuidance(profile,options,data.guidance as GuidanceBinding[]|undefined),new Set(profile.conventionPaths),options.scope);
    if(rules)jobs.unshift(rules);
    for(const job of jobs)validateDocumentJob(job,allowedRoots,profile.files.length===0);
    if(referenceIndex){validateDocumentTarget(referenceIndex.target,allowedRoots);validateTemplateContent(referenceIndex.content);}

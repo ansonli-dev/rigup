@@ -61,6 +61,16 @@ export function isOriginalGuidance(binding:GuidanceBinding):binding is GuidanceB
  return !!binding.sourceRef&&documentation(binding.sourceRef.path)&&(binding.coverageStatus==='reusable'||binding.coverageStatus==='partial');
 }
 
+export function sameAuthoritySource(binding:GuidanceBinding,source:GuidanceBinding):boolean{
+ return !!binding.sourceRef&&binding.sourceRef.path===source.sourceRef?.path&&
+  (binding.topicId===undefined?binding.topic===source.topic:binding.topicId===source.topicId);
+}
+
+export function replacedSourceAssessment(binding:GuidanceBinding,authority:GuidanceBinding[],conventionPaths:ReadonlySet<string>):boolean{
+ return !!binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)&&
+  (conventionPaths.has(binding.sourceRef.path)||authority.some(source=>sameAuthoritySource(binding,source)&&scopesOverlap(binding.scope,source.scope)));
+}
+
 export function verifiedScopes(scope:unknown[],files:string[]):string[] {
  return scope.map(path=>typeof path==='string'?path.replace(/\/+$/,''):'')
   .filter(path=>!/[\x00-\x1f\x7f]/.test(path)&&(path==='.'||relativeTarget(path)&&files.some(file=>within(file,path))));
@@ -127,14 +137,13 @@ export async function planWithProjectRules(input:Record<string,unknown>&{invento
  }
 }
 
-export function prepareProjectRules(data:Record<string,unknown>,files:string[],root:string,otherJobs:ArtifactJob[]=[],authority:GuidanceBinding[]=[],conventionPaths:ReadonlySet<string>=new Set()):{job?:ArtifactJob;referenceIndex?:ArtifactPage;guidance:GuidanceBinding[]} {
+export function prepareProjectRules(data:Record<string,unknown>,files:string[],root:string,otherJobs:ArtifactJob[]=[],authority:GuidanceBinding[]=[],conventionPaths:ReadonlySet<string>=new Set(),selectedScopes:string[]=[]):{job?:ArtifactJob;referenceIndex?:ArtifactPage;guidance:GuidanceBinding[]} {
  const target=root+'/'+RULES_FILE;
  const topicDirectory=target.slice(0,-3)+'/';
  if(otherJobs.some(job=>isProjectRulesId(job.logicalId)||job.target===target||job.target.startsWith(topicDirectory)))throw new Error('Development rules targets are reserved for verified project rules');
  const observations=data.observations as RuleObservation[];
  const assessed=(data.guidance??[]) as GuidanceBinding[];
- const guidance=[...assessed.filter(binding=>!binding.sourceRef||!conventionPaths.has(binding.sourceRef.path)||
-  !['reusable','partial'].includes(binding.coverageStatus)),...authority];
+ const guidance=[...assessed.filter(binding=>!replacedSourceAssessment(binding,authority,conventionPaths)),...authority];
  const covered=guidance.filter(source=>isOriginalGuidance(source)&&source.coverageStatus==='reusable');
  const unresolved=[...guidance.filter(needsDecision),...observations.filter(item=>item.guidanceDisposition==='needs-decision')];
  const topics=parseRuleTopics(data.ruleTopics);
@@ -155,6 +164,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
   if(!topic||topic.length>1000)continue;
   const key=claimKey(observation.topicId,topic),keyWithoutTopicId=claimKey(undefined,topic);
   const scopes=verifiedScopes(scope,files);
+  if(selectedScopes.length&&scopes.some(scope=>!selectedScopes.some(parent=>scopeContains(parent,scope))))continue;
   const sameScope=(binding:GuidanceBinding)=>claimKey(binding.topicId,binding.topic)===key&&binding.scope.length===scopes.length&&scopes.every(path=>binding.scope.includes(path));
   const bind=(status:string,refs:Evidence[])=>{
    const gaps=status==='needs-decision'?[singleLine(observation.statement)].filter(Boolean):[];
