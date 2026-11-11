@@ -106,8 +106,11 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   ]).sort((left,right)=>conventionKey(left.topicId,left.scope).localeCompare(conventionKey(right.topicId,right.scope),'en'));
   const seedHistory=seededProjectDocuments.length?{seededProjectDocuments}:{};
   const managedTargets=data.files.map(file=>file.target);
-  const authorityPaths=new Set(data.plan.harness?.guidance.flatMap(binding=>
-   binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)?[binding.sourceRef.path]:[]));
+  const authority:SourceReview['sources']=data.plan.harness?.guidance.flatMap(binding=>
+   binding.sourceRef&&binding.scope.length&&['reusable','partial'].includes(binding.coverageStatus)?[{
+    path:binding.sourceRef.path,topic:binding.topic,topicId:binding.topicId,scope:binding.scope,
+   }]:[])??[];
+  const authorityPaths=new Set(authority.map(source=>source.path));
   const sourcesMatch=async()=>await installationInput(root,data.plan,managedTargets)===data.inputSnapshot;
   const assertSources=async()=>{if(!await sourcesMatch().catch(()=>false))throw Error('source input changed since preview or cannot be verified');};
   const markSourceReview=(result:InstallReport,review:SourceReview)=>{
@@ -133,7 +136,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    const prior=result.sourceReview;
    markSourceReview(result,{
     scopes:[...new Set([...(prior?.scopes??[]),...scopes])].sort(),
-    sources:[...new Set([...(prior?.sources??[]),...authorityPaths])].sort(),
+    sources:[...new Map([...(prior?.sources??[]),...authority].map(source=>[signature(source),source])).values()],
    });
    return true;
   };

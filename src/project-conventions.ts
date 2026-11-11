@@ -53,19 +53,22 @@ export function renderConventionSeed(draft:ConventionDraft):{target:string;conte
 
 export function readConventionDocument(path:string,raw:string,registered=false):{page?:ConventionPage;researchText:string;warnings:string[]}{
  const lines=raw.split('\n');
- const opening=lines[0].trim()==='---';
- const closing=opening?lines.findIndex((line,index)=>index>0&&line.trim()==='---'):-1;
- const header=opening?lines.slice(1,closing<0?undefined:closing).join('\n'):'';
- const document=opening?parseDocument(header):undefined;
- const marked=document?.get('rigup')==='team-convention'||
-  /(?:^|[{,])\s*(?:rigup|'rigup'|"rigup")\s*:\s*['"]?team-convention(?:['"\s#,}]|$)/m.test(header);
+ const opening=lines.findIndex(line=>line.trim());
+ const frontmatter=lines[opening]?.trim()==='---';
+ const closing=frontmatter?lines.findIndex((line,index)=>index>opening&&line.trim()==='---'):-1;
+ const header=frontmatter?lines.slice(opening+1,closing<0?undefined:closing).join('\n'):'';
+ const document=frontmatter?parseDocument(header):undefined;
+ let value:Record<string,any>|undefined;
+ try{value=document?.toJS();}catch{/* Invalid metadata is handled by quarantine. */}
+ const marked=value?.rigup==='team-convention'||
+  /(?:^|[{,])\s*(?:rigup|'rigup'|"rigup")\s*:\s*['"]?team-convention(?:['"\s#,}]|$)/m.test(header)||
+  !!document?.has('rigup')&&!value&&header.includes('team-convention');
  if(!registered&&!marked)return {researchText:raw,warnings:[]};
  const blank=lines.map(()=> '').join('\n');
  const invalid=()=>({researchText:blank,warnings:[path+': convention metadata or confirmation unavailable; review the customer document']});
- if(closing<1)return invalid();
+ if(closing<=opening)return invalid();
  try{
   if(!document||document.errors.length||document.warnings.length)return invalid();
-  const value=document.toJS();
   if(value?.rigup!=='team-convention'||value.version!==1||typeof value.title!=='string'||!value.title.trim()||
    value.title.length>1000||/[\x00-\x1f\x7f]/.test(value.title)||!isConventionScope(value.scope)||
    !['draft','confirmed','not-applicable'].includes(value.status)||

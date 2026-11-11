@@ -174,17 +174,19 @@ test('harness quarantines draft and malformed pages through every reader entry',
   ['broken.md',content.slice(0,-4)+'Private unconfirmed draft body\n'],
   ['flow.md','---\n{rigup: team-convention, version: 1, topicId: api-errors, title: API, scope: ., status: draft}\n---\nPrivate unconfirmed draft body\n'],
   ['flow-duplicate.md','---\n{rigup: other, rigup: team-convention, status: draft}\n---\nPrivate unconfirmed draft body\n'],
+  ['alias.md',content.replace('rigup: team-convention','marker: &team team-convention\nrigup: *team')+'Private unconfirmed draft body\n'],
+  ['leading-blank.md','\n\n'+content+'Private unconfirmed draft body\n'],
  ]){
   await writeFile(root+'/'+path,raw);
  }
  const reader=await repositoryReader(root,settings);
  assert.deepEqual(await reader.search('Private unconfirmed draft body'),[]);
- for(const path of ['draft.md','duplicate.md','broken.md','flow.md','flow-duplicate.md']){
+ for(const path of ['draft.md','duplicate.md','broken.md','flow.md','flow-duplicate.md','alias.md','leading-blank.md']){
   assert.equal((await reader.read(path,1)).content.trim(),'');
   assert.equal((await reader.evidencePass()(path,1)).content.trim(),'');
  }
  const profile=await scanRepository(root,settings);
- assert.deepEqual(profile.conventions?.map(page=>page.status),['draft','draft']);
+ assert.deepEqual(profile.conventions?.map(page=>page.status),['draft','draft','draft','draft']);
  assert.ok(profile.unknowns.some(note=>note.startsWith('duplicate.md:')));
  assert.ok(profile.unknowns.some(note=>note.startsWith('broken.md:')));
 }));

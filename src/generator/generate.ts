@@ -55,9 +55,11 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
   seen.add(key);
  }
  const gitlabReviewRequired=profile.gitlabReviewRequired&&(!!options.quality?.gitlab||previousAssets.some(a=>isGitlabWiring(a.logicalId)));
+ const notApplicable=profile.conventions?.flatMap(page=>page.status==='not-applicable'?
+  [{path:page.path,topic:page.title,topicId:page.topicId,scope:[page.scope]}]:[])??[];
  return {root:profile.root,fingerprint:profile.fingerprint,options,assets,operations:integration.operations,dispositions,
   harness:harness.summary,
-  ...(navigation.targets.length||navigation.conventionPaths.length?{harnessNavigation:{targets:navigation.targets,conventionPaths:navigation.conventionPaths}}:{}),
+  ...(navigation.targets.length||navigation.conventionPaths.length?{harnessNavigation:{targets:navigation.targets,conventionPaths:navigation.conventionPaths,...(notApplicable.length?{notApplicable}:{})}}:{}),
   ...(projectDocuments.length?{projectDocuments}:{}),
   ...(gitlabReviewRequired?{gitlabReviewRequired:true as const}:{}),
   warnings:[...profile.unknowns,...integration.warnings,...navigation.warnings,...(gitlabReviewRequired?['GitLab wiring was left as-is. A complete root review is required to verify and change the selection.']:[])],requirements:integration.requirements,

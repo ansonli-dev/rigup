@@ -442,7 +442,7 @@ test('harness carries recovered authority invalidation through successor transac
  assert.equal(recovered.status,'complete');
  assert.equal(recovered.projectRules,'pending');
  assert.equal(recovered.exitCode,3);
- assert.deepEqual(recovered.sourceReview,{scopes:['api'],sources:['knowledge/api.md']});
+ assert.deepEqual(recovered.sourceReview,{scopes:['api'],sources:[{path:'knowledge/api.md',topic:'API errors',topicId:'api-errors',scope:['api']}]});
  assert.equal(await readFile(root+'/AGENTS.md','utf8'),entry);
  assert.equal((await doctor(root,{stateRoot:state})).projectRules,'pending');
  assert.match((await doctor(root,{stateRoot:state})).nextCommand??'',/--review/);
@@ -542,4 +542,45 @@ test('harness invalidates changed customer authority in a partially managed file
  assert.equal(result.exitCode,3);
  assert.equal((await doctor(root,{stateRoot:state})).projectRules,'pending');
  assert.equal(await readFile(entry,'utf8'),customer);
+}));
+
+test('harness clears durable pending after a scoped authority is explicitly remapped and reviewed',()=>sourceReviewFixture(async({root,cache,state,source,settings,prepare})=>{
+ const {rename}=await import('node:fs/promises');
+ const {doctor}=await import('../src/installer/doctor.js');
+ const nextSource='knowledge/remapped.md';
+ const approval=await prepare();
+ const dependencies={cacheRoot:cache,stateRoot:state};
+ const installed=await apply(approval.previewId,{...dependencies,hook:async point=>{
+  if(point==='after-manifest')await rename(source,root+'/'+nextSource);
+ }});
+ assert.equal(installed.projectRules,'pending');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'pending');
+ const topic=settings.projectConventions!.topics![0];
+ const different={...settings,projectConventions:{topics:[{...topic,id:'unrelated-rule',source:nextSource}]}};
+ assert.equal((await prepare(different)).projectRules,'pending');
+ const remapped={...settings,projectConventions:{topics:[{...topic,source:nextSource}]}};
+ const reviewed=await prepare(remapped);
+ assert.ok(reviewed.harness?.guidance.some(binding=>binding.sourceRef?.path===nextSource&&binding.coverageStatus==='reusable'));
+ assert.equal(reviewed.projectRules,'ready');
+ assert.equal((await apply(reviewed.previewId,dependencies)).projectRules,'ready');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'ready');
+ await assert.rejects(readFile(source),{code:'ENOENT'});
+ assert.equal((await prepare(remapped,true)).noChanges,true);
+}));
+
+test('harness clears durable pending after an explicit not-applicable decision is reviewed',()=>sourceReviewFixture(async({root,cache,state,source,prepare})=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const {doctor}=await import('../src/installer/doctor.js');
+ const approved=await prepare();
+ const dependencies={cacheRoot:cache,stateRoot:state};
+ const seed=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'api',questions:['Confirm this contract']}).content;
+ const retirement=seed.replace('status: draft','status: not-applicable')+'This module handles only asynchronous events.\n';
+ assert.equal((await apply(approved.previewId,{...dependencies,hook:async point=>{
+  if(point==='after-manifest')await writeFile(source,retirement);
+ }})).projectRules,'pending');
+ const reviewed=await prepare();
+ assert.equal(reviewed.projectRules,'ready');
+ assert.equal((await apply(reviewed.previewId,dependencies)).projectRules,'ready');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'ready');
+ assert.equal(await readFile(source,'utf8'),retirement);
 }));

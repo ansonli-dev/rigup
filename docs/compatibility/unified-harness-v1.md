@@ -22,7 +22,7 @@ The live gate uses disposable repositories and private state directories. It fai
 - Codex 0.166.0 discovered the installed prepare and deliver skills with OpenSpec 1.16.0. Both skill references resolved to the customer guide, the confirmed convention page and their expected native workflow entry. The probe used native discovery without starting a model turn.
 - GitLab evidence covers static job discovery and preservation of selected wiring. Runner execution requires the target GitLab project and runner.
 
-The live upgrade gate ran on macOS ARM64 with Node 24.15.0. The platform regression command passed 59 tests on Linux ARM64 with Node 24.22.2 and 59 tests on Windows 11 ARM64 with Node 24.22.1.
+The live upgrade gate ran on macOS ARM64 with Node 24.15.0. The platform regression command passed 61 tests on Linux ARM64 with Node 24.22.2 and 61 tests on Windows 11 ARM64 with Node 24.22.1.
 
 ```sh
 node --import tsx --test test/ownership-path.test.ts test/installer.test.ts test/recovery.test.ts

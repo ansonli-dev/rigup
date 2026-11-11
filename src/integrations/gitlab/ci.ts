@@ -8,7 +8,7 @@ import {quotePosixShell} from '../../shell-command.js';
 import {npmScriptName,projectRelativePath} from '../tools/project-check.mjs';
 export const isGitlabWiring=(id:string):boolean=>id==='gitlab:jobs'||id==='gitlab:include';
 
-const gitlabKeywords=new Set(['after_script','before_script','cache','default','image','include','pages','services','stages','types','variables','workflow']);
+const gitlabKeywords=new Set(['after_script','before_script','cache','default','image','include','services','stages','types','variables','workflow']);
 const mapping=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const changesContext=(value:Record<string,unknown>)=>
  ['extends','inherit','variables','hooks','trigger','parallel','<<'].some(key=>Object.hasOwn(value,key))||
@@ -32,6 +32,7 @@ export function discoverGitlabJobs(path:string,text:string):GitlabJobBinding[]{
  const bindings:GitlabJobBinding[]=included?[unavailable('Included CI sources were not read')]:[];
  for(const [job,value] of Object.entries(yaml)){
   if(job.startsWith('.')||gitlabKeywords.has(job))continue;
+  if(job==='pages:deploy'&&mapping(value)&&value.stage==='deploy')continue;
   if(!mapping(value)||globalContext||changesContext(value)){
    bindings.push(unavailable('Job execution context could not be verified',job));
    continue;

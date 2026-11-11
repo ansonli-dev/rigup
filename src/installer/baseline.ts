@@ -26,7 +26,7 @@ export async function trustedBaseline(root:string,asset:ManagedAsset):Promise<st
  }catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return;throw e;}
 }
 
-export interface SourceReview {scopes:string[];sources:string[]}
+export interface SourceReview {scopes:string[];sources:{path:string;topic:string;topicId?:string;scope:string[]}[]}
 export interface Transaction {previewId:string;installId:string;status:'prepared'|'complete';files:Record<string,{before:string;after:string;beforeMode?:number;afterMode?:number}>;checks?:CheckResult[];seedProgress?:Record<string,'started'|'written'>;receipts:NonNullable<Manifest['installedTools']>;initialized?:NonNullable<Manifest['initializedTools']>;preview?:{digest:string;data:PreviewData};report?:InstallReport}
 export function readApplyRecord(path:string):Promise<Transaction|undefined>{
  return readDurableRecord<Transaction>(path,'Durable apply record',tx=>{
@@ -39,7 +39,9 @@ export function readApplyRecord(path:string):Promise<Transaction|undefined>{
   const report=tx.report;
   if(report?.sourceReview!==undefined&&(!isRecord(report.sourceReview)||!Array.isArray(report.sourceReview.scopes)||
     !report.sourceReview.scopes.length||!report.sourceReview.scopes.every(isConventionScope)||!Array.isArray(report.sourceReview.sources)||
-    !report.sourceReview.sources.every(source=>typeof source==='string')))return false;
+    !report.sourceReview.sources.every(source=>isRecord(source)&&isConventionScope(source.path)&&source.path!=='.'&&
+     typeof source.topic==='string'&&(source.topicId===undefined||typeof source.topicId==='string')&&
+     Array.isArray(source.scope)&&source.scope.length&&source.scope.every(isConventionScope))))return false;
   return tx.status!=='complete'||isRecord(report)&&report.previewId===tx.previewId&&report.status==='complete'&&
    [0,1,3].includes(report.exitCode)&&[report.written,report.operations,report.checks,report.warnings].every(Array.isArray);
  });

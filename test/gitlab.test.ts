@@ -85,10 +85,10 @@ test('harness correlates GitLab jobs by cwd and script',()=>project(async root=>
   await mkdir(root+'/'+cwd);
   await writeFile(root+'/'+cwd+'/package.json','{"scripts":{"build":"node build.js"}}');
  }
- await writeFile(root+'/.gitlab-ci.yml','api:\n  script: cd api && npm run build\nunknown:\n  script: cd web && npm run lint\n');
+ await writeFile(root+'/.gitlab-ci.yml','api:\n  script: cd api && npm run build\npages:\n  script: cd web && npm run build\nunknown:\n  script: cd web && npm run lint\n');
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  assert.deepEqual(profile.gitlabJobs?.map(job=>[job.job,job.command?.cwd,job.coverageStatus]),[
-  ['api','api','reusable'],['unknown','web','unavailable']
+  ['api','api','reusable'],['pages','web','reusable'],['unknown','web','unavailable']
  ]);
 }));
 

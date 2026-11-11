@@ -50,15 +50,29 @@ export function unchangedInstallation(data:PreviewData):boolean{
  });
 }
 
+function reviewedSources(plan:SetupPlan,pending:SourceReview):boolean{
+ const verified=[
+  ...(plan.harness?.guidance.flatMap(binding=>binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)?
+   [{path:binding.sourceRef.path,topic:binding.topic,topicId:binding.topicId,scope:binding.scope}]:[])??[]),
+  ...(plan.harnessNavigation?.notApplicable??[]),
+ ];
+ const declared=plan.options.projectConventions?.topics??[];
+ return pending.sources.every(source=>source.scope.every(scope=>verified.some(binding=>{
+  const sameTopic=source.topicId?source.topicId===binding.topicId:source.topic===binding.topic;
+  if(!sameTopic||!binding.scope.some(parent=>scopeContains(parent,scope)))return false;
+  return binding.path===source.path||plan.harnessNavigation?.conventionPaths.includes(binding.path)||
+   declared.some(topic=>topic.source===binding.path&&topic.id===binding.topicId&&topic.scope.some(parent=>scopeContains(parent,scope)));
+ })));
+}
+
 export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],dependencies:{cacheRoot?:string;stateRoot?:string;skipUnchanged?:boolean;reviewEntryBlocks?:boolean}={}):Promise<Preview>{
  const root=await realpath(plan.root);if(root!==plan.root)throw new Error('plan root must be canonical');
  const oldManifest=await loadManifest(root);const old=oldManifest?.assets??[];
  const pendingReview=await sourceReview(root,oldManifest,dependencies.stateRoot??defaultStateRoot());
  if(pendingReview){
   const selected=plan.options.scope?.length?plan.options.scope:['.'];
-  const usable=new Set(plan.harness?.guidance.flatMap(binding=>binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)?[binding.sourceRef.path]:[]));
   if(plan.projectRules!=='ready'||pendingReview.scopes.some(scope=>!selected.some(parent=>scopeContains(parent,scope)))||
-    pendingReview.sources.some(path=>!usable.has(path))){
+    !reviewedSources(plan,pendingReview)){
    plan={...plan,projectRules:'pending',warnings:[...plan.warnings,'Previously approved rule sources still require review in their original scope.']};
   }
  }
@@ -267,7 +281,8 @@ export async function installationInput(root:string,plan:SetupPlan,managedTarget
  const scopes=[...plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites),...managedTargets];
  const profile=await scanInstallationSources(root,plan.options,scopes);
  const covered=new Set([...profile.files,...managedTargets]);
- if(plan.harness?.guidance.some(binding=>binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)&&!covered.has(binding.sourceRef.path))){
+ if(plan.harness?.guidance.some(binding=>binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)&&!covered.has(binding.sourceRef.path))||
+   plan.harnessNavigation?.notApplicable?.some(binding=>!covered.has(binding.path))){
   throw Error('Approved rule source unavailable in the installation snapshot');
  }
  const values:string[]=[];

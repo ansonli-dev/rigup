@@ -77,6 +77,8 @@ projectConventions:
 
 待填约定默认创建在 `docs/rigup/conventions/`，每个主题与范围只创建一次。请保留 YAML 元数据，在下方填写正文，完成后把 `status` 改为 `confirmed`。选用 `not-applicable` 时在正文写明原因。下次更新会核对确认状态和适用范围，并更新工作流引用。更改文档目录或删除页面后，安装收据仍保留原始创建记录。
 
+如果约定移到所选业务范围之外，在对应主题的 `source` 指定新路径，再复核该主题的适用范围。
+
 局部或截断的扫描保留既有全局 GitLab 接线。要调整全局选择，先从完整仓库范围复核。v0.3.5 的已完成安装走同一更新入口。旧预览需要重新生成。用旧版完成尚未恢复的旧安装，再切换到新版。 [Unified Harness V1 兼容验证](../compatibility/unified-harness-v1.md)
 
 ## 先安装工作流，再生成规则
