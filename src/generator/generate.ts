@@ -7,7 +7,7 @@ import {repositoryReader} from '../analyzer/repository.js';
 import {researchBudget} from '../analyzer/budget.js';
 import {validateResearch,type AnalysisBackend,type ResearchResult} from '../analyzer/backend.js';
 import type {ManagedAsset,SetupOptions,SetupPlan,StepResult,AssetDisposition} from '../types.js';
-import {validateInventory} from '../types.js';
+import {scopeContains,scopesOverlap,validateInventory} from '../types.js';
 import {prepareIntegrations,type IntegrationPreparation,type PreparedAsset} from '../integrations/registry.js';
 import {digest} from '../analyzer/evidence.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
@@ -65,9 +65,9 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
   ...(projectRules?{projectRules}:{})};
 }
 
-export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false):Promise<SetupPlan>{
+export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false,previousGuidance:GuidanceBinding[]=[]):Promise<SetupPlan>{
  const {integration,fixedTemplates}=prepared;
- const harness=planHarness(profile,options,[]);
+ const harness=planHarness(profile,options,previousGuidance);
  const candidates=await renderFixed(profile,options,integration,[],harness.summary.guidance,fixedTemplates,!preserveWorkflowContext);
  const navigation=await reconcileHarnessNavigation(profile,options,candidates,previousAssets,harness.summary.guidance,preserveWorkflowContext);
  const assets=navigation.assets;
@@ -201,7 +201,28 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   job.status='done';await persist();dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:job.logicalId,completed:completed(),total:state.plan.jobs.length,status:reused?'reused':'running',next:'fixed assembly after all required jobs'});
   semantic.push(...candidateAssets(job,candidate!.content,candidate!.pages));
  }
- const harness=planHarness(profile,options,state.plan.guidance);
+ const ruleCoverage=state.plan.jobs.flatMap(job=>(job.ruleSources??[]).flatMap(rule=>{
+  const topicId=job.ruleTopics?.find(topic=>topic.ruleIds.includes(rule.id))?.id;
+  const sourceRef=rule.supportingEvidence.find(ref=>!/\.(?:mdx?|rst|adoc|txt)$/i.test(ref.path)&&rule.scope.some(scope=>scopeContains(scope,ref.path)));
+  if(!topicId||!sourceRef)return [];
+  return [{topicId,topic:rule.topic,scope:rule.scope,sourceRef,gap:rule.gap}];
+ }));
+ const gapBinding=(binding:GuidanceBinding)=>['missing','partial'].includes(binding.coverageStatus)&&binding.gaps.length>0;
+ const sameTopic=(binding:GuidanceBinding,rule:typeof ruleCoverage[number])=>binding.topicId?binding.topicId===rule.topicId:binding.topic===rule.topic;
+ const remaining=state.plan.guidance.flatMap(binding=>{
+  if(!gapBinding(binding))return [binding];
+  const scopes=binding.scope.map(scope=>({scope,gaps:binding.gaps.filter(gap=>!ruleCoverage.some(rule=>
+   sameTopic(binding,rule)&&rule.gap===gap&&rule.scope.some(parent=>scopeContains(parent,scope))))}));
+  if(scopes.every(item=>item.gaps.length===binding.gaps.length))return [binding];
+  return scopes.flatMap(({scope,gaps})=>gaps.length?[{...binding,scope:[scope],gaps}]:
+   binding.sourceRef?[{...binding,scope:[scope],gaps,coverageStatus:'reusable'}]:[]);
+ });
+ const verified=ruleCoverage.flatMap(rule=>{
+  if(remaining.some(binding=>gapBinding(binding)&&sameTopic(binding,rule)&&scopesOverlap(binding.scope,rule.scope)))return [];
+  const {gap,...binding}=rule;
+  return [{...binding,coverageStatus:'reusable',consumers:['agent-entry','prepare','deliver','review'],gaps:[]}];
+ });
+ const harness=planHarness(profile,options,[...remaining,...verified]);
  const {summary}=harness;
  const guidanceRefs=summary.guidance.flatMap(binding=>binding.sourceRef?[binding.sourceRef]:[]);
  if(guidanceRefs.some(ref=>semantic.some(asset=>asset.target===ref.path)))throw new Error('reused source must remain unowned');

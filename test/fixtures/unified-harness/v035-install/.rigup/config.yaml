@@ -1,0 +1,1 @@
+{"agents": ["codex"], "backend": "host", "projectRules": true, "sdd": "openspec", "executionPolicy": {"mode": "review"}, "quality": {"gitlab": {"checks": [{"cwd": ".", "script": "build"}]}}}

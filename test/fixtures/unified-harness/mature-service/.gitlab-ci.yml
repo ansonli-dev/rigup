@@ -1,0 +1,4 @@
+# Customer pipeline
+verify:
+  script:
+    - npm run test

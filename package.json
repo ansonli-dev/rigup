@@ -1,6 +1,6 @@
 {
   "name": "@ansonli.dev/rigup",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "type": "module",
   "publishConfig": {
     "access": "public",
@@ -43,6 +43,7 @@
     "templates",
     "docs/guides",
     "docs/compatibility/status.md",
+    "docs/compatibility/unified-harness-v1.md",
     "docs/compatibility/validation-0.3.0.md",
     "docs/compatibility/upstream-lock.json",
     "README.md",

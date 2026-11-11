@@ -24,10 +24,10 @@ import {STAGE_EVIDENCE_POLICY} from './analyzer/stage-context.js';
 import {DOCUMENT_POLICY_VERSION} from './generator/document-policy.js';
 import {TEMPLATE_VERSION} from './generator/render.js';
 import {privateDirectory,signature,readCache,saveCache} from './generator/cache.js';
-import {loadManifest,sourceReview} from './installer/baseline.js';
+import {applyRecordPath,loadManifest,readApplyRecord,sourceReview} from './installer/baseline.js';
 import {acquireLock,defaultStateRoot} from './installer/lock.js';
 import {assertNoUnknownWriters} from './installer/operations.js';
-import {preview,loadPreview,type Preview} from './installer/preview.js';
+import {installationInput,preview,loadPreview,type Preview} from './installer/preview.js';
 import {sessionHandoffRequired} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
@@ -127,7 +127,18 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    emit({stage:'generation',completed:0,task:'assemble project workflow',next:'preview'});
    const previousAssets=(old?.assets??[]).filter(asset=>asset.logicalId!=='rigup:configuration');
    const preserveWorkflowContext=old?.projectRules==='ready'&&old.options?.sdd===options.sdd&&signature(old.options?.agents??[])===signature(options.agents)&&signature(old.options?.customSkills??[])===signature(options.customSkills??[]);
-   plan=await generateFoundation(profile,options,prepared,previousAssets,preserveWorkflowContext);
+   let previousGuidance:import('./generator/project-rules.js').GuidanceBinding[]=[];
+   if(preserveWorkflowContext&&!authorityReview&&signature(old?.options??null)===signature(options)){
+    const tx=await readApplyRecord(applyRecordPath(root,lock.stateRoot)),approved=tx?.preview;
+    if(tx?.status==='complete'&&tx.installId===old?.installId&&approved&&approved.digest===signature(approved.data)){
+     const {data}=approved;
+     const targets=data.files.map(file=>file.target);
+     if(data.inputSnapshotVersion===3&&await installationInput(root,data.plan,targets).catch(()=>undefined)===data.inputSnapshot){
+      previousGuidance=tx.report?.harness?.guidance.filter(binding=>binding.sourceRef&&!targets.includes(binding.sourceRef.path)&&['reusable','partial'].includes(binding.coverageStatus))??[];
+     }
+    }
+   }
+   plan=await generateFoundation(profile,options,prepared,previousAssets,preserveWorkflowContext,previousGuidance);
    if(authorityReview)plan.projectRules='pending';
   }else{
    const authority=sourceGuidance(profile,options);

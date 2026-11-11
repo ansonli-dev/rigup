@@ -1,0 +1,8 @@
+# Team instructions
+Keep the team guide intact.
+<!-- rigup:start -->
+## Project workflow
+- [.agents/skills/change-prepare/SKILL.md](.agents/skills/change-prepare/SKILL.md)
+- [.agents/skills/change-deliver/SKILL.md](.agents/skills/change-deliver/SKILL.md)
+- [README.md](README.md)
+<!-- rigup:end -->

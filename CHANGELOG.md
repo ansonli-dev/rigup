@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 · 2026-11-11 · Development preview
+
+- Use one review and update flow for new services, established projects and mixed repositories. Previews and doctor report existing npm checks and GitLab job sources by working directory.
+- Add scoped team convention topics. Rigup creates each needed draft once, preserves customer edits and links confirmed guidance from the selected workflow.
+- Recheck rule sources before committing an installation. Keep interrupted creation and approvals recoverable and require a fresh review when approved sources change.
+- Upgrade completed v0.3.5 installations through the normal update flow. Finish interrupted v0.3.5 installations with the original CLI before upgrading.
+
 ## 0.3.5 · 2026-11-10 · Development preview
 
 - Remove detection of saved v0.1.1 research ledgers during resume.

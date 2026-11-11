@@ -1,0 +1,7 @@
+{
+  "agents": [
+    "codex"
+  ],
+  "backend": "host",
+  "projectRules": true
+}

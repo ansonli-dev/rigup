@@ -1,0 +1,1 @@
+exports.health = () => ({ status: "ok" });

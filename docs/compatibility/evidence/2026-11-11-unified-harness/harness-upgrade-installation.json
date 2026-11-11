@@ -1,0 +1,63 @@
+{
+  "status": "passed",
+  "platform": "darwin",
+  "arch": "arm64",
+  "release": "27.0.0",
+  "node": "v24.15.0",
+  "oldVersion": "0.3.5",
+  "newVersion": "0.4.0",
+  "oldCommit": "be0ca645f9c99c6890adedb9bc7141e3ea720ab2",
+  "cases": [
+    {
+      "kind": "legacy-provider",
+      "previousAssets": 3,
+      "upgradedAssets": 3,
+      "originalConfigPreserved": true,
+      "installedToolReceipts": [
+        "codegraph"
+      ],
+      "nativeInitializationReceipts": [
+        "codegraph"
+      ],
+      "gitlabDiscoveryOnly": false
+    },
+    {
+      "kind": "modern-pending",
+      "previousAssets": 3,
+      "upgradedAssets": 3,
+      "projectRules": "pending",
+      "originalConfigPreserved": false,
+      "installedToolReceipts": [],
+      "nativeInitializationReceipts": [],
+      "gitlabDiscoveryOnly": false
+    },
+    {
+      "kind": "modern-ready",
+      "previousAssets": 10,
+      "upgradedAssets": 10,
+      "projectRules": "ready",
+      "originalConfigPreserved": true,
+      "installedToolReceipts": [],
+      "nativeInitializationReceipts": [],
+      "openspecVersion": "1.16.0",
+      "native": {
+        "client": "codex-cli 0.166.0",
+        "checks": [
+          {
+            "skill": "change-prepare",
+            "native": "openspec-propose",
+            "customerGuide": "README.md",
+            "convention": "knowledge/errors.md"
+          },
+          {
+            "skill": "change-deliver",
+            "native": "openspec-apply-change",
+            "customerGuide": "README.md",
+            "convention": "knowledge/errors.md"
+          }
+        ]
+      },
+      "gitlabDiscoveryOnly": true
+    }
+  ]
+}

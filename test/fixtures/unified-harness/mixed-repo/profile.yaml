@@ -1,0 +1,43 @@
+{
+  "agents": [
+    "codex"
+  ],
+  "backend": "host",
+  "projectRules": true,
+  "projectConventions": {
+    "topics": [
+      {
+        "id": "api-errors",
+        "title": "API error contract",
+        "scope": [
+          "services/new"
+        ]
+      },
+      {
+        "id": "ui-states",
+        "title": "UI loading and error states",
+        "scope": [
+          "web"
+        ]
+      }
+    ]
+  },
+  "quality": {
+    "gitlab": {
+      "checks": [
+        {
+          "cwd": "services/legacy",
+          "script": "build"
+        },
+        {
+          "cwd": "services/new",
+          "script": "build"
+        },
+        {
+          "cwd": "web",
+          "script": "build"
+        }
+      ]
+    }
+  }
+}

@@ -219,3 +219,197 @@ test('deferred setup installs the selected workflow before a separately reviewed
  assert.match(await readFile(reference,'utf8'),/development-rules\.md/);
  assert.match(await readFile(root+'/docs/rigup/development-rules.md','utf8'),/policy\.md/);
 }));
+
+test('unified harness uses one lifecycle for new mature and mixed repositories',async t=>{
+ const {cp,rename}=await import('node:fs/promises');
+ const {fileURLToPath}=await import('node:url');
+ const {loadManifest}=await import('../src/installer/baseline.js');
+ const {projectInput}=await import('../src/managed-input.js');
+ const {validateResearch}=await import('../src/analyzer/backend.js');
+ const {parse:yaml}=await import('yaml');
+ const fixtureRoot=fileURLToPath(new URL('./fixtures/unified-harness/',import.meta.url));
+ const cases=[
+  {name:'new-service',checks:['.'],drafts:[['api-errors','.']]},
+  {name:'mature-service',checks:['.'],drafts:[],authority:'docs/api-errors.md',authorityScope:'.'},
+  {name:'mixed-repo',checks:['services/legacy','services/new','web'],drafts:[['api-errors','services/new'],['ui-states','web']],authority:'services/legacy/docs/api-errors.md',authorityScope:'services/legacy'},
+ ];
+ for(const scenario of cases)await t.test(scenario.name,()=>fixture(async(root,cache,state)=>{
+  await cp(join(fixtureRoot,scenario.name),root,{recursive:true});
+  const current=join(root,'profile.yaml');
+  const profile=JSON.parse(await readFile(current,'utf8'));
+  const originalCi=await readFile(join(root,'.gitlab-ci.yml'),'utf8');
+  const entry=join(root,'AGENTS.md');
+  const originalEntry=await readFile(entry,'utf8').catch(error=>{if(error.code==='ENOENT')return undefined;throw error;});
+  const authorityPath=scenario.authority&&join(root,scenario.authority);
+  const originalAuthority=authorityPath&&await readFile(authorityPath,'utf8');
+  const backend:import('../src/analyzer/backend.js').AnalysisBackend={run:async(request,reader)=>{
+   const guidance=scenario.authority?[{topicId:'api-errors',topic:'API error contract',scope:[scenario.authorityScope!],
+    sourceRef:(await reader.read(scenario.authority,3,3)).evidence,coverageStatus:'reusable',consumers:['agent-entry'],gaps:[]}]:[];
+   const data={observations:[],guidance,unknowns:[],ruleTopics:guidance.length?[{id:'api-errors',title:'API error contract'}]:[],
+    ...(request.expectedOutput==='plan'?{artifacts:[],dispositions:[]}:{})};
+   await validateResearch(data,reader);
+   return {status:'complete',value:{data,model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};
+  }};
+  const run=async(args:string[],expected:number,semantic=false)=>{
+   let out='';
+   const code=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:s=>out+=s,services:{cacheRoot:cache,stateRoot:state,...(semantic?{backend}:{})}});
+   assert.equal(code,expected,out);
+   return JSON.parse(out);
+  };
+  const install=async(review:any)=>{
+   assert.equal(review.executable,true,JSON.stringify(review.blockers));
+   return run(['update','--apply',review.previewId,'--sessions-ended'],0);
+  };
+  const review=await run(['init','--profile','profile.yaml','--backend','host','--sdd','none','--review'],3,true);
+  assert.deepEqual(review.blockers,[]);
+  assert.deepEqual(review.harness.checks.filter((item:any)=>item.command.args[1]==='build').map((item:any)=>item.command.cwd),scenario.checks);
+  assert.deepEqual(review.harness.ci.map((job:any)=>[job.command.cwd,job.coverageStatus]),scenario.checks.map(cwd=>[cwd,'reusable']));
+  if(scenario.authority)assert.ok(review.harness.guidance.some((binding:any)=>binding.sourceRef?.path===scenario.authority&&binding.coverageStatus==='reusable'));
+  const installed=await install(review);
+  assert.deepEqual(installed.checks,[]);
+  const manifest=(await loadManifest(root))!;
+  assert.equal(manifest.schemaVersion,1);
+  assert.deepEqual((manifest.seededProjectDocuments??[]).map(doc=>[doc.topicId,doc.scope]),scenario.drafts);
+  assert.equal(new Set((manifest.seededProjectDocuments??[]).map(doc=>JSON.stringify([doc.topicId,doc.scope]))).size,scenario.drafts.length);
+  const doctor=await run(['doctor'],3);
+  assert.equal(doctor.projectRules,'ready');
+  assert.deepEqual(doctor.checks,[]);
+  const ci=join(root,'.gitlab-ci.yml'),jobs=join(root,'.rigup','gitlab-ci.yml');
+  const ciAsset=manifest.assets.find(asset=>asset.logicalId==='gitlab:include');
+  assert.equal(projectInput(await readFile(ci,'utf8'),ciAsset?[ciAsset.ownership]:[]),originalCi);
+  if(originalEntry){
+   const managed=manifest.assets.filter(asset=>asset.target==='AGENTS.md').map(asset=>asset.ownership);
+   assert.equal(projectInput(await readFile(entry,'utf8'),managed),originalEntry);
+  }
+  if(authorityPath)assert.equal(await readFile(authorityPath,'utf8'),originalAuthority);
+  const doc=manifest.seededProjectDocuments?.[0];
+  let globalJobs:string|undefined;
+  if(doc){
+   const file=join(root,doc.target);
+   const body='Apply the confirmed order response convention.\n';
+   await writeFile(file,(await readFile(file,'utf8')).replace('status: draft','status: confirmed')+body);
+   const saved=await readFile(file,'utf8');
+   if(scenario.name==='mixed-repo'){
+    const complete=(await readFile(jobs,'utf8'))+'# Customer job comment\n';
+    globalJobs=complete;
+    assert.equal(doc.scope,'services/new');
+    assert.match(doc.target,/^docs\/rigup\/conventions\//);
+    await writeFile(jobs,complete);
+    await writeFile(current,JSON.stringify({...profile,scope:['services/new']}));
+    const scoped=await run(['update','--review'],3);
+    assert.deepEqual(scoped.harness.checks.filter((item:any)=>item.command.args[1]==='build').map((item:any)=>item.command.cwd),['services/new']);
+    assert.ok(scoped.warnings.some((warning:string)=>warning.includes('complete root review')));
+    await writeFile(file,saved+'Customer edit after review.\n');
+    const stale=await run(['update','--apply',scoped.previewId,'--sessions-ended'],1);
+    assert.match(stale.error,/source input changed/);
+    await writeFile(file,saved);
+    const scopedReview=await run(['update','--review'],3);
+    await install(scopedReview);
+    assert.equal(await readFile(jobs,'utf8'),complete);
+    assert.equal(projectInput(await readFile(ci,'utf8'),[ciAsset!.ownership]),originalCi);
+    const commands=yaml(complete)['rigup:checks'].script.slice(1);
+    assert.deepEqual(commands,scenario.checks.map(cwd=>"(cd '"+cwd+"' && 'npm' 'run' 'build')"));
+    await writeFile(current,JSON.stringify({...profile,scope:['.']}));
+   }
+   const updated=await run(['update','--review'],3);
+   await install(updated);
+   if(globalJobs){
+    assert.equal(await readFile(jobs,'utf8'),globalJobs);
+    assert.equal(projectInput(await readFile(ci,'utf8'),[ciAsset!.ownership]),originalCi);
+   }
+   assert.equal(await readFile(file,'utf8'),saved);
+   assert.match(await readFile(entry,'utf8'),/rigup:harness:start[\s\S]*api-errors--/);
+  }
+  const before=await readFile(join(root,'.rigup','manifest.json'),'utf8');
+  const repeated=await run(['update','--review'],0);
+  assert.equal(repeated.installStatus,'up-to-date');
+  assert.equal(await readFile(join(root,'.rigup','manifest.json'),'utf8'),before);
+ }));
+});
+
+test('unified harness leaves an empty repository at a minimal pending foundation',()=>fixture(async(root,cache,state)=>{
+ let output='';
+ const run=(args:string[])=>runCli([...args,'--json'],{cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot:cache,stateRoot:state}});
+ assert.equal(await run(['init','--agents','codex','--sdd','none','--defer-research','--review']),3,output);
+ const review=JSON.parse(output);
+ assert.equal(review.projectRules,'pending');
+ assert.deepEqual(review.harness.guidance,[]);
+ assert.deepEqual(review.projectDocuments??[],[]);
+ output='';
+ assert.equal(await run(['update','--apply',review.previewId,'--sessions-ended']),0,output);
+ assert.equal(JSON.parse(output).projectRules,'pending');
+}));
+
+for(const partial of [false,true])test('unified harness reuses legacy authority and accepts independent new-module inference'+(partial?' with a remaining gap':''),()=>fixture(async(root,cache,state)=>{
+ const {cp}=await import('node:fs/promises');
+ const {validateResearch}=await import('../src/analyzer/backend.js');
+ const {loadManifest}=await import('../src/installer/baseline.js');
+ await cp(new URL('./fixtures/unified-harness/mixed-repo/',import.meta.url),root,{recursive:true});
+ const scope='services/new';
+ if(partial)await writeFile(join(root,scope,'partial.md'),'Errors use Problem Details. Retry semantics still need agreement.\n');
+ await writeFile(join(root,scope,'src','request.js'),'exports.invalidRequest = () => problem(422, "request");\n');
+ await writeFile(join(root,scope,'src','order.js'),'exports.invalidOrder = () => problem(422, "order");\n');
+ const backend:import('../src/analyzer/backend.js').AnalysisBackend={run:async(request,reader)=>{
+  let data:Record<string,unknown>={observations:[],unknowns:[]};
+  if(request.expectedOutput==='content'){
+   const job=(request.input as {job:{ruleSources:{id:string;scope:string[]}[]}}).job;
+   assert.deepEqual(job.ruleSources.map(rule=>rule.scope),[[scope]]);
+   data.rulebook={title:'Project development rules',existing:'Existing rules',inferred:'Code conventions',when:'When to apply',verify:'Verification',exceptions:'Exceptions',
+    rules:job.ruleSources.map(rule=>({sourceId:rule.id,trigger:'When rejecting invalid requests',instruction:'Return HTTP 422 through the shared problem helper.',
+     verification:'Check invalid request responses for status 422.',exceptions:[]}))};
+  }else if(request.expectedOutput==='acceptance')Object.assign(data,{accepted:true,reason:'Verified two independent handlers and the affected scope.'});
+  else{
+   const ref=async(path:string,line=1)=>(await reader.read(path,line,line)).evidence;
+   data={...data,ruleTopics:[{id:'api-errors',title:'API error contract'}],guidance:[{
+    topicId:'api-errors',topic:'API error contract',scope:['services/legacy'],sourceRef:await ref('services/legacy/docs/api-errors.md',3),
+    coverageStatus:'reusable',consumers:['agent-entry'],gaps:[],
+   },...(partial?[{topicId:'api-errors',topic:'API error contract',scope:[scope],sourceRef:await ref(scope+'/partial.md'),
+     coverageStatus:'partial',consumers:['agent-entry'],gaps:['Decide status codes','Decide retry semantics']}]:[])],observations:[{
+    topicId:'api-errors',topic:'API error contract',scope:[scope],classification:'convention',statement:'Use the shared problem helper and status 422 for invalid requests.',
+    supportingEvidence:[await ref('services/legacy/src/service.js'),...await Promise.all(['request.js','order.js'].map(file=>ref(scope+'/src/'+file)))],counterEvidence:[],
+    coverage:{independentSupports:2,counterexampleSearched:true,counterexampleQueries:['problem(400']},guidanceDisposition:'follow-existing',
+    ...(partial?{gap:'Decide status codes'}:{}),
+   }],...(request.expectedOutput==='plan'?{artifacts:[],dispositions:[]}:{})};
+  }
+  await validateResearch(data,reader);
+  return {status:'complete',value:{data,model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};
+ }};
+ let output='';
+ const run=(args:string[])=>runCli([...args,'--json'],{cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot:cache,stateRoot:state,backend}});
+ assert.equal(await run(['init','--profile','profile.yaml','--backend','host','--sdd','none','--review']),3,output);
+ const review=JSON.parse(output);
+ assert.equal(review.executable,true);
+ assert.deepEqual(review.projectDocuments.map((doc:any)=>doc.target.match(/\/([^/]+)--/)[1]),partial?['api-errors','ui-states']:['ui-states']);
+ if(partial)assert.deepEqual(review.harness.guidance.find((binding:any)=>binding.coverageStatus==='partial').gaps,['Decide retry semantics']);
+ else assert.ok(review.harness.guidance.find((binding:any)=>binding.scope.includes(scope)&&binding.coverageStatus==='reusable').sourceRef.path.startsWith(scope+'/'));
+ output='';
+ assert.equal(await run(['update','--apply',review.previewId,'--sessions-ended']),0,output);
+ const manifest=(await loadManifest(root))!;
+ assert.deepEqual(manifest.seededProjectDocuments?.map(doc=>doc.scope),partial?[scope,'web']:['web']);
+ if(partial){
+  const pending=await readFile(join(root,manifest.seededProjectDocuments![0].target),'utf8');
+  assert.match(pending,/Decide retry semantics/);
+  assert.doesNotMatch(pending,/Decide status codes/);
+ }
+ assert.match(await readFile(join(root,'docs/rigup/development-rules/api-errors.md'),'utf8'),/Return HTTP 422 through the shared problem helper/);
+ assert.match(await readFile(join(root,'docs/rigup/development-rules.md'),'utf8'),/services\/legacy\/docs\/api-errors\.md/);
+ output='';
+ assert.equal(await run(['update','--review']),0,output);
+ assert.equal(JSON.parse(output).installStatus,'up-to-date');
+}));
+
+test('harness upgrade reads the portable v035 installed fixture offline',()=>fixture(async root=>{
+ const {cp}=await import('node:fs/promises');
+ const {loadManifest,trustedBaseline}=await import('../src/installer/baseline.js');
+ await cp(new URL('./fixtures/unified-harness/v035-install/',import.meta.url),root,{recursive:true});
+ const installed=(await loadManifest(root))!;
+ assert.equal(installed.schemaVersion,1);
+ assert.equal(installed.projectRules,'ready');
+ assert.equal(installed.options?.sdd,'openspec');
+ assert.deepEqual(installed.options?.quality?.gitlab?.checks,[{cwd:'.',script:'build'}]);
+ assert.deepEqual(installed.versions,{prompt:'11',template:'7',document:'1',read:'6'});
+ assert.equal(installed.seededProjectDocuments,undefined);
+ for(const asset of installed.assets)assert.ok(await trustedBaseline(root,asset),asset.logicalId);
+ assert.match(await readFile(join(root,'AGENTS.md'),'utf8'),/Keep the team guide intact/);
+ assert.match(await readFile(join(root,'.gitlab-ci.yml'),'utf8'),/customer-build:[\s\S]*\.rigup\/gitlab-ci\.yml/);
+}));

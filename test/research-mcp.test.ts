@@ -226,3 +226,39 @@ test('harness MCP exports scoped confirmation and rejects cross-scope citations 
  assert.notEqual(next.job?.id,first.job?.id);
  assert.equal(next.job?.sourceGuidance,undefined);
 }));
+
+test('unified harness CLI and MCP produce equivalent scoped plans',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ const {confirmedHarnessSource}=await import('./helpers.js');
+ const {validateResearch}=await import('../src/analyzer/backend.js');
+ const settings={agents:['claude' as const],backend:'host' as const,projectRules:true,scope:['api'],
+  projectConventions:{topics:[
+   {id:'api-errors',title:'API errors',scope:['api'],source:'knowledge/api-errors.md'},
+   {id:'api-validation',title:'API validation',scope:['api']},
+   {id:'ui-states',title:'UI states',scope:['web']},
+  ]}};
+ await confirmedHarnessSource(root,settings);
+ await mkdir(join(root,'web'));await writeFile(join(root,'web','page.ts'),'export const page = true;\n');
+ await mkdir(join(root,'.rigup'));await writeFile(join(root,'.rigup','config.yaml'),JSON.stringify(settings));
+ const run=cli(root,cacheRoot,stateRoot);
+ const foundation=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',foundation.previewId,'--sessions-ended'],0);
+ const backend:import('../src/analyzer/backend.js').AnalysisBackend={run:async(request,reader)=>{
+  assert.deepEqual(request.sourceGuidance?.[0]?.scope,['api']);
+  const data={...empty,guidance:[],...(request.expectedOutput==='plan'?{artifacts:[],dispositions:[]}:{})};
+  await validateResearch(data,reader);
+  return {status:'complete',value:{data,model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};
+ }};
+ let output='';
+ assert.equal(await runCli(['update','--backend','host','--review','--json'],{cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot,stateRoot,backend}}),3,output);
+ const cliReview=JSON.parse(output);
+ const mcp=await openResearchMcp(root,'claude',{cacheRoot,stateRoot});
+ const first=await mcp.call('rigup_begin',{root,mode:'update'});
+ const plan=await mcp.call('rigup_submit_plan',{runId:first.runId,jobId:first.job?.id,data:{...empty,guidance:[]}});
+ assert.equal((await mcp.call('rigup_submit_plan',{runId:first.runId,jobId:plan.job?.id,data:{...empty,guidance:[],artifacts:[],dispositions:[]}})).status,'ready');
+ const finish=await mcp.call('rigup_finish',{runId:first.runId});
+ assert.equal(finish.preview?.executable,true);
+ assert.deepEqual(finish.preview?.harness,cliReview.harness);
+ assert.deepEqual(finish.preview?.projectDocuments,cliReview.projectDocuments);
+ assert.deepEqual(finish.preview?.blockers,cliReview.blockers);
+ assert.deepEqual(finish.preview?.projectDocuments?.map(doc=>[doc.target.includes('api-validation--'),doc.action]),[[true,'preserve']]);
+}));

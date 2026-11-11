@@ -25,6 +25,7 @@ export interface ProjectRuleSource {
  supportingEvidence:Evidence[];
  counterEvidence:Evidence[];
  exceptions:string[];
+ gap?:string;
 }
 export interface ProjectRuleTopic {
  id:string;
@@ -45,6 +46,7 @@ interface RuleObservation {
  supportingEvidence:Evidence[];
  counterEvidence:Evidence[];
  exceptions?:unknown[];
+ gap?:string;
 }
 
 const within=(path:string,scope:string)=>scopeContains(scope,path);
@@ -193,7 +195,8 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
   const rank=groupCounts.get(group.id)??0;
   if(rank>=(hasDeclaredTopics?4:8))continue;
   groupCounts.set(group.id,rank+1);
-  selected.push({group,rank,rule:{topic,statement:observation.statement,authority:classification,scope:scopes,supportingEvidence,counterEvidence,exceptions}});
+  selected.push({group,rank,rule:{topic,statement:observation.statement,authority:classification,scope:scopes,supportingEvidence,counterEvidence,exceptions,
+   ...(typeof observation.gap==='string'?{gap:observation.gap}:{})}});
  }
  // If the plan exceeds the total bound, retain breadth before adding more rules to one topic.
  if(selected.length>18)selected.sort((a,b)=>a.rank-b.rank);

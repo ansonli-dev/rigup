@@ -1,0 +1,1 @@
+{"name": "upgrade-fixture", "scripts": {"build": "node --version"}}
