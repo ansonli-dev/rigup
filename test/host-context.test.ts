@@ -96,8 +96,8 @@ test('harness acceptance checks the planned index links while retaining confirme
  const guide=(await authority.reader.read('docs/worker-guide.md',1,1)).evidence;
  const config=(await authority.reader.read('worker/tsconfig.json',1,1)).evidence;
  const research={
-  ruleTopics:[{id:'worker',title:'Worker TypeScript'}],unknowns:[],artifacts:[],dispositions:[],
-  guidance:[{topicId:'worker',topic:'Worker naming',sourceRef:guide,scope:['worker'],coverageStatus:'reusable',consumers:['prepare'],gaps:[]}],
+  ruleTopics:[{id:'worker',title:'Worker TypeScript'},{id:'worker-naming',title:'Worker naming'}],unknowns:[],artifacts:[],dispositions:[],
+  guidance:[{topicId:'worker-naming',topic:'Worker naming',sourceRef:guide,scope:['worker'],coverageStatus:'reusable',consumers:['prepare'],gaps:[]}],
   observations:[{topicId:'worker',topic:'Strict TypeScript',statement:'Keep strict type checking enabled for worker code.',classification:'explicit-rule',
    scope:['worker'],supportingEvidence:[config],counterEvidence:[],guidanceDisposition:'follow-existing'}],
  };
@@ -118,10 +118,14 @@ test('harness acceptance checks the planned index links while retaining confirme
  if(exported.status!=='pending-host')throw Error('expected acceptance export');
  const body=JSON.parse(await readFile(exported.requestPath,'utf8'));
  assert.ok(body.evidence.some((item:any)=>item.evidence.path===authority.path&&item.content.includes(authority.body)));
- assert.deepEqual(body.context.input.job.ruleTopics.flatMap((topic:any)=>topic.guidance.map((binding:any)=>binding.source.path)),['docs/worker-guide.md']);
- assert.match(body.context.input.candidate,/worker-guide\.md/);
+ const [worker,naming]=body.context.input.job.ruleTopics;
+ assert.match(worker.target,/worker\.md$/);
+ assert.equal(naming.target,undefined);
+ assert.deepEqual(naming.guidance.map((binding:any)=>binding.source.path),['docs/worker-guide.md']);
+ assert.match(body.context.input.candidate,/\*\*Worker naming\*\*\n  - \[docs\/worker-guide\.md\]/);
  assert.doesNotMatch(body.context.input.candidate,/api-errors\.md/);
  assert.match(body.instructions,/Use job\.ruleTopics as the complete link list for the rules index/);
+ assert.match(body.instructions,/each topic's target when present/);
  assert.match(body.instructions,/Rigup links confirmed team conventions separately in workflow navigation/);
  assert.match(body.context.input.job.acceptance[0],/original guidance listed in job\.ruleTopics/);
 }));
