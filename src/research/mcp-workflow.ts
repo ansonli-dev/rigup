@@ -13,9 +13,9 @@ import {DOCUMENT_POLICY_VERSION} from '../generator/document-policy.js';
 import {inventorySignature} from '../generator/generate.js';
 import {TEMPLATE_VERSION} from '../generator/render.js';
 import {interruptedApplyId} from '../installer/apply.js';
-import {loadManifest,trustedBaseline,type Manifest} from '../installer/baseline.js';
+import {loadManifest,sourceReview,trustedBaseline,type Manifest} from '../installer/baseline.js';
 import {acquireLock,defaultStateRoot} from '../installer/lock.js';
-import {absentDigest,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
+import {absentDigest,installationInput,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
 import {platformFileMode,readFileState,readFileStates,matchesFileState} from '../installer/file-state.js';
 import {equalOwnedContent,ownedContent} from '../installer/ownership.js';
 import {executeLifecycle} from '../lifecycle.js';
@@ -54,15 +54,16 @@ const validState=(state:ResearchState)=>state.version===1&&typeof state.id==='st
  (state.inFlight===undefined||isRecord(state.inFlight)&&validDigest(state.inFlight.id)&&validDigest(state.inFlight.digest))&&
  (state.result===undefined||isRecord(state.result)&&validDigest(state.result.previewId)&&validDigest(state.result.inventory)&&(state.result.retireIds===undefined||validIds(state.result.retireIds)));
 
-async function previewStillCurrent(root:string,data:PreviewData):Promise<boolean>{
+async function previewStillCurrent(root:string,data:PreviewData,stateRoot:string):Promise<boolean>{
  const current=await readTarget(root,'.rigup/manifest.json');
  if((current?digest(current):absentDigest)!==data.manifestDigest)return false;
+ if(signature(await sourceReview(root,data.oldManifest,stateRoot)??null)!==signature(data.sourceReview??null))return false;
  const files=new Map(data.files.map(file=>[file.target,file]));
  for await(const {target,state} of readFileStates(root,data.files.map(file=>file.target))){
   const expected=files.get(target)!;
   if(!matchesFileState(state,expected.observedDigest,expected.observedMode))return false;
  }
- return true;
+ return await installationInput(root,data.plan,data.files.map(file=>file.target)).catch(()=>undefined)===data.inputSnapshot;
 }
 
 async function installedAssetsMatch(root:string,manifest:Manifest):Promise<boolean>{
@@ -132,7 +133,8 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
    if(profile.researchBlocked)throw Error(profile.researchBlocked);
    const scope=signature({root,host,options,fingerprint:profile.fingerprint,config:config&&digest(config),policy});
    const currentInventory=inventorySignature(manifest.assets);
-   const lastResultApplied=state?.scope===scope&&state.result?.inventory===currentInventory&&manifest.projectRules==='ready'&&signature(manifest.options)===signature(options);
+   const pendingSourceReview=await sourceReview(root,manifest,lock.stateRoot);
+   const lastResultApplied=!pendingSourceReview&&state?.scope===scope&&state.result?.inventory===currentInventory&&manifest.projectRules==='ready'&&signature(manifest.options)===signature(options);
    if(lastResultApplied&&['rigup_begin','rigup_finish'].includes(name)&&await installedAssetsMatch(root,manifest).catch(()=>false))return {status:'noop',runId:state!.id};
    if(name==='rigup_begin'){
     if(lastResultApplied||state?.scope!==scope||state.startingInventory!==currentInventory){
@@ -152,7 +154,7 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
     const load=()=>loadPreview(state!.result!.previewId,previews);
     const saved=await load().catch(error=>{if((error as Error).message!=='private preview missing or corrupted')throw error;});
     let preview=saved?.preview;
-    if(!saved||signature(retireIds??[])!==signature(state.result.retireIds??[])||!await previewStillCurrent(root,saved)){
+    if(!saved||signature(retireIds??[])!==signature(state.result.retireIds??[])||!await previewStillCurrent(root,saved,lock.stateRoot)){
      const regenerated=await advanceResearch(root,host,state,path,options,profile.fingerprint,undefined,{cacheRoot,stateRoot:lock.stateRoot},retireIds);
      if(regenerated.status!=='ready')throw Error('Research generation state could not restore the preview');
      preview=(await load()).preview;

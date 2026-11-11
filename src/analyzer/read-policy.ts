@@ -2,7 +2,7 @@ import {parse as parseToml} from 'smol-toml';
 import {parseTree,createScanner,SyntaxKind,type Node,type ParseError} from 'jsonc-parser';
 import {parseDocument,Parser,isMap,isSeq,isScalar,isAlias} from 'yaml';
 import {extname} from 'node:path';
-export const READ_POLICY_VERSION='6';
+export const READ_POLICY_VERSION='7';
 export const secretName=/(^\.env($|\.)|^(?:\.auth|\.netrc|_netrc|\.git-credentials|\.npmrc|\.pypirc|\.pgpass|\.dockercfg)(?:[.~].*)?$|\.(pem|key|p12|pfx|keystore)(?:\.(?:bak|old|backup|orig|save|tmp)|~)?$|credentials|id_rsa|id_ed25519)/i;
 const sensitive=/token|password|passwd|secret|credential|authorization|api[-_]?key|private[-_]?key|^(?:auth|authentication|creds|cookies?|set[-_]?cookie|localStorage|sessionStorage)$/i;
 const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|cookies?|b|credentials?)$/i;

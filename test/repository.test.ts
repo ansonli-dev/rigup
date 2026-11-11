@@ -163,3 +163,28 @@ test('research_fingerprint_uses_filtered_values_and_coverage_unknowns',()=>proje
 test('managed_sensitive_words_do_not_add_research_unknowns_or_change_fingerprint',()=>project(async root=>{
  await writeFile(root+'/source.js','export const value=1;');const options={agents:[],backend:'host' as const};const first=await scanRepository(root,options);const {mkdir}=await import('node:fs/promises');const {digest}=await import('../src/analyzer/evidence.js');await mkdir(root+'/.rigup/baseline/id',{recursive:true});const whole='Authorization: preserve all approval boundaries.\n';const block='<!-- rigup:start -->\nAuthorization: preserve human gates.\n<!-- rigup:end -->\n';await writeFile(root+'/generated.md',whole);await writeFile(root+'/AGENTS.md',block);await writeFile(root+'/.rigup/baseline/id/whole',whole);await writeFile(root+'/.rigup/baseline/id/block',block);await writeFile(root+'/.rigup/manifest.json',JSON.stringify({schemaVersion:1,installId:'id',assets:[{target:'generated.md',ownership:{kind:'file'},digest:digest(whole),baseline:'.rigup/baseline/id/whole'},{target:'AGENTS.md',ownership:{kind:'block',start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'},digest:digest(block),baseline:'.rigup/baseline/id/block'}]}));const next=await scanRepository(root,options);assert.deepEqual(next.unknowns,first.unknowns);assert.equal(next.fingerprint,first.fingerprint);
 }));
+
+test('harness quarantines draft and malformed pages through every reader entry',()=>project(async root=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const settings={agents:[],backend:'host' as const};
+ const {content}=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'.',questions:['Question']});
+ for(const [path,raw] of [
+  ['draft.md',content+'Private unconfirmed draft body\n'],
+  ['duplicate.md',content.replace('status: draft','status: draft\nstatus: confirmed')+'Private unconfirmed draft body\n'],
+  ['broken.md',content.slice(0,-4)+'Private unconfirmed draft body\n'],
+  ['flow.md','---\n{rigup: team-convention, version: 1, topicId: api-errors, title: API, scope: ., status: draft}\n---\nPrivate unconfirmed draft body\n'],
+  ['flow-duplicate.md','---\n{rigup: other, rigup: team-convention, status: draft}\n---\nPrivate unconfirmed draft body\n'],
+ ]){
+  await writeFile(root+'/'+path,raw);
+ }
+ const reader=await repositoryReader(root,settings);
+ assert.deepEqual(await reader.search('Private unconfirmed draft body'),[]);
+ for(const path of ['draft.md','duplicate.md','broken.md','flow.md','flow-duplicate.md']){
+  assert.equal((await reader.read(path,1)).content.trim(),'');
+  assert.equal((await reader.evidencePass()(path,1)).content.trim(),'');
+ }
+ const profile=await scanRepository(root,settings);
+ assert.deepEqual(profile.conventions?.map(page=>page.status),['draft','draft']);
+ assert.ok(profile.unknowns.some(note=>note.startsWith('duplicate.md:')));
+ assert.ok(profile.unknowns.some(note=>note.startsWith('broken.md:')));
+}));

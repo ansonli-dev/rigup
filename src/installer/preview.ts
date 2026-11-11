@@ -1,7 +1,7 @@
 import {parseDocument} from 'yaml';
 import {filterContent} from '../analyzer/read-policy.js';
 import {scanInstallationSources} from '../analyzer/repository.js';
-import {realpath} from 'node:fs/promises';
+import {lstat,realpath} from 'node:fs/promises';
 import {join,posix,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
@@ -18,15 +18,18 @@ import {readFileState,readFileStates,absentDigest,platformFileMode} from './file
 export {absentDigest} from './file-state.js';
 import {privateDirectory,signature,readCache,saveCache} from '../generator/cache.js';
 import {markdownLinks,validateTemplateContent} from '../generator/document-policy.js';
-import {loadManifest,trustedBaseline,type Manifest} from './baseline.js';
+import {loadManifest,sourceReview,trustedBaseline,type Manifest,type SourceReview} from './baseline.js';
+import {defaultStateRoot} from './lock.js';
 import {mergeManaged,type MergeResult} from './merge.js';
-import {equalOwnedContent,ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
+import {equalOwnedContent,ownedContent,replaceOwned,selectorsOverlap,targetPath} from './ownership.js';
 import {isGitlabWiring} from '../integrations/gitlab/ci.js';
+import {conventionKey,documentTargetKey,readConventionDocument,validateConventionTarget,type ConventionReceipt} from '../project-conventions.js';
+import {scopeContains} from '../types.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
-export interface Preview {noChanges?:true;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
-export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number}
-export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
+export interface Preview {noChanges?:true;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];projectDocuments?:{target:string;action:'create'|'preserve';reason:string}[];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
+export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number;seed?:ConventionReceipt}
+export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2|3;sourceReview?:SourceReview;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
 const targetKey=(target:string)=>process.platform==='win32'?target.toLowerCase():target;
 export async function readTarget(root:string,target:string):Promise<Buffer|undefined>{return (await readFileState(root,target)).bytes;}
@@ -37,7 +40,7 @@ export async function loadPreview(previewId:string,cacheRoot=defaultPreviewCache
 }
 export function unchangedInstallation(data:PreviewData):boolean{
  const {oldManifest:old,plan}=data;
- if(!old?.options||!old.versions||plan.operations.length||plan.runChecks?.length||old.projectRules!==plan.projectRules)return false;
+ if(data.sourceReview||!old?.options||!old.versions||plan.operations.length||plan.runChecks?.length||old.projectRules!==plan.projectRules)return false;
  if(signature(old.options)!==signature(plan.options)||signature(old.versions)!==signature(plan.versions))return false;
  const assets=(items:Manifest['assets'])=>items.map(({baseline,...item})=>item).sort((a,b)=>a.logicalId.localeCompare(b.logicalId));
  return signature(assets(old.assets))===signature(assets(data.assets))&&data.files.every(file=>{
@@ -46,18 +49,62 @@ export function unchangedInstallation(data:PreviewData):boolean{
  });
 }
 
-export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],dependencies:{cacheRoot?:string;skipUnchanged?:boolean;reviewEntryBlocks?:boolean}={}):Promise<Preview>{
+export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],dependencies:{cacheRoot?:string;stateRoot?:string;skipUnchanged?:boolean;reviewEntryBlocks?:boolean}={}):Promise<Preview>{
  const root=await realpath(plan.root);if(root!==plan.root)throw new Error('plan root must be canonical');
  const oldManifest=await loadManifest(root);const old=oldManifest?.assets??[];
+ const pendingReview=await sourceReview(root,oldManifest,dependencies.stateRoot??defaultStateRoot());
+ if(pendingReview){
+  const selected=plan.options.scope?.length?plan.options.scope:['.'];
+  const usable=new Set(plan.harness?.guidance.flatMap(binding=>binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)?[binding.sourceRef.path]:[]));
+  if(plan.projectRules!=='ready'||pendingReview.scopes.some(scope=>!selected.some(parent=>scopeContains(parent,scope)))||
+    pendingReview.sources.some(path=>!usable.has(path))){
+   plan={...plan,projectRules:'pending',warnings:[...plan.warnings,'Previously approved rule sources still require review in their original scope.']};
+  }
+ }
  const blockers=plan.requirements.map(r=>r.integrationId+': '+r.reason);const items:PreviewItem[]=[];
  for(const a of old)if(plan.dispositions.filter(d=>d.logicalId===a.logicalId).length!==1)throw new Error('every old inventory item requires a disposition: '+a.logicalId);
  for(const d of plan.dispositions)if(!old.some(a=>a.logicalId===d.logicalId)||!['retain','update','retire','pending'].includes(d.action))throw new Error('invalid old inventory disposition');
  const inputAssets=[...plan.assets];const baselineRecords:PreviewData['baselines']=[];const nextAssets:ManagedAsset[]=[];
  const fileMap=new Map<string,{raw?:Buffer;text?:string;encoding:'utf8'|'base64';observedMode?:number;mode?:number}>();
  const allTargets=[...new Set([...inputAssets.map(a=>a.target),...old.map(a=>a.target)])];
- const targetKeys=allTargets.map(targetKey);
- if(new Set(targetKeys).size!==allTargets.length)throw new Error('Windows target aliases overlap');
+ const overlaps=(a:string,b:string)=>scopeContains(documentTargetKey(a),documentTargetKey(b))||scopeContains(documentTargetKey(b),documentTargetKey(a));
+ if(allTargets.some((target,index)=>allTargets.slice(0,index).some(other=>overlaps(target,other))))throw Error('File target aliases or ancestor paths overlap');
+ const history=oldManifest?.seededProjectDocuments??[];
+ const receiptByIdentity=new Map(history.map(item=>[conventionKey(item.topicId,item.scope),item]));
+ for(const receipt of history)if(allTargets.some(target=>overlaps(target,receipt.target)))throw Error('Managed target overlaps a customer convention document');
+ const seeds=new Map<string,{receipt:ConventionReceipt;content:string}>();
+ const projectDocuments:NonNullable<Preview['projectDocuments']>=[];
+ const identities=new Set<string>();
+ const prospective=new Set<string>();
+ for(const {target,content} of plan.projectDocuments??[]){
+  validateConventionTarget(target);
+  const {page}=readConventionDocument(target,content,true);
+  if(page?.status!=='draft')throw Error('Invalid project convention seed');
+  const identity=conventionKey(page.topicId,page.scope),prior=receiptByIdentity.get(identity);
+  if(identities.has(identity))throw Error('Duplicate project convention seed');
+  identities.add(identity);
+  if([...allTargets,...prospective].some(other=>overlaps(target,other))||
+     history.some(item=>item!==prior&&overlaps(target,item.target)))throw Error('Convention document target overlaps another file target');
+  prospective.add(target);
+  if(prior){
+   const file=await targetPath(root,prior.target);
+   const present=await lstat(file).catch(error=>{if(error.code!=='ENOENT')throw error;});
+   projectDocuments.push({target:prior.target,action:'preserve',reason:present?'Previously created customer document':'Previously created customer document is missing; review its location'});
+  }else seeds.set(target,{receipt:{target,topicId:page.topicId,scope:page.scope},content});
+ }
  for await(const {target,state} of readFileStates(root,allTargets)){const raw=state.bytes;const encoding=inputAssets.find(a=>a.target===target)?.encoding??old.find(a=>a.target===target)?.encoding??'utf8';fileMap.set(target,{raw,text:raw?.toString(encoding==='base64'?'base64':'utf8'),encoding,observedMode:state.mode,mode:state.mode});}
+ const creates=new Map<string,ConventionReceipt>();
+ for(const [target,{receipt,content}] of seeds){
+  const state=await readFileState(root,target);
+  if(state.bytes){
+   projectDocuments.push({target,action:'preserve',reason:'Existing customer document'});
+   continue;
+  }
+  allTargets.push(target);
+  creates.set(target,receipt);
+  fileMap.set(target,{text:content,encoding:'utf8',mode:0o644});
+  projectDocuments.push({target,action:'create',reason:'Record the remaining decisions for this topic and scope'});
+ }
  const usedResolutions=new Set<PreviewResolution>();
  const entries:{candidate?:PreparedAsset;old?:ManagedAsset;action:'update'|'remove'|'retain'|'pending'}[]=[];
  for(const asset of inputAssets){
@@ -144,7 +191,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    const prerequisites=op.kind==='initialize'?plan.operations.filter(o=>o.kind==='install'&&o.integrationId===id).map(o=>o.id):[];
    assertToolOperationRecipe(root,op,recipe,prerequisites);
    if(op.kind==='initialize'&&!prerequisites.length&&!await verifyToolInstallReceipt(root,id,recipe,oldManifest?.installedTools?.[id]))throw Error('Initialization requires receipted software');
-   if(op.declaredWrites.map(targetKey).some(scope=>targetKeys.some(target=>target===scope||target.startsWith(scope+'/')||scope.startsWith(target+'/'))))throw Error('External operation overlaps candidate');
+   if(op.declaredWrites.some(scope=>[...allTargets,...prospective,...history.map(item=>item.target)].some(target=>overlaps(scope,target))))throw Error('External operation overlaps candidate');
    await assertEmptyToolScopes(root,op);
   }catch{blockers.push(op.id+': external operation protection or recipe validation failed');}
  }
@@ -180,12 +227,12 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    for(const [name,job] of Object.entries(expected??{}))for(const [key,value] of Object.entries(job as object))if(signature(actual?.[name]?.[key])!==signature(value))throw new Error('required CI job binding changed');
   }catch{blockers.push('.gitlab-ci.yml: required CI include/job binding invalid or unavailable; preserve local content and re-prepare');}
  }
- const previewId=digest(randomUUID()+signature({plan,items,resolutions}));
- const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
- const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644}));
+ const previewId=digest(randomUUID()+signature({plan,items,resolutions,pendingReview}));
+ const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
+ const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644,...(creates.has(target)?{seed:creates.get(target)}:{})}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
  // Older CLI readers use the discovery marker to verify the full approved scope.
- const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:2,preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan,allTargets),files,assets:nextAssets,baselines:baselineRecords};
+ const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:3,...(pendingReview?{sourceReview:pendingReview}:{}),preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot:await installationInput(root,plan,allTargets),files,assets:nextAssets,baselines:baselineRecords};
  if(dependencies.skipUnchanged&&publicPreview.executable&&unchangedInstallation(data))return {...publicPreview,previewId:'',noChanges:true};
  const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
  return publicPreview;
@@ -196,10 +243,14 @@ export async function installationInput(root:string,plan:SetupPlan,managedTarget
  // Keep those files out of the source snapshot so partial writes can resume.
  const scopes=[...plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites),...managedTargets];
  const profile=await scanInstallationSources(root,plan.options,scopes);
+ const covered=new Set([...profile.files,...managedTargets]);
+ if(plan.harness?.guidance.some(binding=>binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)&&!covered.has(binding.sourceRef.path))){
+  throw Error('Approved rule source unavailable in the installation snapshot');
+ }
  const values:string[]=[];
  for await(const {target:path,state} of readFileStates(root,profile.files)) {
   if(!state.bytes)throw Error('source input changed while preparing installation');
-  values.push(path+'\0'+digest(state.bytes.toString('utf8')));
+  values.push(path+'\0'+digest(state.bytes));
  }
  const config=await readTarget(root,'.rigup/config.yaml');const nativeSources=Object.fromEntries(Object.entries(profile.skillSources??{}).map(([agent,sources])=>[agent,sources.filter(s=>isAbsolute(s.identity))]).filter(([,sources])=>(sources as unknown[]).length));return signature({values,nativeSources,ignore:profile.ignoreFingerprint,config:plan.assets.some(a=>a.target==='.rigup/config.yaml')?'configured-in-this-preview':config?digest(config):absentDigest});
 }

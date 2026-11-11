@@ -55,3 +55,17 @@ test('ordinary permission failures retain their identity at the manifest boundar
   assert.doesNotMatch(report.diagnostics[0].reason,linkDiagnostic);
  }finally{mock.mock.restore();syncBuiltinESMExports();}
 }));
+
+test('harness refuses a seed escaping through a linked context directory',()=>project(async root=>project(async outside=>project(async cache=>{
+ const {harnessPlan}=await import('./helpers.js');
+ const {preview}=await import('../src/installer/preview.js');
+ const options={agents:['codex' as const],backend:'host' as const,projectRules:true,
+  projectConventions:{documentRoutes:{context:'customer-context'},topics:[{id:'api-errors',title:'API errors',scope:['.']}]},
+ };
+ await symlink(outside,join(root,'customer-context'),process.platform==='win32'?'junction':'dir');
+ const plan=await harnessPlan(root,cache,options);
+ await assert.rejects(preview(plan,[],{cacheRoot:cache}),/symlink|alias|reparse/i);
+ await assert.rejects(preview({...plan,projectDocuments:[{...plan.projectDocuments![0],target:'../escape.md'}]},[],{cacheRoot:cache}),/invalid convention document target/i);
+ assert.deepEqual(await readdir(outside),[]);
+ assert.equal(await loadManifest(root),undefined);
+}))));

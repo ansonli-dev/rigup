@@ -163,3 +163,43 @@ test('review reports a locally edited owned entry block before pending research'
  assert.equal(pending.phase,'research');
  assert.equal(pending.nextCommand,null);
 }));
+
+test('harness MCP reconciles effective pending before returning noop or a cached approval',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ const {apply}=await import('../src/installer/apply.js');
+ const {doctor}=await import('../src/installer/doctor.js');
+ const source=join(root,'README.md'),original='# Service\nUse the scoped error helper.\n';
+ await writeFile(source,original);
+ const run=cli(root,cacheRoot,stateRoot);
+ const initial=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',initial.previewId,'--sessions-ended'],0);
+ const mcp=await openResearchMcp(root,'claude',{cacheRoot,stateRoot});
+ async function finish(){
+  const begin=await mcp.call('rigup_begin',{root,mode:'update'});
+  assert.notEqual(begin.status,'noop');
+  const runId=begin.runId;
+  if(begin.status==='planning'){
+   const plan=await mcp.call('rigup_submit_plan',{runId,jobId:begin.job?.id,data:{...empty,guidance:[]}});
+   const ready=await mcp.call('rigup_submit_plan',{runId,jobId:plan.job?.id,data:{...empty,guidance:[],artifacts:[],dispositions:[]}});
+   assert.equal(ready.status,'ready');
+  }else assert.equal(begin.status,'ready');
+  const result=await mcp.call('rigup_finish',{runId});
+  assert.equal(result.status,'preview');
+  return result;
+ }
+ const a=await finish();
+ const dependencies={cacheRoot:join(cacheRoot,'previews'),stateRoot};
+ await assert.rejects(apply(a.previewId!,{...dependencies,hook:async point=>{
+  if(point==='after-manifest'){
+   await writeFile(source,'# Service\nAuthority temporarily removed.\n');
+   throw Error('interrupted authority commit');
+  }
+ }}),/interrupted authority commit/);
+ assert.equal((await apply(a.previewId!,{...dependencies,recover:true})).projectRules,'pending');
+ await writeFile(source,original);
+ const b=await finish();
+ assert.notEqual(b.previewId,a.previewId);
+ assert.equal((await mcp.call('rigup_finish',{runId:b.runId})).previewId,b.previewId);
+ assert.equal((await apply(b.previewId!,dependencies)).projectRules,'ready');
+ assert.equal((await doctor(root,{stateRoot})).projectRules,'ready');
+ assert.equal((await mcp.call('rigup_begin',{root,mode:'update'})).status,'noop');
+}));

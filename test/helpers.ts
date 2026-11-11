@@ -35,3 +35,14 @@ export async function project(fn:(root:string)=>Promise<void>) {
  const root=await realpath(await mkdtemp(join(tmpdir(),'rigup-scan-')));
  try{await fn(root);}finally{await rm(root,{recursive:true,force:true});}
 }
+
+export async function harnessPlan(root:string,cacheRoot:string,options:import('../src/types.js').SetupOptions){
+ const {scanRepository}=await import('../src/analyzer/repository.js');
+ const {generate}=await import('../src/generator/generate.js');
+ const {loadManifest}=await import('../src/installer/baseline.js');
+ const result=await generate(await scanRepository(root,options),options,{run:async()=>({
+  status:'complete',value:{data:{observations:[],unknowns:[],guidance:[],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}},
+ })},(await loadManifest(root))?.assets??[],{cacheRoot});
+ if(result.status!=='complete')throw Error('Fixture must generate a complete plan');
+ return result.value;
+}

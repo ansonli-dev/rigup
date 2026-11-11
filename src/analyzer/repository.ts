@@ -5,9 +5,10 @@ import {readdir,readFile,realpath,stat,lstat} from 'node:fs/promises';
 import {join,relative,posix} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {scopeContains,type SetupOptions,type CommandSpec,type GitlabJobBinding,type Evidence} from '../types.js';
+import {scopeContains,scopesOverlap,type SetupOptions,type CommandSpec,type GitlabJobBinding,type Evidence} from '../types.js';
 import {discoverGitlabJobs} from '../integrations/gitlab/ci.js';
 import {projectChecks,npmScript} from '../integrations/tools/check-catalog.js';
+import {documentTargetKey,readConventionDocument,validateConventionReceipts,type ConventionPage,type ConventionReceipt} from '../project-conventions.js';
 import {projectInput,type Ownership} from '../managed-input.js';
 import {digest,safePath,sliceEvidence,type EvidenceRead,type ReadEvidence} from './evidence.js';
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
@@ -16,7 +17,7 @@ import {loadResearchIgnore,workflowEvidenceKind} from './research-ignore.js';
 import {checkPrerequisites,hasTestDatabaseGuard,jestSetupPath,linkDatabaseGuards,type SpecializedCheck} from './check-prerequisites.js';
 const exec=promisify(execFile);
 const specializedScripts=['test:e2e','test-e2e','check-types','typecheck','deps:validate','test'];
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;conventions?:ConventionPage[];conventionPaths?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
@@ -33,12 +34,22 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
   profile.git.available=true;
   try {profile.git.head=(await exec('git',['-C',root,'rev-parse','--verify','HEAD'],{env:{...process.env,GIT_OPTIONAL_LOCKS:'0'}})).stdout.trim();}catch{profile.unknowns.push('Git HEAD: unborn');}
  }catch{/* Non-Git repositories are valid. */}
- const managed=await loadManaged(root,profile);
+ const {managed,receipts}=await loadManaged(root,profile);
  const inputs:string[]=[];let bytes=0;
  const ignored=await loadResearchIgnore(root);
  if(ignored.fingerprint){profile.ignoreFingerprint=ignored.fingerprint;inputs.push('.rigupignore\0'+ignored.fingerprint);}
  const gitlabPath='.gitlab-ci.yml';
- const declaredSources=new Set(options.projectConventions?.topics?.map(topic=>topic.source).filter(Boolean));
+ const scopes=options.scope?.length?options.scope:['.'];
+ const declaredSources=new Map<string,string[]>();
+ for(const topic of options.projectConventions?.topics??[])if(topic.source){
+  declaredSources.set(topic.source,[...(declaredSources.get(topic.source)??[]),...topic.scope]);
+ }
+ const extraSources=[
+  ...[...declaredSources].filter(([,scope])=>scopesOverlap(scopes,scope)).map(([path])=>path),
+  ...receipts.filter(receipt=>!profile.researchBlocked&&scopesOverlap(scopes,[receipt.scope])).map(receipt=>receipt.target),
+ ];
+ const registered=new Map(receipts.map(receipt=>[documentTargetKey(receipt.target),receipt]));
+ const projection=(path:string,raw:string)=>projectSource(path,raw,managed.get(path)??[],scopes,registered.get(documentTargetKey(path)),declaredSources.get(path));
  const selectedScope=(path:string)=>!options.scope?.length||options.scope.some(scope=>scopeContains(scope,path));
  if(purpose==='research'&&(!selectedScope(gitlabPath)||ignored.excludes(gitlabPath,false))){
   profile.gitlabReviewRequired=true;
@@ -58,7 +69,9 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    const file=join(dir,entry.name);const path=relative(root,file).split('\\').join('/');
    if(generatedScopes.some(scope=>path===scope||path.startsWith(scope+'/')))continue;
    if(path==='.rigupignore')continue;
-   const outsideScope=!selectedScope(path)&&!(entry.isDirectory()&&options.scope?.some(scope=>scopeContains(path,scope)));
+   const outsideBusinessScope=!selectedScope(path)&&!(entry.isDirectory()&&options.scope?.some(scope=>scopeContains(path,scope)));
+   const extraSource=extraSources.some(source=>source===path||entry.isDirectory()&&scopeContains(path,source));
+   const outsideScope=outsideBusinessScope&&!extraSource;
    const excluded=ignored.excludes(path,entry.isDirectory())||outsideScope;
    const workflow=workflowScope?workflowEvidenceKind(path,entry.isDirectory(),workflowScope):undefined;
    if(workflow==='generated')continue;
@@ -76,9 +89,9 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    if(!entry.isFile()) continue;
    const discoveryEntry=Object.values(agents).some(host=>path.startsWith(host.skillDirectory+'/')&&path.endsWith('/SKILL.md'))||/^\.(?:claude|opencode|omp)\/commands\/.+\.md$/.test(path);
    if(excluded&&entry.name==='package.json'&&purpose==='research')profile.checkCoverageIncomplete=true;
-   if(excluded&&!discoveryEntry&&(entry.name!=='package.json'||purpose==='research'))continue;
+   if(excluded&&!discoveryEntry)continue;
    if(profile.files.length>=maxFiles){profile.truncated=true;profile.unknowns.push('file budget reached');return;}
-   let raw:Buffer;let visible:string;
+   let raw:Buffer;
    try {const filePath=await safePath(root,path);if((await stat(filePath)).size+bytes>maxBytes){profile.truncated=true;profile.unknowns.push(path+': byte budget reached');continue;}raw=await readFile(filePath);if(bytes+raw.length>maxBytes){profile.truncated=true;profile.unknowns.push(path+': byte budget reached');continue;}}
    catch {profile.unknowns.push(path+': unreadable or denied by policy');continue;}
    bytes+=raw.length;
@@ -86,10 +99,18 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    let projected:string|null;
    try {projected=projectInput(text,ownership);}catch {profile.truncated=true;profile.unknowns.push(path+': ownership projection failed');continue;}
    if(projected === null || projected === '' && managed.has(path)) continue;
-   try{visible=visibleText(path,text,ownership);}catch{profile.unknowns.push(path+': unreadable or denied by policy');continue;}
+   let source:ReturnType<typeof projectSource>;
+   try{source=projection(path,text);}catch{profile.unknowns.push(path+': unreadable or denied by policy');continue;}
+   const visible=source.researchText;
    profile.files.push(path);
    if(workflow!=='entry'&&!excluded)profile.researchFiles?.push(path);
-   if(purpose==='research'&&workflow!=='entry'&&!excluded&&declaredSources.has(path)){
+   const convention=!!source.page||source.warnings.length>0;
+   if(purpose==='research'&&workflow!=='entry'&&!excluded&&convention){
+    (profile.conventionPaths??=[]).push(path);
+    if(source.page)(profile.conventions??=[]).push(source.page);
+    profile.unknowns.push(...source.warnings);
+   }
+   if(purpose==='research'&&workflow!=='entry'&&!excluded&&!convention&&extraSources.includes(path)&&declaredSources.has(path)){
     const lines=visible.split('\n');
     const start=lines.findIndex(line=>line.trim())+1;
     if(start){
@@ -115,7 +136,9 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    }
    // Invalidate legacy Spec Kit requests that included an entry still needed for binding.
    const evidenceRole=workflowScope==='spec-kit'&&workflow==='entry'&&!excluded?'\0native-entry':'';
-   inputs.push(path+'\0'+digest(ownership.length?filterContent(path,projected):visible)+evidenceRole);
+   const metadata=source.page&&{topicId:source.page.topicId,title:source.page.title,scope:source.page.scope,status:source.page.status};
+   inputs.push(path+'\0'+digest(convention?(source.page?.status==='confirmed'?visible:''):ownership.length?filterContent(path,projected):visible)+
+    evidenceRole+(metadata?'\0'+JSON.stringify(metadata):''));
    if(/\.[cm]?[jt]s$/.test(entry.name)&&hasTestDatabaseGuard(visible))testGuards.add(path);
    if(/jest.*\.json$/i.test(entry.name)){
     try{
@@ -153,17 +176,25 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    job.reason='Command could not be verified against scanned project checks';
   }
  }
- const external=await discoverNativeSources(root,options,discovery);for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,managed};
+ const external=await discoverNativeSources(root,options,discovery);for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,projection};
 }
 
-function visibleText(path:string,raw:string,ownership:Ownership[]):string {
+function projectSource(path:string,raw:string,ownership:Ownership[],selected:string[],registered?:ConventionReceipt,declared?:string[]):ReturnType<typeof readConventionDocument> {
  const projected=projectInput(raw,ownership,true);
- return projected===null?'':filterContent(path,projected);
+ const visible=projected===null?'':filterContent(path,projected);
+ const result=readConventionDocument(path,visible,!!registered);
+ const page=result.page;
+ if(!page)return result;
+ if(registered&&(registered.scope!==page.scope||registered.topicId!==page.topicId)||declared&&!declared.includes(page.scope)||
+    !scopesOverlap(selected,[page.scope])){
+  return {researchText:visible.split('\n').map(()=>'').join('\n'),warnings:[path+': convention scope or identity unavailable; verify the declared mapping']};
+ }
+ return result;
 }
 
 export interface ReaderDependencies {budget?:{calls:number;bytes:number};persist?:()=>Promise<void>;expectedFingerprint?:string}
 export async function repositoryReader(root:string,options:SetupOptions,dependencies:ReaderDependencies={}){
- const {profile,managed}=await inventory(root,options);
+ const {profile,projection}=await inventory(root,options);
  root=profile.root;
  if(dependencies.expectedFingerprint&&profile.fingerprint!==dependencies.expectedFingerprint)throw new Error('reader source fingerprint changed during preparation');
  if(profile.researchBlocked)throw new Error(profile.researchBlocked);
@@ -180,7 +211,7 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
   if(!allowed.has(path)) throw new Error('path outside reader inventory');
   await charge((await stat(await safePath(root,path))).size);
   const raw=await readFile(await safePath(root,path),'utf8');
-  return visibleText(path,raw,managed.get(path)??[]).split('\n');
+  return projection(path,raw).researchText.split('\n');
  };
  const cacheLines=()=>{
   const files=new Map<string,Promise<string[]>>();
@@ -215,11 +246,13 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
  };
 }
 
-async function loadManaged(root:string,profile:Pick<ProjectProfile,'unknowns'|'truncated'|'researchBlocked'>):Promise<Map<string,Ownership[]>>{
+async function loadManaged(root:string,profile:Pick<ProjectProfile,'unknowns'|'truncated'|'researchBlocked'>):Promise<{managed:Map<string,Ownership[]>;receipts:ConventionReceipt[]}>{
  const managed=new Map<string,Ownership[]>();const committedNative=new Set<string>();let sawManifest=false;let untrusted=false;
+ let receipts:ConventionReceipt[]=[];
  try{
   const manifest=JSON.parse(await readFile(await safePath(root,'.rigup/manifest.json'),'utf8'));sawManifest=true;
   if(manifest.schemaVersion!==1||!Array.isArray(manifest.assets))throw new Error('manifest structure');
+  receipts=validateConventionReceipts(manifest.seededProjectDocuments);
   for(const [id,receipt] of Object.entries(manifest.initializedTools??{}) as [string,import('../types.js').NativeInitializationReceipt][]){
    if(!['codegraph','openwiki'].includes(id)){untrusted=true;continue;}
    committedNative.add(id);
@@ -255,5 +288,5 @@ async function loadManaged(root:string,profile:Pick<ProjectProfile,'unknowns'|'t
   profile.unknowns.push(id+': native ownership pending; semantic research blocked');profile.truncated=true;profile.researchBlocked='native initialization has no committed ownership receipt; resume or reconcile before semantic research';
  }
  if(untrusted){for(const target of managed.keys())managed.set(target,[{kind:'file'}]);profile.unknowns.push('ownership metadata untrusted; semantic cache disabled');profile.truncated=true;profile.researchBlocked='ownership/baseline untrusted; reconcile metadata before semantic research or reuse';}
- return managed;
+ return {managed,receipts};
 }

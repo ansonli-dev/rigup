@@ -22,14 +22,14 @@ import {generate,generateFoundation,inventorySignature,prepareGeneration} from '
 import {DOCUMENT_POLICY_VERSION} from './generator/document-policy.js';
 import {TEMPLATE_VERSION} from './generator/render.js';
 import {privateDirectory,signature,readCache,saveCache} from './generator/cache.js';
-import {loadManifest} from './installer/baseline.js';
+import {loadManifest,sourceReview} from './installer/baseline.js';
 import {acquireLock,defaultStateRoot} from './installer/lock.js';
 import {assertNoUnknownWriters} from './installer/operations.js';
 import {preview,loadPreview,type Preview} from './installer/preview.js';
 import {sessionHandoffRequired} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
-import {apply,interruptedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
+import {apply,interruptedApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
 export interface LifecycleFlags {deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
 export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:()=>Promise<boolean>;report?:(value:Record<string,unknown>)=>void;researchSessionId?:string;expectedFingerprint?:string}
 interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string}
@@ -71,6 +71,14 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
 
  try {
   await assertNoUnknownWriters(root,lock.stateRoot);
+  const seedApply=await interruptedSeedApplyId(root,lock.stateRoot);
+  if(seedApply&&(!flags.resume||flags.continuation||flags.researchTokens!==undefined||services.researchSessionId)){
+   const nextCommand='rigup update '+quote(root)+' --resume --review';
+   const message='Reconcile the interrupted customer document creation using the original approval.';
+   services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId:seedApply,pending:[message],nextCommand});
+   write(message+'\n'+nextCommand+'\n');
+   return 3;
+  }
   const base=await privateDirectory(services.cacheRoot??join(homedir(),'.cache','rigup'),root);
   const cache=await privateDirectory(join(base,'generation'),root);const requests=await privateDirectory(join(base,'host'),root);const previews=await privateDirectory(join(base,'previews'),root);const runs=await privateDirectory(join(lock.stateRoot,'runs'),root);
   if(flags.continuation||flags.researchTokens!==undefined){
@@ -101,7 +109,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   profile.installedTools=old?.installedTools;
   profile.initializedTools=old?.initializedTools;
   if(flags.deferResearch&&old)throw Error('Deferred research is available for initial setup only');
-  if(old?.projectRules==='pending')review=true;
+  const authorityReview=await sourceReview(root,old,lock.stateRoot);
+  if(old?.projectRules==='pending'||authorityReview)review=true;
   const prepared=await prepareGeneration(profile,options);
   const recovery=prepared.integration.requirements.find(requirement=>requirement.nextCommand);
   const nativeSetup=recovery?.nextCommand?{nativeSetupCommand:recovery.nextCommand,nativeRequirements:prepared.integration.requirements}:{};
@@ -117,7 +126,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const previousAssets=(old?.assets??[]).filter(asset=>asset.logicalId!=='rigup:configuration');
    const preserveWorkflowContext=old?.projectRules==='ready'&&old.options?.sdd===options.sdd&&signature(old.options?.agents??[])===signature(options.agents)&&signature(old.options?.customSkills??[])===signature(options.customSkills??[]);
    plan=await generateFoundation(profile,options,prepared,previousAssets,preserveWorkflowContext);
-   if(preserveWorkflowContext&&!flags.configure&&signature(old?.options)===signature(options))plan.projectRules='ready';
+   if(preserveWorkflowContext&&!authorityReview&&!flags.configure&&signature(old?.options)===signature(options))plan.projectRules='ready';
   }else{
    const input={root,options,effectiveModel,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,executionMode:flags.dryRun?'dry-run':review?'review':'continuous',fingerprint:profile.fingerprint,researchSessionId};
    const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
@@ -196,7 +205,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   for(const d of plan.dispositions)if(d.action==='retire'&&!flags.retireIds?.includes(d.logicalId))plan.requirements.push({integrationId:d.logicalId,reason:'Retirement is outside current consent; rerun with --retire '+d.logicalId});
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,waiting:'ownership and virtual-tree checks'});
   plan.runChecks=flags.runChecks??[];
-  const result=await preview(plan,resolutions,{cacheRoot:previews,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review});
+  if(authorityReview&&profile.truncated)plan.projectRules='pending';
+  const result=await preview(plan,resolutions,{cacheRoot:previews,stateRoot:lock.stateRoot,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review});
   if(plan.gitlabReviewRequired)for(const warning of result.warnings)if(warning.startsWith('GitLab wiring'))write(warning+'\n');
   if(result.noChanges){
    emit({stage:'preview',completed:result.items.length,total:result.items.length,status:'complete'});
@@ -218,6 +228,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const installStatus=conflicts.length?'conflict':failed?'failed':result.executable?'not-installed':'pending';
   services.report?.({phase:'preview',installStatus,...result,pending:plan.requirements,conflicts,nextCommand:nextCommand??null,...(failed?{error:result.blockers.join('\n')}:{})});
   write('Preview '+result.previewId+'\n');for(const item of result.items){write(item.action+' '+item.target+(item.reason?' — '+item.reason:'')+'\n');if(item.beforeMode!==item.afterMode){const format=(value:number|undefined)=>value===undefined?'absent':value.toString(8).padStart(4,'0');write('mode '+format(item.beforeMode)+' -> '+format(item.afterMode)+'\n');}if(item.before!==undefined)write('--- owned before (filtered, max 4000 chars)\n'+item.before+'\n');if(item.after!==undefined)write('+++ owned after (filtered, max 4000 chars)\n'+item.after+'\n');}for(const operation of result.operations)write('operation '+operation.id+' '+operation.version+' scope '+operation.declaredWrites.join(', ')+'\n');
+  for(const document of result.projectDocuments??[])write(document.action+' '+document.target+' — '+document.reason+'\n');
   for(const blocker of result.blockers)write('Blocked: '+blocker+'\n');
   for(const requirement of plan.requirements)if(requirement.nextCommand)write('Initialize the native workflow, then repeat the Rigup command:\n'+requirement.nextCommand+'\n');
   if(reviewCommand)write('After resolving the conflicts, run:\n'+reviewCommand+'\n');
