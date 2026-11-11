@@ -91,8 +91,8 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   for(const [key,value] of Object.entries(versions)){
    const approved=data.plan.versions[key];
    if(approved===undefined||approved===value)continue;
-   // The string-array prompt revision does not change already approved writes.
-   if(key==='prompt'&&approved==='10'&&restoringApproval)continue;
+   // These prompt revisions preserve the writes in a matching durable approval.
+   if(key==='prompt'&&(approved==='10'||approved==='12')&&restoringApproval)continue;
    throw new Error(restoringApproval&&tx?.status==='prepared'?upgradeReconciliation:'implementation version changed; regenerate preview');
   }
   if(data.inputSnapshotVersion!==3)throw new Error('source snapshot version changed; regenerate preview without discarding durable state');

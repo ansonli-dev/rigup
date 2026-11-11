@@ -85,6 +85,47 @@ test('harness host exports scoped authority and rejects an omitted body',()=>fix
  await assert.rejects(hostBackend({cacheRoot:cache,stageEvidence:true,responsePath}).run(plan,authority.reader),/scoped source body was not exported/);
 }));
 
+test('harness acceptance checks the planned index links while retaining confirmed evidence',()=>fixture(async(root,cache,request)=>{
+ const {confirmedHarnessSource}=await import('./helpers.js');
+ const {prepareProjectRules,projectRuleDraftPolicy}=await import('../src/generator/project-rules.js');
+ const options={agents:['codex' as const],backend:'host' as const,projectRules:true};
+ await mkdir(root+'/worker');
+ await writeFile(root+'/worker/tsconfig.json','{"compilerOptions":{"strict":true}}\n');
+ await writeFile(root+'/docs/worker-guide.md','Use stable identifiers for worker jobs.\n');
+ const authority=await confirmedHarnessSource(root,options);
+ const guide=(await authority.reader.read('docs/worker-guide.md',1,1)).evidence;
+ const config=(await authority.reader.read('worker/tsconfig.json',1,1)).evidence;
+ const research={
+  ruleTopics:[{id:'worker',title:'Worker TypeScript'}],unknowns:[],artifacts:[],dispositions:[],
+  guidance:[{topicId:'worker',topic:'Worker naming',sourceRef:guide,scope:['worker'],coverageStatus:'reusable',consumers:['prepare'],gaps:[]}],
+  observations:[{topicId:'worker',topic:'Strict TypeScript',statement:'Keep strict type checking enabled for worker code.',classification:'explicit-rule',
+   scope:['worker'],supportingEvidence:[config],counterEvidence:[],guidanceDisposition:'follow-existing'}],
+ };
+ const {job}=prepareProjectRules(research,authority.profile.files,'docs/rigup',[],authority.sourceGuidance,new Set(authority.profile.conventionPaths));
+ assert.ok(job);
+ const policy=projectRuleDraftPolicy(job,{});
+ assert.ok(policy);
+ const candidate=policy.content({rulebook:{
+  title:'Project development rules',existing:'Existing rules',inferred:'Code conventions',when:'When',verify:'Verify',exceptions:'Exceptions',
+  rules:[{sourceId:'R1',trigger:'When changing worker TypeScript',instruction:'Keep strict type checking enabled.',
+   verification:'Type-check the worker with worker/tsconfig.json.',exceptions:[]}],
+ }},undefined);
+ const exported=await hostBackend({cacheRoot:cache,stageEvidence:true}).run({
+  ...request,kind:'artifact-content',expectedOutput:'acceptance',options,fingerprint:authority.profile.fingerprint,sourceGuidance:authority.sourceGuidance,
+  input:{job,research,candidate:candidate.content,candidatePages:candidate.pages},
+ },authority.reader);
+ assert.equal(exported.status,'pending-host');
+ if(exported.status!=='pending-host')throw Error('expected acceptance export');
+ const body=JSON.parse(await readFile(exported.requestPath,'utf8'));
+ assert.ok(body.evidence.some((item:any)=>item.evidence.path===authority.path&&item.content.includes(authority.body)));
+ assert.deepEqual(body.context.input.job.ruleTopics.flatMap((topic:any)=>topic.guidance.map((binding:any)=>binding.source.path)),['docs/worker-guide.md']);
+ assert.match(body.context.input.candidate,/worker-guide\.md/);
+ assert.doesNotMatch(body.context.input.candidate,/api-errors\.md/);
+ assert.match(body.instructions,/Use job\.ruleTopics as the complete link list for the rules index/);
+ assert.match(body.instructions,/Rigup links confirmed team conventions separately in workflow navigation/);
+ assert.match(body.context.input.job.acceptance[0],/original guidance listed in job\.ruleTopics/);
+}));
+
 test('harness does not reset the budget of an older research run on resume',()=>fixture(async(root,cache)=>{
  const {executeLifecycle}=await import('../src/lifecycle.js');
  const {readdir,rename}=await import('node:fs/promises');
@@ -106,7 +147,7 @@ test('harness does not reset the budget of an older research run on resume',()=>
  const older='f'.repeat(64);
  await rename(directory+'/'+run,directory+'/'+older+'.json');
  record.consent=older;
- record.versions={...record.versions,prompt:'11',template:'7'};
+ record.versions={...record.versions,prompt:'12'};
  const original=JSON.stringify(record);
  await writeFile(directory+'/'+older+'.json',original);
  await assert.rejects(executeLifecycle(root,settings,{review:true,resume:true},()=>{},services),/earlier evidence contract/);
