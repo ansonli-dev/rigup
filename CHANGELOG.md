@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 · 2026-11-11 · Development preview
+
+- Verify the development rules index against its planned topic pages and original guidance. Keep confirmed team conventions linked from the managed workflow and available as scoped evidence during semantic acceptance.
+- Restore matching v0.4.0 approvals after an interrupted apply, including verified CodeGraph operations after a portable upgrade. Generate a fresh review for v0.4.0 previews that have yet to start.
+
+[Functional verification](docs/compatibility/unified-harness-v1.md#v041-functional-verification) · [npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.4.1) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.4.1)
+
 ## 0.4.0 · 2026-11-11 · Development preview
 
 - Use one review and update flow for new services, established projects and mixed repositories. Previews and doctor report existing npm checks and GitLab job sources by working directory.

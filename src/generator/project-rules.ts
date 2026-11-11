@@ -238,7 +238,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
   logicalId,target,purpose:'Project development rules for future changes',consumer:PROJECT_RULES_CONSUMER,
   required:true,reason:'Apply verified project rules and scoped code conventions during planning, implementation and review',
   sourceRefs:[...evidence.values()],seedPaths:[],relatedArtifacts:[],ruleSources,ruleTopics,status:'pending',
-  acceptance:['The index leads to applicable topics and original guidance. Each topic contains the rules selected for it.',
+  acceptance:['The index links to each listed topic target when present and to the original guidance listed in job.ruleTopics. Each generated topic page contains its selected rules.',
    'Every rule instructs future changes and gives a concrete verification step.',
    'Each instruction preserves the verified authority, scope and applicable exceptions. Evidence and unresolved research remain in the private plan.',
    'The selected document language is used and native approval and verification gates remain authoritative.'],

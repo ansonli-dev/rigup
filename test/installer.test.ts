@@ -27,6 +27,29 @@ test('apply refuses a preview without the current source snapshot version',()=>f
  await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,stateRoot:state}),/source snapshot version changed/);
  assert.deepEqual(await readdir(root),[]);
 }));
+test('v0.4.0 prompt approvals require a fresh preview unless the same apply is durable',()=>fixture(async(root,cache,state)=>{
+ const {PROMPT_VERSION}=await import('../src/analyzer/prompts.js');
+ const {applyRecordPath}=await import('../src/installer/baseline.js');
+ const lock={root,stateRoot:state,id:'fixture',release:async()=>{}};
+ const old=await plan(root);
+ old.versions={prompt:'12'};
+ const unstarted=await preview(old,[],{cacheRoot:cache});
+ await assert.rejects(()=>apply(unstarted.previewId,{cacheRoot:cache,lock}),/implementation version changed/);
+ assert.equal(await loadManifest(root),undefined);
+ const current=await plan(root);
+ current.versions={prompt:PROMPT_VERSION};
+ const prepared=await preview(current,[],{cacheRoot:cache});
+ assert.equal((await apply(prepared.previewId,{cacheRoot:cache,lock,signal:AbortSignal.abort()})).exitCode,130);
+ const statePath=applyRecordPath(root,state);
+ const journal=JSON.parse(await readFile(statePath,'utf8'));
+ journal.preview.data.plan.versions.prompt='12';
+ journal.preview.digest=signature(journal.preview.data);
+ await writeFile(statePath,JSON.stringify(journal));
+ await rm(cache+'/'+prepared.previewId+'.json');
+ assert.equal(await restoreInterruptedPreview(root,current.options,cache,state),prepared.previewId);
+ assert.equal((await apply(prepared.previewId,{cacheRoot:cache,lock,recover:true})).status,'complete');
+ assert.equal(await readFile(root+'/guide.md','utf8'),'new');
+}));
 for(const [mode,projectRules,directory,file] of [
  ['legacy',undefined,'scripts','setup.sh'],
  ['project rules',true,'workflows','plan.yml'],

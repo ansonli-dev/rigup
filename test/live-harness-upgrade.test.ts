@@ -13,13 +13,14 @@ import {disposable,live,record} from './live-support.js';
 import {checkedLiveCommand,runLiveCommand,startLiveCommand,startLiveSession} from './live-process-support.js';
 
 const nextBinary=fileURLToPath(new URL('../dist/cli.js',import.meta.url));
+const currentVersion=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8')).version;
 const versionCommit='be0ca645f9c99c6890adedb9bc7141e3ea720ab2';
 const userEntry='# Team instructions\nKeep the team guide intact.\n';
 const userCi='customer-build:\n  script:\n    - npm run build\n';
 const setup=['--agents','codex','--sdd','none','--tools','none','--defer-research','--review'];
 const sourceBody='Use the confirmed error response envelope.\n';
 type Report={exitCode:number;previewId:string;projectRules?:string;executable?:boolean;written?:string[];checks?:{status:string}[];error?:string;installStatus:string};
-const environment={platform:platform(),arch:arch(),release:release(),node:process.version,oldVersion:'0.3.5',newVersion:'0.4.0',oldCommit:versionCommit};
+const environment={platform:platform(),arch:arch(),release:release(),node:process.version,oldVersion:'0.3.5',newVersion:currentVersion,oldCommit:versionCommit};
 
 function command(binary:string,args:string[]){
  return /\.[cm]?js$/i.test(binary)?{executable:process.execPath,args:[binary,...args]}:{executable:binary,args};
@@ -29,7 +30,7 @@ async function versions(env:NodeJS.ProcessEnv){
  const requested=process.env.RIGUP_V035_BIN;
  assert.ok(requested,'Set RIGUP_V035_BIN to a built v0.3.5 CLI or release launcher');
  const old=await realpath(requested);
- for(const [binary,expected] of [[old,'0.3.5'],[nextBinary,'0.4.0']]){
+ for(const [binary,expected] of [[old,'0.3.5'],[nextBinary,currentVersion]]){
   const version=command(binary,['--version']);
   assert.equal((await checkedLiveCommand(version.executable,version.args,{env,timeoutMs:10_000,maxBuffer:4000})).stdout.trim(),expected);
  }

@@ -61,7 +61,7 @@ export function verifiedToolOperationForResume(root:string,operation:SetupOperat
  const actual=signature(operation);
  if(signature(expected)===actual)return expected;
  const digest=operation.parameters?.args?.[8];
- if(expected.kind==='initialize'&&v024WorkerDigests.has(digest)){
+ if(expected.kind==='initialize'&&(digest===expected.parameters.args[8]||v024WorkerDigests.has(digest))){
   const executable=operation.parameters.executable,worker=operation.parameters.args[2];
   if(!isAbsolute(executable)||!/^node(?:\.exe)?$/i.test(basename(executable)))throw Error('Prior native operation executable is unverified');
   if(worker!==expected.parameters.args[2]){
