@@ -1,4 +1,6 @@
 import {ResearchFailure,selectResearchOutput,validateResearch,validateResearchRequest,type AnalysisBackend,type RepositoryReader,type ResearchRequest} from './backend.js';
+import {stageSourceGuidance,STAGE_EVIDENCE_POLICY} from './stage-context.js';
+import type {EvidenceRead} from './evidence.js';
 
 export interface ProviderOptions {
  apiKey?:string;
@@ -55,11 +57,11 @@ function prepareReadTool(call:ReadToolCall,reader:RepositoryReader):()=>Promise<
  throw new ResearchFailure('unsupported read tool or arguments');
 }
 
-async function acceptedResult(request:ResearchRequest,reader:RepositoryReader,text:string,model:string){
+async function acceptedResult(request:ResearchRequest,reader:RepositoryReader,text:string,model:string,exportedSourceEvidence:EvidenceRead[]){
  if(typeof model!=='string'||!model.trim())throw new ResearchFailure('provider did not identify the research model');
  let data:unknown;
  try{data=selectResearchOutput(request,JSON.parse(text));}catch{throw new ResearchFailure('provider returned invalid research JSON');}
- try{await validateResearch(data,reader);}catch{throw new ResearchFailure('provider returned invalid research evidence or structure');}
+ try{await validateResearch(data,reader,undefined,exportedSourceEvidence);}catch{throw new ResearchFailure('provider returned invalid research evidence or structure');}
  const unknowns=providerObject(data)?.unknowns;
  if(!Array.isArray(unknowns)||unknowns.some(x=>typeof x!=='string'))throw new ResearchFailure('unknowns: string array required');
  return {data,model,unknowns};
@@ -70,7 +72,7 @@ async function dispatch<T>(send:()=>Promise<T>):Promise<T> {
 }
 
 export function providerBackend<Response>(options:ProviderOptions,createSession:(credentials:{apiKey:string;model:string},input:string)=>ProviderSession<Response>):AnalysisBackend {
- return {run:async(request,reader)=>{
+ return {artifactContextVersion:STAGE_EVIDENCE_POLICY,run:async(request,reader)=>{
   validateResearchRequest(request);
   const {apiKey,model,signal}=options;
   if(!apiKey?.trim()||!model?.trim())throw new Error('model configuration: API key and model required');
@@ -79,7 +81,9 @@ export function providerBackend<Response>(options:ProviderOptions,createSession:
   if(!isNonNegativeInteger(spent.calls)||!isNonNegativeInteger(spent.tokens)||spent.calls>=request.budget.maxCalls||spent.tokens>=request.budget.maxTokens)throw new ResearchFailure('restored research budget exhausted or unknown');
   const maxCalls=request.budget.maxCalls-spent.calls;
   const maxTokens=request.budget.maxTokens-spent.tokens;
-  const session=createSession({apiKey,model},JSON.stringify(request));
+  const sourceEvidence=await stageSourceGuidance(reader,request.sourceGuidance);
+  const exportedSourceEvidence=[...sourceEvidence];
+  const session=createSession({apiKey,model},JSON.stringify({...request,...(sourceEvidence.length?{sourceEvidence}:{})}));
   const callsPerTurn=session.countsInputRemotely?2:1;
   let calls=0;
   let tokens=0;
@@ -119,7 +123,7 @@ export function providerBackend<Response>(options:ProviderOptions,createSession:
     if(tokens>maxTokens)throw new ResearchFailure('research token budget exhausted; incomplete research');
     checkCancellation();
     const outcome=session.outcome(response);
-    if(outcome.kind==='final')return {status:'complete',value:{...await acceptedResult(request,reader,outcome.text,outcome.model),usage:{calls,tokens}}};
+    if(outcome.kind==='final')return {status:'complete',value:{...await acceptedResult(request,reader,outcome.text,outcome.model,exportedSourceEvidence),usage:{calls,tokens}}};
 
     const ids=new Set(outcome.calls.map(call=>call.id));
     if(!outcome.calls.length||ids.size!==outcome.calls.length||outcome.calls.some(call=>typeof call.id!=='string'||!call.id.trim()))throw new ResearchFailure('invalid provider tool call IDs');
@@ -127,7 +131,14 @@ export function providerBackend<Response>(options:ProviderOptions,createSession:
     const results:ReadToolResult[]=[];
     for(const [index,action] of actions.entries()){
      checkCancellation();
-     try{results.push({id:outcome.calls[index].id,content:JSON.stringify(await action())});}
+     try{
+      const value=await action();
+      for(const item of Array.isArray(value)?value:[value]){
+       const evidence=providerObject(item) as EvidenceRead|undefined;
+       if(evidence?.evidence&&typeof evidence.content==='string'&&reader.sourceScopes?.has(evidence.evidence.path))exportedSourceEvidence.push(evidence);
+      }
+      results.push({id:outcome.calls[index].id,content:JSON.stringify(value)});
+     }
      catch{throw new ResearchFailure('repository read failed; research incomplete');}
     }
     outcome.replay(results);

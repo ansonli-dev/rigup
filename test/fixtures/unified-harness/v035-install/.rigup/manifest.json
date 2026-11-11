@@ -1,0 +1,168 @@
+{
+  "projectRules": "ready",
+  "schemaVersion": 1,
+  "installId": "3ccdcb0f-98cb-4390-89d3-25b84539c46e",
+  "assets": [
+    {
+      "logicalId": "rigup:research-launcher",
+      "target": ".rigup/rigup-mcp.mjs",
+      "ownership": {
+        "kind": "file"
+      },
+      "source": {
+        "kind": "fixed-template",
+        "ref": "rigup-mcp",
+        "digest": "edb347177654edb1a3c0527fff7dbfe13ca63e888c1434d577566f6074770c3b"
+      },
+      "digest": "edb347177654edb1a3c0527fff7dbfe13ca63e888c1434d577566f6074770c3b",
+      "baseline": ".rigup/baseline/3ccdcb0f-98cb-4390-89d3-25b84539c46e/9affbc6f5faf17d78cb92b4998a208aeaa4bdce8b7a186729933791ecea8d8d1"
+    },
+    {
+      "logicalId": "mcp:codex:rigup",
+      "target": ".codex/config.toml",
+      "ownership": {
+        "kind": "toml-table",
+        "path": [
+          "mcp_servers",
+          "rigup"
+        ]
+      },
+      "source": {
+        "kind": "customer-mcp",
+        "ref": "rigup"
+      },
+      "digest": "d72c099042960133a04bcc78f8481efeb6ffe3fd50b0a6ca4a4bf7820f6f86c7",
+      "baseline": ".rigup/baseline/3ccdcb0f-98cb-4390-89d3-25b84539c46e/c3623bf2df3c104af301fe45d37bc2579231c7185449744e3213201e7edb2146"
+    },
+    {
+      "logicalId": "gitlab:jobs",
+      "target": ".rigup/gitlab-ci.yml",
+      "ownership": {
+        "kind": "file"
+      },
+      "source": {
+        "kind": "gitlab-template",
+        "ref": "1",
+        "digest": "81c5738d352a5d2c56db1b224a677693cb2f54fdf3dac966c27feb3c14b0e686"
+      },
+      "digest": "81c5738d352a5d2c56db1b224a677693cb2f54fdf3dac966c27feb3c14b0e686",
+      "baseline": ".rigup/baseline/3ccdcb0f-98cb-4390-89d3-25b84539c46e/0c780563094d58f7829c404e024b6f3a8cb9aba5be4ccf020bc00d6128bccdd0"
+    },
+    {
+      "logicalId": "gitlab:include",
+      "target": ".gitlab-ci.yml",
+      "ownership": {
+        "kind": "block",
+        "start": "# rigup:ci:start",
+        "end": "# rigup:ci:end"
+      },
+      "source": {
+        "kind": "gitlab-template",
+        "ref": "1",
+        "digest": "c56e811c685767f3a0d28e553e2053e8c43925bdf14683445da09ea46a952fac"
+      },
+      "digest": "c56e811c685767f3a0d28e553e2053e8c43925bdf14683445da09ea46a952fac",
+      "baseline": ".rigup/baseline/3ccdcb0f-98cb-4390-89d3-25b84539c46e/b4b054ddc52e7d01ae6c5fc95e543885713f44f6505e94c79553bba03e0b6067"
+    },
+    {
+      "logicalId": "codex:change-prepare",
+      "target": ".agents/skills/change-prepare/SKILL.md",
+      "ownership": {
+        "kind": "file"
+      },
+      "source": {
+        "kind": "fixed-template",
+        "ref": "7",
+        "digest": "67394c07b3dfde69d9a784a7596c7fa25094c4a6bc38b5fb74038b31a5ee86e3"
+      },
+      "digest": "67394c07b3dfde69d9a784a7596c7fa25094c4a6bc38b5fb74038b31a5ee86e3",
+      "baseline": ".rigup/baseline/3ccdcb0f-98cb-4390-89d3-25b84539c46e/7b05d6e8a47e21bf80ab0f9a427af158a0383181c7e77214264107c26b4f08d8"
+    },
+    {
+      "logicalId": "codex:change-prepare:context",
+      "target": ".agents/skills/change-prepare/references/project.md",
+      "ownership": {
+        "kind": "file"
+      },
+      "source": {
+        "kind": "fixed-template",
+        "ref": "7",
+        "digest": "7f89a429ccb1a8c8adb040b2561a649a4487d665381b9ec0cb9d778dc7b5e839"
+      },
+      "digest": "7f89a429ccb1a8c8adb040b2561a649a4487d665381b9ec0cb9d778dc7b5e839",
+      "baseline": ".rigup/baseline/3ccdcb0f-98cb-4390-89d3-25b84539c46e/666e43a9fa1531b22325b20d238f58b39b8e919274bb6d3127e7cfd0cb2c7ecb"
+    },
+    {
+      "logicalId": "codex:change-deliver",
+      "target": ".agents/skills/change-deliver/SKILL.md",
+      "ownership": {
+        "kind": "file"
+      },
+      "source": {
+        "kind": "fixed-template",
+        "ref": "7",
+        "digest": "a31b7990f515236d926e6f0e42aa836cd8e6fd19e96d99b978570fdcff3b320b"
+      },
+      "digest": "a31b7990f515236d926e6f0e42aa836cd8e6fd19e96d99b978570fdcff3b320b",
+      "baseline": ".rigup/baseline/3ccdcb0f-98cb-4390-89d3-25b84539c46e/fb11f1520110dbd920c7d717441b8bb03ac15f367b9201d6ed5fc862946077be"
+    },
+    {
+      "logicalId": "codex:change-deliver:context",
+      "target": ".agents/skills/change-deliver/references/project.md",
+      "ownership": {
+        "kind": "file"
+      },
+      "source": {
+        "kind": "fixed-template",
+        "ref": "7",
+        "digest": "8ee2440751c773bcd628989de35c9279e21f6aca1327d40c6d720af0b836a929"
+      },
+      "digest": "8ee2440751c773bcd628989de35c9279e21f6aca1327d40c6d720af0b836a929",
+      "baseline": ".rigup/baseline/3ccdcb0f-98cb-4390-89d3-25b84539c46e/0387712b71da692833a3a96dd6bd46f033fc9574961af3523fb8993a05b1c260"
+    },
+    {
+      "logicalId": "entry:AGENTS.md",
+      "target": "AGENTS.md",
+      "ownership": {
+        "kind": "block",
+        "start": "<!-- rigup:start -->",
+        "end": "<!-- rigup:end -->"
+      },
+      "source": {
+        "kind": "fixed-template",
+        "ref": "7",
+        "digest": "6b20c9fb2d57e48bbab45e1eef8d2bf609cce63811fd9fc38879a620c24ebef4"
+      },
+      "digest": "6b20c9fb2d57e48bbab45e1eef8d2bf609cce63811fd9fc38879a620c24ebef4",
+      "baseline": ".rigup/baseline/3ccdcb0f-98cb-4390-89d3-25b84539c46e/7f8ebd482839ce25ddbfa250979cfaabae658fc71ddc7800dec88d3cd5689bdc"
+    }
+  ],
+  "options": {
+    "agents": [
+      "codex"
+    ],
+    "backend": "host",
+    "projectRules": true,
+    "executionPolicy": {
+      "mode": "review"
+    },
+    "quality": {
+      "gitlab": {
+        "checks": [
+          {
+            "cwd": ".",
+            "script": "build"
+          }
+        ]
+      }
+    },
+    "sdd": "openspec"
+  },
+  "versions": {
+    "prompt": "11",
+    "template": "7",
+    "document": "1",
+    "read": "6"
+  },
+  "installedTools": {}
+}

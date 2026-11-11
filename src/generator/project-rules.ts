@@ -1,5 +1,5 @@
 import {posix} from 'node:path';
-import type {Evidence,ManagedAsset,StepResult} from '../types.js';
+import {scopeContains,scopesOverlap,validateTopicId,type Evidence,type ManagedAsset,type StepResult} from '../types.js';
 import type {RepositoryReader,ResearchResult} from '../analyzer/backend.js';
 import {digest} from '../analyzer/evidence.js';
 import {collectTopicEvidence,topicEvidenceRequests,type TopicEvidenceBatch} from '../analyzer/topic-evidence.js';
@@ -25,6 +25,7 @@ export interface ProjectRuleSource {
  supportingEvidence:Evidence[];
  counterEvidence:Evidence[];
  exceptions:string[];
+ gap?:string;
 }
 export interface ProjectRuleTopic {
  id:string;
@@ -45,9 +46,10 @@ interface RuleObservation {
  supportingEvidence:Evidence[];
  counterEvidence:Evidence[];
  exceptions?:unknown[];
+ gap?:string;
 }
 
-const within=(path:string,scope:string)=>scope==='.'||path===scope||path.startsWith(scope+'/');
+const within=(path:string,scope:string)=>scopeContains(scope,path);
 const configuration=(path:string)=>path.startsWith('.husky/')||/^(?:Makefile|Dockerfile|\.dependency-cruiser\.js|\.(?:eslint|prettier)rc(?:\.[^.]+)?)$|\.(?:config\.[^.]+|jsonc?|ya?ml|toml|ini|xml)$/i.test(posix.basename(path));
 const documentation=(path:string)=>/\.(?:md|mdx|rst|adoc|txt)$/i.test(path);
 const singleLine=(value:unknown)=>typeof value==='string'?value.replace(/[\x00-\x20\x7f]+/g,' ').trim():'';
@@ -57,6 +59,16 @@ const evidenceKey=({path,startLine,endLine,digest}:Evidence)=>JSON.stringify([pa
 
 export function isOriginalGuidance(binding:GuidanceBinding):binding is GuidanceBinding&{sourceRef:Evidence} {
  return !!binding.sourceRef&&documentation(binding.sourceRef.path)&&(binding.coverageStatus==='reusable'||binding.coverageStatus==='partial');
+}
+
+export function sameAuthoritySource(binding:GuidanceBinding,source:GuidanceBinding):boolean{
+ return !!binding.sourceRef&&binding.sourceRef.path===source.sourceRef?.path&&
+  (binding.topicId===undefined?binding.topic===source.topic:binding.topicId===source.topicId);
+}
+
+export function replacedSourceAssessment(binding:GuidanceBinding,authority:GuidanceBinding[],conventionPaths:ReadonlySet<string>):boolean{
+ return !!binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)&&
+  (conventionPaths.has(binding.sourceRef.path)||authority.some(source=>sameAuthoritySource(binding,source)&&scopesOverlap(binding.scope,source.scope)));
 }
 
 export function verifiedScopes(scope:unknown[],files:string[]):string[] {
@@ -71,9 +83,8 @@ function parseRuleTopics(value:unknown,provisional=false):Map<string,ProjectRule
  if(!provisional&&(!Array.isArray(declarations)||declarations.length>MAX_RULE_TOPICS))throw new Error('ruleTopics: expected at most twelve project topics');
  for(const declaration of Array.isArray(declarations)?declarations.slice(0,MAX_RULE_TOPICS):[]){
   try{
-   const {id,title}=object(declaration);
-   if(typeof id!=='string'||id.length>48||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)||
-    /^(?:aux|con|nul|prn|com[0-9]|lpt[0-9])$/.test(id))throw new Error('ruleTopics: expected unique, portable topic IDs');
+   const {id:rawId,title}=object(declaration);
+   const id=validateTopicId(rawId);
    if(declaredIds.has(id)){
     topics.delete(id);
     throw new Error('ruleTopics: expected unique, portable topic IDs');
@@ -126,17 +137,15 @@ export async function planWithProjectRules(input:Record<string,unknown>&{invento
  }
 }
 
-export function prepareProjectRules(data:Record<string,unknown>,files:string[],root:string,otherJobs:ArtifactJob[]=[]):{job?:ArtifactJob;referenceIndex?:ArtifactPage;guidance:GuidanceBinding[]} {
+export function prepareProjectRules(data:Record<string,unknown>,files:string[],root:string,otherJobs:ArtifactJob[]=[],authority:GuidanceBinding[]=[],conventionPaths:ReadonlySet<string>=new Set(),selectedScopes:string[]=[]):{job?:ArtifactJob;referenceIndex?:ArtifactPage;guidance:GuidanceBinding[]} {
  const target=root+'/'+RULES_FILE;
  const topicDirectory=target.slice(0,-3)+'/';
  if(otherJobs.some(job=>isProjectRulesId(job.logicalId)||job.target===target||job.target.startsWith(topicDirectory)))throw new Error('Development rules targets are reserved for verified project rules');
  const observations=data.observations as RuleObservation[];
- const guidance=[...(data.guidance??[]) as GuidanceBinding[]];
- const covered=new Set(guidance.filter(source=>isOriginalGuidance(source)&&source.coverageStatus==='reusable').map(source=>claimKey(source.topicId,source.topic)));
- const unresolved=new Set([
-  ...guidance.filter(needsDecision).map(source=>claimKey(source.topicId,source.topic)),
-  ...observations.filter(item=>item.guidanceDisposition==='needs-decision').map(item=>claimKey(item.topicId,item.topic)),
- ]);
+ const assessed=(data.guidance??[]) as GuidanceBinding[];
+ const guidance=[...assessed.filter(binding=>!replacedSourceAssessment(binding,authority,conventionPaths)),...authority];
+ const covered=guidance.filter(source=>isOriginalGuidance(source)&&source.coverageStatus==='reusable');
+ const unresolved=[...guidance.filter(needsDecision),...observations.filter(item=>item.guidanceDisposition==='needs-decision')];
  const topics=parseRuleTopics(data.ruleTopics);
  const hasDeclaredTopics=topics.size>0;
  const topicFor=(id?:string)=>{
@@ -155,6 +164,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
   if(!topic||topic.length>1000)continue;
   const key=claimKey(observation.topicId,topic),keyWithoutTopicId=claimKey(undefined,topic);
   const scopes=verifiedScopes(scope,files);
+  if(selectedScopes.length&&scopes.some(scope=>!selectedScopes.some(parent=>scopeContains(parent,scope))))continue;
   const sameScope=(binding:GuidanceBinding)=>claimKey(binding.topicId,binding.topic)===key&&binding.scope.length===scopes.length&&scopes.every(path=>binding.scope.includes(path));
   const bind=(status:string,refs:Evidence[])=>{
    const gaps=status==='needs-decision'?[singleLine(observation.statement)].filter(Boolean):[];
@@ -170,7 +180,13 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
    bind('needs-decision',[...supportingEvidence,...counterEvidence]);
    continue;
   }
-  if((classification!=='explicit-rule'&&classification!=='convention')||!scopes.length||scopes.length!==scope.length||covered.has(key)||covered.has(keyWithoutTopicId)||unresolved.has(key)||unresolved.has(keyWithoutTopicId))continue;
+  const overlaps=(source:{topicId?:string;topic?:string;scope:unknown[]})=>{
+   const sourceKey=claimKey(source.topicId,source.topic);
+   return (sourceKey===key||sourceKey===keyWithoutTopicId)&&scopesOverlap(scopes,verifiedScopes(source.scope,files));
+  };
+  const authorityOverlaps=authority.some(source=>(observation.topicId===undefined?source.topic===topic:source.topicId===observation.topicId)&&scopesOverlap(source.scope,scopes)&&
+   (source.coverageStatus!=='partial'||!source.gaps.includes(observation.gap??'')||scopes.some(scope=>!source.scope.some(parent=>scopeContains(parent,scope)))));
+  if((classification!=='explicit-rule'&&classification!=='convention')||!scopes.length||scopes.length!==scope.length||authorityOverlaps||covered.some(overlaps)||unresolved.some(overlaps))continue;
   const exceptions=Array.isArray(observation.exceptions)?observation.exceptions.map(singleLine).filter(Boolean):[];
   if(counterEvidence.length&&!exceptions.length||exceptions.some(exception=>exception.length>1000)){
    bind('needs-decision',[...supportingEvidence,...counterEvidence]);
@@ -191,7 +207,8 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
   const rank=groupCounts.get(group.id)??0;
   if(rank>=(hasDeclaredTopics?4:8))continue;
   groupCounts.set(group.id,rank+1);
-  selected.push({group,rank,rule:{topic,statement:observation.statement,authority:classification,scope:scopes,supportingEvidence,counterEvidence,exceptions}});
+  selected.push({group,rank,rule:{topic,statement:observation.statement,authority:classification,scope:scopes,supportingEvidence,counterEvidence,exceptions,
+   ...(typeof observation.gap==='string'?{gap:observation.gap}:{})}});
  }
  // If the plan exceeds the total bound, retain breadth before adding more rules to one topic.
  if(selected.length>18)selected.sort((a,b)=>a.rank-b.rank);
@@ -204,6 +221,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
  });
  if(!ruleSources.length&&!hasDeclaredTopics)return {guidance};
  for(const binding of guidance.filter(isOriginalGuidance)){
+  if(conventionPaths.has(binding.sourceRef.path))continue;
   topicFor(binding.topicId)?.guidance.push({source:binding.sourceRef,scope:verifiedScopes(binding.scope,files)});
  }
  const logicalId=root==='docs/rigup'?PROJECT_RULES_ID:PROJECT_RULES_ID+':'+digest(target);

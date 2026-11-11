@@ -255,3 +255,332 @@ test('apply rejects changed optional OpenSpec entries even without a discovery m
   if(previousHome===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previousHome;
  }
 })));
+
+const harnessOptions={agents:['codex' as const],backend:'host' as const,projectRules:true};
+const harnessTopics={topics:[{id:'api-errors',title:'API errors',scope:['.']}]};
+
+test('harness rejects stale seed targets and preserves a concurrent file during exclusive creation',()=>fixture(async(root,cache,state)=>{
+ const {harnessPlan}=await import('./helpers.js');
+ const {dirname}=await import('node:path');
+ const settings={...harnessOptions,projectConventions:harnessTopics};
+ const prepare=async()=>preview(await harnessPlan(root,cache,settings),[],{cacheRoot:cache,stateRoot:state});
+ let review=await prepare();
+ const target=root+'/'+review.projectDocuments![0].target;
+ await mkdir(dirname(target),{recursive:true});
+ await writeFile(target,'Customer file after preview\n');
+ await assert.rejects(apply(review.previewId,{cacheRoot:cache,stateRoot:state}),/stale|changed/);
+ assert.equal(await readFile(target,'utf8'),'Customer file after preview\n');
+ await rm(target);
+ review=await prepare();
+ await assert.rejects(apply(review.previewId,{cacheRoot:cache,stateRoot:state,hook:async point=>{
+  if(point==='before-seed')await writeFile(target,'Concurrent customer file\n');
+ }}),/EEXIST|already exists/);
+ assert.equal(await readFile(target,'utf8'),'Concurrent customer file\n');
+ await assert.rejects(apply(review.previewId,{cacheRoot:cache,stateRoot:state,recover:true}),/customer document.*interrupted/i);
+ assert.equal(await loadManifest(root),undefined);
+}));
+
+test('harness resumes a seed transaction before and after manifest commit',()=>fixture(async(root,cache,state)=>{
+ const {harnessPlan}=await import('./helpers.js');
+ const settings={...harnessOptions,projectConventions:harnessTopics};
+ const review=await preview(await harnessPlan(root,cache,settings),[],{cacheRoot:cache,stateRoot:state});
+ const target=review.projectDocuments![0].target;
+ await assert.rejects(apply(review.previewId,{cacheRoot:cache,stateRoot:state,hook:async point=>{
+  if(point==='after-file'&&await readFile(root+'/'+target).then(()=>true,()=>false))throw Error('interrupted after seed');
+ }}),/interrupted after seed/);
+ assert.equal(await loadManifest(root),undefined);
+ const original=await readFile(root+'/'+target,'utf8');
+ await assert.rejects(apply(review.previewId,{cacheRoot:cache,stateRoot:state,recover:true,hook:async point=>{
+  if(point==='after-manifest')throw Error('interrupted after manifest');
+ }}),/interrupted after manifest/);
+ assert.deepEqual((await loadManifest(root))?.seededProjectDocuments,[{topicId:'api-errors',scope:'.',target}]);
+ assert.deepEqual((await apply(review.previewId,{cacheRoot:cache,stateRoot:state,recover:true})).written,[]);
+ assert.equal(await readFile(root+'/'+target,'utf8'),original);
+}));
+
+for(const scenario of ['started-missing','written-deleted','written-moved','written-edited'] as const){
+ test('harness preserves customer state when seed recovery needs reconciliation: '+scenario,()=>fixture(async(root,cache,state)=>{
+  const {harnessPlan}=await import('./helpers.js');
+  const {rename,unlink}=await import('node:fs/promises');
+  const settings={...harnessOptions,projectConventions:harnessTopics};
+  const review=await preview(await harnessPlan(root,cache,settings),[],{cacheRoot:cache,stateRoot:state});
+  const target=root+'/'+review.projectDocuments![0].target;
+  await assert.rejects(apply(review.previewId,{cacheRoot:cache,stateRoot:state,hook:async point=>{
+   if(scenario==='started-missing'&&point==='before-seed'||scenario!=='started-missing'&&point==='after-file'&&await readFile(target).then(()=>true,()=>false))throw Error('interrupted seed');
+  }}),/interrupted seed/);
+  if(scenario==='written-deleted')await unlink(target);
+  if(scenario==='written-moved')await rename(target,root+'/moved.md');
+  if(scenario==='written-edited')await writeFile(target,'Customer edits are preserved\n');
+  await assert.rejects(apply(review.previewId,{cacheRoot:cache,stateRoot:state,recover:true}),/customer document.*interrupted/i);
+  assert.equal(await loadManifest(root),undefined);
+  if(scenario==='written-edited')assert.equal(await readFile(target,'utf8'),'Customer edits are preserved\n');
+  else await assert.rejects(readFile(target),{code:'ENOENT'});
+  if(scenario==='written-moved')assert.match(await readFile(root+'/moved.md','utf8'),/status: draft/);
+ }));
+}
+
+test('harness rejects replacing an unresolved seed transaction and blocks fresh research',()=>fixture(async(root,cache,state)=>{
+ const {harnessPlan}=await import('./helpers.js');
+ const {openResearchMcp}=await import('../src/research/mcp-workflow.js');
+ const cacheRoot=cache+'/previews';
+ const initial=await preview(await harnessPlan(root,cache,harnessOptions),[],{cacheRoot,stateRoot:state});
+ await apply(initial.previewId,{cacheRoot,stateRoot:state});
+ const settings={...harnessOptions,projectConventions:harnessTopics};
+ const a=await preview(await harnessPlan(root,cache,settings),[],{cacheRoot,stateRoot:state});
+ const b=await preview(await harnessPlan(root,cache,{...settings,projectConventions:{...harnessTopics,documentRoutes:{context:'other'}}}),[],{cacheRoot,stateRoot:state});
+ const target=root+'/'+a.projectDocuments![0].target;
+ await assert.rejects(apply(a.previewId,{cacheRoot,stateRoot:state,hook:async point=>{
+  if(point==='after-file')throw Error('interrupted seed');
+ }}),/interrupted seed/);
+ const statePath=state+'/'+signature(root)+'.apply.json';
+ const journal=await readFile(statePath,'utf8');
+ const seed=await readFile(target,'utf8');
+ await rm(target);
+ await assert.rejects(apply(b.previewId,{cacheRoot,stateRoot:state,recover:true}),/original approved preview/i);
+ await assert.rejects(readFile(root+'/'+b.projectDocuments![0].target),{code:'ENOENT'});
+ await writeFile(target,'Unmarked uncommitted customer convention\n');
+ let requests=0;
+ for(const flag of ['--review','--dry-run']){
+  let output='';
+  const code=await runCli(['update',flag,'--backend','host','--json'],{cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot:cache,stateRoot:state,backend:{run:async()=>{requests++;throw Error('Unexpected research');}}}});
+  assert.equal(code,3,output);
+  assert.equal(JSON.parse(output).interruptedPreviewId,a.previewId);
+  assert.doesNotMatch(output,/Unmarked uncommitted/);
+ }
+ let output='';
+ assert.equal(await runCli(['update','--review','--json'],{cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot:cache,stateRoot:state}}),3);
+ assert.equal(JSON.parse(output).interruptedPreviewId,a.previewId);
+ const mcp=await openResearchMcp(root,'codex',{cacheRoot:cache,stateRoot:state});
+ await assert.rejects(mcp.call('rigup_begin',{root,mode:'update'}),/interrupted installation/i);
+ assert.equal(requests,0);
+ assert.equal(await readFile(statePath,'utf8'),journal);
+ assert.equal(await readFile(target,'utf8'),'Unmarked uncommitted customer convention\n');
+ await writeFile(target,seed);
+ assert.equal((await apply(a.previewId,{cacheRoot,stateRoot:state,recover:true})).status,'complete');
+ assert.deepEqual((await loadManifest(root))?.seededProjectDocuments?.map(doc=>doc.target),[a.projectDocuments![0].target]);
+}));
+
+test('harness reads registered authority under directory, file and root scopes',()=>fixture(async(root,cache,state)=>{
+ const {harnessPlan}=await import('./helpers.js');
+ const {repositoryReader}=await import('../src/analyzer/repository.js');
+ for(const scope of ['api','web']){
+  await mkdir(root+'/'+scope);
+  await writeFile(root+'/'+scope+'/route.ts','export const ready = true;\n');
+ }
+ const settings={...harnessOptions,projectConventions:{topics:['api','web'].map(scope=>({id:'api-errors',title:'API errors',scope:[scope]}))}};
+ const prepare=async(options:import('../src/types.js').SetupOptions)=>preview(await harnessPlan(root,cache,options),[],{cacheRoot:cache,stateRoot:state});
+ const initial=await prepare(settings);
+ await apply(initial.previewId,{cacheRoot:cache,stateRoot:state});
+ const docs=(await loadManifest(root))!.seededProjectDocuments!;
+ for(const {target,scope} of docs){
+  const text=await readFile(root+'/'+target,'utf8');
+  await writeFile(root+'/'+target,text.replace('status: draft','status: confirmed')+'Confirmed '+scope+' response envelope.\n');
+ }
+ const api=docs.find(doc=>doc.scope==='api')!;
+ for(const scope of ['api','api/route.ts','.']){
+  const reader=await repositoryReader(root,{...settings,scope:[scope]});
+  assert.equal((await reader.search('Confirmed api response')).length,1);
+  assert.equal((await reader.search('Confirmed web response')).length,scope==='.'?1:0);
+ }
+ const scoped={...settings,scope:['api']};
+ const approved=await prepare(scoped);
+ const before=await readFile(root+'/'+api.target,'utf8');
+ await writeFile(root+'/'+api.target,before+'Customer edit after approval.\n');
+ await assert.rejects(apply(approved.previewId,{cacheRoot:cache,stateRoot:state}),/source input changed/i);
+ await writeFile(root+'/.rigupignore','/'+api.target+'\n');
+ assert.deepEqual(await (await repositoryReader(root,scoped)).search('Confirmed api response'),[]);
+}));
+
+async function sourceReviewFixture(run:(input:{
+ root:string;cache:string;state:string;source:string;original:string;
+ settings:import('../src/types.js').SetupOptions;
+ prepare:(options?:import('../src/types.js').SetupOptions,skipUnchanged?:boolean)=>ReturnType<typeof preview>;
+})=>Promise<void>){
+ return fixture(async(root,cache,state)=>{
+  const {harnessPlan}=await import('./helpers.js');
+  await Promise.all(['api','web','knowledge'].map(dir=>mkdir(root+'/'+dir)));
+  await writeFile(root+'/api/route.ts','export const api = true;\n');
+  await writeFile(root+'/web/page.ts','export const web = true;\n');
+  const source=root+'/knowledge/api.md',original='Use 400 responses for invalid API requests.\n';
+  await writeFile(source,original);
+  const settings={...harnessOptions,scope:['api'],projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['api'],source:'knowledge/api.md'}]}};
+  const prepare=async(options=settings as import('../src/types.js').SetupOptions,skipUnchanged=false)=>preview(await harnessPlan(root,cache,options),[],{cacheRoot:cache,stateRoot:state,skipUnchanged});
+  await run({root,cache,state,source,original,settings,prepare});
+ });
+}
+for(const [checkpoint,mutation] of [['after-checks','modify'],['before-manifest','delete'],['before-manifest','move']] as const){
+ test('harness revalidates authority before commit: '+checkpoint+' '+mutation,()=>sourceReviewFixture(async({root,cache,state,source,prepare})=>{
+  const {rename,unlink}=await import('node:fs/promises');
+  const review=await prepare();
+  const dependencies={cacheRoot:cache,stateRoot:state};
+  await assert.rejects(apply(review.previewId,{...dependencies,hook:async point=>{
+   if(point!==checkpoint)return;
+   if(mutation==='modify')await writeFile(source,'Changed customer guidance\n');
+   else if(mutation==='delete')await unlink(source);
+   else await rename(source,source+'.moved');
+  }}),/source input changed/i);
+  assert.equal(await loadManifest(root),undefined);
+  await assert.rejects(apply(review.previewId,{...dependencies,recover:true}),/source input changed/i);
+  if(mutation==='modify')assert.equal(await readFile(source,'utf8'),'Changed customer guidance\n');
+  else await assert.rejects(readFile(source),{code:'ENOENT'});
+ }));
+}
+
+test('harness carries recovered authority invalidation through successor transactions',()=>sourceReviewFixture(async({root,cache,state,source,original,settings,prepare})=>{
+ const {doctor}=await import('../src/installer/doctor.js');
+ const a=await prepare();
+ const dependencies={cacheRoot:cache,stateRoot:state};
+ await assert.rejects(apply(a.previewId,{...dependencies,hook:async point=>{
+  if(point==='after-manifest'){
+   await writeFile(source,'Source changed after commit.\n');
+   throw Error('controller stopped after commit');
+  }
+ }}),/controller stopped after commit/);
+ const committed=(await loadManifest(root))!;
+ const entry=await readFile(root+'/AGENTS.md','utf8');
+ const recovered=await apply(a.previewId,{...dependencies,recover:true});
+ assert.equal(recovered.status,'complete');
+ assert.equal(recovered.projectRules,'pending');
+ assert.equal(recovered.exitCode,3);
+ assert.deepEqual(recovered.sourceReview,{scopes:['api'],sources:[{path:'knowledge/api.md',topic:'API errors',topicId:'api-errors',scope:['api']}]});
+ assert.equal(await readFile(root+'/AGENTS.md','utf8'),entry);
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'pending');
+ assert.match((await doctor(root,{stateRoot:state})).nextCommand??'',/--review/);
+ assert.equal((await apply(a.previewId,dependencies)).projectRules,'pending');
+ await writeFile(source,original);
+ const b=await prepare(undefined,true);
+ assert.ok(b.previewId);
+ await assert.rejects(apply(b.previewId,{...dependencies,hook:async point=>{
+  if(point==='before-manifest')await writeFile(source,'Source changed before successor commit.\n');
+ }}),/source input changed/i);
+ assert.equal((await loadManifest(root))?.installId,committed.installId);
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'pending');
+ await assert.rejects(apply(b.previewId,{...dependencies,recover:true}),/source input changed/i);
+ const unrelated=await prepare({...settings,scope:['web']});
+ assert.equal(unrelated.projectRules,'pending');
+ assert.equal((await apply(unrelated.previewId,{...dependencies,recover:true})).projectRules,'pending');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'pending');
+ await writeFile(source,original);
+ const fresh=await prepare();
+ assert.equal((await apply(fresh.previewId,dependencies)).projectRules,'ready');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'ready');
+ assert.equal((await prepare(undefined,true)).noChanges,true);
+}));
+
+test('harness reconciles authority with no file changes and rejects older approval',()=>sourceReviewFixture(async({root,cache,state,source,original,prepare})=>{
+ const {doctor}=await import('../src/installer/doctor.js');
+ const a=await prepare();
+ const dependencies={cacheRoot:cache,stateRoot:state};
+ assert.equal((await apply(a.previewId,dependencies)).projectRules,'ready');
+ const stale=await prepare();
+ await writeFile(source,'Customer amended authority.\n');
+ assert.equal((await apply(a.previewId,dependencies)).projectRules,'pending');
+ await writeFile(source,original);
+ await assert.rejects(apply(stale.previewId,dependencies),/effective project rules changed/i);
+ const reconciled=await prepare(undefined,true);
+ assert.ok(reconciled.previewId);
+ assert.equal(reconciled.noChanges,undefined);
+ const result=await apply(reconciled.previewId,dependencies);
+ assert.deepEqual(result.written,[]);
+ assert.equal(result.projectRules,'ready');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'ready');
+ assert.equal((await prepare(undefined,true)).noChanges,true);
+}));
+
+test('harness keeps unavailable approved authority pending after a complete scoped review',()=>sourceReviewFixture(async({root,cache,state,source,prepare})=>{
+ const {doctor}=await import('../src/installer/doctor.js');
+ const approved=await prepare();
+ const dependencies={cacheRoot:cache,stateRoot:state};
+ const initial=await apply(approved.previewId,{...dependencies,hook:async point=>{
+  if(point==='after-manifest')await rm(source);
+ }});
+ assert.equal(initial.projectRules,'pending');
+ const next=await prepare();
+ assert.equal(next.harness?.guidance[0]?.coverageStatus,'unavailable');
+ assert.equal(next.projectRules,'pending');
+ assert.equal((await apply(next.previewId,dependencies)).projectRules,'pending');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'pending');
+}));
+
+test('harness snapshots the scoped authority within the same read budget as research',()=>sourceReviewFixture(async({root,cache,state,source,settings,prepare})=>{
+ await mkdir(root+'/aa');
+ await writeFile(root+'/aa/package.json','{"scripts":{"build":"echo neighbor"}}');
+ const limited={...settings,readBudget:{maxFiles:2,maxBytes:100_000}};
+ const approved=await prepare(limited);
+ assert.equal(approved.harness?.guidance[0]?.coverageStatus,'reusable');
+ await assert.rejects(apply(approved.previewId,{cacheRoot:cache,stateRoot:state,hook:async point=>{
+  if(point==='after-checks')await writeFile(source,'Changed approved source.\n');
+ }}),/source input changed/i);
+ assert.equal(await loadManifest(root),undefined);
+}));
+
+test('harness invalidates a preview when raw authority changes without changing its UTF-8 projection',()=>sourceReviewFixture(async({root,cache,state,source,prepare})=>{
+ await writeFile(source,Buffer.from([0xfe]));
+ const approved=await prepare();
+ await writeFile(source,Buffer.from([0xff]));
+ await assert.rejects(apply(approved.previewId,{cacheRoot:cache,stateRoot:state}),/source input changed/i);
+ assert.equal(await loadManifest(root),undefined);
+}));
+
+test('harness invalidates changed customer authority in a partially managed file',()=>sourceReviewFixture(async({root,cache,state,settings,prepare})=>{
+ const {doctor}=await import('../src/installer/doctor.js');
+ const entry=root+'/AGENTS.md';
+ await writeFile(entry,'Customer API contract: use 400.\n');
+ const selected={...settings,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['api'],source:'AGENTS.md'}]}};
+ const approved=await prepare(selected);
+ assert.equal(approved.harness?.guidance[0]?.sourceRef?.path,'AGENTS.md');
+ const dependencies={cacheRoot:cache,stateRoot:state};
+ await assert.rejects(apply(approved.previewId,{...dependencies,hook:async point=>{
+  if(point==='after-manifest'){
+   await writeFile(entry,(await readFile(entry,'utf8')).replace('use 400','use 422'));
+   throw Error('interrupted after customer edit');
+  }
+ }}),/interrupted after customer edit/);
+ const customer=await readFile(entry,'utf8');
+ const result=await apply(approved.previewId,{...dependencies,recover:true});
+ assert.equal(result.projectRules,'pending');
+ assert.equal(result.exitCode,3);
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'pending');
+ assert.equal(await readFile(entry,'utf8'),customer);
+}));
+
+test('harness clears durable pending after a scoped authority is explicitly remapped and reviewed',()=>sourceReviewFixture(async({root,cache,state,source,settings,prepare})=>{
+ const {rename}=await import('node:fs/promises');
+ const {doctor}=await import('../src/installer/doctor.js');
+ const nextSource='knowledge/remapped.md';
+ const approval=await prepare();
+ const dependencies={cacheRoot:cache,stateRoot:state};
+ const installed=await apply(approval.previewId,{...dependencies,hook:async point=>{
+  if(point==='after-manifest')await rename(source,root+'/'+nextSource);
+ }});
+ assert.equal(installed.projectRules,'pending');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'pending');
+ const topic=settings.projectConventions!.topics![0];
+ const different={...settings,projectConventions:{topics:[{...topic,id:'unrelated-rule',source:nextSource}]}};
+ assert.equal((await prepare(different)).projectRules,'pending');
+ const remapped={...settings,projectConventions:{topics:[{...topic,source:nextSource}]}};
+ const reviewed=await prepare(remapped);
+ assert.ok(reviewed.harness?.guidance.some(binding=>binding.sourceRef?.path===nextSource&&binding.coverageStatus==='reusable'));
+ assert.equal(reviewed.projectRules,'ready');
+ assert.equal((await apply(reviewed.previewId,dependencies)).projectRules,'ready');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'ready');
+ await assert.rejects(readFile(source),{code:'ENOENT'});
+ assert.equal((await prepare(remapped,true)).noChanges,true);
+}));
+
+test('harness clears durable pending after an explicit not-applicable decision is reviewed',()=>sourceReviewFixture(async({root,cache,state,source,prepare})=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const {doctor}=await import('../src/installer/doctor.js');
+ const approved=await prepare();
+ const dependencies={cacheRoot:cache,stateRoot:state};
+ const seed=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'api',questions:['Confirm this contract']}).content;
+ const retirement=seed.replace('status: draft','status: not-applicable')+'This module handles only asynchronous events.\n';
+ assert.equal((await apply(approved.previewId,{...dependencies,hook:async point=>{
+  if(point==='after-manifest')await writeFile(source,retirement);
+ }})).projectRules,'pending');
+ const reviewed=await prepare();
+ assert.equal(reviewed.projectRules,'ready');
+ assert.equal((await apply(reviewed.previewId,dependencies)).projectRules,'ready');
+ assert.equal((await doctor(root,{stateRoot:state})).projectRules,'ready');
+ assert.equal(await readFile(source,'utf8'),retirement);
+}));

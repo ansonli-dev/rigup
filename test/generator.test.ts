@@ -13,7 +13,7 @@ import {generate} from '../src/generator/generate.js';
 import {prepareProjectRules} from '../src/generator/project-rules.js';
 import {repositoryReader,scanRepository} from '../src/analyzer/repository.js';
 import {digest} from '../src/analyzer/evidence.js';
-import {project,setNativeEntries} from './helpers.js';
+import {confirmedHarnessSource,project,setNativeEntries} from './helpers.js';
 import {writeFile,readFile,readdir,rm,mkdir} from 'node:fs/promises';
 import type {AnalysisBackend,ResearchRequest} from '../src/analyzer/backend.js';
 const options={agents:['codex'] as const,backend:'host' as const,sdd:'openspec' as const};
@@ -140,6 +140,7 @@ test('Codex recovers accepted content exactly at the request limit',()=>fixture(
  assert.equal(calls,3);
 }));
 test('existing_guidance_is_bound_into_agent_prepare_deliver_and_review',()=>fixture(async(root,cache)=>{
+ await mkdir(root+'/src');await writeFile(root+'/src/service.ts','export const service = true;\n');
  await mkdir(root+'/docs');const original='# Rules\nOnly services in src/.\n';await writeFile(root+'/docs/rules.md',original);const ref={path:'docs/rules.md',startLine:1,endLine:3,digest:digest(original)};
  const backend:AnalysisBackend={run:async()=>({status:'complete',value:{data:{artifacts:[],dispositions:[],observations:[],unknowns:[],guidance:[{topic:'service',sourceRef:ref,scope:['src/'],coverageStatus:'reusable',consumers:['agent-entry','prepare','deliver','review'],gaps:[]}]},model:'test',unknowns:[],usage:{calls:1,tokens:1}}})};
  const r=await generate(await scanRepository(root,opts),opts,backend,[],{cacheRoot:cache});if(r.status!=='complete')throw Error('pending');
@@ -512,3 +513,321 @@ test('delivery skill requires an active OpenSpec change and scoped human approva
  assert.match(gate,/human approval.*same change ID and scope/);
  assert.match(gate,/stop before editing/i);
 });
+
+test('harness reuses checks with their original working directories',()=>fixture(async(root,cache)=>{
+ for(const cwd of ['services/api','web']){
+  await mkdir(root+'/'+cwd,{recursive:true});
+  await writeFile(root+'/'+cwd+'/package.json',JSON.stringify({scripts:{build:'node build.js'}}));
+ }
+ const options={agents:[],backend:'host'} as const;
+ const settings={...options,agents:[]};
+ const result=await generate(await scanRepository(root,settings),settings,fake().backend,[],{cacheRoot:cache});
+ assert.equal(result.status,'complete');
+ if(result.status!=='complete')throw Error('pending');
+ assert.deepEqual(result.value.harness?.checks.map(x=>[x.command.cwd,x.command.args[1]]).sort(),
+  [['services/api','build'],['web','build']]);
+}));
+
+test('harness plans the same topic differently by scope',()=>fixture(async(root,cache)=>{
+ const settings={...opts,sdd:undefined,projectRules:true,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['services/new']}]}};
+ for(const cwd of ['services/new','services/legacy']){
+  await mkdir(root+'/'+cwd,{recursive:true});
+  await writeFile(root+'/'+cwd+'/main.ts','export const healthy = true;\n');
+ }
+ await writeFile(root+'/services/legacy/rules.md','Use Problem Details for API errors.\n');
+ const backend:AnalysisBackend={run:async(_request,reader)=>({status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{
+  observations:[],artifacts:[],dispositions:[],
+  guidance:[{topicId:'api-errors',topic:'API errors',scope:['services/legacy'],sourceRef:(await reader.read('services/legacy/rules.md',1,1)).evidence,coverageStatus:'reusable',consumers:['prepare'],gaps:[]}],
+ }}})};
+ const profile=await scanRepository(root,settings);
+ const generated=await generate(profile,settings,backend,[],{cacheRoot:cache});
+ if(generated.status!=='complete')throw Error('pending');
+ assert.equal(generated.value.harness?.guidance.find(binding=>binding.scope.includes('services/legacy'))?.coverageStatus,'reusable');
+ assert.equal(generated.value.harness?.guidance.find(binding=>binding.scope.includes('services/new'))?.coverageStatus,'unavailable');
+ const {planHarness}=await import('../src/generator/harness.js');
+ const {drafts}=planHarness(profile,settings,generated.value.harness!.guidance);
+ assert.deepEqual(drafts.map(draft=>[draft.topicId,draft.scope]),[['api-errors','services/new']]);
+ assert.deepEqual(generated.value.requirements,[]);
+}));
+
+test('harness reuses declared authority',()=>fixture(async(root,cache)=>{
+ const settings={...opts,sdd:undefined,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['.'],source:'api.md'}]}};
+ const original='Use Problem Details for API errors.\n';
+ await writeFile(root+'/api.md',original);
+ const result=await generate(await scanRepository(root,settings),settings,fake().backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.equal(result.value.harness?.guidance[0]?.coverageStatus,'reusable');
+ assert.equal(result.value.harness?.guidance[0]?.sourceRef?.path,'api.md');
+ assert.equal(await readFile(root+'/api.md','utf8'),original);
+ await writeFile(root+'/.rigupignore','/api.md\n');
+ const ignored=await generate(await scanRepository(root,settings),settings,fake().backend,[],{cacheRoot:cache});
+ if(ignored.status!=='complete')throw Error('pending');
+ assert.equal(ignored.value.harness?.guidance[0]?.coverageStatus,'unavailable');
+ assert.equal(ignored.value.harness?.guidance[0]?.sourceRef,undefined);
+}));
+
+test('harness permits disjoint reuse and inference',()=>fixture(async(root)=>{
+ for(const scope of ['services/legacy','services/new'])await mkdir(root+'/'+scope,{recursive:true});
+ await writeFile(root+'/services/legacy/rules.md','Legacy uses HTTP 400.\n');
+ await writeFile(root+'/services/new/a.ts','throw problem(422, issue);\n');
+ await writeFile(root+'/services/new/b.ts','return problem(422, details);\n');
+ const reader=await repositoryReader(root,opts);
+ const {validateResearch}=await import('../src/analyzer/backend.js');
+ const evidence=async(path:string)=>(await reader.read(path,1,1)).evidence;
+ const guidance={topicId:'api-errors',topic:'API errors',sourceRef:await evidence('services/legacy/rules.md'),scope:['services/legacy'],coverageStatus:'reusable',consumers:['prepare'],gaps:[]};
+ const observation={topicId:guidance.topicId,topic:guidance.topic,classification:'convention',statement:'Report invalid inputs with a 422 problem document.',scope:['services/new'],supportingEvidence:await Promise.all(['services/new/a.ts','services/new/b.ts'].map(evidence)),counterEvidence:[],coverage:{independentSupports:2,counterexampleSearched:true,counterexampleQueries:['problem(400']},guidanceDisposition:'follow-existing'};
+ const data={guidance:[guidance],observations:[observation],ruleTopics:[{id:'api-errors',title:'API errors'}]};
+ for(const status of ['reusable','conflicting']){
+  guidance.coverageStatus=status;
+  await validateResearch(data,reader);
+  assert.deepEqual(prepareProjectRules(data,await reader.list(),'docs/rigup').job?.ruleSources?.[0]?.scope,['services/new']);
+ }
+ guidance.coverageStatus='reusable';
+ const broad={...data,observations:[{...observation,scope:['services']}]};
+ await assert.rejects(validateResearch(broad,reader),/scope|narrow|split/);
+ assert.equal(prepareProjectRules(broad,await reader.list(),'docs/rigup').job,undefined);
+}));
+
+test('harness supports dynamic topic ids and requires a consumer',()=>fixture(async root=>{
+ const {planHarness}=await import('../src/generator/harness.js');
+ const settings={...opts,sdd:undefined,projectRules:true,projectConventions:{topics:[
+  {id:'api-errors',title:'API errors',scope:['api']},{id:'ui-states',title:'UI states',scope:['ui']},
+  {id:'event-idempotency',title:'Event idempotency',scope:['events']},{id:'other',title:'Outside scope',scope:['unknown']},
+ ]}};
+ for(const scope of ['api','ui','events']){
+  await mkdir(root+'/'+scope);
+  await writeFile(root+'/'+scope+'/source.ts','export const ready = true;\n');
+ }
+ const profile=await scanRepository(root,settings);
+ assert.deepEqual(planHarness(profile,settings,[]).drafts.map(draft=>draft.topicId),['api-errors','event-idempotency','ui-states']);
+ assert.deepEqual(planHarness(profile,{...settings,agents:[]},[]).drafts,[]);
+}));
+
+test('harness does not infer business gaps from scaffolding',()=>fixture(async(root,cache)=>{
+ const settings={...opts,sdd:undefined};
+ await writeFile(root+'/package.json','{"dependencies":{"express":"1.0.0"},"scripts":{"build":"node build.js"}}');
+ await writeFile(root+'/health.js','router.get("/health", (_, res) => res.send("OK"));\n');
+ const generated=await generate(await scanRepository(root,settings),settings,fake().backend,[],{cacheRoot:cache});
+ if(generated.status!=='complete')throw Error('pending');
+ assert.deepEqual(generated.value.harness?.guidance,[]);
+}));
+
+test('harness preserves uncertainty and partial coverage',()=>fixture(async root=>{
+ const {planHarness}=await import('../src/generator/harness.js');
+ await mkdir(root+'/api');
+ await writeFile(root+'/api/a.ts','export const available = true;\n');
+ await writeFile(root+'/errors.md','Use Problem Details for HTTP failures.\n');
+ const settings={...opts,sdd:undefined,projectRules:true};
+ const profile=await scanRepository(root,settings);
+ const sourceRef=(await (await repositoryReader(root,settings)).read('errors.md',1,1)).evidence;
+ const partial={topicId:'api-errors',topic:'API errors',scope:['api'],sourceRef,coverageStatus:'partial',consumers:['agent-entry'],gaps:['Decide how to represent validation details.']};
+ assert.deepEqual(planHarness(profile,settings,[partial]).drafts.map(draft=>draft.questions),[partial.gaps]);
+ assert.deepEqual(planHarness(profile,settings,[partial,{...partial,coverageStatus:'conflicting'}]).drafts,[]);
+ const missing={...partial,coverageStatus:'missing',sourceRef:undefined};
+ const limited={...profile,truncated:true};
+ const result=planHarness(limited,settings,[missing]);
+ assert.equal(result.summary.guidance[0]?.coverageStatus,'unavailable');
+ assert.deepEqual(result.drafts,[]);
+ assert.deepEqual(planHarness(profile,{...settings,scope:['api/a.ts']},[partial]).drafts,[]);
+ assert.deepEqual(planHarness(profile,settings,[{...missing,topicId:undefined}]).drafts,[]);
+ assert.deepEqual(planHarness(profile,settings,[{...missing,consumers:[]}]).drafts,[]);
+ assert.deepEqual(planHarness(profile,settings,[{...missing,consumers:['prepare']}]).drafts,[]);
+}));
+
+test('harness reconciles declared authority before generating or seeding the topic',()=>fixture(async(root,cache)=>{
+ await mkdir(root+'/api');
+ await writeFile(root+'/api/a.ts','return problem(422, issue);\n');
+ await writeFile(root+'/api/b.ts','throw problem(422, errors);\n');
+ await writeFile(root+'/policy.md','Use 400 for invalid requests.\n');
+ const topics=[{id:'api-errors',title:'API errors',scope:['api']},{id:'api-errors',title:'API errors',scope:['.'],source:'policy.md'}];
+ const settings={...opts,sdd:undefined,projectRules:true,projectConventions:{topics}};
+ const {planHarness}=await import('../src/generator/harness.js');
+ const profile=await scanRepository(root,settings);
+ for(const declared of [topics,[...topics].reverse()])assert.deepEqual(planHarness(profile,{...settings,projectConventions:{topics:declared}},[]).drafts,[]);
+ const requests:string[]=[];
+ const backend:AnalysisBackend={run:async(request,reader)=>{
+  requests.push(request.expectedOutput??request.kind);
+  const supportingEvidence=await Promise.all(['api/a.ts','api/b.ts'].map(async path=>(await reader.read(path,1,1)).evidence));
+  return {status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{artifacts:[],dispositions:[],ruleTopics:[{id:'api-errors',title:'API errors'}],observations:[{
+   topicId:'api-errors',topic:'Invalid status codes',statement:'Use 422 for invalid requests.',classification:'convention',scope:['api'],supportingEvidence,counterEvidence:[],
+   coverage:{independentSupports:2,counterexampleSearched:true,counterexampleQueries:['problem(400']},guidanceDisposition:'follow-existing',
+  }]}}};
+ }};
+ const result=await generate(profile,settings,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.deepEqual(requests,['plan']);
+ assert.equal(result.value.harness?.guidance[0]?.sourceRef?.path,'policy.md');
+ assert.ok(result.value.assets.every(asset=>!asset.content.includes('Use 422')));
+}));
+
+test('harness reuses a covered claim and asks about a different partial claim in the same topic',()=>fixture(async root=>{
+ await mkdir(root+'/api');await writeFile(root+'/api/rules.md','Use 400 for invalid requests.\n');
+ const settings={...opts,sdd:undefined,projectRules:true};
+ const profile=await scanRepository(root,settings);
+ const sourceRef=(await (await repositoryReader(root,settings)).read('api/rules.md',1,1)).evidence;
+ const shared={topicId:'api-errors',scope:['api'],sourceRef,consumers:['agent-entry']};
+ const {planHarness}=await import('../src/generator/harness.js');
+ const {drafts}=planHarness(profile,settings,[
+  {...shared,topic:'HTTP status',coverageStatus:'reusable',gaps:[]},
+  {...shared,topic:'Error response bodies',coverageStatus:'partial',gaps:['Choose field-level error shape']},
+ ]);
+ assert.deepEqual(drafts.map(draft=>draft.questions),[['Choose field-level error shape']]);
+}));
+
+test('harness links declared reader-approved YAML authority',()=>fixture(async(root,cache)=>{
+ const settings={...opts,sdd:undefined,projectRules:true,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['.'],source:'openapi.yaml'}]}};
+ await writeFile(root+'/openapi.yaml','openapi: 3.1.0\ninfo: {title: API, version: 1.0.0}\n');
+ const result=await generate(await scanRepository(root,settings),settings,fake([]).backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.equal(result.value.harness?.guidance[0]?.sourceRef?.path,'openapi.yaml');
+ assert.match(result.value.assets.find(asset=>asset.target==='AGENTS.md')?.content??'',/\[openapi\.yaml\]\(openapi\.yaml\)/);
+}));
+
+test('harness keeps verified partial coverage for a declared authority',()=>fixture(async root=>{
+ await writeFile(root+'/policy.md','Use 400 status codes. Response fields still need agreement.\n');
+ const settings={...opts,sdd:undefined,projectRules:true,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['.'],source:'policy.md'}]}};
+ const profile=await scanRepository(root,settings);
+ const sourceRef=(await (await repositoryReader(root,settings)).read('policy.md',1,1)).evidence;
+ const {planHarness}=await import('../src/generator/harness.js');
+ const result=planHarness(profile,settings,[{topicId:'api-errors',topic:'API errors',scope:['.'],sourceRef,consumers:['agent-entry'],coverageStatus:'partial',gaps:['Agree response fields']}]);
+ assert.equal(result.summary.guidance.some(binding=>binding.coverageStatus==='reusable'),false);
+ assert.deepEqual(result.drafts.map(draft=>draft.questions),[['Agree response fields']]);
+}));
+
+test('harness keeps a narrower assessment of a declared authority',()=>fixture(async(root,cache)=>{
+ const settings={...opts,sdd:undefined,projectRules:true,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['.'],source:'policy.md'}]}};
+ await mkdir(root+'/api');
+ await writeFile(root+'/api/handler.ts','export const handler = true;\n');
+ await writeFile(root+'/policy.md','Use 400 status codes. Response fields still need agreement.\n');
+ const profile=await scanRepository(root,settings);
+ const sourceRef=(await (await repositoryReader(root,settings)).read('policy.md',1,1)).evidence;
+ const shared={topicId:'api-errors',topic:'API errors',sourceRef,consumers:['agent-entry']};
+ const gaps=['Agree API response fields.'];
+ const guidance=[{...shared,scope:['.'],coverageStatus:'reusable',gaps:[]},{...shared,scope:['api'],coverageStatus:'partial',gaps}];
+ const backend:AnalysisBackend={run:async()=>({status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},
+  data:{observations:[],artifacts:[],dispositions:[],guidance}}})};
+ const result=await generate(profile,settings,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.deepEqual(result.value.harness?.guidance.filter(binding=>binding.sourceRef?.path==='policy.md')
+  .map(binding=>[binding.scope,binding.coverageStatus,binding.gaps]),[[['api'],'partial',gaps]]);
+ assert.match(result.value.projectDocuments?.[0]?.content??'',/Agree API response fields/);
+ assert.match(result.value.assets.find(asset=>asset.target==='AGENTS.md')?.content??'',/\[policy\.md\]\(policy\.md\) · api/);
+}));
+
+test('harness does not generate rules outside business scope from an extra authority file',()=>fixture(async(root,cache)=>{
+ const settings={...opts,sdd:undefined,projectRules:true,scope:['api'],projectConventions:{topics:[{id:'runtime',title:'Runtime version',scope:['.'],source:'web/package.json'}]}};
+ await mkdir(root+'/api');await mkdir(root+'/web');
+ await writeFile(root+'/api/handler.ts','export const handler = true;\n');
+ await writeFile(root+'/web/package.json',JSON.stringify({scripts:{build:'node build.cjs'},engines:{node:'>=24'}}));
+ const profile=await scanRepository(root,settings),reader=await repositoryReader(root,settings);
+ const source=(await reader.read('web/package.json',1,1)).evidence;
+ const topic={id:'web-build',title:'Web build'};
+ const observation={topicId:topic.id,topic:topic.title,scope:['web'],statement:'Build the web package using Node 24.',classification:'explicit-rule',
+  supportingEvidence:[source],counterEvidence:[],guidanceDisposition:'follow-existing'};
+ const backend:AnalysisBackend={run:async request=>{
+  assert.equal(request.expectedOutput,'plan','a web-only rule must not become an artifact job');
+  return {status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{observations:[observation],ruleTopics:[topic],artifacts:[],dispositions:[]}}};
+ }};
+ const result=await generate(profile,settings,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.ok(result.value.harness?.guidance.some(binding=>binding.topicId==='runtime'&&binding.sourceRef?.path==='web/package.json'));
+ assert.ok(result.value.assets.every(asset=>!asset.target.includes('development-rules')));
+}));
+
+for(const scope of ['api','api/handler.ts']){
+ test('harness keeps verified partial coverage for a confirmed page in '+scope,()=>fixture(async(root,cache)=>{
+  const settings={...opts,sdd:undefined,projectRules:true};
+  const {path,sourceGuidance}=await confirmedHarnessSource(root,settings);
+  const gaps=['Decide retry semantics.'];
+  const assessment={...sourceGuidance[0],scope:[scope],coverageStatus:'partial',gaps};
+  const otherScopes=scope==='api'?[]:[sourceGuidance[0],{...sourceGuidance[0],scope:['api/neighbor.ts']}];
+  await writeFile(root+'/api/neighbor.ts','export const neighbor = true;\n');
+  const profile=await scanRepository(root,settings);
+  const backend:AnalysisBackend={run:async()=>({status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},
+   data:{observations:[],artifacts:[],dispositions:[],guidance:[assessment,...otherScopes]}}})};
+  const result=await generate(profile,settings,backend,[],{cacheRoot:cache});
+  if(result.status!=='complete')throw Error('pending');
+  assert.deepEqual(result.value.harness?.guidance.filter(binding=>binding.sourceRef?.path===path)
+   .map(binding=>[binding.scope,binding.coverageStatus,binding.gaps]),
+   [[[scope],'partial',gaps],...(otherScopes.length?[[['api/neighbor.ts'],'reusable',[]]]:[])]);
+  const {renderConventionSeed}=await import('../src/project-conventions.js');
+  const seed=renderConventionSeed({topicId:'api-errors',title:'API errors',scope,questions:gaps});
+  assert.deepEqual(result.value.projectDocuments?.map(document=>document.target),['docs/rigup/'+seed.target]);
+  assert.match(result.value.projectDocuments?.[0]?.content??'',/Decide retry semantics/);
+  assert.match(result.value.assets.find(asset=>asset.target==='AGENTS.md')?.content??'',/rigup:harness:start[\s\S]*knowledge\/api-errors\.md/);
+ }));
+}
+
+test('harness confirms one scope while another stays draft',()=>fixture(async(root,cache)=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ for(const scope of ['api','web']){
+  await mkdir(root+'/'+scope);
+  await writeFile(root+'/'+scope+'/main.ts','export const ready = true;\n');
+ }
+ await mkdir(root+'/knowledge');
+ const api='knowledge/api-errors.md',web='knowledge/ui-states.md';
+ const confirmed=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'api',questions:['Decide the envelope']}).content.replace('status: draft','status: confirmed')+'API approved response contract.\n';
+ const draft=renderConventionSeed({topicId:'ui-states',title:'UI states',scope:'web',questions:['Decide loading states']}).content+'UI unapproved state rules.\n';
+ await writeFile(root+'/'+api,confirmed);
+ await writeFile(root+'/'+web,draft);
+ const settings={...opts,sdd:undefined,projectRules:true};
+ const profile=await scanRepository(root,settings);
+ const reader=await repositoryReader(root,settings);
+ assert.equal((await reader.search('API approved response')).length,1);
+ assert.equal((await reader.search('UI unapproved state')).length,0);
+ const requests:ResearchRequest[]=[];
+ const backend:AnalysisBackend={run:async request=>{
+  requests.push(request);
+  return {status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{observations:[],artifacts:[],dispositions:[]}}};
+ }};
+ const result=await generate(profile,settings,backend,[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ assert.deepEqual(requests[0].sourceGuidance?.[0]?.scope,['api']);
+ assert.equal(requests[0].sourceGuidance?.[0]?.sourceRef?.path,api);
+ assert.equal(result.value.harness?.guidance.find(binding=>binding.topicId==='api-errors')?.coverageStatus,'reusable');
+ const entry=result.value.assets.find(asset=>asset.target==='AGENTS.md')?.content??'';
+ assert.match(entry,/rigup:harness:start[\s\S]*knowledge\/api-errors\.md[\s\S]*rigup:harness:end/);
+ assert.doesNotMatch(entry,/ui-states\.md/);
+ assert.equal(await readFile(root+'/'+api,'utf8'),confirmed);
+}));
+
+test('harness validates confirmation and keeps conflicting confirmed sources visible for review',()=>fixture(async(root,cache)=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const {planHarness}=await import('../src/generator/harness.js');
+ await mkdir(root+'/api');await writeFile(root+'/api/index.ts','export const api = true;\n');
+ const topic={id:'api-errors',title:'API errors',scope:['api']};
+ const settings={...opts,sdd:undefined,projectRules:true,projectConventions:{topics:[topic]}};
+ const seed=renderConventionSeed({topicId:topic.id,title:topic.title,scope:'api',questions:['Decide the contract']}).content;
+ const one=root+'/one.md',two=root+'/two.md';
+ await writeFile(one,seed.replace('status: draft','status: confirmed')+'# API errors\n\nTODO: fill in\n');
+ const placeholder=await scanRepository(root,settings);
+ assert.ok(placeholder.unknowns.some(note=>note.startsWith('one.md:')));
+ assert.deepEqual(await (await repositoryReader(root,settings)).search('TODO: fill in'),[]);
+ await writeFile(one,seed.replace('status: draft','status: not-applicable')+'This module only processes events.\n');
+ const notApplicable=await scanRepository(root,settings);
+ assert.notEqual(notApplicable.fingerprint,placeholder.fingerprint);
+ assert.deepEqual(planHarness(notApplicable,settings,[]).drafts,[]);
+ await writeFile(one,seed.replace('status: draft','status: confirmed')+'Use HTTP 400.\n');
+ await writeFile(two,seed.replace('status: draft','status: confirmed')+'Use HTTP 422.\n');
+ const conflict=await generate(await scanRepository(root,settings),settings,fake([]).backend,[],{cacheRoot:cache});
+ if(conflict.status!=='complete')throw Error('pending');
+ assert.deepEqual(conflict.value.harness?.guidance.map(binding=>[binding.sourceRef?.path,binding.coverageStatus]),[['one.md','conflicting'],['two.md','conflicting']]);
+ const entry=conflict.value.assets.find(asset=>asset.target==='AGENTS.md')?.content??'';
+ assert.doesNotMatch(entry,/one\.md|two\.md/);
+ assert.equal(conflict.value.projectDocuments,undefined);
+}));
+
+test('harness enforces authorized source scope before accepting planning observations',()=>fixture(async(root,cache)=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ await mkdir(root+'/api');
+ await writeFile(root+'/api/route.ts','export const api = true;\n');
+ await writeFile(root+'/policy.md',renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'api',questions:['Decide']}).content.replace('status: draft','status: confirmed')+'Use 400 responses.\n');
+ const settings={...opts,sdd:undefined,projectRules:true};
+ const profile=await scanRepository(root,settings);
+ const backend:AnalysisBackend={run:async request=>{
+  const source=request.sourceGuidance?.[0];
+  assert.deepEqual(source?.scope,['api']);
+  return {status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{observations:[],artifacts:[],dispositions:[],guidance:[{...source,scope:['.']}]}}};
+ }};
+ await assert.rejects(generate(profile,settings,backend,[],{cacheRoot:cache}),/claim scope exceeds/);
+}));

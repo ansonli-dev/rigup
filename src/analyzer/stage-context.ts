@@ -4,11 +4,11 @@ import type {ResearchRequest,RepositoryReader} from './backend.js';
 import {sliceEvidence,validEvidenceRange,type EvidenceRead} from './evidence.js';
 import {markdownLinks} from '../generator/document-policy.js';
 
-export const STAGE_EVIDENCE_POLICY='stage-evidence-v5';
+export const STAGE_EVIDENCE_POLICY='stage-evidence-v6';
 const locks=new Set(['package-lock.json','npm-shrinkwrap.json','yarn.lock','pnpm-lock.yaml','bun.lock','bun.lockb','Cargo.lock','composer.lock','Gemfile.lock','go.sum','Pipfile.lock','poetry.lock','uv.lock']);
 export const dependencyLock=(path:string)=>locks.has(posix.basename(path));
 export interface EvidenceSlice {path:string;startLine:number;endLine?:number;digest?:string;seedPool?:SeedPool}
-export interface StageContext {stage:string;input:unknown;slices:EvidenceSlice[];unavailable:string[]}
+export interface StageContext {stage:string;input:unknown;sourceGuidance?:ResearchRequest['sourceGuidance'];slices:EvidenceSlice[];unavailable:string[]}
 const record=(value:unknown):Record<string,any>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,any>:{};
 const array=(value:unknown):any[]=>Array.isArray(value)?value:[];
 const strings=(value:unknown):string[]=>array(value).filter((v:unknown)=>typeof v==='string');
@@ -101,6 +101,7 @@ export function stageContext(request:ResearchRequest,paths:string[],nativeEntryP
   slices.set(key,slice);
  };
  const refs=(value:unknown)=>{for(const e of references(value))add({path:e.path,startLine:e.startLine,endLine:e.endLine,digest:e.digest});};
+ refs(request.sourceGuidance);
  const seed=(path:string)=>{
   const matches=paths.filter(p=>within(p,path));
   if(!matches.length)unavailable.add(path+': requested source unavailable in reader inventory');
@@ -187,7 +188,11 @@ export function stageContext(request:ResearchRequest,paths:string[],nativeEntryP
  }
  const selected=[...slices.values()];
  if(stage!=='analyze')selected.sort((a,b)=>a.path.localeCompare(b.path)||a.startLine-b.startLine||(a.endLine??Infinity)-(b.endLine??Infinity));
- return {stage,input:projected,slices:selected,unavailable:[...unavailable].sort()};
+ return {stage,input:projected,...(request.sourceGuidance?{sourceGuidance:request.sourceGuidance}:{}),slices:selected,unavailable:[...unavailable].sort()};
+}
+
+export function stageSourceGuidance(reader:RepositoryReader,guidance:ResearchRequest['sourceGuidance']){
+ return stageEvidence(reader,guidance?.flatMap(binding=>binding.sourceRef?[binding.sourceRef]:[])??[]);
 }
 
 /** Fit exact ranges within a file allowance, sampling later sections of long files. */

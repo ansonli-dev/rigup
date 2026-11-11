@@ -244,3 +244,15 @@ test('authority scopes normalize directory paths and disclose unresolved scope i
   if(scope==='API contributors')assert.ok(body.context.evidenceSelection.unavailable.some((s:string)=>s.includes('scope')));
  }
 }));
+
+test('harness stage evidence includes declared authority beyond conventional guidance paths',()=>fixture(async f=>{
+ const {confirmedHarnessSource}=await import('./helpers.js');
+ const options=f.request.options;
+ const authority=await confirmedHarnessSource(f.root,options);
+ for(const phase of [f.request,f.phase('plan'),f.phase('content'),f.phase('acceptance')]){
+  const current={...phase,options,fingerprint:authority.profile.fingerprint,sourceGuidance:authority.sourceGuidance};
+  const {body}=await exported({...f,reader:authority.reader},current);
+  assert.deepEqual(body.context.sourceGuidance,authority.sourceGuidance);
+  assert.ok(body.evidence.some((item:any)=>item.evidence.path===authority.path&&item.content.includes(authority.body)));
+ }
+}));

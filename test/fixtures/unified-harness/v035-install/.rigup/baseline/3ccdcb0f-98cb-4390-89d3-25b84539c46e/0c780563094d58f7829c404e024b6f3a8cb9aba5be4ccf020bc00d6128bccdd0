@@ -1,0 +1,11 @@
+rigup:checks:
+  stage: test
+  variables:
+    GIT_STRATEGY: clone
+    GIT_CHECKOUT: "true"
+  script:
+    - test "$(git rev-parse HEAD)" = "$CI_COMMIT_SHA"
+    - (cd '.' && 'npm' 'run' 'build')
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH ==
+        $CI_DEFAULT_BRANCH

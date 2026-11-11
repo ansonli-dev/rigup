@@ -1,6 +1,6 @@
 import {execFile} from 'node:child_process';
 import {access,constants,readFile,realpath,stat} from 'node:fs/promises';
-import {isAbsolute,relative,resolve,sep} from 'node:path';
+import {isAbsolute,posix,relative,resolve,sep} from 'node:path';
 import {promisify} from 'node:util';
 import type {ProjectProfile} from '../../analyzer/repository.js';
 import type {CheckSelector,SetupOptions} from '../../types.js';
@@ -25,8 +25,13 @@ async function hasNativeHook(root:string,name:string):Promise<boolean>{
 export async function prepareQuality(profile:ProjectProfile,options:SetupOptions):Promise<IntegrationPreparation>{
  const result:IntegrationPreparation={assets:[],operations:[],warnings:[],requirements:[],bindings:[]};
  const q=options.quality;if(!q)return result;
- const commands=(selectors:CheckSelector[]=[])=>selectedChecks(profile,selectors).flatMap(({name,check})=>{
+ const commands=(selectors:CheckSelector[]=[])=>selectedChecks(profile,selectors).flatMap(({name,check,selector})=>{
   if(check)return [check];
+  const manifest=typeof selector==='string'?undefined:posix.join(selector.cwd,'package.json');
+  if(profile.checkCoverageIncomplete&&(!manifest||!profile.checkManifests?.includes(manifest))){
+   result.warnings.push('Quality check '+name+' could not be verified in this inventory.');
+   return [];
+  }
   result.requirements.push({integrationId:'quality:'+name,reason:'Select an existing project command'});return [];
  });
  const hooks=[['pre-commit',q.preCommit],['pre-push',q.prePush]] as const;
@@ -39,6 +44,7 @@ export async function prepareQuality(profile:ProjectProfile,options:SetupOptions
  });
  if(q.gitlab){
   const checks=commands(q.gitlab.checks);
+  if(profile.gitlabReviewRequired)return result;
   const ci=await prepareGitlab(profile.root,q.gitlab,checks.flatMap(check=>{
    if(check.postgres||check.tools?.includes('pm2')){
     result.requirements.push({integrationId:'gitlab',reason:'Use a project-owned CI job to provision the services for '+check.command.args.join(' ')+' in '+check.command.cwd+'.'});

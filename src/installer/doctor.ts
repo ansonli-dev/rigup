@@ -1,14 +1,15 @@
 import {realpath,access,constants,stat,lstat} from 'node:fs/promises';
 import {delimiter,join} from 'node:path';
 import type {CheckKind,SetupOptions} from '../types.js';
-import {interruptedApplyId,type InstallReport} from './apply.js';
+import {interruptedApplyId,interruptedSeedApplyId,type InstallReport} from './apply.js';
 import {quoteShell} from '../shell-command.js';
-import {loadManifest,trustedBaseline} from './baseline.js';
+import {loadManifest,sourceReview,trustedBaseline,type SourceReview} from './baseline.js';
 import {equalOwnedContent,LinkedRigupDirectoryError,ownedContent,targetPath} from './ownership.js';
 import {readTarget} from './preview.js';
 import {readFileState,platformFileMode} from './file-state.js';
 import {scanRepository} from '../analyzer/repository.js';
 import {runProjectChecks} from '../integrations/tools/quality.js';
+import {planHarness} from '../generator/harness.js';
 import {loadUpstreamLock} from '../integrations/upstream.js';
 import {assertNoUnknownWriters} from './operations.js';
 import {acquireLock,defaultStateRoot} from './lock.js';
@@ -56,7 +57,9 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   return {...report,status:'failed',exitCode:1};
  }
  let interrupted:string|undefined;
- try{interrupted=await interruptedApplyId(root,options.stateRoot??defaultStateRoot());}
+ let pendingReview:SourceReview|undefined;
+ const stateRoot=options.stateRoot??defaultStateRoot();
+ try{interrupted=await interruptedApplyId(root,stateRoot);pendingReview=await sourceReview(root,manifest,stateRoot);}
  catch{add('config','installation','failed','Installation recovery record is unavailable or damaged');return {...report,status:'failed',exitCode:1};}
  if(interrupted){
   add('config','installation','pending','An approved installation was interrupted. Review the saved preview before resuming.');
@@ -64,7 +67,12 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
  }
  if(!manifest){add('config','manifest','pending','No installation manifest; no setup performed');return report;}
  add('config','manifest','configured','Manifest schema readable');const selected:SetupOptions=manifest.options??{agents:[],backend:'native'};
- if(manifest.projectRules){
+ if(pendingReview){
+  report.projectRules='pending';
+  report.sourceReview=pendingReview;
+  report.nextCommand??='rigup update '+quoteShell(root)+' --review';
+  add('config','project-rules','pending','Approved rule sources changed. Review current sources before relying on project rules.');
+ }else if(manifest.projectRules){
   report.projectRules=manifest.projectRules;
   if(manifest.projectRules==='pending')add('config','project-rules','pending','Foundation installed. Run rigup update --review to prepare project rules.');
  }
@@ -115,7 +123,24 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   const initializationReason=native?native.message:externalWiki?'Completed native OpenWiki baseline observed outside Rigup ownership':tool.id==='openwiki'?(nativeReceipt?'Existing native ownership/state needs reconciliation. ':'')+openwikiInitializationGuide:'Native initialization unavailable or ownership/state changed; no initialization or repair executed';
   add('tools',tool.id+':initialization',native||externalWiki?'initialized':'pending',initializationReason);
  }
- if(options.runChecks?.length){const lock=await acquireLock(root,{stateRoot:options.stateRoot});try{await assertNoUnknownWriters(root,lock.stateRoot);report.checks=await runProjectChecks(await scanRepository(root,selected),options.runChecks,options.signal);}finally{await lock.release();}}
+ let profile:Awaited<ReturnType<typeof scanRepository>>|undefined;
+ if(interrupted&&await interruptedSeedApplyId(root,stateRoot)){
+  report.warnings.push('Harness discovery is waiting for the original customer document installation to be reconciled.');
+ }else if(options.runChecks?.length){
+  const lock=await acquireLock(root,{stateRoot:options.stateRoot});
+  try{
+   await assertNoUnknownWriters(root,lock.stateRoot);
+   profile=await scanRepository(root,selected);
+   report.checks=await runProjectChecks(profile,options.runChecks,options.signal);
+  }finally{await lock.release();}
+ }else{
+  try{profile=await scanRepository(root,selected);}
+  catch{report.warnings.push('Harness discovery unavailable under the current repository read policy.');}
+ }
+ if(profile){
+  report.harness=planHarness(profile,selected,[]).summary;
+  report.warnings.push(...profile.unknowns);
+ }
  for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??'Actual selected command result; separate from installation status');
  const failed=diagnostics.some(d=>d.state==='failed');const pending=diagnostics.some(d=>d.state==='pending'||d.state==='reload-required');report.status=diagnostics.some(d=>d.category==='config'&&d.state==='failed')?'failed':interrupted?'pending':'complete';report.exitCode=options.signal?.aborted?130:failed?1:pending?3:0;return report;
 }

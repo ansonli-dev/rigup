@@ -1,0 +1,7 @@
+customer-build:
+  script:
+    - npm run build
+# rigup:ci:start
+include:
+  - local: .rigup/gitlab-ci.yml
+# rigup:ci:end

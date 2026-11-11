@@ -24,6 +24,24 @@ test('monorepo_commands_keep_cwd_and_never_execute',()=>project(async root=>{
  assert.equal(p.commands.test[0].cwd,'packages/a');assert.deepEqual(p.commands.test[0].args,['run','test']);
  await assert.rejects(access(join(root,'packages/a/marker')));
 }));
+
+test('harness reads an extra authority manifest without executing its checks',()=>project(async root=>{
+ const {runProjectChecks}=await import('../src/integrations/tools/quality.js');
+ for(const scope of ['api','web']){
+  await mkdir(join(root,scope));
+  await writeFile(join(root,scope,'package.json'),JSON.stringify({scripts:{build:'node build.cjs'},engines:{node:'>=24'}}));
+  await writeFile(join(root,scope,'build.cjs'),"require('node:fs').writeFileSync('ran.txt','built')\n");
+ }
+ const settings={agents:[],backend:'host' as const,scope:['api'],projectConventions:{topics:[{id:'runtime',title:'Runtime version',scope:['api'],source:'web/package.json'}]}};
+ const profile=await scanRepository(root,settings);
+ const reader=await repositoryReader(root,settings);
+ assert.deepEqual(reader.sourceScopes?.get('web/package.json'),['api']);
+ assert.equal((await reader.read('web/package.json',1,1)).evidence.digest,profile.declaredSources?.['web/package.json']?.digest);
+ const results=await runProjectChecks(profile,['build']);
+ await access(join(root,'api','ran.txt'));
+ await assert.rejects(access(join(root,'web','ran.txt')),{code:'ENOENT'});
+ assert.deepEqual(results.map(result=>[result.command?.cwd,result.status]),[['api','passed']]);
+}));
 test('specialized_package_checks_are_catalogued_separately_from_automatic_checks',()=>project(async root=>{
  await mkdir(join(root,'packages/api'),{recursive:true});
  await writeFile(join(root,'package.json'),JSON.stringify({scripts:{'test:e2e':'touch marker',typecheck:'tsc --noEmit','deps:validate':'node validate.js','test:dev':'vitest'}}));
@@ -163,3 +181,41 @@ test('research_fingerprint_uses_filtered_values_and_coverage_unknowns',()=>proje
 test('managed_sensitive_words_do_not_add_research_unknowns_or_change_fingerprint',()=>project(async root=>{
  await writeFile(root+'/source.js','export const value=1;');const options={agents:[],backend:'host' as const};const first=await scanRepository(root,options);const {mkdir}=await import('node:fs/promises');const {digest}=await import('../src/analyzer/evidence.js');await mkdir(root+'/.rigup/baseline/id',{recursive:true});const whole='Authorization: preserve all approval boundaries.\n';const block='<!-- rigup:start -->\nAuthorization: preserve human gates.\n<!-- rigup:end -->\n';await writeFile(root+'/generated.md',whole);await writeFile(root+'/AGENTS.md',block);await writeFile(root+'/.rigup/baseline/id/whole',whole);await writeFile(root+'/.rigup/baseline/id/block',block);await writeFile(root+'/.rigup/manifest.json',JSON.stringify({schemaVersion:1,installId:'id',assets:[{target:'generated.md',ownership:{kind:'file'},digest:digest(whole),baseline:'.rigup/baseline/id/whole'},{target:'AGENTS.md',ownership:{kind:'block',start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'},digest:digest(block),baseline:'.rigup/baseline/id/block'}]}));const next=await scanRepository(root,options);assert.deepEqual(next.unknowns,first.unknowns);assert.equal(next.fingerprint,first.fingerprint);
 }));
+
+test('harness quarantines draft and malformed pages through every reader entry',()=>project(async root=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const settings={agents:[],backend:'host' as const};
+ const {content}=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'.',questions:['Question']});
+ for(const [path,raw] of [
+  ['draft.md',content+'Private unconfirmed draft body\n'],
+  ['duplicate.md',content.replace('status: draft','status: draft\nstatus: confirmed')+'Private unconfirmed draft body\n'],
+  ['broken.md',content.slice(0,-4)+'Private unconfirmed draft body\n'],
+  ['flow.md','---\n{rigup: team-convention, version: 1, topicId: api-errors, title: API, scope: ., status: draft}\n---\nPrivate unconfirmed draft body\n'],
+  ['flow-duplicate.md','---\n{rigup: other, rigup: team-convention, status: draft}\n---\nPrivate unconfirmed draft body\n'],
+  ['alias.md',content.replace('rigup: team-convention','marker: &team team-convention\nrigup: *team')+'Private unconfirmed draft body\n'],
+  ['leading-blank.md','\n\n'+content+'Private unconfirmed draft body\n'],
+ ]){
+  await writeFile(root+'/'+path,raw);
+ }
+ const reader=await repositoryReader(root,settings);
+ assert.deepEqual(await reader.search('Private unconfirmed draft body'),[]);
+ for(const path of ['draft.md','duplicate.md','broken.md','flow.md','flow-duplicate.md','alias.md','leading-blank.md']){
+  assert.equal((await reader.read(path,1)).content.trim(),'');
+  assert.equal((await reader.evidencePass()(path,1)).content.trim(),'');
+ }
+ const profile=await scanRepository(root,settings);
+ assert.deepEqual(profile.conventions?.map(page=>page.status),['draft','draft','draft','draft']);
+ assert.ok(profile.unknowns.some(note=>note.startsWith('duplicate.md:')));
+ assert.ok(profile.unknowns.some(note=>note.startsWith('broken.md:')));
+}));
+
+test('harness confirmation rejects pure checklist, numbered and punctuation placeholders',async()=>{
+ const {readConventionDocument,renderConventionSeed}=await import('../src/project-conventions.js');
+ const {content}=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'.',questions:['Decide']});
+ for(const status of ['confirmed','not-applicable'])for(const body of ['- [ ] TODO\n','1. TBD\n','...\n','```md\nTODO\n```\n']){
+  const result=readConventionDocument('policy.md',content.replace('status: draft','status: '+status)+body);
+  assert.equal(result.page,undefined);
+  assert.equal(result.researchText.trim(),'');
+  assert.ok(result.warnings.length);
+ }
+});

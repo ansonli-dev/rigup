@@ -146,3 +146,212 @@ test('kept_local_gitlab_include_cannot_remove_required_ci_binding',()=>fixture(a
  let generated=await generate(await scanRepository(root,options),options,backend,[],{cacheRoot:cache});if(generated.status!=='complete')throw Error('pending');await apply((await preview(generated.value,[],{cacheRoot:cache})).previewId,{cacheRoot:cache,stateRoot:state});const original=await readFile(root+'/.gitlab-ci.yml','utf8');await writeFile(root+'/.gitlab-ci.yml',original.replace('.rigup/gitlab-ci.yml','customer.yml'));await writeFile(root+'/customer.yml','customer: {script: echo customer}\n');
  generated=await generate(await scanRepository(root,options),options,backend,(await loadManifest(root))!.assets,{cacheRoot:cache});if(generated.status!=='complete')throw Error('pending');const p=await preview(generated.value,[],{cacheRoot:cache});assert.equal(p.executable,false);assert.ok(p.blockers.some(b=>/CI|include|binding/.test(b)));
 })));
+
+test('harness preserves global CI during scoped updates',()=>fixture(async(root,cache)=>project(async state=>{
+ const {generateFoundation,prepareGeneration}=await import('../src/generator/generate.js');
+ const {loadManifest,trustedBaseline}=await import('../src/installer/baseline.js');
+ const {mkdir,rename,unlink}=await import('node:fs/promises');
+ const {parse}=await import('yaml');
+ const ci='.gitlab-ci.yml',jobs='.rigup/gitlab-ci.yml';
+ const original='customer:\n  script: echo customer\n';
+ await writeFile(root+'/'+ci,original);
+ for(const cwd of ['api','web']){
+  await mkdir(root+'/'+cwd);
+  await writeFile(root+'/'+cwd+'/package.json','{"scripts":{"build":"node build.js"}}');
+ }
+ const settings={agents:[],backend:'host' as const,quality:{gitlab:{checks:[{cwd:'api',script:'build'},{cwd:'web',script:'build'}]}}};
+ const backend={run:async()=>{throw Error('no model');}};
+ async function review(options:import('../src/types.js').SetupOptions,foundation=false){
+  const profile=await scanRepository(root,options);
+  const old=(await loadManifest(root))?.assets??[];
+  const plan=foundation
+   ?await generateFoundation(profile,options,await prepareGeneration(profile,options),old)
+   :await generate(profile,options,backend,old,{cacheRoot:cache}).then(result=>{
+     if(result.status!=='complete')throw Error('pending');
+     return result.value;
+    });
+  return preview(plan,[],{cacheRoot:cache});
+ }
+ const commands=async()=>parse(await readFile(root+'/'+jobs,'utf8'))['rigup:checks'].script.slice(1);
+ const install=async(options:import('../src/types.js').SetupOptions,foundation=false)=>{
+  const result=await review(options,foundation);
+  assert.deepEqual(result.blockers,[]);
+  return apply(result.previewId,{cacheRoot:cache,stateRoot:state});
+ };
+ const initial=await install(settings);
+ assert.deepEqual(initial.checks,[]);
+ assert.deepEqual(initial.harness?.checks.map(check=>check.command.cwd),['api','web']);
+ assert.deepEqual(await commands(),["(cd 'api' && 'npm' 'run' 'build')","(cd 'web' && 'npm' 'run' 'build')"]);
+ const initialManifest=(await loadManifest(root))!;
+ const jobAsset=initialManifest.assets.find(asset=>asset.target===jobs)!;
+ const base=await trustedBaseline(root,jobAsset);
+ const ciBytes=await readFile(root+'/'+ci,'utf8')+'# customer local edit\n';
+ await writeFile(root+'/'+ci,ciBytes);
+ const edited=(await readFile(root+'/'+jobs,'utf8'))+'# customer job comment\n';
+ await writeFile(root+'/'+jobs,edited);
+ const scoped={...settings,scope:['api']};
+ for(const foundation of [false,true,true]){
+  const applied=await install(scoped,foundation);
+  assert.ok(applied.warnings.some(note=>/root review/.test(note)));
+  assert.deepEqual(applied.written,[]);
+  assert.equal(await readFile(root+'/'+ci,'utf8'),ciBytes);
+  assert.equal(await readFile(root+'/'+jobs,'utf8'),edited);
+  assert.equal(await trustedBaseline(root,(await loadManifest(root))!.assets.find(asset=>asset.target===jobs)!),base);
+ }
+ await rename(root+'/web',state+'/web');
+ await symlink(state+'/web',root+'/web',process.platform==='win32'?'junction':'dir');
+ for(const options of [settings,{...settings,quality:{gitlab:{checks:['build' as const]}}}]){
+  const applied=await install(options);
+  assert.ok(applied.warnings.some(note=>/root review/.test(note)));
+  assert.deepEqual(applied.written,[]);
+  assert.equal(await readFile(root+'/'+ci,'utf8'),ciBytes);
+  assert.equal(await readFile(root+'/'+jobs,'utf8'),edited);
+ }
+ await unlink(root+'/web');
+ await rename(state+'/web',root+'/web');
+ const reviewed={...settings,quality:{gitlab:{checks:[{cwd:'api',script:'build'}]}}};
+ await install(reviewed);
+ assert.deepEqual(await commands(),["(cd 'api' && 'npm' 'run' 'build')"]);
+ assert.equal(await readFile(root+'/'+ci,'utf8'),ciBytes);
+ assert.match(await readFile(root+'/'+jobs,'utf8'),/# customer job comment/);
+ assert.deepEqual((await install(reviewed)).written,[]);
+})));
+
+test('harness preserves explicit GitLab selection',()=>fixture(async(root,cache)=>project(async state=>{
+ const backend={run:async()=>{throw Error('no model');}};
+ const original='customer:\n  script: npm run build\n';
+ await writeFile(root+'/.gitlab-ci.yml',original);
+ await writeFile(root+'/package.json','{"scripts":{"build":"node build.js"}}');
+ for(const selected of [false,true]){
+  const settings={agents:[],backend:'host' as const,...(selected?{quality:{gitlab:{checks:['build' as const]}}}:{})};
+  const result=await generate(await scanRepository(root,settings),settings,backend,[],{cacheRoot:cache});
+  if(result.status!=='complete')throw Error('pending');
+  const review=await preview(result.value,[],{cacheRoot:cache});
+  assert.equal(review.executable,true);
+  assert.equal(review.harness?.ci[0]?.coverageStatus,'reusable');
+  const installed=await apply(review.previewId,{cacheRoot:cache,stateRoot:state});
+  assert.deepEqual(installed.checks,[]);
+  const actual=await readFile(root+'/.gitlab-ci.yml','utf8');
+  if(selected){
+   assert.ok(actual.startsWith(original));
+   assert.ok(actual.includes('.rigup/gitlab-ci.yml'));
+  }else assert.equal(actual,original);
+ }
+})));
+
+test('harness gaps are informational while scanned missing checks still block',()=>fixture(async(root,cache)=>{
+ await writeFile(root+'/package.json','{"scripts":{"build":"node build.js"}}');
+ const settings={agents:[],backend:'host' as const,projectRules:true};
+ const guidance={topic:'Errors',topicId:'api-errors',scope:['.'],coverageStatus:'missing',consumers:['prepare'],gaps:['Decide the error envelope']};
+ const backend={run:async()=>({status:'complete' as const,value:{data:{observations:[],guidance:[guidance],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}})};
+ const generated=await generate(await scanRepository(root,settings),settings,backend,[],{cacheRoot:cache});
+ if(generated.status!=='complete')throw Error('pending');
+ const review=await preview(generated.value,[],{cacheRoot:cache});
+ assert.equal(review.executable,true);
+ assert.deepEqual(review.blockers,[]);
+ assert.deepEqual(review.harness?.guidance[0]?.gaps,guidance.gaps);
+
+ const scoped={...settings,scope:['package.json'],quality:{gitlab:{checks:[{cwd:'.',script:'lint'}]}}};
+ const blocked=await generate(await scanRepository(root,scoped),scoped,backend,[],{cacheRoot:cache});
+ if(blocked.status!=='complete')throw Error('pending');
+ assert.match((await preview(blocked.value,[],{cacheRoot:cache})).blockers.join('\n'),/npm run lint: Select an existing project command/);
+}));
+
+test('harness still blocks missing npm kinds when only GitLab is ignored',()=>fixture(async(root,cache)=>{
+ await writeFile(root+'/package.json','{"scripts":{"build":"node build.js"}}');
+ await writeFile(root+'/.rigupignore','/.gitlab-ci.yml\n');
+ const settings={agents:[],backend:'host' as const,quality:{gitlab:{checks:['lint' as const]}}};
+ const result=await generate(await scanRepository(root,settings),settings,{run:async()=>{throw Error('no model');}},[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ const review=await preview(result.value,[],{cacheRoot:cache});
+ assert.equal(review.executable,false);
+ assert.match(review.blockers.join('\n'),/lint: Select an existing project command/);
+}));
+
+test('harness seeds customer pages without exposing draft evidence',()=>fixture(async(root,cache)=>project(async state=>{
+ const {generateFoundation,prepareGeneration}=await import('../src/generator/generate.js');
+ const {repositoryReader}=await import('../src/analyzer/repository.js');
+ const {loadManifest}=await import('../src/installer/baseline.js');
+ const settings={agents:['codex' as const],backend:'host' as const,projectRules:true,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['.']}]}};
+ await writeFile(root+'/app.js','export const healthy = true;\n');
+ const profile=await scanRepository(root,settings);
+ const plan=await generateFoundation(profile,settings,await prepareGeneration(profile,settings));
+ const review=await preview(plan,[],{cacheRoot:cache});
+ const document=review.projectDocuments?.[0];
+ assert.equal(document?.action,'create');
+ assert.match(document!.target,/^docs\/rigup\/conventions\/api-errors--[a-f0-9]{64}\.md$/);
+ const installed=await apply(review.previewId,{cacheRoot:cache,stateRoot:state});
+ assert.ok(installed.written.includes(document!.target));
+ const manifest=(await loadManifest(root))!;
+ assert.equal(manifest.assets.some(asset=>asset.target===document!.target),false);
+ assert.deepEqual(manifest.seededProjectDocuments,[{topicId:'api-errors',scope:'.',target:document!.target}]);
+ const seed=await readFile(root+'/'+document!.target,'utf8');
+ assert.match(seed,/status: draft/);
+ await writeFile(root+'/'+document!.target,seed+'Unconfirmed business convention\n');
+ const reader=await repositoryReader(root,settings);
+ assert.deepEqual(await reader.search('Unconfirmed business convention'),[]);
+ assert.doesNotMatch((await reader.read(document!.target,1)).content,/Unconfirmed business convention|api-errors/);
+})));
+
+test('harness preserves existing pages and does not claim their ownership',()=>fixture(async(root,cache)=>project(async state=>{
+ const {harnessPlan}=await import('./helpers.js');
+ const {loadManifest}=await import('../src/installer/baseline.js');
+ const {dirname}=await import('node:path');
+ const settings={agents:['codex' as const],backend:'host' as const,projectRules:true,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['.']}]}};
+ const initial=await harnessPlan(root,cache,settings);
+ const target=initial.projectDocuments![0].target;
+ const local='Customer-owned guide at the prospective path.\n';
+ await mkdir(dirname(root+'/'+target),{recursive:true});
+ await writeFile(root+'/'+target,local);
+ const updated=await harnessPlan(root,cache,settings);
+ const review=await preview(updated,[],{cacheRoot:cache,stateRoot:state});
+ assert.equal(review.projectDocuments?.[0]?.action,'preserve');
+ assert.equal(review.items.some(item=>item.target===target),false);
+ await apply(review.previewId,{cacheRoot:cache,stateRoot:state});
+ assert.equal(await readFile(root+'/'+target,'utf8'),local);
+ const manifest=(await loadManifest(root))!;
+ assert.deepEqual(manifest.seededProjectDocuments??[],[]);
+ assert.ok(manifest.assets.every(asset=>asset.target!==target));
+})));
+
+test('harness does not resurrect deleted or moved pages after a route change',()=>fixture(async(root,cache)=>project(async state=>{
+ const {harnessPlan}=await import('./helpers.js');
+ const {loadManifest}=await import('../src/installer/baseline.js');
+ const {rename,unlink}=await import('node:fs/promises');
+ const topic=(id:string)=>({id,title:id,scope:['.']});
+ const initial={agents:['codex' as const],backend:'host' as const,projectRules:true,projectConventions:{topics:[topic('api-errors'),topic('ui-states')]}};
+ const review=async(options:typeof initial)=>preview(await harnessPlan(root,cache,options),[],{cacheRoot:cache,stateRoot:state});
+ const first=await review(initial);
+ await apply(first.previewId,{cacheRoot:cache,stateRoot:state});
+ const [deleted,moved]=(await loadManifest(root))!.seededProjectDocuments!.map(document=>document.target);
+ const movedText=(await readFile(root+'/'+moved,'utf8'))+'Customer draft body\n';
+ await unlink(root+'/'+deleted);
+ await rename(root+'/'+moved,root+'/moved.md');
+ await writeFile(root+'/moved.md',movedText);
+ const next={...initial,projectConventions:{documentRoutes:{context:'new-context'},topics:[...initial.projectConventions.topics,topic('event-contract')]}};
+ const updated=await review(next);
+ assert.deepEqual(updated.projectDocuments?.filter(document=>document.action==='preserve').map(document=>document.target),[deleted,moved]);
+ const created=updated.projectDocuments?.filter(document=>document.action==='create')??[];
+ assert.equal(created.length,1);
+ assert.match(created[0].target,/^new-context\/conventions\/event-contract--/);
+ await apply(updated.previewId,{cacheRoot:cache,stateRoot:state});
+ assert.equal(await readFile(root+'/moved.md','utf8'),movedText);
+ for(const target of [deleted,moved])await assert.rejects(readFile(root+'/'+target),{code:'ENOENT'});
+ assert.equal((await loadManifest(root))!.seededProjectDocuments!.length,3);
+})));
+
+test('harness rejects prospective file ancestor collisions and aliases',()=>fixture(async(root,cache)=>{
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const seed=(topicId:string,scope:string)=>renderConventionSeed({topicId,scope,title:topicId,questions:['Choose an applicable convention']});
+ const a=seed('api-errors','.'),b=seed('formatting','api-errors.md');
+ assert.notEqual(a.target,b.target);
+ const collision={...b,target:a.target+'/child.md'};
+ for(const target of [collision.target,a.target.toUpperCase().replace(/\.MD$/,'.md')]){
+  const mixed=plan(root,target,'customer-facing binding');
+  await assert.rejects(preview({...mixed,projectDocuments:[a]},[],{cacheRoot:cache}),/overlap|alias/);
+  await assert.rejects(preview({...mixed,assets:[],projectDocuments:[a,{...b,target}]},[],{cacheRoot:cache}),/overlap|alias/);
+ }
+ const first=plan(root,'docs/parent.md');
+ await assert.rejects(preview({...first,assets:[first.assets[0],{...first.assets[0],logicalId:'b',target:'docs/parent.md/child.md'}]},[],{cacheRoot:cache}),/ancestor|overlap/);
+ await assert.rejects(readFile(root+'/.rigup/manifest.json'),{code:'ENOENT'});
+}));

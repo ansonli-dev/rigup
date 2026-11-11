@@ -10,7 +10,7 @@ import {researchBudget} from './analyzer/budget.js';
 import type {SetupOptions} from './types.js';
 import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
-import {apply,interruptedApplyOptions} from './installer/apply.js';
+import {apply,interruptedApplyOptions,interruptedSeedApplyId} from './installer/apply.js';
 import {doctor} from './installer/doctor.js';
 import {sessionHandoffRequired} from './installer/session.js';
 import {defaultStateRoot} from './installer/lock.js';
@@ -131,7 +131,19 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  }
  const resumeApply=flags.resume&&!flags.request&&!flags.response&&!flags.researchTokens&&!values['--prepare-openspec']&&!values['--continue'];
  let savedApplyOptions:SetupOptions|undefined;
- try{if(resumeApply)savedApplyOptions=await interruptedApplyOptions(root,services.stateRoot);}
+ try{
+  if(resumeApply)savedApplyOptions=await interruptedApplyOptions(root,services.stateRoot);
+  else{
+   const interruptedPreviewId=await interruptedSeedApplyId(root,services.stateRoot);
+   if(interruptedPreviewId){
+    const nextCommand='rigup update '+quoteShell(root)+' --resume --review';
+    const message='Reconcile the interrupted customer document creation using the original approval.';
+    services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId,pending:[message],nextCommand});
+    io.write(message+'\n'+nextCommand+'\n');
+    return 3;
+   }
+  }
+ }
  catch(error){io.write(errorMessage(error)+'\n');return 1;}
  let options:SetupOptions;
  let draftPath:string|undefined;

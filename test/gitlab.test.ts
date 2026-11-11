@@ -77,3 +77,71 @@ test('customer_runtime_declarations_are_not_install_plugins_or_release_adapters'
  assert.throws(()=>prepareCustomer({agents:['codex'],backend:'host',sdd:'openspec',customer:{installer:'evil.js'} as any}),/customer/);
  const result=prepareCustomer({agents:['codex'],backend:'host',sdd:'openspec',customer:{commands:{deploy:{executable:'customer-deploy',args:[],cwd:'.',envRefs:['DEPLOY_TOKEN']}},deployment:{adapter:'unverified-customer',target:'production',authorizationReference:'existing-approval',recoveryRunbook:'docs/recovery.md'}}});assert.deepEqual(result.operations,[]);assert.ok(result.warnings.some(w=>/Release binding pending/.test(w)));assert.ok(!result.assets.some(a=>a.target.includes('change-release')));
 });
+
+test('harness correlates GitLab jobs by cwd and script',()=>project(async root=>{
+ const {scanRepository}=await import('../src/analyzer/repository.js');
+ const {mkdir}=await import('node:fs/promises');
+ for(const cwd of ['api','web']){
+  await mkdir(root+'/'+cwd);
+  await writeFile(root+'/'+cwd+'/package.json','{"scripts":{"build":"node build.js"}}');
+ }
+ await writeFile(root+'/.gitlab-ci.yml','api:\n  script: cd api && npm run build\npages:\n  script: cd web && npm run build\nunknown:\n  script: cd web && npm run lint\n');
+ const profile=await scanRepository(root,{agents:[],backend:'host'});
+ assert.deepEqual(profile.gitlabJobs?.map(job=>[job.job,job.command?.cwd,job.coverageStatus]),[
+  ['api','api','reusable'],['pages','web','reusable'],['unknown','web','unavailable']
+ ]);
+}));
+
+test('harness preserves unknown coverage',()=>project(async root=>{
+ const {scanRepository}=await import('../src/analyzer/repository.js');
+ await writeFile(root+'/package.json','{"scripts":{"build":"node build.js"}}');
+ const options={agents:[],backend:'host'} as const;
+ const settings={...options,agents:[]};
+ for(const context of ['include: https://ci.example.org/shared.yml\n','default:\n  before_script: [cd web]\n','before_script: [cd web]\n','workflow:\n  rules: [{variables: {NPM_CONFIG_PREFIX: web}}]\n']){
+  await writeFile(root+'/.gitlab-ci.yml',context+'build:\n  script: npm run build\n');
+  const profile=await scanRepository(root,settings);
+  assert.equal(profile.gitlabJobs?.find(job=>job.job==='build')?.coverageStatus,'unavailable');
+ }
+ await writeFile(root+'/.gitlab-ci.yml','build:\n  script: [cd web, npm run build]\n');
+ assert.equal((await scanRepository(root,settings)).gitlabJobs?.[0]?.coverageStatus,'unavailable');
+ const limited=await scanRepository(root,{...settings,readBudget:{maxFiles:1}});
+ assert.equal(limited.truncated,true);
+ assert.ok(limited.gitlabJobs?.every(job=>job.coverageStatus==='unavailable'));
+ await writeFile(root+'/.rigupignore','/.gitlab-ci.yml\n');
+ const ignored=await scanRepository(root,settings);
+ assert.equal(ignored.gitlabJobs?.some(job=>job.job==='build')??false,false);
+ assert.ok(ignored.unknowns.some(note=>note.includes('.gitlab-ci.yml')));
+}));
+
+test('harness treats shell cd options and job variable contexts as unknown',()=>project(async root=>{
+ const {scanRepository}=await import('../src/analyzer/repository.js');
+ const {mkdir}=await import('node:fs/promises');
+ await mkdir(root+'/-');
+ await writeFile(root+'/-/package.json','{"scripts":{"build":"node build.js"}}');
+ await writeFile(root+'/package.json','{"scripts":{"build":"node build.js"}}');
+ await writeFile(root+'/.gitlab-ci.yml',`previous-dir:
+  script: cd - && npm run build
+rules-env:
+  rules: [{variables: {NPM_CONFIG_PREFIX: web}}]
+  script: npm run build
+matrix-env:
+  parallel: {matrix: [{NPM_CONFIG_PREFIX: web}]}
+  script: npm run build
+`);
+ const {gitlabJobs}=await scanRepository(root,{agents:[],backend:'host'});
+ assert.deepEqual(gitlabJobs?.map(job=>job.coverageStatus),['unavailable','unavailable','unavailable']);
+}));
+
+test('harness leaves GitLab wiring unverified when an ignored directory cannot be inventoried',
+ {skip:process.platform==='win32'||process.getuid?.()===0},()=>project(async root=>{
+  const {scanRepository}=await import('../src/analyzer/repository.js');
+  const {chmod,mkdir}=await import('node:fs/promises');
+  await mkdir(root+'/web');
+  await writeFile(root+'/web/package.json','{"scripts":{"build":"node build.js"}}');
+  await writeFile(root+'/.rigupignore','/web/\n');
+  await chmod(root+'/web',0);
+  try{
+   const profile=await scanRepository(root,{agents:[],backend:'host'});
+   assert.equal(profile.gitlabReviewRequired,true);
+  }finally{await chmod(root+'/web',0o700);}
+ }));

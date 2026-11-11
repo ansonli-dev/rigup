@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "platform": "darwin",
+  "arch": "arm64",
+  "release": "27.0.0",
+  "node": "v24.15.0",
+  "oldVersion": "0.3.5",
+  "newVersion": "0.4.0",
+  "oldCommit": "be0ca645f9c99c6890adedb9bc7141e3ea720ab2",
+  "oldApprovalRejected": true,
+  "newApprovalApplied": true
+}

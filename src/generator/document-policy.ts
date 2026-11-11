@@ -1,7 +1,7 @@
 import type {ArtifactJob} from './artifacts.js';
 import {relativeTarget} from './artifacts.js';
 export const DOCUMENT_POLICY_VERSION='1';
-export const markdownLinks=(text:string)=>text.matchAll(/(?<!\\)(?:\\\\)*\[[^\]]*\]\(([^)]+)\)/g);
+export const markdownLinks=(text:string)=>text.matchAll(/(?<!\\)(?:\\\\)*\[(?:\\.|[^\\\]])*\]\(([^)]+)\)/g);
 const overview=/as[- ]is|system overview|architecture overview|系统现状|架构全景/i;
 export function validateDocumentTarget(target:string,allowedRoots:string[]):void {
  if(!relativeTarget(target)||!allowedRoots.some(root=>relativeTarget(root)&&target.startsWith(root+'/'))||/\/(?:SKILL|AGENTS|CLAUDE)\.md$/.test(target)) throw new Error('document target outside allowed scope');

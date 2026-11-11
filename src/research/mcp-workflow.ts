@@ -3,7 +3,8 @@ import {realpath} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {selectResearchOutput,validateResearch,type AnalysisBackend,type RepositoryReader,type ResearchRequest} from '../analyzer/backend.js';
-import {digest} from '../analyzer/evidence.js';
+import {digest,type EvidenceRead} from '../analyzer/evidence.js';
+import {stageSourceGuidance} from '../analyzer/stage-context.js';
 import {PROMPT_VERSION,researchPrompt} from '../analyzer/prompts.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
 import {scanRepository} from '../analyzer/repository.js';
@@ -11,11 +12,12 @@ import {loadOptions,normalizeDocumentLanguage} from '../config.js';
 import {privateDirectory,signature} from '../generator/cache.js';
 import {DOCUMENT_POLICY_VERSION} from '../generator/document-policy.js';
 import {inventorySignature} from '../generator/generate.js';
+import {sourceGuidance} from '../generator/harness.js';
 import {TEMPLATE_VERSION} from '../generator/render.js';
 import {interruptedApplyId} from '../installer/apply.js';
-import {loadManifest,trustedBaseline,type Manifest} from '../installer/baseline.js';
+import {loadManifest,sourceReview,trustedBaseline,type Manifest} from '../installer/baseline.js';
 import {acquireLock,defaultStateRoot} from '../installer/lock.js';
-import {absentDigest,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
+import {absentDigest,installationInput,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
 import {platformFileMode,readFileState,readFileStates,matchesFileState} from '../installer/file-state.js';
 import {equalOwnedContent,ownedContent} from '../installer/ownership.js';
 import {executeLifecycle} from '../lifecycle.js';
@@ -34,7 +36,7 @@ const hostPrompt=researchPrompt
  + '\nStart with the supplied seed paths. Scope Glob and Grep to relevant project source or test directories. Exclude .rigup/tools/ and dependency trees from searches, and ignore any matches there.';
 const maxSubmissionBytes=256_000;
 type JobStage='analysis'|'plan'|'page'|'acceptance';
-interface Job {id:string;stage:JobStage;expectedOutput:'analysis'|'plan'|'content'|'acceptance';options:{documentLanguage:string};artifact?:string;input?:unknown;seedPaths?:string[]}
+interface Job {id:string;stage:JobStage;expectedOutput:'analysis'|'plan'|'content'|'acceptance';options:{documentLanguage:string};artifact?:string;input?:unknown;seedPaths?:string[];sourceGuidance?:ResearchRequest['sourceGuidance'];sourceEvidence?:EvidenceRead[]}
 interface Submission {id:string;digest:string;stage:JobStage|'planning';data:Record<string,unknown>}
 interface ResearchState {
  version:1;id:string;scope:string;startingInventory:string;language?:string;
@@ -54,15 +56,16 @@ const validState=(state:ResearchState)=>state.version===1&&typeof state.id==='st
  (state.inFlight===undefined||isRecord(state.inFlight)&&validDigest(state.inFlight.id)&&validDigest(state.inFlight.digest))&&
  (state.result===undefined||isRecord(state.result)&&validDigest(state.result.previewId)&&validDigest(state.result.inventory)&&(state.result.retireIds===undefined||validIds(state.result.retireIds)));
 
-async function previewStillCurrent(root:string,data:PreviewData):Promise<boolean>{
+async function previewStillCurrent(root:string,data:PreviewData,stateRoot:string):Promise<boolean>{
  const current=await readTarget(root,'.rigup/manifest.json');
  if((current?digest(current):absentDigest)!==data.manifestDigest)return false;
+ if(signature(await sourceReview(root,data.oldManifest,stateRoot)??null)!==signature(data.sourceReview??null))return false;
  const files=new Map(data.files.map(file=>[file.target,file]));
  for await(const {target,state} of readFileStates(root,data.files.map(file=>file.target))){
   const expected=files.get(target)!;
   if(!matchesFileState(state,expected.observedDigest,expected.observedMode))return false;
  }
- return true;
+ return await installationInput(root,data.plan,data.files.map(file=>file.target)).catch(()=>undefined)===data.inputSnapshot;
 }
 
 async function installedAssetsMatch(root:string,manifest:Manifest):Promise<boolean>{
@@ -130,9 +133,10 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
    if(!options.projectRules||!options.agents.includes(host))throw Error('Enable project rules and apply the selection for this host before starting research');
    const profile=await scanRepository(root,options);
    if(profile.researchBlocked)throw Error(profile.researchBlocked);
-   const scope=signature({root,host,options,fingerprint:profile.fingerprint,config:config&&digest(config),policy});
+   const scope=signature({root,host,options,fingerprint:profile.fingerprint,sourceGuidance:sourceGuidance(profile,options),config:config&&digest(config),policy});
    const currentInventory=inventorySignature(manifest.assets);
-   const lastResultApplied=state?.scope===scope&&state.result?.inventory===currentInventory&&manifest.projectRules==='ready'&&signature(manifest.options)===signature(options);
+   const pendingSourceReview=await sourceReview(root,manifest,lock.stateRoot);
+   const lastResultApplied=!pendingSourceReview&&state?.scope===scope&&state.result?.inventory===currentInventory&&manifest.projectRules==='ready'&&signature(manifest.options)===signature(options);
    if(lastResultApplied&&['rigup_begin','rigup_finish'].includes(name)&&await installedAssetsMatch(root,manifest).catch(()=>false))return {status:'noop',runId:state!.id};
    if(name==='rigup_begin'){
     if(lastResultApplied||state?.scope!==scope||state.startingInventory!==currentInventory){
@@ -152,7 +156,7 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
     const load=()=>loadPreview(state!.result!.previewId,previews);
     const saved=await load().catch(error=>{if((error as Error).message!=='private preview missing or corrupted')throw error;});
     let preview=saved?.preview;
-    if(!saved||signature(retireIds??[])!==signature(state.result.retireIds??[])||!await previewStillCurrent(root,saved)){
+    if(!saved||signature(retireIds??[])!==signature(state.result.retireIds??[])||!await previewStillCurrent(root,saved,lock.stateRoot)){
      const regenerated=await advanceResearch(root,host,state,path,options,profile.fingerprint,undefined,{cacheRoot,stateRoot:lock.stateRoot},retireIds);
      if(regenerated.status!=='ready')throw Error('Research generation state could not restore the preview');
      preview=(await load()).preview;
@@ -177,16 +181,17 @@ async function advanceResearch(root:string,host:Agent,state:ResearchState,path:s
   }
   if(submission&&state.accepted[submission.id]!==submission.digest)throw Error('The submitted job is not the pending research job');
  };
- const backend:AnalysisBackend={artifactContextVersion:'mcp-2',run:async(request:ResearchRequest,reader)=>{
+ const backend:AnalysisBackend={artifactContextVersion:'mcp-3',run:async(request:ResearchRequest,reader)=>{
   const model='host-agent/'+host;
   const expectedOutput=request.expectedOutput??'analysis';
   const stage:JobStage=expectedOutput==='content'?'page':expectedOutput;
-  const id=signature({run:state.id,stage,artifact:request.artifact,input:request.input});
+  const id=signature({run:state.id,stage,artifact:request.artifact,input:request.input,sourceGuidance:request.sourceGuidance});
+  const sourceEvidence=await stageSourceGuidance(reader,request.sourceGuidance);
   if(submission&&!consumed&&submission.id===id){
    if((stage==='page'||stage==='acceptance')!==(submission.stage==='page'))throw Error('Use the submission tool for this job stage');
    if(state.inFlight?.id===id&&state.inFlight.digest!==submission.digest)throw Error('Retry the in-flight job with the same data');
    const data=selectResearchOutput(request,await hydrateEvidence(submission.data,reader));
-   await validateResearch(data,reader);
+   await validateResearch(data,reader,undefined,sourceEvidence);
    const unknowns=(data as {unknowns?:unknown}).unknowns;
    if(!Array.isArray(unknowns)||unknowns.some(item=>typeof item!=='string'))throw Error('unknowns: string array required');
    state.inFlight={id,digest:submission.digest};
@@ -194,7 +199,9 @@ async function advanceResearch(root:string,host:Agent,state:ResearchState,path:s
    consumed=true;
    return {status:'complete',value:{model,data,unknowns,usage:{calls:1,tokens:'unknown'}}};
   }
-  throw new AwaitingJob({id,stage,expectedOutput,options:{documentLanguage:options.documentLanguage??'auto'},artifact:request.artifact,input:request.input,...(stage==='analysis'?{seedPaths:(await reader.list()).slice(0,200)}:{})});
+  throw new AwaitingJob({id,stage,expectedOutput,options:{documentLanguage:options.documentLanguage??'auto'},artifact:request.artifact,input:request.input,
+   ...(request.sourceGuidance?.length?{sourceGuidance:request.sourceGuidance,sourceEvidence}:{}),
+   ...(stage==='analysis'?{seedPaths:(await reader.list()).slice(0,200)}:{})});
  }};
  let report:Record<string,unknown>|undefined;
  try{

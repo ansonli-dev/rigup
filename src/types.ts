@@ -6,7 +6,7 @@ export interface SetupOptions {
   sdd?: 'superpowers'|'openspec'|'spec-kit';
   tools?: {id:'openwiki'|'codegraph';install:boolean;initialize:boolean;agents:Agent[]}[];
   customSkills?: {source:string;position?:'prepare'|'deliver'|'release'}[];
-  projectConventions?: {tracker?:{system:'gitlab'|'github'|'local'|'other';reference?:string;description?:string};documentRoutes?:Record<string,string>;labelMapping?:Record<string,string>};
+  projectConventions?: {tracker?:{system:'gitlab'|'github'|'local'|'other';reference?:string;description?:string};documentRoutes?:Record<string,string>;labelMapping?:Record<string,string>;topics?:ConventionTopic[]};
   model?: {provider:'anthropic'|'openai-compatible';model:string;apiKeyEnv:string};
   backend: 'codex' | 'native' | 'host';
   projectRules?: boolean;
@@ -36,6 +36,14 @@ export function validateInventory(ids:string[],items:{logicalId:string;action:st
 }
 export interface CommandSpec {executable:string;args:string[];cwd:string;envRefs:string[]}
 export interface Evidence {path:string;startLine:number;endLine:number;digest:string}
+export interface ConventionTopic {id:string;title:string;scope:string[];source?:string}
+export interface ConventionDraft {topicId:string;title:string;scope:string;questions:string[]}
+export interface GitlabJobBinding {path:string;job?:string;command?:CommandSpec;coverageStatus:'reusable'|'unavailable';reason?:string}
+export interface HarnessSummary {
+ guidance:import('./generator/project-rules.js').GuidanceBinding[];
+ checks:import('./analyzer/check-prerequisites.js').SpecializedCheck[];
+ ci:GitlabJobBinding[];
+}
 
 export interface SetupOperation {
  id:string;integrationId:string;kind:'install'|'initialize'|'check';parameters:CommandSpec;prerequisiteIds:string[];declaredWrites:string[];version:string;timeoutMs:number;
@@ -48,7 +56,23 @@ export interface ManagedAsset {logicalId:string;target:string;ownership:import('
 export interface AssetDisposition {logicalId:string;action:'retain'|'update'|'retire'|'pending';reason:string}
 export type ProjectRulesStatus='pending'|'ready';
 export interface SetupRequirement {integrationId:string;reason:string;nextCommand?:string}
-export interface SetupPlan {projectRules?:ProjectRulesStatus;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
+export interface SetupPlan {projectRules?:ProjectRulesStatus;harness?:HarnessSummary;projectDocuments?:{target:string;content:string}[];harnessNavigation?:{targets:string[];conventionPaths:string[];notApplicable?:{path:string;topic:string;topicId:string;scope:string[]}[]};gitlabReviewRequired?:true;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
+
+export function validateTopicId(value:unknown):string{
+ if(typeof value!=='string'||value.length>48||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)||
+  /^(?:aux|con|nul|prn|com[0-9]|lpt[0-9])$/.test(value))throw Error('topic ID must be a portable lowercase slug of at most 48 characters');
+ return value;
+}
+
+export function scopeContains(parent:string,child:string):boolean{
+ parent=parent.replace(/\/+$/,'');
+ child=child.replace(/\/+$/,'');
+ return !!parent&&!!child&&(parent==='.'||child===parent||child.startsWith(parent+'/'));
+}
+
+export function scopesOverlap(left:readonly string[],right:readonly string[]):boolean{
+ return left.some(a=>right.some(b=>scopeContains(a,b)||scopeContains(b,a)));
+}
 
 export type CheckKind='build'|'lint'|'test'|'environment'|'eval';
 export interface NpmScript {cwd:string;script:string}

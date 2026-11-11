@@ -7,7 +7,7 @@ import {repositoryReader} from '../analyzer/repository.js';
 import {researchBudget} from '../analyzer/budget.js';
 import {validateResearch,type AnalysisBackend,type ResearchResult} from '../analyzer/backend.js';
 import type {ManagedAsset,SetupOptions,SetupPlan,StepResult,AssetDisposition} from '../types.js';
-import {validateInventory} from '../types.js';
+import {scopeContains,scopesOverlap,validateInventory} from '../types.js';
 import {prepareIntegrations,type IntegrationPreparation,type PreparedAsset} from '../integrations/registry.js';
 import {digest} from '../analyzer/evidence.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
@@ -17,9 +17,12 @@ import {PROMPT_VERSION} from '../analyzer/prompts.js';
 import {stageEvidence} from '../analyzer/stage-context.js';
 import {documentDraftPolicy,validateArtifactList,type ArtifactContent,type ArtifactJob,type ArtifactPage} from './artifacts.js';
 import {validateDocumentJob,validateDocumentTarget,validateDocumentContent,validateTemplateContent,DOCUMENT_POLICY_VERSION} from './document-policy.js';
-import {readWorkflowTemplates,renderFixed,validateNavigation,TEMPLATE_VERSION} from './render.js';
+import {readWorkflowTemplates,reconcileHarnessNavigation,renderFixed,validateNavigation,TEMPLATE_VERSION,type HarnessNavigation} from './render.js';
 import {isProjectRulesId,isProjectRulesJob,planWithProjectRules,prepareProjectRules,projectRuleDraftPolicy,PROJECT_RULES_CONSUMER,type GuidanceBinding,type RuleEvidenceState,type RuleRepair} from './project-rules.js';
 import {signature,privateDirectory,readCache,saveCache} from './cache.js';
+import {isGitlabWiring} from '../integrations/gitlab/ci.js';
+import {planHarness,sourceGuidance} from './harness.js';
+import {renderConventionSeed} from '../project-conventions.js';
 export interface GenerationDependencies {prepared?:GenerationPreparation;effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
 interface Candidate extends ArtifactContent {job:ArtifactJob;digest:string;accepted:boolean}
 interface State extends RuleEvidenceState {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];referenceIndex?:ArtifactPage;dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;ruleRepairs?:Record<string,RuleRepair>;spent:{calls:number;tokens:number|'unknown'}}
@@ -32,29 +35,46 @@ export async function prepareGeneration(profile:ProjectProfile,options:SetupOpti
  return {integration,fixedTemplates};
 }
 
-function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,assets:PreparedAsset[],dispositions:AssetDisposition[],previousAssets:ManagedAsset[],projectRules?:SetupPlan['projectRules']):SetupPlan{
+function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,assets:PreparedAsset[],dispositions:AssetDisposition[],previousAssets:ManagedAsset[],harness:ReturnType<typeof planHarness>,navigation:HarnessNavigation,projectRules?:SetupPlan['projectRules']):SetupPlan{
  const retainedIds=new Set(dispositions.filter(d=>d.action==='retain').map(d=>d.logicalId));
  const retainedTargets=previousAssets.filter(a=>retainedIds.has(a.logicalId)).map(a=>a.target);
+ const context=options.projectConventions?.documentRoutes?.context??'docs/rigup';
+ const projectDocuments=harness.drafts.flatMap(draft=>{
+  const document=renderConventionSeed(draft);
+  const target=context+'/'+document.target;
+  const mapped=options.projectConventions?.topics?.find(topic=>topic.id===draft.topicId&&topic.scope.includes(draft.scope))?.source;
+  if(mapped&&mapped!==target&&profile.conventions?.some(page=>page.path===mapped&&page.topicId===draft.topicId&&page.scope===draft.scope))return [];
+  return [{...document,target}];
+ });
  // The research inventory excludes managed files. Preview checks retained targets on disk.
- validateNavigation(assets,[...profile.files,...retainedTargets]);
+ validateNavigation(assets,[...profile.files,...retainedTargets,...projectDocuments.map(document=>document.target)],navigation.inherited);
  const seen=new Set<string>();
  for(const asset of assets){
   const key=asset.target+signature(asset.ownership);
   if(seen.has(key))throw new Error('duplicate candidate target');
   seen.add(key);
  }
+ const gitlabReviewRequired=profile.gitlabReviewRequired&&(!!options.quality?.gitlab||previousAssets.some(a=>isGitlabWiring(a.logicalId)));
+ const notApplicable=profile.conventions?.flatMap(page=>page.status==='not-applicable'?
+  [{path:page.path,topic:page.title,topicId:page.topicId,scope:[page.scope]}]:[])??[];
  return {root:profile.root,fingerprint:profile.fingerprint,options,assets,operations:integration.operations,dispositions,
-  warnings:[...profile.unknowns,...integration.warnings],requirements:integration.requirements,
+  harness:harness.summary,
+  ...(navigation.targets.length||navigation.conventionPaths.length?{harnessNavigation:{targets:navigation.targets,conventionPaths:navigation.conventionPaths,...(notApplicable.length?{notApplicable}:{})}}:{}),
+  ...(projectDocuments.length?{projectDocuments}:{}),
+  ...(gitlabReviewRequired?{gitlabReviewRequired:true as const}:{}),
+  warnings:[...profile.unknowns,...integration.warnings,...navigation.warnings,...(gitlabReviewRequired?['GitLab wiring was left as-is. A complete root review is required to verify and change the selection.']:[])],requirements:integration.requirements,
   versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},
   ...(projectRules?{projectRules}:{})};
 }
 
-export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false):Promise<SetupPlan>{
+export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false,previousGuidance:GuidanceBinding[]=[]):Promise<SetupPlan>{
  const {integration,fixedTemplates}=prepared;
- const candidates=await renderFixed(profile,options,integration,[],[],fixedTemplates,true);
- const assets=preserveWorkflowContext?candidates.filter(candidate=>integration.assets.includes(candidate)||candidate.target.endsWith('/SKILL.md')||!previousAssets.some(asset=>asset.logicalId===candidate.logicalId)):candidates;
+ const harness=planHarness(profile,options,previousGuidance);
+ const candidates=await renderFixed(profile,options,integration,[],harness.summary.guidance,fixedTemplates,!preserveWorkflowContext);
+ const navigation=await reconcileHarnessNavigation(profile,options,candidates,previousAssets,harness.summary.guidance,preserveWorkflowContext);
+ const assets=navigation.assets;
  const dispositions:AssetDisposition[]=previousAssets.map(asset=>({logicalId:asset.logicalId,action:assets.some(candidate=>candidate.logicalId===asset.logicalId)?'update':'retain',reason:'Refresh fixed configuration while preserving existing project guidance'}));
- return setupPlan(profile,options,integration,assets,dispositions,previousAssets,'pending');
+ return setupPlan(profile,options,integration,assets,dispositions,previousAssets,harness,navigation,preserveWorkflowContext&&!navigation.pending?'ready':'pending');
 }
 
 export async function generate(profile:ProjectProfile,options:SetupOptions,backend:AnalysisBackend,previousAssets:ManagedAsset[]=[],dependencies:GenerationDependencies={}):Promise<StepResult<SetupPlan>> {
@@ -62,7 +82,8 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
  const allowedRoots=[options.projectConventions?.documentRoutes?.context??'docs/rigup'];
  const templateSourcesDigest=signature(integration.assets);
- const baseKey=signature({fixedTemplates,root:profile.root,fingerprint:profile.fingerprint,options,effectiveModel:dependencies.effectiveModel,versions,templateSourcesDigest,research:profile.research,nativeEntries:profile.nativeEntries});
+ const authority=sourceGuidance(profile,options);
+ const baseKey=signature({fixedTemplates,root:profile.root,fingerprint:profile.fingerprint,options,effectiveModel:dependencies.effectiveModel,versions,templateSourcesDigest,research:profile.research,nativeEntries:profile.nativeEntries,authority});
  const cache=await privateDirectory(dependencies.cacheRoot??join(homedir(),'.cache','rigup','generation'),profile.root);
  const path=join(cache,baseKey+'.json');const save=dependencies.save??saveCache;
  const inv=inventorySignature(previousAssets);
@@ -88,7 +109,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  const run=async(expectedOutput:'plan'|'content'|'acceptance',input:unknown,artifact?:string):Promise<StepResult<ResearchResult>>=>{
   dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:artifact??'artifact-plan',completed:completed(),total:state.plan?.jobs.length,waiting:options.backend==='host'?'host research response':'provider '+expectedOutput,next:expectedOutput==='acceptance'?'save accepted candidate':'validate candidate',status:'running'});
   if(!backend.durableBudget&&state.spent.calls>=budget.maxCalls)throw new Error('generation request budget exhausted');
-  const result=await backend.run({kind:expectedOutput==='plan'?'artifact-plan':'artifact-content',expectedOutput,input,artifact,runId:state.runId,root:profile.root,fingerprint:profile.fingerprint,options,effectiveModel:dependencies.effectiveModel,versions,budget,...(options.backend!=='host'?{spent:state.spent}:{}),previousInventoryDigest:state.inputInventory,templateSourcesDigest},reader);
+  const result=await backend.run({kind:expectedOutput==='plan'?'artifact-plan':'artifact-content',expectedOutput,input,artifact,runId:state.runId,root:profile.root,fingerprint:profile.fingerprint,options,...(authority.length?{sourceGuidance:authority}:{}),effectiveModel:dependencies.effectiveModel,versions,budget,...(options.backend!=='host'?{spent:state.spent}:{}),previousInventoryDigest:state.inputInventory,templateSourcesDigest},reader);
   if(result.status==='complete') {
    await validateResearch(result.value.data,reader);
    state.spent.calls+=typeof result.value.usage.calls==='number'?result.value.usage.calls:1;
@@ -120,7 +141,8 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
    if(planned.status==='pending-host')return planned;
    const data=planned.value;
    const jobs=validateArtifactList(data.artifacts,[]);
-   const {job:rules,referenceIndex,guidance}=prepareProjectRules(data,evidenceFiles,allowedRoots[0],jobs);
+   const {job:rules,referenceIndex,guidance}=prepareProjectRules(data,evidenceFiles,allowedRoots[0],jobs,
+    sourceGuidance(profile,options,data.guidance as GuidanceBinding[]|undefined),new Set(profile.conventionPaths),options.scope);
    if(rules)jobs.unshift(rules);
    for(const job of jobs)validateDocumentJob(job,allowedRoots,profile.files.length===0);
    if(referenceIndex){validateDocumentTarget(referenceIndex.target,allowedRoots);validateTemplateContent(referenceIndex.content);}
@@ -181,16 +203,43 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   job.status='done';await persist();dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:job.logicalId,completed:completed(),total:state.plan.jobs.length,status:reused?'reused':'running',next:'fixed assembly after all required jobs'});
   semantic.push(...candidateAssets(job,candidate!.content,candidate!.pages));
  }
- const guidanceRefs=state.plan.guidance.flatMap(binding=>binding.sourceRef?[binding.sourceRef]:[]);
+ const ruleCoverage=state.plan.jobs.flatMap(job=>(job.ruleSources??[]).flatMap(rule=>{
+  const topicId=job.ruleTopics?.find(topic=>topic.ruleIds.includes(rule.id))?.id;
+  const sourceRef=rule.supportingEvidence.find(ref=>!/\.(?:mdx?|rst|adoc|txt)$/i.test(ref.path)&&rule.scope.some(scope=>scopeContains(scope,ref.path)));
+  if(!topicId||!sourceRef)return [];
+  return [{topicId,topic:rule.topic,scope:rule.scope,sourceRef,gap:rule.gap}];
+ }));
+ const gapBinding=(binding:GuidanceBinding)=>['missing','partial'].includes(binding.coverageStatus)&&binding.gaps.length>0;
+ const sameTopic=(binding:GuidanceBinding,rule:typeof ruleCoverage[number])=>binding.topicId?binding.topicId===rule.topicId:binding.topic===rule.topic;
+ const remaining=state.plan.guidance.flatMap(binding=>{
+  if(!gapBinding(binding))return [binding];
+  const scopes=binding.scope.map(scope=>({scope,gaps:binding.gaps.filter(gap=>!ruleCoverage.some(rule=>
+   sameTopic(binding,rule)&&rule.gap===gap&&rule.scope.some(parent=>scopeContains(parent,scope))))}));
+  if(scopes.every(item=>item.gaps.length===binding.gaps.length))return [binding];
+  return scopes.flatMap(({scope,gaps})=>gaps.length?[{...binding,scope:[scope],gaps}]:
+   binding.sourceRef?[{...binding,scope:[scope],gaps,coverageStatus:'reusable'}]:[]);
+ });
+ const verified=ruleCoverage.flatMap(rule=>{
+  if(remaining.some(binding=>gapBinding(binding)&&sameTopic(binding,rule)&&scopesOverlap(binding.scope,rule.scope)))return [];
+  const {gap,...binding}=rule;
+  return [{...binding,coverageStatus:'reusable',consumers:['agent-entry','prepare','deliver','review'],gaps:[]}];
+ });
+ const harness=planHarness(profile,options,[...remaining,...verified]);
+ const {summary}=harness;
+ const guidanceRefs=summary.guidance.flatMap(binding=>binding.sourceRef?[binding.sourceRef]:[]);
  if(guidanceRefs.some(ref=>semantic.some(asset=>asset.target===ref.path)))throw new Error('reused source must remain unowned');
  await stageEvidence(reader,guidanceRefs);
- const assets=await renderFixed(profile,options,integration,semantic,state.plan.guidance,fixedTemplates);
+ const rendered=await renderFixed(profile,options,integration,semantic,summary.guidance,fixedTemplates);
+ const navigation=await reconcileHarnessNavigation(profile,options,rendered,previousAssets,summary.guidance);
+ const {assets}=navigation;
  const effectiveDispositions=state.resultInventory===inv||state.artifactRefreshInventory===inv ? previousAssets.map(a=>{
   const current=assets.find(asset=>asset.logicalId===a.logicalId);
   const refreshed=state.artifactRefreshInventory===inv&&current?.source.kind==='semantic'&&current.target===a.target&&signature(current.ownership)===signature(a.ownership)&&digest(current.content)!==a.digest;
   return {logicalId:a.logicalId,action:refreshed?'update' as const:'retain' as const,reason:refreshed?'Existing planned artifact revalidated under the current evidence contract':'Inventory matches accepted candidates'};
  }) : [...state.plan.dispositions.filter(d=>!fixedInventory.some(a=>a.logicalId===d.logicalId)),...fixedInventory.map(a=>({logicalId:a.logicalId,action:'retain' as const,reason:'Explicit deterministic selection maintained'}))];
  const dispositions=effectiveDispositions.map(original=>{
+  if(navigation.retainIds.has(original.logicalId))return {...original,action:'retain' as const,reason:'Preserve navigation pending trusted baseline review'};
+  if(profile.gitlabReviewRequired&&isGitlabWiring(original.logicalId))return {...original,action:'retain' as const,reason:'Complete root review required to change GitLab wiring'};
   const current=assets.find(a=>a.logicalId===original.logicalId);const oldItem=previousAssets.find(a=>a.logicalId===original.logicalId);
   const d=!current&&oldItem&&deterministic(oldItem)?{...original,action:'retire' as const,reason:'Managed capability or verified rules no longer selected; explicit retirement consent required'}:current&&(!wantsRules||deterministic(current))?{...original,action:(digest(current.encoding==='base64'?Buffer.from(current.content,'base64'):current.content)===oldItem?.digest&&current.mode===oldItem?.mode?'retain':'update') as 'retain'|'update',reason:'Disposition derived from selected candidate and original baseline'}:original;
   const replacement=assets.find(a=>a.logicalId===d.logicalId);
@@ -202,7 +251,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  });
  // After installation the inventory changes from the input to these accepted candidates.
  const retained=previousAssets.filter(a=>dispositions.some(d=>d.logicalId===a.logicalId&&d.action==='retain')&&!assets.some(n=>n.logicalId===a.logicalId));
- const plan=setupPlan(profile,options,integration,assets,dispositions,previousAssets,wantsRules?'ready':undefined);
+ const plan=setupPlan(profile,options,integration,assets,dispositions,previousAssets,harness,navigation,navigation.pending?'pending':wantsRules?'ready':undefined);
  state.resultInventory=inventorySignature([...assets.map(a=>({...a,digest:digest(a.encoding==='base64'?Buffer.from(a.content,'base64'):a.content)})),...retained]);await persist();
  return {status:'complete',value:plan};
 }

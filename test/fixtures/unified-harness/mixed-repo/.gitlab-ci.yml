@@ -1,0 +1,10 @@
+# Customer pipeline
+legacy:
+  script:
+    - cd services/legacy && npm run build
+new-service:
+  script:
+    - cd services/new && npm run build
+web:
+  script:
+    - cd web && npm run build

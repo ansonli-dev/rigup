@@ -35,3 +35,29 @@ export async function project(fn:(root:string)=>Promise<void>) {
  const root=await realpath(await mkdtemp(join(tmpdir(),'rigup-scan-')));
  try{await fn(root);}finally{await rm(root,{recursive:true,force:true});}
 }
+
+export async function harnessPlan(root:string,cacheRoot:string,options:import('../src/types.js').SetupOptions){
+ const {scanRepository}=await import('../src/analyzer/repository.js');
+ const {generate}=await import('../src/generator/generate.js');
+ const {loadManifest}=await import('../src/installer/baseline.js');
+ const result=await generate(await scanRepository(root,options),options,{run:async()=>({
+  status:'complete',value:{data:{observations:[],unknowns:[],guidance:[],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}},
+ })},(await loadManifest(root))?.assets??[],{cacheRoot});
+ if(result.status!=='complete')throw Error('Fixture must generate a complete plan');
+ return result.value;
+}
+
+export async function confirmedHarnessSource(root:string,options:import('../src/types.js').SetupOptions){
+ const {renderConventionSeed}=await import('../src/project-conventions.js');
+ const {scanRepository,repositoryReader}=await import('../src/analyzer/repository.js');
+ const {sourceGuidance}=await import('../src/generator/harness.js');
+ await mkdir(join(root,'api'),{recursive:true});
+ await mkdir(join(root,'knowledge'),{recursive:true});
+ await writeFile(join(root,'api','handler.ts'),'export const handler = true;\n');
+ const path='knowledge/api-errors.md',body='Use the approved Problem Details envelope.';
+ const {content}=renderConventionSeed({topicId:'api-errors',title:'API errors',scope:'api',questions:['Decide the contract']});
+ await writeFile(join(root,path),content.replace('status: draft','status: confirmed')+body+'\n');
+ const profile=await scanRepository(root,options);
+ const reader=await repositoryReader(root,options,{expectedFingerprint:profile.fingerprint});
+ return {path,body,profile,reader,sourceGuidance:sourceGuidance(profile,options)};
+}

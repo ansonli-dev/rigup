@@ -1,0 +1,8 @@
+{
+  "name": "mixed-repo",
+  "private": true,
+  "scripts": {
+    "build": "node --check src/service.js",
+    "test": "node --test"
+  }
+}

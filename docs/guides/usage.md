@@ -57,6 +57,30 @@ mcp:
 - `customSkills` 接受本地 `source` 目录，可用 `position` 绑定 `prepare`、`deliver` 或 `release`。`templates` 通过 `source`、`target` 和 `values` 为允许的文档或 skill 资源做标量替换。`change-release` 需要真实的客户部署适配器。
 - 对支持 HTTP MCP 的企业 GitLab、协作文档等服务，在对应 `mcp` 项填入 HTTPS `url` 和 `bearerTokenEnv: TEAM_MCP_TOKEN`。从启动宿主的环境提供专用凭据。宿主和服务继续负责工具权限、审批和读写范围。`rigup doctor` 只报告变量名及是否存在。
 
+## 发现并补齐项目约定
+
+新服务、已有规范的服务和混合仓库都可以用 `rigup init --review` 接入。后续用 `rigup update --review` 复核实际变化。预览的 `harness` 列出按工作目录发现的 npm 检查、可核实的 GitLab 作业和按范围适用的项目约定。执行结果由实际运行的检查提供，可以通过 `rigup doctor --run-checks build,test` 查看。
+
+在团队 profile 或 `.rigup/config.yaml` 的 `projectConventions.topics` 声明需要整理的主题。每个主题使用稳定的小写 slug 和仓库相对范围。范围 `.` 表示全仓。已有规范可通过 `source` 指定。
+
+```yaml
+projectConventions:
+  topics:
+    - id: api-errors
+      title: API 错误响应
+      scope: [services/legacy]
+      source: services/legacy/docs/errors.md
+    - id: api-errors
+      title: API 错误响应
+      scope: [services/new]
+```
+
+待填约定默认创建在 `docs/rigup/conventions/`，每个主题与范围只创建一次。请保留 YAML 元数据，在下方填写正文，完成后把 `status` 改为 `confirmed`。选用 `not-applicable` 时在正文写明原因。下次更新会核对确认状态和适用范围，并更新工作流引用。更改文档目录或删除页面后，安装收据仍保留原始创建记录。
+
+如果约定移到所选业务范围之外，在对应主题的 `source` 指定新路径，再复核该主题的适用范围。
+
+局部或截断的扫描保留既有全局 GitLab 接线。要调整全局选择，先从完整仓库范围复核。v0.3.5 的已完成安装走同一更新入口。旧预览需要重新生成。用旧版完成尚未恢复的旧安装，再切换到新版。 [Unified Harness V1 兼容验证](../compatibility/unified-harness-v1.md)
+
 ## 先安装工作流，再生成规则
 
 首次交互按 Enter 默认先安装基础接线、稍后生成规则。也可以同时准备两部分。基础安装支持 `--sdd none`，也可以在项目设置中保存 `sdd: none`。配置 `projectRules: false` 时可只安装所选工作流和工具。
