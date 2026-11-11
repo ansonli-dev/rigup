@@ -7,6 +7,8 @@
 - Recheck rule sources before committing an installation. Keep interrupted creation and approvals recoverable and require a fresh review when approved sources change.
 - Upgrade completed v0.3.5 installations through the normal update flow. Finish interrupted v0.3.5 installations with the original CLI before upgrading.
 
+[Upgrade validation](docs/compatibility/unified-harness-v1.md) · [npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.4.0) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.4.0)
+
 ## 0.3.5 · 2026-11-10 · Development preview
 
 - Remove detection of saved v0.1.1 research ledgers during resume.
