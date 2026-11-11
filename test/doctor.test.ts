@@ -92,3 +92,23 @@ test('Claude health probe requires connected project-scoped MCP and keeps output
   delete process.env.RIGUP_TEST_CLAUDE_SCOPE;
  }
 })))));
+
+test('harness separates discovery from execution',()=>fixture(async(root,_cache,state)=>{
+ await writeFile(root+'/.gitlab-ci.yml','tests:\n  script: npm run test\n');
+ const staticReport=await doctor(root,{stateRoot:state});
+ assert.equal(staticReport.harness?.ci[0]?.coverageStatus,'reusable');
+ assert.deepEqual(staticReport.checks,[]);
+ assert.ok(staticReport.diagnostics.every(diagnostic=>diagnostic.state!=='passed'));
+ const actual=await doctor(root,{stateRoot:state,runChecks:['test']});
+ assert.deepEqual(actual.harness,staticReport.harness);
+ assert.equal(actual.checks[0]?.status,'failed');
+}));
+
+test('harness discovery failure preserves doctor diagnostics and exit',()=>fixture(async(root,_cache,state)=>{
+ const baseline=await doctor(root,{stateRoot:state});
+ await mkdir(root+'/.rigupignore');
+ const report=await doctor(root,{stateRoot:state});
+ assert.equal(report.exitCode,baseline.exitCode);
+ assert.deepEqual(report.diagnostics,baseline.diagnostics);
+ assert.ok(report.warnings.some(warning=>/discovery unavailable/i.test(warning)));
+}));

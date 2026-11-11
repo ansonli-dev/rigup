@@ -512,3 +512,17 @@ test('delivery skill requires an active OpenSpec change and scoped human approva
  assert.match(gate,/human approval.*same change ID and scope/);
  assert.match(gate,/stop before editing/i);
 });
+
+test('harness reuses checks with their original working directories',()=>fixture(async(root,cache)=>{
+ for(const cwd of ['services/api','web']){
+  await mkdir(root+'/'+cwd,{recursive:true});
+  await writeFile(root+'/'+cwd+'/package.json',JSON.stringify({scripts:{build:'node build.js'}}));
+ }
+ const options={agents:[],backend:'host'} as const;
+ const settings={...options,agents:[]};
+ const result=await generate(await scanRepository(root,settings),settings,fake().backend,[],{cacheRoot:cache});
+ assert.equal(result.status,'complete');
+ if(result.status!=='complete')throw Error('pending');
+ assert.deepEqual(result.value.harness?.checks.map(x=>[x.command.cwd,x.command.args[1]]).sort(),
+  [['services/api','build'],['web','build']]);
+}));

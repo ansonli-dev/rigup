@@ -2,10 +2,12 @@ import {discoverNativeSources,nativeSkillMetadata,type NativeDiscoveryOptions} f
 import {agents} from '../integrations/agents/index.js';
 import type {Agent} from '../types.js';
 import {readdir,readFile,realpath,stat,lstat} from 'node:fs/promises';
-import {join,relative,dirname} from 'node:path';
+import {join,relative,posix} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import type {SetupOptions,CommandSpec} from '../types.js';
+import {scopeContains,type SetupOptions,type CommandSpec,type GitlabJobBinding} from '../types.js';
+import {discoverGitlabJobs} from '../integrations/gitlab/ci.js';
+import {projectChecks,npmScript} from '../integrations/tools/check-catalog.js';
 import {projectInput,type Ownership} from '../managed-input.js';
 import {digest,safePath,sliceEvidence,type EvidenceRead,type ReadEvidence} from './evidence.js';
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
@@ -14,7 +16,7 @@ import {loadResearchIgnore,workflowEvidenceKind} from './research-ignore.js';
 import {checkPrerequisites,hasTestDatabaseGuard,jestSetupPath,linkDatabaseGuards,type SpecializedCheck} from './check-prerequisites.js';
 const exec=promisify(execFile);
 const specializedScripts=['test:e2e','test-e2e','check-types','typecheck','deps:validate','test'];
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
@@ -35,6 +37,12 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
  const inputs:string[]=[];let bytes=0;
  const ignored=await loadResearchIgnore(root);
  if(ignored.fingerprint){profile.ignoreFingerprint=ignored.fingerprint;inputs.push('.rigupignore\0'+ignored.fingerprint);}
+ const gitlabPath='.gitlab-ci.yml';
+ const selectedScope=(path:string)=>!options.scope?.length||options.scope.some(scope=>scopeContains(scope,path));
+ if(purpose==='research'&&(!selectedScope(gitlabPath)||ignored.excludes(gitlabPath,false))){
+  profile.gitlabReviewRequired=true;
+  profile.unknowns.push(gitlabPath+': outside approved inventory; existing GitLab coverage is unverified');
+ }
  const workflowScope=options.projectRules?(purpose==='installation'?'installation':'all'):
   purpose==='research'&&options.sdd==='spec-kit'?'spec-kit':undefined;
  if(workflowScope||ignored.fingerprint)profile.researchFiles=[];
@@ -49,7 +57,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    const file=join(dir,entry.name);const path=relative(root,file).split('\\').join('/');
    if(generatedScopes.some(scope=>path===scope||path.startsWith(scope+'/')))continue;
    if(path==='.rigupignore')continue;
-   const outsideScope=!!options.scope?.length&&!options.scope.some(s=>path === s || path.startsWith(s+'/') || s.startsWith(path+'/'));
+   const outsideScope=!selectedScope(path)&&!(entry.isDirectory()&&options.scope?.some(scope=>scopeContains(path,scope)));
    const excluded=ignored.excludes(path,entry.isDirectory())||outsideScope;
    const workflow=workflowScope?workflowEvidenceKind(path,entry.isDirectory(),workflowScope):undefined;
    if(workflow==='generated')continue;
@@ -58,12 +66,16 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    if(path.startsWith('.rigup/baseline/')||path === '.rigup/manifest.json'||path === '.rigup/config.yaml'||path.startsWith('.rigup/tools/')||path==='.rigup/check-results') continue;
    if(entry.isSymbolicLink()){profile.unknowns.push(path+': symlink skipped');continue;}
    if(entry.isDirectory()){
-    try{await walk(file);}catch(error){if(!excluded||!['EACCES','EPERM'].includes((error as NodeJS.ErrnoException).code??''))throw error;}
+    try{await walk(file);}catch(error){
+     if(!excluded||!['EACCES','EPERM'].includes((error as NodeJS.ErrnoException).code??''))throw error;
+     if(purpose==='research')profile.checkCoverageIncomplete=true;
+    }
     continue;
    }
    if(!entry.isFile()) continue;
    const discoveryEntry=Object.values(agents).some(host=>path.startsWith(host.skillDirectory+'/')&&path.endsWith('/SKILL.md'))||/^\.(?:claude|opencode|omp)\/commands\/.+\.md$/.test(path);
-   if(excluded&&!discoveryEntry&&entry.name!=='package.json')continue;
+   if(excluded&&entry.name==='package.json'&&purpose==='research')profile.checkCoverageIncomplete=true;
+   if(excluded&&!discoveryEntry&&(entry.name!=='package.json'||purpose==='research'))continue;
    if(profile.files.length>=maxFiles){profile.truncated=true;profile.unknowns.push('file budget reached');return;}
    let raw:Buffer;let visible:string;
    try {const filePath=await safePath(root,path);if((await stat(filePath)).size+bytes>maxBytes){profile.truncated=true;profile.unknowns.push(path+': byte budget reached');continue;}raw=await readFile(filePath);if(bytes+raw.length>maxBytes){profile.truncated=true;profile.unknowns.push(path+': byte budget reached');continue;}}
@@ -102,10 +114,12 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
      if(setup)jestSetups.set(path,setup);
     }catch{/* Other JSON configuration has no recognized Jest setup. */}
    }
+   if(purpose==='research'&&path===gitlabPath)profile.gitlabJobs=discoverGitlabJobs(path,visible);
    if(entry.name === 'package.json') {
     try {
      const manifest=JSON.parse(visible),{scripts}=manifest;
-     const cwd=dirname(path);
+     (profile.checkManifests??=[]).push(path);
+     const cwd=posix.dirname(path);
      for(const kind of Object.keys(profile.commands))if(typeof scripts?.[kind]==='string')profile.commands[kind].push({executable:'npm',args:['run',kind],cwd,envRefs:[]});
      const checks=new Set([...specializedScripts,...configuredScripts.filter(ref=>ref.cwd===cwd).map(ref=>ref.script)]);
      for(const script of checks){
@@ -117,7 +131,20 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    }
   }
  }
- await walk(root);profile.specializedChecks=linkDatabaseGuards(profile.specializedChecks,jestSetups,testGuards);const external=await discoverNativeSources(root,options,discovery);for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,managed};
+ await walk(root);
+ profile.specializedChecks=linkDatabaseGuards(profile.specializedChecks,jestSetups,testGuards);
+ if(purpose==='research'){
+  if(profile.truncated||!!options.scope?.length&&!options.scope.includes('.')||
+    profile.unknowns.some(note=>/(?:^|\/)package\.json:/.test(note)))profile.checkCoverageIncomplete=true;
+  if(profile.checkCoverageIncomplete||profile.unknowns.some(note=>note.startsWith(gitlabPath+':')))profile.gitlabReviewRequired=true;
+  const available=new Set(projectChecks(profile).map(check=>JSON.stringify(npmScript(check.command))));
+  for(const job of profile.gitlabJobs??[]){
+   if(!job.command||available.has(JSON.stringify(npmScript(job.command))))continue;
+   job.coverageStatus='unavailable';
+   job.reason='Command could not be verified against scanned project checks';
+  }
+ }
+ const external=await discoverNativeSources(root,options,discovery);for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,managed};
 }
 
 function visibleText(path:string,raw:string,ownership:Ownership[]):string {

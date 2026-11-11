@@ -146,3 +146,113 @@ test('kept_local_gitlab_include_cannot_remove_required_ci_binding',()=>fixture(a
  let generated=await generate(await scanRepository(root,options),options,backend,[],{cacheRoot:cache});if(generated.status!=='complete')throw Error('pending');await apply((await preview(generated.value,[],{cacheRoot:cache})).previewId,{cacheRoot:cache,stateRoot:state});const original=await readFile(root+'/.gitlab-ci.yml','utf8');await writeFile(root+'/.gitlab-ci.yml',original.replace('.rigup/gitlab-ci.yml','customer.yml'));await writeFile(root+'/customer.yml','customer: {script: echo customer}\n');
  generated=await generate(await scanRepository(root,options),options,backend,(await loadManifest(root))!.assets,{cacheRoot:cache});if(generated.status!=='complete')throw Error('pending');const p=await preview(generated.value,[],{cacheRoot:cache});assert.equal(p.executable,false);assert.ok(p.blockers.some(b=>/CI|include|binding/.test(b)));
 })));
+
+test('harness preserves global CI during scoped updates',()=>fixture(async(root,cache)=>project(async state=>{
+ const {generateFoundation,prepareGeneration}=await import('../src/generator/generate.js');
+ const {loadManifest,trustedBaseline}=await import('../src/installer/baseline.js');
+ const {mkdir}=await import('node:fs/promises');
+ const {parse}=await import('yaml');
+ const ci='.gitlab-ci.yml',jobs='.rigup/gitlab-ci.yml';
+ const original='customer:\n  script: echo customer\n';
+ await writeFile(root+'/'+ci,original);
+ for(const cwd of ['api','web']){
+  await mkdir(root+'/'+cwd);
+  await writeFile(root+'/'+cwd+'/package.json','{"scripts":{"build":"node build.js"}}');
+ }
+ const settings={agents:[],backend:'host' as const,quality:{gitlab:{checks:[{cwd:'api',script:'build'},{cwd:'web',script:'build'}]}}};
+ const backend={run:async()=>{throw Error('no model');}};
+ async function review(options:typeof settings & {scope?:string[]},foundation=false){
+  const profile=await scanRepository(root,options);
+  const old=(await loadManifest(root))?.assets??[];
+  const plan=foundation
+   ?await generateFoundation(profile,options,await prepareGeneration(profile,options),old)
+   :await generate(profile,options,backend,old,{cacheRoot:cache}).then(result=>{
+     if(result.status!=='complete')throw Error('pending');
+     return result.value;
+    });
+  return preview(plan,[],{cacheRoot:cache});
+ }
+ const commands=async()=>parse(await readFile(root+'/'+jobs,'utf8'))['rigup:checks'].script.slice(1);
+ const install=async(options:typeof settings & {scope?:string[]},foundation=false)=>{
+  const result=await review(options,foundation);
+  assert.deepEqual(result.blockers,[]);
+  return apply(result.previewId,{cacheRoot:cache,stateRoot:state});
+ };
+ const initial=await install(settings);
+ assert.deepEqual(initial.checks,[]);
+ assert.deepEqual(initial.harness?.checks.map(check=>check.command.cwd),['api','web']);
+ assert.deepEqual(await commands(),["(cd 'api' && 'npm' 'run' 'build')","(cd 'web' && 'npm' 'run' 'build')"]);
+ const initialManifest=(await loadManifest(root))!;
+ const jobAsset=initialManifest.assets.find(asset=>asset.target===jobs)!;
+ const base=await trustedBaseline(root,jobAsset);
+ const ciBytes=await readFile(root+'/'+ci,'utf8')+'# customer local edit\n';
+ await writeFile(root+'/'+ci,ciBytes);
+ const edited=(await readFile(root+'/'+jobs,'utf8'))+'# customer job comment\n';
+ await writeFile(root+'/'+jobs,edited);
+ const scoped={...settings,scope:['api']};
+ for(const foundation of [false,true,true]){
+  const applied=await install(scoped,foundation);
+  assert.ok(applied.warnings.some(note=>/root review/.test(note)));
+  assert.deepEqual(applied.written,[]);
+  assert.equal(await readFile(root+'/'+ci,'utf8'),ciBytes);
+  assert.equal(await readFile(root+'/'+jobs,'utf8'),edited);
+  assert.equal(await trustedBaseline(root,(await loadManifest(root))!.assets.find(asset=>asset.target===jobs)!),base);
+ }
+ const reviewed={...settings,quality:{gitlab:{checks:[{cwd:'api',script:'build'}]}}};
+ await install(reviewed);
+ assert.deepEqual(await commands(),["(cd 'api' && 'npm' 'run' 'build')"]);
+ assert.equal(await readFile(root+'/'+ci,'utf8'),ciBytes);
+ assert.match(await readFile(root+'/'+jobs,'utf8'),/# customer job comment/);
+ assert.deepEqual((await install(reviewed)).written,[]);
+})));
+
+test('harness preserves explicit GitLab selection',()=>fixture(async(root,cache)=>project(async state=>{
+ const backend={run:async()=>{throw Error('no model');}};
+ const original='customer:\n  script: npm run build\n';
+ await writeFile(root+'/.gitlab-ci.yml',original);
+ await writeFile(root+'/package.json','{"scripts":{"build":"node build.js"}}');
+ for(const selected of [false,true]){
+  const settings={agents:[],backend:'host' as const,...(selected?{quality:{gitlab:{checks:['build' as const]}}}:{})};
+  const result=await generate(await scanRepository(root,settings),settings,backend,[],{cacheRoot:cache});
+  if(result.status!=='complete')throw Error('pending');
+  const review=await preview(result.value,[],{cacheRoot:cache});
+  assert.equal(review.executable,true);
+  assert.equal(review.harness?.ci[0]?.coverageStatus,'reusable');
+  const installed=await apply(review.previewId,{cacheRoot:cache,stateRoot:state});
+  assert.deepEqual(installed.checks,[]);
+  const actual=await readFile(root+'/.gitlab-ci.yml','utf8');
+  if(selected){
+   assert.ok(actual.startsWith(original));
+   assert.ok(actual.includes('.rigup/gitlab-ci.yml'));
+  }else assert.equal(actual,original);
+ }
+})));
+
+test('harness gaps are informational while scanned missing checks still block',()=>fixture(async(root,cache)=>{
+ await writeFile(root+'/package.json','{"scripts":{"build":"node build.js"}}');
+ const settings={agents:[],backend:'host' as const,projectRules:true};
+ const guidance={topic:'Errors',topicId:'api-errors',scope:['.'],coverageStatus:'missing',consumers:['prepare'],gaps:['Decide the error envelope']};
+ const backend={run:async()=>({status:'complete' as const,value:{data:{observations:[],guidance:[guidance],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}})};
+ const generated=await generate(await scanRepository(root,settings),settings,backend,[],{cacheRoot:cache});
+ if(generated.status!=='complete')throw Error('pending');
+ const review=await preview(generated.value,[],{cacheRoot:cache});
+ assert.equal(review.executable,true);
+ assert.deepEqual(review.blockers,[]);
+ assert.deepEqual(review.harness?.guidance[0]?.gaps,guidance.gaps);
+
+ const scoped={...settings,scope:['package.json'],quality:{gitlab:{checks:[{cwd:'.',script:'lint'}]}}};
+ const blocked=await generate(await scanRepository(root,scoped),scoped,backend,[],{cacheRoot:cache});
+ if(blocked.status!=='complete')throw Error('pending');
+ assert.match((await preview(blocked.value,[],{cacheRoot:cache})).blockers.join('\n'),/npm run lint: Select an existing project command/);
+}));
+
+test('harness still blocks missing npm kinds when only GitLab is ignored',()=>fixture(async(root,cache)=>{
+ await writeFile(root+'/package.json','{"scripts":{"build":"node build.js"}}');
+ await writeFile(root+'/.rigupignore','/.gitlab-ci.yml\n');
+ const settings={agents:[],backend:'host' as const,quality:{gitlab:{checks:['lint' as const]}}};
+ const result=await generate(await scanRepository(root,settings),settings,{run:async()=>{throw Error('no model');}},[],{cacheRoot:cache});
+ if(result.status!=='complete')throw Error('pending');
+ const review=await preview(result.value,[],{cacheRoot:cache});
+ assert.equal(review.executable,false);
+ assert.match(review.blockers.join('\n'),/lint: Select an existing project command/);
+}));

@@ -3,8 +3,55 @@ import {parseDocument,isSeq,stringify} from 'yaml';
 import type {PreparedAsset} from '../registry.js';
 import {targetPath} from '../../installer/ownership.js';
 import {digest} from '../../analyzer/evidence.js';
-import type {CommandSpec,SetupOptions} from '../../types.js';
+import type {CommandSpec,GitlabJobBinding,SetupOptions} from '../../types.js';
 import {quotePosixShell} from '../../shell-command.js';
+import {npmScriptName,projectRelativePath} from '../tools/project-check.mjs';
+export const isGitlabWiring=(id:string):boolean=>id==='gitlab:jobs'||id==='gitlab:include';
+
+const gitlabKeywords=new Set(['after_script','before_script','cache','default','image','include','pages','services','stages','types','variables','workflow']);
+const mapping=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
+const changesContext=(value:Record<string,unknown>)=>
+ ['extends','inherit','variables','hooks','trigger','parallel','<<'].some(key=>Object.hasOwn(value,key))||
+ Array.isArray(value.rules)&&value.rules.some(rule=>mapping(rule)&&Object.hasOwn(rule,'variables'))||
+ value.before_script!==undefined&&(!Array.isArray(value.before_script)||value.before_script.length>0);
+
+// shortcut: root YAML and literal npm commands only, expand once includes and execution context can be resolved.
+export function discoverGitlabJobs(path:string,text:string):GitlabJobBinding[]{
+ const unavailable=(reason:string,job?:string):GitlabJobBinding=>({path,...(job?{job}:{}),coverageStatus:'unavailable',reason});
+ let yaml:unknown;
+ try{
+  const document=parseDocument(text);
+  if(document.errors.length||document.warnings.length)return [unavailable('CI YAML could not be resolved')];
+  yaml=document.toJS();
+ }catch{return [unavailable('CI YAML could not be resolved')];}
+ if(yaml===null)return [];
+ if(!mapping(yaml))return [unavailable('CI YAML is not a job mapping')];
+ const included=yaml.include!==undefined;
+ const globalContext=included||changesContext(yaml)||
+  [yaml.default,yaml.workflow].some(value=>value!==undefined&&(!mapping(value)||changesContext(value)));
+ const bindings:GitlabJobBinding[]=included?[unavailable('Included CI sources were not read')]:[];
+ for(const [job,value] of Object.entries(yaml)){
+  if(job.startsWith('.')||gitlabKeywords.has(job))continue;
+  if(!mapping(value)||globalContext||changesContext(value)){
+   bindings.push(unavailable('Job execution context could not be verified',job));
+   continue;
+  }
+  const script=Array.isArray(value.script)?value.script:[value.script];
+  const commands=script.map(line=>{
+   const match=typeof line==='string'?/^(?:cd ([a-zA-Z0-9_.\/-]+) && )?npm run ([^\s]+)$/.exec(line):null;
+   if(!match)return undefined;
+   const cwd=match[1]??'.',name=match[2];
+   if((cwd!=='.'&&(!projectRelativePath(cwd)||cwd.startsWith('-')))||!npmScriptName(name))return undefined;
+   return {executable:'npm',args:['run',name],cwd,envRefs:[]};
+  });
+  if(!commands.length||commands.some(command=>!command)||commands.length>1&&commands.some(command=>command?.cwd!=='.')){
+   bindings.push(unavailable('Script is not a supported literal npm command sequence',job));
+   continue;
+  }
+  for(const command of commands)if(command)bindings.push({path,job,command,coverageStatus:'reusable'});
+ }
+ return bindings;
+}
 export async function prepareGitlab(root:string,selection:NonNullable<SetupOptions['quality']>['gitlab'],commands:CommandSpec[]):Promise<{assets:PreparedAsset[];requirements:{integrationId:string;reason:string}[]}>{
  const assets:PreparedAsset[]=[];const requirements:{integrationId:string;reason:string}[]=[];if(!selection)return {assets,requirements};
  let text='';try{text=await readFile(await targetPath(root,'.gitlab-ci.yml'),'utf8');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}

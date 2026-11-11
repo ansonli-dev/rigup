@@ -25,7 +25,7 @@ import {loadManifest,type Manifest} from './baseline.js';
 import {runProjectChecks} from '../integrations/tools/quality.js';
 import {quoteShell} from '../shell-command.js';
 export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;durationMs?:number;diagnostic?:{rule:string;path:string;relatedPath:string};environment?:{node:string;platform:string};exitCode?:number}
-export interface InstallReport {projectRules?:SetupPlan['projectRules'];researchNextStep?:string;nextCommand?:string;status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
+export interface InstallReport {projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];researchNextStep?:string;nextCommand?:string;status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
 export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
 interface Transaction {previewId:string;installId:string;status:'prepared'|'complete';files:Record<string,{before:string;after:string;beforeMode?:number;afterMode?:number}>;checks?:CheckResult[];receipts:NonNullable<Manifest['installedTools']>;initialized?:NonNullable<Manifest['initializedTools']>;preview?:{digest:string;data:PreviewData};report?:InstallReport}
 function readApplyRecord(path:string):Promise<Transaction|undefined>{
@@ -80,7 +80,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
  const rules=data.plan.projectRules?{projectRules:data.plan.projectRules}:{};
  const pendingRules=data.plan.projectRules==='pending'?{nextCommand:'rigup update '+quoteShell(root)+' --review',
   ...(data.plan.options.projectRules?{researchNextStep:'Reload the project in a selected agent and call rigup_begin with the project root, or configure a CLI provider and run the review command.'}:{})}:{};
- const report:InstallReport={...rules,status:'pending',exitCode:3,previewId,written:[],operations:[],checks:[],warnings:[...data.preview.warnings]};
+ const report:InstallReport={...rules,...(data.preview.harness?{harness:data.preview.harness}:{}),status:'pending',exitCode:3,previewId,written:[],operations:[],checks:[],warnings:[...data.preview.warnings]};
  try {
   await assertNoUnknownWriters(root,lock.stateRoot);
   const statePath=join(lock.stateRoot,signature(root)+'.apply.json');let tx=await readApplyRecord(statePath);

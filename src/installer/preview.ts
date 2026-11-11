@@ -21,9 +21,10 @@ import {markdownLinks,validateTemplateContent} from '../generator/document-polic
 import {loadManifest,trustedBaseline,type Manifest} from './baseline.js';
 import {mergeManaged,type MergeResult} from './merge.js';
 import {equalOwnedContent,ownedContent,replaceOwned,selectorsOverlap} from './ownership.js';
+import {isGitlabWiring} from '../integrations/gitlab/ci.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
-export interface Preview {noChanges?:true;projectRules?:SetupPlan['projectRules'];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
+export interface Preview {noChanges?:true;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number}
 export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
@@ -167,7 +168,9 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    if(entry.candidate&&!equalOwnedContent(asset.ownership,text,entry.candidate.content))blockers.push(asset.target+': selected machine binding differs from accepted configuration');
   }
  }
- if(plan.options.quality?.gitlab){
+ if(plan.gitlabReviewRequired){
+  if(plan.assets.some(a=>isGitlabWiring(a.logicalId))||plan.dispositions.some(d=>isGitlabWiring(d.logicalId)&&d.action!=='retain'))throw Error('Complete a root review before changing GitLab wiring');
+ }else if(plan.options.quality?.gitlab){
   try{
    const text=fileMap.get('.gitlab-ci.yml')?.text??(await readTarget(root,'.gitlab-ci.yml'))?.toString('utf8');const doc=parseDocument(text??'');if(doc.errors.length)throw new Error('CI YAML invalid');
    const include=doc.toJS()?.include;const includes=Array.isArray(include)?include:[include];
@@ -178,7 +181,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   }catch{blockers.push('.gitlab-ci.yml: required CI include/job binding invalid or unavailable; preserve local content and re-prepare');}
  }
  const previewId=digest(randomUUID()+signature({plan,items,resolutions}));
- const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
+ const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
  // Older CLI readers use the discovery marker to verify the full approved scope.

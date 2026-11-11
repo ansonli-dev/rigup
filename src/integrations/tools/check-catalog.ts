@@ -29,17 +29,17 @@ export function checkCommand(check:SpecializedCheck):CheckCommand {
  return {...check.command,...(check.tools?{tools:check.tools}:{}),...(check.postgres?{testDatabase:true as const}:{})};
 }
 
-export function selectedChecks(profile:ProjectProfile,selectors:readonly CheckSelector[]):{name:string;check?:SpecializedCheck}[] {
+export function selectedChecks(profile:ProjectProfile,selectors:readonly CheckSelector[]):{name:string;check?:SpecializedCheck;selector:CheckSelector}[] {
  const catalog=new Map(projectChecks(profile).map(check=>[key(npmScript(check.command)),check])),seen=new Set<string>();
  return selectors.flatMap(name=>{
   const refs=typeof name==='string'?(profile.commands[name]??[]).map(npmScript):[name];
   const label=typeof name==='string'?name:name.cwd+' npm run '+name.script;
   const found=refs.map(ref=>catalog.get(key(ref))).filter((check):check is SpecializedCheck=>!!check);
-  if(!found.length)return [{name:label}];
+  if(!found.length)return [{name:label,selector:name}];
   return found.filter(check=>{
    const identity=key(npmScript(check.command));
    if(seen.has(identity))return false;
    seen.add(identity);return true;
-  }).map(check=>({name:label,check}));
+  }).map(check=>({name:label,check,selector:name}));
  });
 }

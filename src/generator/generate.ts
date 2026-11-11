@@ -20,6 +20,8 @@ import {validateDocumentJob,validateDocumentTarget,validateDocumentContent,valid
 import {readWorkflowTemplates,renderFixed,validateNavigation,TEMPLATE_VERSION} from './render.js';
 import {isProjectRulesId,isProjectRulesJob,planWithProjectRules,prepareProjectRules,projectRuleDraftPolicy,PROJECT_RULES_CONSUMER,type GuidanceBinding,type RuleEvidenceState,type RuleRepair} from './project-rules.js';
 import {signature,privateDirectory,readCache,saveCache} from './cache.js';
+import {projectChecks} from '../integrations/tools/check-catalog.js';
+import {isGitlabWiring} from '../integrations/gitlab/ci.js';
 export interface GenerationDependencies {prepared?:GenerationPreparation;effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
 interface Candidate extends ArtifactContent {job:ArtifactJob;digest:string;accepted:boolean}
 interface State extends RuleEvidenceState {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];referenceIndex?:ArtifactPage;dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;ruleRepairs?:Record<string,RuleRepair>;spent:{calls:number;tokens:number|'unknown'}}
@@ -32,7 +34,7 @@ export async function prepareGeneration(profile:ProjectProfile,options:SetupOpti
  return {integration,fixedTemplates};
 }
 
-function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,assets:PreparedAsset[],dispositions:AssetDisposition[],previousAssets:ManagedAsset[],projectRules?:SetupPlan['projectRules']):SetupPlan{
+function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,assets:PreparedAsset[],dispositions:AssetDisposition[],previousAssets:ManagedAsset[],projectRules?:SetupPlan['projectRules'],guidance:GuidanceBinding[]=[]):SetupPlan{
  const retainedIds=new Set(dispositions.filter(d=>d.action==='retain').map(d=>d.logicalId));
  const retainedTargets=previousAssets.filter(a=>retainedIds.has(a.logicalId)).map(a=>a.target);
  // The research inventory excludes managed files. Preview checks retained targets on disk.
@@ -43,8 +45,11 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
   if(seen.has(key))throw new Error('duplicate candidate target');
   seen.add(key);
  }
+ const gitlabReviewRequired=profile.gitlabReviewRequired&&(!!options.quality?.gitlab||previousAssets.some(a=>isGitlabWiring(a.logicalId)));
  return {root:profile.root,fingerprint:profile.fingerprint,options,assets,operations:integration.operations,dispositions,
-  warnings:[...profile.unknowns,...integration.warnings],requirements:integration.requirements,
+  harness:{guidance,checks:projectChecks(profile),ci:profile.gitlabJobs??[]},
+  ...(gitlabReviewRequired?{gitlabReviewRequired:true as const}:{}),
+  warnings:[...profile.unknowns,...integration.warnings,...(gitlabReviewRequired?['GitLab wiring was left as-is. A complete root review is required to verify and change the selection.']:[])],requirements:integration.requirements,
   versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},
   ...(projectRules?{projectRules}:{})};
 }
@@ -191,6 +196,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
   return {logicalId:a.logicalId,action:refreshed?'update' as const:'retain' as const,reason:refreshed?'Existing planned artifact revalidated under the current evidence contract':'Inventory matches accepted candidates'};
  }) : [...state.plan.dispositions.filter(d=>!fixedInventory.some(a=>a.logicalId===d.logicalId)),...fixedInventory.map(a=>({logicalId:a.logicalId,action:'retain' as const,reason:'Explicit deterministic selection maintained'}))];
  const dispositions=effectiveDispositions.map(original=>{
+  if(profile.gitlabReviewRequired&&isGitlabWiring(original.logicalId))return {...original,action:'retain' as const,reason:'Complete root review required to change GitLab wiring'};
   const current=assets.find(a=>a.logicalId===original.logicalId);const oldItem=previousAssets.find(a=>a.logicalId===original.logicalId);
   const d=!current&&oldItem&&deterministic(oldItem)?{...original,action:'retire' as const,reason:'Managed capability or verified rules no longer selected; explicit retirement consent required'}:current&&(!wantsRules||deterministic(current))?{...original,action:(digest(current.encoding==='base64'?Buffer.from(current.content,'base64'):current.content)===oldItem?.digest&&current.mode===oldItem?.mode?'retain':'update') as 'retain'|'update',reason:'Disposition derived from selected candidate and original baseline'}:original;
   const replacement=assets.find(a=>a.logicalId===d.logicalId);
@@ -202,7 +208,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  });
  // After installation the inventory changes from the input to these accepted candidates.
  const retained=previousAssets.filter(a=>dispositions.some(d=>d.logicalId===a.logicalId&&d.action==='retain')&&!assets.some(n=>n.logicalId===a.logicalId));
- const plan=setupPlan(profile,options,integration,assets,dispositions,previousAssets,wantsRules?'ready':undefined);
+ const plan=setupPlan(profile,options,integration,assets,dispositions,previousAssets,wantsRules?'ready':undefined,state.plan.guidance);
  state.resultInventory=inventorySignature([...assets.map(a=>({...a,digest:digest(a.encoding==='base64'?Buffer.from(a.content,'base64'):a.content)})),...retained]);await persist();
  return {status:'complete',value:plan};
 }

@@ -36,6 +36,12 @@ export function validateInventory(ids:string[],items:{logicalId:string;action:st
 }
 export interface CommandSpec {executable:string;args:string[];cwd:string;envRefs:string[]}
 export interface Evidence {path:string;startLine:number;endLine:number;digest:string}
+export interface GitlabJobBinding {path:string;job?:string;command?:CommandSpec;coverageStatus:'reusable'|'unavailable';reason?:string}
+export interface HarnessSummary {
+ guidance:import('./generator/project-rules.js').GuidanceBinding[];
+ checks:import('./analyzer/check-prerequisites.js').SpecializedCheck[];
+ ci:GitlabJobBinding[];
+}
 
 export interface SetupOperation {
  id:string;integrationId:string;kind:'install'|'initialize'|'check';parameters:CommandSpec;prerequisiteIds:string[];declaredWrites:string[];version:string;timeoutMs:number;
@@ -48,7 +54,9 @@ export interface ManagedAsset {logicalId:string;target:string;ownership:import('
 export interface AssetDisposition {logicalId:string;action:'retain'|'update'|'retire'|'pending';reason:string}
 export type ProjectRulesStatus='pending'|'ready';
 export interface SetupRequirement {integrationId:string;reason:string;nextCommand?:string}
-export interface SetupPlan {projectRules?:ProjectRulesStatus;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
+export interface SetupPlan {projectRules?:ProjectRulesStatus;harness?:HarnessSummary;gitlabReviewRequired?:true;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
+
+export const scopeContains=(parent:string,child:string):boolean=>parent==='.'||child===parent||child.startsWith(parent+'/');
 
 export type CheckKind='build'|'lint'|'test'|'environment'|'eval';
 export interface NpmScript {cwd:string;script:string}

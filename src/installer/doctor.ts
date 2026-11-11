@@ -9,6 +9,7 @@ import {readTarget} from './preview.js';
 import {readFileState,platformFileMode} from './file-state.js';
 import {scanRepository} from '../analyzer/repository.js';
 import {runProjectChecks} from '../integrations/tools/quality.js';
+import {projectChecks} from '../integrations/tools/check-catalog.js';
 import {loadUpstreamLock} from '../integrations/upstream.js';
 import {assertNoUnknownWriters} from './operations.js';
 import {acquireLock,defaultStateRoot} from './lock.js';
@@ -115,7 +116,22 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   const initializationReason=native?native.message:externalWiki?'Completed native OpenWiki baseline observed outside Rigup ownership':tool.id==='openwiki'?(nativeReceipt?'Existing native ownership/state needs reconciliation. ':'')+openwikiInitializationGuide:'Native initialization unavailable or ownership/state changed; no initialization or repair executed';
   add('tools',tool.id+':initialization',native||externalWiki?'initialized':'pending',initializationReason);
  }
- if(options.runChecks?.length){const lock=await acquireLock(root,{stateRoot:options.stateRoot});try{await assertNoUnknownWriters(root,lock.stateRoot);report.checks=await runProjectChecks(await scanRepository(root,selected),options.runChecks,options.signal);}finally{await lock.release();}}
+ let profile:Awaited<ReturnType<typeof scanRepository>>|undefined;
+ if(options.runChecks?.length){
+  const lock=await acquireLock(root,{stateRoot:options.stateRoot});
+  try{
+   await assertNoUnknownWriters(root,lock.stateRoot);
+   profile=await scanRepository(root,selected);
+   report.checks=await runProjectChecks(profile,options.runChecks,options.signal);
+  }finally{await lock.release();}
+ }else{
+  try{profile=await scanRepository(root,selected);}
+  catch{report.warnings.push('Harness discovery unavailable under the current repository read policy.');}
+ }
+ if(profile){
+  report.harness={guidance:[],checks:projectChecks(profile),ci:profile.gitlabJobs??[]};
+  report.warnings.push(...profile.unknowns);
+ }
  for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??'Actual selected command result; separate from installation status');
  const failed=diagnostics.some(d=>d.state==='failed');const pending=diagnostics.some(d=>d.state==='pending'||d.state==='reload-required');report.status=diagnostics.some(d=>d.category==='config'&&d.state==='failed')?'failed':interrupted?'pending':'complete';report.exitCode=options.signal?.aborted?130:failed?1:pending?3:0;return report;
 }

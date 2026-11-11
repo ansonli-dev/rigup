@@ -197,6 +197,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,waiting:'ownership and virtual-tree checks'});
   plan.runChecks=flags.runChecks??[];
   const result=await preview(plan,resolutions,{cacheRoot:previews,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review});
+  if(plan.gitlabReviewRequired)for(const warning of result.warnings)if(warning.startsWith('GitLab wiring'))write(warning+'\n');
   if(result.noChanges){
    emit({stage:'preview',completed:result.items.length,total:result.items.length,status:'complete'});
    const {previewId,...summary}=result;
