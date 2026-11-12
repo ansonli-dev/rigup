@@ -5,11 +5,12 @@ import {promisify} from 'node:util';
 import {createWriteStream} from 'node:fs';
 import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {delimiter, dirname, join} from 'node:path';
+import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {finished} from 'node:stream/promises';
 import {prepareGitlab} from '../src/integrations/gitlab/ci.js';
 import {liveVersion,startLiveCommand} from './live-process-support.js';
+import {runnerEnvironment,redactGitlabEvidence,failedJobEvidence,boundedTrace} from './gitlab-runner-support.js';
 
 const exec = promisify(execFile);
 const pause = (ms:number) => new Promise(done => setTimeout(done, ms));
@@ -20,6 +21,8 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
   assert.equal(host.username + host.password + host.search + host.hash, '');
   const token = (await readFile(process.env.RIGUP_GITLAB_TOKEN_FILE!, 'utf8')).trim();
   assert.ok(token);
+  const secrets=new Set([token]);
+  const pipelineIds:number[]=[];
   const binary = process.env.RIGUP_GITLAB_RUNNER!;
   const runnerVersion = await liveVersion(binary);
   const control = await mkdtemp(join(tmpdir(), 'rigup-gitlab-live-'));
@@ -33,7 +36,7 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
   let runnerLogClosed:Promise<void>|undefined;
   const api = async (method:string, path:string, body?:unknown, text=false):Promise<any> => {
     const response = await fetch(new URL('/api/v4' + path, host), {method, headers: {'PRIVATE-TOKEN': token, 'Content-Type': 'application/json'}, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30_000)});
-    const value = text ? await response.text() : response.status === 204 ? null : await response.json();
+    const value = text ? await boundedTrace(response) : response.status === 204 ? null : await response.json();
     assert.ok(response.ok, `${method} ${path}: HTTP ${response.status}`);
     return value;
   };
@@ -43,17 +46,15 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
     projectId = project.id;
     const base = `/projects/${projectId}`;
     const registered = await api('POST', '/user/runners', {runner_type: 'project_type', project_id: projectId, description: 'Rigup disposable local validation', run_untagged: true, locked: true});
+    secrets.add(registered.token);
     const config = join(control, 'runner.toml');
-    await writeFile(config, `concurrent = 1\ncheck_interval = 1\n[[runners]]\nname = "rigup-disposable"\nurl = ${JSON.stringify(host.origin)}\nid = ${registered.id}\ntoken = ${JSON.stringify(registered.token)}\nexecutor = "shell"\nshell = "bash"\nbuilds_dir = ${JSON.stringify(join(control, 'builds'))}\ncache_dir = ${JSON.stringify(join(control, 'cache'))}\n`, {mode: 0o600});
+    await writeFile(config, `concurrent = 1\ncheck_interval = 1\n[[runners]]\nname = "rigup-disposable"\nurl = ${JSON.stringify(host.origin)}\nid = ${registered.id}\ntoken = ${JSON.stringify(registered.token)}\nexecutor = "shell"\nshell = "bash"\nbuilds_dir = "builds"\ncache_dir = "cache"\n`, {mode: 0o600});
     let runnerError:Error|undefined;
     runnerLog = createWriteStream(join(control, 'runner.log'), {mode:0o600});
     runnerLogClosed = finished(runnerLog);
     void runnerLogClosed.catch(error => {runnerError = error;});
-    const path = process.platform==='win32'
-      ? [dirname(process.execPath), process.env.PATH].filter(Boolean).join(delimiter)
-      : [dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(delimiter);
     runner = startLiveCommand(binary, ['run', '--config', config, '--working-directory', control], {cwd:control,
-      env:{PATH:path, SystemRoot:process.env.SystemRoot, HOME:home, LANG:'en_US.UTF-8', GIT_CONFIG_NOSYSTEM:'1', GIT_CONFIG_GLOBAL:join(home, 'gitconfig')}});
+      env:await runnerEnvironment(home)});
     runner.stdout.pipe(runnerLog,{end:false});
     runner.stderr.pipe(runnerLog,{end:false});
     void runner.completed.then(
@@ -81,6 +82,7 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
         }
         assert.ok(started, 'real commit push did not create a pipeline');
       } else started = await api('POST', base + '/pipeline', {ref: 'main'});
+      pipelineIds.push(started.id);
       const finished = await waitPipeline(started.id);
       const jobs = await api('GET', base + '/pipelines/' + started.id + '/jobs');
       report.pipelines.push({id: started.id, sha: finished.sha, status: finished.status, jobs: jobs.map((job:any) => ({id: job.id, name: job.name, stage: job.stage, status: job.status, artifacts: job.artifacts.map((artifact:any) => ({file_type: artifact.file_type, filename: artifact.filename, size: artifact.size}))}))});
@@ -119,13 +121,13 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
     const missing = await pipeline(wikiCommit.id); assert.equal(missing.finished.status, 'failed');
     const wikiJob = missing.jobs.find((job:any) => job.name === 'rigup:openwiki'); assert.equal(wikiJob?.status, 'failed');
     const trace = await api('GET', `${base}/jobs/${wikiJob.id}/trace`, undefined, true);
-    assert.match(trace, /Missing OpenWiki environment reference RIGUP_MISSING_MODEL_TOKEN/);
+    assert.match(redactGitlabEvidence(trace,secrets), /Missing OpenWiki environment reference RIGUP_MISSING_MODEL_TOKEN/);
     report.wikiMissing = {status: wikiJob.status, missingRef: 'RIGUP_MISSING_MODEL_TOKEN'};
     report.status = 'passed';
   } catch (error) {
-    report.reason = error instanceof Error ? error.message : 'Local GitLab test failed';
+    report.reason = redactGitlabEvidence(error instanceof Error ? error.message : 'Local GitLab test failed',secrets);
     report.privateControl = control;
-    throw error;
+    throw Error(report.reason);
   } finally {
     let cleanupError:unknown;
     try {
@@ -138,12 +140,14 @@ test('live local GitLab lints and runs generated checks reports and wiki guards'
       report.privateControl = control;
     }
     if (projectId !== undefined) {
+      report.failedJobs=await failedJobEvidence(api,'/projects/'+projectId,pipelineIds,secrets);
+      report.runnerTrace=redactGitlabEvidence((await readFile(join(control,'runner.log'),'utf8').catch(()=> 'Runner log unavailable')).slice(-256_000),secrets);
       try { await api('DELETE', '/projects/' + projectId); report.projectCleanup = 'deleted own disposable project'; }
       catch { report.projectCleanup = 'failed; remove own disposable instance before reuse'; }
     }
     report.finishedAt = new Date().toISOString();
     const out = process.env.RIGUP_LIVE_EVIDENCE_DIR ?? join(control, 'evidence');
-    await mkdir(out, {recursive: true}); await writeFile(join(out, 'gitlab-local-runner.json'), JSON.stringify(report, null, 2) + '\n');
+    await mkdir(out, {recursive: true}); await writeFile(join(out, 'gitlab-local-runner.json'), redactGitlabEvidence(JSON.stringify(report, null, 2),secrets) + '\n');
     if (report.status === 'passed') await rm(control, {recursive: true, force: true});
     if (cleanupError) throw cleanupError;
   }

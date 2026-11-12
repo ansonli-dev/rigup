@@ -35,3 +35,22 @@ jobs:
       - run: npm run check
       - run: npm audit --audit-level=low
       - run: git diff --exit-code
+
+  wsl:
+    name: WSL2 / ext4 and Windows drive permissions
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Verify real WSL2 mounts and recovery
+        shell: pwsh
+        run: ./scripts/check-wsl.ps1 -EvidenceDirectory "${{ runner.temp }}/rigup-wsl-evidence"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: wsl2-filesystem-evidence
+          path: ${{ runner.temp }}/rigup-wsl-evidence
+          if-no-files-found: error
+          retention-days: 14

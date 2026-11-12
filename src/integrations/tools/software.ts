@@ -3,7 +3,7 @@ import {softwareInstallRecipe,toolPackage,type NativeTool} from './recipes.js';
 import {lstat,readdir,realpath} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import type {SetupOperation} from '../../types.js';
-export async function prepareSoftwareInstall(root:string,id:NativeTool,version:string,integrity?:string,receipt?:ToolInstallReceipt):Promise<SetupOperation|{pending:string}|{reused:true;version:string}>{
+export async function prepareSoftwareInstall(root:string,id:NativeTool,version:string,integrity?:string,receipt?:ToolInstallReceipt,registry?:string):Promise<SetupOperation|{pending:string}|{reused:true;version:string}>{
  root=await realpath(root);
  const {prefix}=toolPackage(id);
  let current=root;
@@ -17,5 +17,5 @@ export async function prepareSoftwareInstall(root:string,id:NativeTool,version:s
    return {pending:'existing non-empty tool scope requires reconciliation; no automatic overwrite'};
   }}
  catch(error){if((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;}
- return softwareInstallRecipe(root,id,version,integrity);
+ return softwareInstallRecipe(root,id,version,integrity,undefined,registry);
 }

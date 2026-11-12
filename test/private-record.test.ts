@@ -98,6 +98,10 @@ function interceptRename(t:TestContext,platform:NodeJS.Platform,rename:typeof fs
  t.after(()=>{replacement.mock.restore();syncBuiltinESMExports();});
 }
 
+// These portable race tests spoof Windows retry behavior, so request the mode
+// Windows actually exposes. Native NTFS tests separately cover private ACLs.
+const renameFixtureMode=0o666;
+
 test('Windows atomic writers publish distinct replacements after transient rename failures',t=>project(async root=>{
  const durable=join(root,'durable.json'),cache=join(root,'cache.json'),manifest=join(root,'manifest.json');
  const originalRename=fs.rename;
@@ -110,7 +114,7 @@ test('Windows atomic writers publish distinct replacements after transient renam
  for(const [path,code,write] of [
   [durable,'EPERM',(content:string)=>saveDurable(durable,content)],
   [cache,'EACCES',(content:string)=>saveCache(cache,content)],
-  [manifest,'EBUSY',(content:string)=>atomicProjectWrite(root,'manifest.json',Buffer.from(content))],
+  [manifest,'EBUSY',(content:string)=>atomicProjectWrite(root,'manifest.json',Buffer.from(content),renameFixtureMode)],
  ] as const){
   await write('first');
   pendingFailures.set(path,code);
@@ -136,7 +140,7 @@ test('project rename retry refuses a redirected parent and preserves unrelated f
   await writeFile(unrelatedTemporary,'unrelated');
   throw Object.assign(new Error('file temporarily busy'),{code:'EBUSY'});
  });
- await assert.rejects(atomicProjectWrite(root,'target/manifest.json',Buffer.from('second')),/target symlink denied/);
+ await assert.rejects(atomicProjectWrite(root,'target/manifest.json',Buffer.from('second'),renameFixtureMode),/target symlink denied/);
  assert.equal(await readFile(unrelatedTemporary,'utf8'),'unrelated');
  assert.equal(await readFile(join(relocated,'manifest.json'),'utf8'),'first');
 }));
@@ -155,7 +159,7 @@ test('a transient project rename does not overwrite a destination edited before 
   }
   await originalRename(source,target);
  });
- await assert.rejects(atomicProjectWrite(root,'manifest.json',Buffer.from('replacement'),0o644,false,async()=>{
+ await assert.rejects(atomicProjectWrite(root,'manifest.json',Buffer.from('replacement'),renameFixtureMode,false,async()=>{
   const current=await readFileState(root,'manifest.json');
   if(current.digest!==approved.digest||current.mode!==approved.mode)throw Error('destination changed since approval');
  }),/destination changed since approval/);
@@ -181,7 +185,7 @@ test('project rename retry and cleanup preserve a replaced regular parent direct
   }
   await originalRename(source,target);
  });
- await assert.rejects(atomicProjectWrite(root,'target/manifest.json',Buffer.from('replacement')),/target parent changed/);
+ await assert.rejects(atomicProjectWrite(root,'target/manifest.json',Buffer.from('replacement'),renameFixtureMode),/target parent changed/);
  assert.equal(await readFile(destination,'utf8'),'replacement directory content');
  assert.equal(await readFile(unrelatedTemporary,'utf8'),'unrelated');
  assert.equal(await readFile(join(relocated,'manifest.json'),'utf8'),'approved content');

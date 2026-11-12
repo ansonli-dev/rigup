@@ -1,9 +1,11 @@
-import {mkdir,rename,open,link,unlink,lstat} from 'node:fs/promises';
-import {dirname} from 'node:path';
+import {mkdir,rename,open,link,rm,lstat} from 'node:fs/promises';
+import {dirname,join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {renameWithRetry} from '../atomic-rename.js';
 import {targetPath} from './ownership.js';
 import {syncDirectory} from '../sync-directory.js';
+import {assertPrivateAccess,createWindowsPrivateDirectory} from '../private-access.js';
+import {platformFileMode} from './file-state.js';
 export async function atomicProjectWrite(root:string,target:string,content:Buffer,mode?:number,exclusive=false,verifyCurrent?:()=>Promise<void>):Promise<void>{
  const path=await targetPath(root,target);
  const directory=dirname(path);
@@ -25,21 +27,30 @@ export async function atomicProjectWrite(root:string,target:string,content:Buffe
  };
  const suffix='.rigup-'+randomUUID()+'.tmp';
  const temporary=path+suffix;
+ const privateStaging=process.platform==='win32'&&(mode??0o600)===0o600;
+ const staged=privateStaging?join(temporary,'content'):temporary;
  const removeTemporary=async()=>{
   if(await targetPath(root,target.replace(/\/$/,'')+suffix)!==temporary)throw new Error('temporary path changed during write');
   await verifyParent();
-  await unlink(temporary).catch(error=>{if(error.code!=='ENOENT')throw error;});
+  await rm(temporary,{recursive:privateStaging,force:true});
  };
- const handle=await open(temporary,'wx',mode??0o600);
  try{
-  try{await handle.writeFile(content);if(mode!==undefined)await handle.chmod(mode);await handle.sync();}finally{await handle.close();}
-  if(exclusive){await verify();await link(temporary,path);}
-  else await renameWithRetry(()=>rename(temporary,path),verify);
+  if(privateStaging)await createWindowsPrivateDirectory(temporary,'Cannot create a private project record');
+  const handle=await open(staged,'wx',mode??0o600);
+  try{
+   if(mode!==undefined)await handle.chmod(mode);
+   const info=await handle.stat();
+   if((info.mode&0o777)!==platformFileMode(mode??0o600))throw Error('Target filesystem did not retain the requested file mode');
+   if(privateStaging)await assertPrivateAccess(staged,info,'Cannot protect a private project record');
+   await handle.writeFile(content);await handle.sync();
+  }finally{await handle.close();}
+  if(exclusive){await verify();await link(staged,path);}
+  else await renameWithRetry(()=>rename(staged,path),verify);
  }catch(error){
   // A failed write may have discovered a moved or redirected parent.
   await removeTemporary().catch(()=>{});
   throw error;
  }
- if(exclusive)await removeTemporary();
+ if(exclusive||privateStaging)await removeTemporary();
  await syncDirectory(directory);
 }

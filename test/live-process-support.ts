@@ -183,12 +183,13 @@ export async function startLiveSession(executable:string,args:string[],options:O
  }catch(error){cleanup();throw error;}
 }
 
-interface RunOptions extends Options {input?:string;timeoutMs:number;killSignal?:NodeJS.Signals;maxBuffer?:number}
+interface RunOptions extends Options {input?:string;timeoutMs:number;killSignal?:NodeJS.Signals;maxBuffer?:number;onStdout?:(chunk:string)=>void}
 
-export async function runLiveCommand(executable:string,args:string[],{input,timeoutMs,killSignal='SIGKILL',maxBuffer=Infinity,...options}:RunOptions){
+export async function runLiveCommand(executable:string,args:string[],{input,timeoutMs,killSignal='SIGKILL',maxBuffer=Infinity,onStdout,...options}:RunOptions){
  const child=startLiveCommand(executable,args,options,input);
  let stdout='',stderr='',stdoutBytes=0,stderrBytes=0;
  let timedOut=false,overflow=false,stop:Promise<void>|undefined;
+ let observationFailed=false,observationError:unknown;
  let timer:ReturnType<typeof setTimeout>|undefined;
  let interrupt:()=>void;
  const interrupted=new Promise<null>((done,reject)=>{
@@ -201,7 +202,10 @@ export async function runLiveCommand(executable:string,args:string[],{input,time
  });
  child.stdout.setEncoding('utf8').on('data',(chunk:string)=>{
   stdoutBytes+=Buffer.byteLength(chunk);
-  if(stdoutBytes<=maxBuffer)stdout+=chunk;else{overflow=true;interrupt();}
+  if(stdoutBytes<=maxBuffer){
+   stdout+=chunk;
+   if(!observationFailed)try{onStdout?.(chunk);}catch(error){observationFailed=true;observationError=error;interrupt();}
+  }else{overflow=true;interrupt();}
  });
  child.stderr.setEncoding('utf8').on('data',(chunk:string)=>{
   stderrBytes+=Buffer.byteLength(chunk);
@@ -210,6 +214,7 @@ export async function runLiveCommand(executable:string,args:string[],{input,time
  try{
   const code=await Promise.race([child.completed,interrupted]);
   if(stop)await stop;
+  if(observationFailed)throw observationError;
   if(overflow)throw Error('Live probe output exceeded its limit');
   return {code:timedOut?null:code,stdout,stderr,timedOut};
  }finally{clearTimeout(timer);}

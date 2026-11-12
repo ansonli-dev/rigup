@@ -13,7 +13,8 @@ import {loadResearchIgnore} from '../analyzer/research-ignore.js';
 import {trustedBaseline} from '../installer/baseline.js';
 import {ownedContent,replaceOwned,targetPath} from '../installer/ownership.js';
 import {isConventionScope} from '../project-conventions.js';
-export const TEMPLATE_VERSION='8';
+import {workflowSkills} from '../integrations/workflow-skills.js';
+export const TEMPLATE_VERSION='9';
 const inline=(value:string)=>value.replace(/[\x00-\x1f\x7f]+/g,' ').replace(/[\\`*_\[\]<>]/g,'\\$&');
 const link=(from:string,to:string,label=to)=>`[${inline(label)}](${posix.relative(posix.dirname(from),to).split('/').map(part=>encodeURIComponent(part).replaceAll('(','%28').replaceAll(')','%29')).join('/')})`;
 function codeSpan(value:string):string {
@@ -23,10 +24,11 @@ function codeSpan(value:string):string {
  return /^[ `]|[ `]$/.test(text)&&text.trim()?`${fence} ${text} ${fence}`:`${fence}${text}${fence}`;
 }
 export function readWorkflowTemplates(){
- return Promise.all(['change-prepare','change-deliver'].map(async name=>{
+ return Promise.all(workflowSkills.map(async name=>{
   const base=new URL('../../templates/skills/'+name+'/',import.meta.url);
   const [skill,reference]=await Promise.all(['SKILL.md','references/project.md'].map(path=>readFile(new URL(path,base),'utf8')));
-  return {name,skill,reference};
+  const goal=name==='change-prepare'?await readFile(new URL('references/GOAL.md',base),'utf8'):undefined;
+  return {name,skill,reference,goal};
  }));
 }
 export async function renderFixed(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,semantic:PreparedAsset[],guidance:GuidanceBinding[],templates?:Awaited<ReturnType<typeof readWorkflowTemplates>>,projectRulesPending=false):Promise<PreparedAsset[]>{
@@ -49,12 +51,13 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
  const entryTargets=new Set<string>();
  for(const agent of options.agents) {
   const host=agents[agent];entryTargets.add(host.entry);
-  for(const {name,skill,reference} of templates) {
+  for(const {name,skill,reference,goal} of templates) {
    const target=host.skillDirectory+'/'+name+'/SKILL.md';
    add(agent+':'+name,target,skill);
+   if(goal)add(agent+':'+name+':goal',host.skillDirectory+'/'+name+'/references/GOAL.md',goal);
    const refTarget=host.skillDirectory+'/'+name+'/references/project.md';
    const binding=integration.bindings.find(b=>b.id===options.sdd&&b.agent===agent);
-   const customerBindings=integration.skillBindings?.filter(b=>b.agent===agent&&b.consumer===name)??[];
+   const customerBindings=integration.skillBindings?.filter(b=>b.agent===agent&&(b.consumer===name||name==='change-ready'&&['change-prepare','change-deliver'].includes(b.consumer)))??[];
    const customerRefs=customerBindings.flatMap(b=>b.target?[b.target]:[]);
    const lines=[reference.trimEnd(),'','## Installed workflow','',...(binding ? ['Native prepare: '+binding.prepare.join(', '),...(binding.revise?['Native revise: '+binding.revise]:[]),'Native deliver: '+binding.deliver.join(', '),'Native document routes: '+binding.artifacts.join(', '),...binding.gates] : options.sdd?['Native workflow prerequisites pending. Stop at the missing entry.']:['Use the explicitly selected customer workflow and preserve its approvals.']),...customerRefs.map(p=>'- '+link(refTarget,p,'Customer workflow'))];
    if(binding?.projectSources?.length)lines.push(...binding.projectSources.map(path=>'- '+link(refTarget,path)));
@@ -75,7 +78,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
      const run=codeSpan([command.executable,...command.args].join(' '));
      const prerequisite=postgres?' · dedicated PostgreSQL test database':tools?.includes('playwright')?' · Playwright environment':'';
      lines.push('- '+run+' from '+codeSpan(command.cwd)+' · '+link(refTarget,source)+prerequisite);
-     if(name==='change-prepare')continue;
+     if(name!=='change-deliver')continue;
      if(tools?.includes('yarn'))lines.push('  - Put the project’s Yarn version on PATH and verify it with '+codeSpan('yarn --version')+'.');
      if(tools?.includes('playwright'))lines.push('  - Install missing Playwright browsers in this package with '+codeSpan('npm exec --yes=false -- playwright install')+'. Check the Playwright configuration for local URLs and ports.');
      if(tools?.includes('pm2'))lines.push('  - Use a private temporary '+codeSpan('PM2_HOME')+' for this run. After the check, stop that instance with '+codeSpan('npm exec --offline --yes=false -- pm2 kill')+' from the same directory and environment.');
@@ -118,7 +121,7 @@ export function validateNavigation(assets:PreparedAsset[],existing:string[],inhe
 }
 
 const harnessBlock={kind:'block' as const,start:'<!-- rigup:harness:start -->',end:'<!-- rigup:harness:end -->'};
-const navConsumer=(id:string)=>id.startsWith('entry:')||/:change-(?:prepare|deliver):context$/.test(id);
+const navConsumer=(id:string)=>id.startsWith('entry:')||/:change-(?:prepare|ready|deliver):context$/.test(id);
 const navHeading='## Team conventions';
 const navInstruction='Open the confirmed conventions that apply to the touched paths. Check each page’s status and scope before using it.';
 const navRow=/ <!-- rigup:convention ([a-zA-Z0-9_-]+) -->$/;

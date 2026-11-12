@@ -6,7 +6,7 @@ Claude 先跑 C1、C2，再按需要跑 C3 或 C4。Windows 分别记录 WSL2（
 
 ## C1 · 源码环境与 Claude 连通性
 
-在 macOS 或 Linux 准备 Node.js 24.x、npm、Git、C 编译器和 `ps`，以及可用的 Claude 账号或组织提供商。Node 24.x 也满足锁定 CodeGraph 的运行时要求。按实际版本记录场景。[开发环境](development.md) · [上游锁](../compatibility/upstream-lock.json)
+在 macOS 或 Linux 准备受支持的 Node.js（`^22.19.0 || >=24.2.0`）、npm、Git、C 编译器和 `ps`，以及可用的 Claude 账号或组织提供商。CodeGraph 的实际工作使用其平台包自带的 Node 24，宿主 Node 作为入口，仍按 Rigup 的 engines 核验。按实际版本记录场景。[开发环境](development.md) · [上游锁](../compatibility/upstream-lock.json)
 
 在同一 Bash 或 Zsh 会话执行。记下 `CASE_ROOT`，重开终端后可恢复路径。
 
@@ -24,7 +24,7 @@ git clone --config core.autocrlf=false https://github.com/ansonli-dev/rigup.git 
 cd "$RIGUP_SOURCE"
 git rev-parse HEAD > "$EVIDENCE/rigup-commit.txt"
 node -p 'JSON.stringify({node:process.version,platform:process.platform,arch:process.arch})' > "$EVIDENCE/runtime.json"
-node -e 'if (process.versions.node.split(".")[0] !== "24") process.exit(1)'
+node -e 'const [major,minor]=process.versions.node.split(".").map(Number);if (!(major===22&&minor>=19||major===24&&minor>=2||major>24)) process.exit(1)'
 command -v cc ps
 npm ci > "$EVIDENCE/npm-ci.log" 2>&1
 npm run check > "$EVIDENCE/default-check.log" 2>&1
@@ -174,11 +174,11 @@ uname -a
 
 先用 Linux 便携包验证 `rigup --version` 和项目根目录 `rigup init` 的 dry-run。[便携包安装](releases.md)
 
-做源码或 Claude 验证时，在 Linux home 下安装 Linux Node 24.x 和 Claude，使用 WSL 内独立登录，执行 C1、C2 及选定场景。核对 `process.platform=linux`、二进制位置、重载与进程恢复。空格/中文路径和 `/mnt/c` 分开测试。失败先核实 PATH、挂载类型、证书和 `ps`，保留原场景后再开 Linux home fixture。[Node.js 下载](https://nodejs.org/en/download)
+做源码或 Claude 验证时，在 Linux home 下安装符合 `^22.19.0 || >=24.2.0` 的 Linux Node 和 Claude，使用 WSL 内独立登录，执行 C1、C2 及选定场景。核对 `process.platform=linux`、二进制位置、重载与进程恢复。空格/中文路径和 `/mnt/c` 分开测试。drvfs 未启用 metadata 时，先确认安装预检在写入前拒绝不支持的权限；保留已有中断状态，修正挂载和权限后再于原路径恢复。失败先核实 PATH、挂载类型、证书和 `ps`，保留原场景后再开 Linux home fixture。[Node.js 下载](https://nodejs.org/en/download)
 
 ## W2 · 原生 Windows
 
-用 PowerShell 7、Windows Node.js 24.x 和 Git for Windows，在 NTFS 私有目录做源码探针。记录 Windows build 与架构。POSIX `ps`、进程组、mode/ACL 和 shell hooks 是当前平台移植验证点。CLI help 与 installer 验收分开记录。[PowerShell 安装](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)
+用 PowerShell 7、符合 `^22.19.0 || >=24.2.0` 的 Windows Node.js 和 Git for Windows，在 NTFS 私有目录做源码探针。记录 Windows build 与架构。POSIX `ps`、进程组、mode/ACL 和 shell hooks 是当前平台移植验证点。原生 GitLab runner 探针使用 Git for Windows 的 Bash，优先于 WSL bash，并设置 HOME/USERPROFILE 和相对 builds/cache 目录；失败 trace 在删除临时项目前脱敏保存。CLI help 与 installer 验收分开记录。[PowerShell 安装](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)
 
 用单独的 PowerShell 终端跑下面的默认测试，先清除 `ANTHROPIC*`、`CLAUDE*`、`CODEX*` 和 `OPENAI*` 环境变量。需要登录的 live 探针在另一个已配置的终端运行。 [Windows 测试准备](development.md#windows-and-agent-sessions)
 
@@ -193,8 +193,8 @@ git.exe clone --config core.autocrlf=false https://github.com/ansonli-dev/rigup.
 if ($LASTEXITCODE) { throw 'git clone failed' }
 Set-Location $Source
 git.exe rev-parse HEAD | Set-Content (Join-Path $Evidence 'rigup-commit.txt')
-node.exe -e 'if (process.versions.node.split(".")[0] !== "24") process.exit(1)'
-if ($LASTEXITCODE) { throw 'Node.js 24.x required' }
+node.exe -e 'const [major,minor]=process.versions.node.split(".").map(Number);if (!(major===22&&minor>=19||major===24&&minor>=2||major>24)) process.exit(1)'
+if ($LASTEXITCODE) { throw 'Node.js ^22.19.0 || >=24.2.0 required' }
 node.exe -p 'JSON.stringify({node:process.version,platform:process.platform,arch:process.arch})' |
   Set-Content (Join-Path $Evidence 'runtime.json')
 Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber |

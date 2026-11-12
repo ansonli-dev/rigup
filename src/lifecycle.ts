@@ -1,4 +1,5 @@
 import {createProgressReporter,type RunProgressEvent} from './progress.js';
+import {RIGUP_VERSION} from './version.js';
 import {readFile,readdir} from 'node:fs/promises';
 import {readDurableRecord,saveDurable} from './private-record.js';
 import {configurationCandidate} from './config.js';
@@ -32,6 +33,7 @@ import {sessionHandoffRequired} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
 import {apply,interruptedApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
+import {essentialEnvironment,runtimeEnvironment,runtimeSetupSummary} from './runtime-inputs.js';
 export interface LifecycleFlags {deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
 export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:()=>Promise<boolean>;report?:(value:Record<string,unknown>)=>void;researchSessionId?:string;expectedFingerprint?:string}
 interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string;versions?:SetupPlan['versions']}
@@ -43,6 +45,9 @@ async function readRun(path:string,root:string,consent:string):Promise<Run|undef
  return run;
 }
 export async function executeLifecycle(root:string,options:SetupOptions,flags:LifecycleFlags,write:(s:string)=>void,services:LifecycleServices={}):Promise<number>{
+ const runtimeSetup=await runtimeSetupSummary(root,options);
+ const report=services.report;
+ services={...services,report:value=>report?.({runtimeSetup,...value})};
  if(!options.agents.length){write('agents: choose at least one native host before research\n');services.report?.({phase:'preflight',installStatus:'pending',requiredInput:[{field:'agents',sources:['project configuration','selected profile','CLI overrides'],provide:'--agents codex (or another supported host)'}]});return 3;}
  const wantsRules=options.projectRules??!!options.sdd;
  const foundationOnly=flags.deferResearch||flags.foundationOnly;
@@ -52,10 +57,11 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  const backendKind=services.researchSessionId?'host':services.provider?'native':options.backend;
  const providerKind=services.provider?.identity.provider??options.model?.provider??'anthropic';
  const openAI=providerKind==='openai-compatible';
+ const environment=backendKind==='native'?await runtimeEnvironment(root,options,'provider').catch(()=>essentialEnvironment()):essentialEnvironment();
  const apiKeyEnv=services.provider?.identity.apiKeyEnv??options.model?.apiKeyEnv??(openAI?'OPENAI_API_KEY':'ANTHROPIC_API_KEY');
- const model=services.provider?.identity.model??options.model?.model??services.credentials?.model??process.env[openAI?'OPENAI_MODEL':'ANTHROPIC_MODEL'];
- const apiKey=services.provider?.apiKey??services.credentials?.apiKey??process.env[apiKeyEnv];
- const baseURL=services.provider?.baseURL??(openAI?process.env.OPENAI_BASE_URL:undefined);
+ const model=services.provider?.identity.model??options.model?.model??services.credentials?.model??environment.RIGUP_MODEL_ID??environment[openAI?'OPENAI_MODEL':'ANTHROPIC_MODEL'];
+ const apiKey=services.provider?.apiKey??services.credentials?.apiKey??environment[apiKeyEnv];
+ const baseURL=services.provider?.baseURL??environment.RIGUP_BASE_URL??environment[openAI?'OPENAI_BASE_URL':'ANTHROPIC_BASE_URL']??(openAI?'https://api.openai.com/v1':'https://api.anthropic.com');
  const effectiveModel:SetupOptions['model']=backendKind==='native'&&needsResearch&&model?{provider:providerKind,model,apiKeyEnv}:undefined;
  const researchSessionId=services.researchSessionId??(services.provider?signature({baseURL}):undefined);
  const lock=await acquireLock(root,{stateRoot:services.stateRoot,recover:flags.resume});
@@ -134,7 +140,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     if(tx?.status==='complete'&&tx.installId===old?.installId&&approved&&approved.digest===signature(approved.data)){
      const {data}=approved;
      const targets=data.files.map(file=>file.target);
-     const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
+     const versions={rigup:RIGUP_VERSION,prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
      const reusable=data.inputSnapshotVersion===3&&(authorityReview?
       data.plan.projectRules==='ready'&&signature(data.plan.versions)===signature(versions)&&await restoredReviewMatches(root,data).catch(()=>false):
       await installationInput(root,data.plan,targets).catch(()=>undefined)===data.inputSnapshot);
@@ -203,7 +209,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
      if(accepted){await hostBackend({cacheRoot:requests,responsePath:flags.response}).run(original.context,reader);responseConsumed=true;}
     }
     const result=await hostBackend({cacheRoot:requests,requestPath:responseConsumed?undefined:flags.request,responsePath:responseConsumed?undefined:flags.response}).run(request,reader);if(result.status==='complete'&&flags.response)responseConsumed=true;return result;
-   }}:backendKind==='codex'?codexBackend({cacheRoot:join(base,'codex'),stateRoot:join(lock.stateRoot,'codex'),nativeEntryPaths:prepared.integration.bindings.flatMap(binding=>binding.projectSources??[]),signal:services.signal,tokenLimit:run.researchTokens,onDispatch:stage=>emit({...active,task:stage==='analyze'?'project evidence analysis':active.task,waiting:'Codex model response',next:'validate '+stage+' result'}),onUsage:async usage=>{run.spent=usage;await saveDurable(runPath,JSON.stringify(run));}}):providerBackend({apiKey,model,baseURL,signal:services.signal,onUsage:async usage=>{run.spent={calls:activeNativeBase.calls+usage.calls,tokens:activeNativeBase.tokens==='unknown'||usage.tokens==='unknown'?'unknown':activeNativeBase.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));}}));
+   }}:backendKind==='codex'?codexBackend({cacheRoot:join(base,'codex'),stateRoot:join(lock.stateRoot,'codex'),nativeEntryPaths:prepared.integration.bindings.flatMap(binding=>binding.projectSources??[]),signal:services.signal,tokenLimit:run.researchTokens,onDispatch:stage=>emit({...active,task:stage==='analyze'?'project evidence analysis':active.task,waiting:'Codex model response',next:'validate '+stage+' result'}),onUsage:async usage=>{run.spent=usage;await saveDurable(runPath,JSON.stringify(run));}}):providerBackend({apiKey,model,baseURL,maxOutputTokens:services.provider?.maxOutputTokens??(environment.RIGUP_MAX_OUTPUT_TOKENS===undefined?undefined:Number(environment.RIGUP_MAX_OUTPUT_TOKENS)),onDiagnostic:message=>write('Provider: '+message+'\n'),signal:services.signal,onUsage:async usage=>{run.spent={calls:activeNativeBase.calls+usage.calls,tokens:activeNativeBase.tokens==='unknown'||usage.tokens==='unknown'?'unknown':activeNativeBase.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));}}));
    const addUsage=async(usage:{calls:number|'unknown';tokens:number|'unknown'})=>{run.spent={calls:run.spent.calls+(typeof usage.calls==='number'?usage.calls:1),tokens:run.spent.tokens==='unknown'||usage.tokens==='unknown'?'unknown':run.spent.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));};
    const backend:AnalysisBackend=backendKind==='native'||backendKind==='codex'&&!!services.backend?{artifactContextVersion:rawBackend.artifactContextVersion,topicEvidence:rawBackend.topicEvidence,run:async(request,source)=>{
     if(run.spent.calls>=budget.maxCalls||run.spent.tokens==='unknown'||run.spent.tokens>=budget.maxTokens)throw new ResearchFailure('restored research budget exhausted or unknown');
@@ -238,7 +244,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,waiting:'ownership and virtual-tree checks'});
   plan.runChecks=flags.runChecks??[];
   if(authorityReview&&profile.truncated)plan.projectRules='pending';
-  const result=await preview(plan,resolutions,{cacheRoot:previews,stateRoot:lock.stateRoot,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review,restoredReview});
+  const result=await preview(plan,resolutions,{cacheRoot:previews,stateRoot:lock.stateRoot,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!runtimeSetup.template.needsUpdate&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review,restoredReview});
   if(plan.gitlabReviewRequired)for(const warning of result.warnings)if(warning.startsWith('GitLab wiring'))write(warning+'\n');
   if(result.noChanges){
    emit({stage:'preview',completed:result.items.length,total:result.items.length,status:'complete'});
@@ -249,13 +255,13 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     write(message+'\n');
     return 3;
    }
-   services.report?.({...summary,phase:'preview',installStatus:'up-to-date'});
+   services.report?.({...summary,phase:'preview',installStatus:'up-to-date',runtimeSetup:await runtimeSetupSummary(root,options,{configured:['*']})});
    write('Installation is up to date.\n');
    return 0;
   }
   const conflicts=result.items.filter(i=>i.action==='conflict');
   const failed=!result.executable&&(conflicts.length>0||!plan.requirements.length);
-  const reviewCommand=old&&conflicts.length?'rigup update '+quote(root)+' --review':undefined;
+  const reviewCommand=conflicts.length?'rigup update '+quote(root)+' --review':undefined;
   const nextCommand=reviewCommand??recovery?.nextCommand;
   const installStatus=conflicts.length?'conflict':failed?'failed':result.executable?'not-installed':'pending';
   services.report?.({phase:'preview',installStatus,...result,pending:plan.requirements,conflicts,nextCommand:nextCommand??null,...(failed?{error:result.blockers.join('\n')}:{})});

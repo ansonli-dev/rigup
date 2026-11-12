@@ -41,7 +41,7 @@ export async function loadPreview(previewId:string,cacheRoot=defaultPreviewCache
 }
 export function unchangedInstallation(data:PreviewData):boolean{
  const {oldManifest:old,plan}=data;
- if(data.sourceReview||!old?.options||!old.versions||plan.operations.length||plan.runChecks?.length||old.projectRules!==plan.projectRules)return false;
+ if(data.sourceReview||!old?.options||!old.versions||plan.operations.length||plan.pendingRuntimeTools?.length||plan.runChecks?.length||old.projectRules!==plan.projectRules)return false;
  if(signature(old.options)!==signature(plan.options)||signature(old.versions)!==signature(plan.versions))return false;
  const assets=(items:Manifest['assets'])=>items.map(({baseline,...item})=>item).sort((a,b)=>a.logicalId.localeCompare(b.logicalId));
  return signature(assets(old.assets))===signature(assets(data.assets))&&data.files.every(file=>{
@@ -217,7 +217,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   const asset=entry.candidate??entry.old!;const file=fileMap.get(asset.target)!;if(file.encoding==='base64')continue;
   let text:string|undefined;try{text=ownedContent(file.text,asset.ownership);}catch{continue;}
   if(text===undefined){blockers.push(asset.target+': required owned binding missing');continue;}
-  if(entry.candidate&&['quality-template','customer-runtime'].includes(entry.candidate.source.kind)&&text!==entry.candidate.content)blockers.push(asset.target+': fixed executable/configuration binding changed; resolve against the deterministic candidate');
+  if(entry.candidate&&['quality-template','customer-runtime'].includes(entry.candidate.source.kind)&&!equalOwnedContent(asset.ownership,text,entry.candidate.content))blockers.push(asset.target+': fixed executable/configuration binding changed; resolve against the deterministic candidate');
   if(asset.target.endsWith('.md')) {
    const rulesNavigation=asset.logicalId.startsWith('entry:')||asset.target.endsWith('/references/project.md')||asset.logicalId.startsWith('project-development-rules');
    try{validateTemplateContent(text);}catch{blockers.push(asset.target+': local content conflicts with mandatory workflow gate; regenerate or resolve');}

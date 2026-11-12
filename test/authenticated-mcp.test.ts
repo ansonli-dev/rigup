@@ -88,7 +88,7 @@ test('doctor checks a remote bearer environment reference without exposing its v
   delete process.env.RIGUP_TEST_MCP_BEARER;
   assert.equal(await check(),'pending');
   process.env.RIGUP_TEST_MCP_BEARER='fake-bearer-value';
-  assert.equal(await check(),'available');
+  assert.equal(await check(),'pending');
  }finally{
   if(prior===undefined)delete process.env.RIGUP_TEST_MCP_BEARER;
   else process.env.RIGUP_TEST_MCP_BEARER=prior;

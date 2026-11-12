@@ -1,0 +1,93 @@
+{
+  "release": "v0.4.1",
+  "commit": "9447bf170af40a00d5284c32936db5be07d97ffb",
+  "source": "src/integrations/registry.ts:prepareIntegrations",
+  "options": {
+    "agents": [
+      "claude",
+      "codex",
+      "opencode",
+      "omp"
+    ],
+    "backend": "host",
+    "tools": [
+      {
+        "id": "codegraph",
+        "install": true,
+        "initialize": false,
+        "agents": [
+          "claude",
+          "codex",
+          "opencode",
+          "omp"
+        ]
+      }
+    ]
+  },
+  "assets": [
+    {
+      "logicalId": "mcp:claude:codegraph",
+      "target": ".mcp.json",
+      "content": "{\n  \"type\": \"stdio\",\n  \"command\": \"node\",\n  \"args\": [\n    \"-e\",\n    \"if(process.platform==='win32')for(const [key,value] of Object.entries({\\\"CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS\\\":\\\"3500\\\"}))process.env[key]??=value;\\nconst {existsSync,realpathSync}=require('node:fs');\\nconst {dirname,join}=require('node:path');\\nconst {pathToFileURL}=require('node:url');\\nconst [config,script,...args]=process.argv.slice(1);\\nlet root=realpathSync(process.cwd());\\nwhile(!existsSync(join(root,config))||!existsSync(join(root,script))){\\n const parent=dirname(root);\\n if(parent===root||existsSync(join(root,'.git'))){\\n  console.error('Rigup MCP could not locate its project configuration.');\\n  process.exit(1);\\n }\\n root=parent;\\n}\\ntry{\\n const entry=join(root,script);\\n const actual=realpathSync(entry);\\n const equal=process.platform==='win32'?actual.toLowerCase()===entry.toLowerCase():actual===entry;\\n if(!equal)throw Error('Project entry redirects');\\n process.chdir(root);\\n process.argv=[process.execPath,entry,...args];\\n import(pathToFileURL(entry).href).catch(()=>{console.error('Rigup MCP could not load its project entry.');process.exitCode=1;});\\n}catch{\\n console.error('Rigup MCP project entry is unavailable. Prepare and apply the project setup.');\\n process.exitCode=1;\\n}\",\n    \"--\",\n    \".mcp.json\",\n    \".rigup/tools/codegraph/node_modules/@colbymchenry/codegraph/npm-shim.js\",\n    \"serve\",\n    \"--mcp\"\n  ],\n  \"env\": {}\n}",
+      "ownership": {
+        "kind": "json-key",
+        "path": [
+          "mcpServers",
+          "codegraph"
+        ]
+      },
+      "source": {
+        "kind": "customer-mcp",
+        "ref": "codegraph"
+      }
+    },
+    {
+      "logicalId": "mcp:codex:codegraph",
+      "target": ".codex/config.toml",
+      "content": "[mcp_servers.codegraph]\ncommand = \"node\"\nargs = [ \"-e\", \"if(process.platform==='win32')for(const [key,value] of Object.entries({\\\"CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS\\\":\\\"3500\\\"}))process.env[key]??=value;\\nconst {existsSync,realpathSync}=require('node:fs');\\nconst {dirname,join}=require('node:path');\\nconst {pathToFileURL}=require('node:url');\\nconst [config,script,...args]=process.argv.slice(1);\\nlet root=realpathSync(process.cwd());\\nwhile(!existsSync(join(root,config))||!existsSync(join(root,script))){\\n const parent=dirname(root);\\n if(parent===root||existsSync(join(root,'.git'))){\\n  console.error('Rigup MCP could not locate its project configuration.');\\n  process.exit(1);\\n }\\n root=parent;\\n}\\ntry{\\n const entry=join(root,script);\\n const actual=realpathSync(entry);\\n const equal=process.platform==='win32'?actual.toLowerCase()===entry.toLowerCase():actual===entry;\\n if(!equal)throw Error('Project entry redirects');\\n process.chdir(root);\\n process.argv=[process.execPath,entry,...args];\\n import(pathToFileURL(entry).href).catch(()=>{console.error('Rigup MCP could not load its project entry.');process.exitCode=1;});\\n}catch{\\n console.error('Rigup MCP project entry is unavailable. Prepare and apply the project setup.');\\n process.exitCode=1;\\n}\", \"--\", \".codex/config.toml\", \".rigup/tools/codegraph/node_modules/@colbymchenry/codegraph/npm-shim.js\", \"serve\", \"--mcp\" ]\ncwd = \".\"\nenv_vars = []\n",
+      "ownership": {
+        "kind": "toml-table",
+        "path": [
+          "mcp_servers",
+          "codegraph"
+        ]
+      },
+      "source": {
+        "kind": "customer-mcp",
+        "ref": "codegraph"
+      }
+    },
+    {
+      "logicalId": "mcp:opencode:codegraph",
+      "target": "opencode.jsonc",
+      "content": "{\n  \"type\": \"local\",\n  \"command\": [\n    \"node\",\n    \"-e\",\n    \"if(process.platform==='win32')for(const [key,value] of Object.entries({\\\"CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS\\\":\\\"3500\\\"}))process.env[key]??=value;\\nconst {existsSync,realpathSync}=require('node:fs');\\nconst {dirname,join}=require('node:path');\\nconst {pathToFileURL}=require('node:url');\\nconst [config,script,...args]=process.argv.slice(1);\\nlet root=realpathSync(process.cwd());\\nwhile(!existsSync(join(root,config))||!existsSync(join(root,script))){\\n const parent=dirname(root);\\n if(parent===root||existsSync(join(root,'.git'))){\\n  console.error('Rigup MCP could not locate its project configuration.');\\n  process.exit(1);\\n }\\n root=parent;\\n}\\ntry{\\n const entry=join(root,script);\\n const actual=realpathSync(entry);\\n const equal=process.platform==='win32'?actual.toLowerCase()===entry.toLowerCase():actual===entry;\\n if(!equal)throw Error('Project entry redirects');\\n process.chdir(root);\\n process.argv=[process.execPath,entry,...args];\\n import(pathToFileURL(entry).href).catch(()=>{console.error('Rigup MCP could not load its project entry.');process.exitCode=1;});\\n}catch{\\n console.error('Rigup MCP project entry is unavailable. Prepare and apply the project setup.');\\n process.exitCode=1;\\n}\",\n    \"--\",\n    \"opencode.jsonc\",\n    \".rigup/tools/codegraph/node_modules/@colbymchenry/codegraph/npm-shim.js\",\n    \"serve\",\n    \"--mcp\"\n  ],\n  \"cwd\": \".\",\n  \"enabled\": true,\n  \"environment\": {}\n}",
+      "ownership": {
+        "kind": "json-key",
+        "path": [
+          "mcp",
+          "codegraph"
+        ]
+      },
+      "source": {
+        "kind": "customer-mcp",
+        "ref": "codegraph"
+      }
+    },
+    {
+      "logicalId": "mcp:omp:codegraph",
+      "target": ".omp/mcp.json",
+      "content": "{\n  \"type\": \"stdio\",\n  \"command\": \"node\",\n  \"args\": [\n    \"-e\",\n    \"if(process.platform==='win32')for(const [key,value] of Object.entries({\\\"CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS\\\":\\\"3500\\\"}))process.env[key]??=value;\\nconst {existsSync,realpathSync}=require('node:fs');\\nconst {dirname,join}=require('node:path');\\nconst {pathToFileURL}=require('node:url');\\nconst [config,script,...args]=process.argv.slice(1);\\nlet root=realpathSync(process.cwd());\\nwhile(!existsSync(join(root,config))||!existsSync(join(root,script))){\\n const parent=dirname(root);\\n if(parent===root||existsSync(join(root,'.git'))){\\n  console.error('Rigup MCP could not locate its project configuration.');\\n  process.exit(1);\\n }\\n root=parent;\\n}\\ntry{\\n const entry=join(root,script);\\n const actual=realpathSync(entry);\\n const equal=process.platform==='win32'?actual.toLowerCase()===entry.toLowerCase():actual===entry;\\n if(!equal)throw Error('Project entry redirects');\\n process.chdir(root);\\n process.argv=[process.execPath,entry,...args];\\n import(pathToFileURL(entry).href).catch(()=>{console.error('Rigup MCP could not load its project entry.');process.exitCode=1;});\\n}catch{\\n console.error('Rigup MCP project entry is unavailable. Prepare and apply the project setup.');\\n process.exitCode=1;\\n}\",\n    \"--\",\n    \".omp/mcp.json\",\n    \".rigup/tools/codegraph/node_modules/@colbymchenry/codegraph/npm-shim.js\",\n    \"serve\",\n    \"--mcp\"\n  ],\n  \"env\": {},\n  \"cwd\": \".\"\n}",
+      "ownership": {
+        "kind": "json-key",
+        "path": [
+          "mcpServers",
+          "codegraph"
+        ]
+      },
+      "source": {
+        "kind": "customer-mcp",
+        "ref": "codegraph"
+      }
+    }
+  ]
+}

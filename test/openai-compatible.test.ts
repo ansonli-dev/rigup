@@ -72,9 +72,115 @@ test('compatible backend preflights input size and caps completion to the availa
  await assert.rejects(backend.run({...request,input:'x'.repeat(request.budget.maxTokens)},reader),/input token budget/);
  assert.equal(requests.length,0);
  await backend.run(request,reader);
+ assert.equal(requests[0].limit,16384);
  const remaining=requests[0].bytes+2048;
  assert.equal((await backend.run({...request,spent:{calls:0,tokens:request.budget.maxTokens-remaining}},reader)).status,'complete');
  assert.ok(requests[1].limit>0 && requests[1].limit<=2048);
+});
+
+test('compatible backend passes a configured completion cap',async()=>{
+ const caps:number[]=[];
+ const backend=(maxOutputTokens:number)=>openAICompatibleBackend({...credentials,maxOutputTokens,fetch:async(_url,init)=>{
+  caps.push(JSON.parse(String(init?.body)).max_completion_tokens);return response();
+ }});
+ for(const cap of [32_000,500])await backend(cap).run(request,reader);
+ for(const cap of [0,-1,1.5,NaN,Number.MAX_SAFE_INTEGER+1])await assert.rejects(backend(cap).run(request,reader),/maximum output tokens/);
+ assert.deepEqual(caps,[32_000,500]);
+});
+
+test('compatible cap reserves the full serialized UTF-8 request plus framing',async()=>{
+ const maxTokens=50_000;let offered=0,bytes=0;
+ const backend=openAICompatibleBackend({...credentials,maxOutputTokens:100_000,fetch:async(_url,init)=>{
+  const body=String(init?.body);
+  offered=JSON.parse(body).max_completion_tokens;bytes=Buffer.byteLength(body,'utf8');
+  return response();
+ }});
+ assert.equal((await backend.run({...request,input:'🦦\\\"'.repeat(250),budget:{maxCalls:1,maxTokens}},reader)).status,'complete');
+ assert.ok(offered+bytes+128<=maxTokens);
+});
+
+test('compatible backend reports generation status without echoing provider errors',async()=>{
+ const backend=openAICompatibleBackend({...credentials,fetch:async()=>new Response('private gateway body fixture-api-key',{status:403})});
+ await assert.rejects(backend.run(request,reader),(error:unknown)=>{
+  assert.ok(error instanceof ResearchFailure);
+  assert.match(error.message,/chat\/completions.*HTTP 403.*model/i);
+  assert.doesNotMatch(error.message,/private gateway body|fixture-api-key/);
+  return true;
+ });
+});
+
+test('compatible backend sends the rejected citation location in one final repair',async()=>{
+ const citation={path:'config.yaml',startLine:1,endLine:1,digest:'fixture-api-key'};
+ const bad={role:'assistant',content:JSON.stringify({observations:[{supportingEvidence:[citation]}],unknowns:[]})};
+ const source={...reader,read:async()=>({content:'config',evidence:{...citation,digest:'real'}})};
+ const notices:string[]=[];
+ for(const canRepair of [true,false]){
+  let sent=0;
+  const backend=openAICompatibleBackend({...credentials,onDiagnostic:message=>notices.push(message),fetch:async(_url,init)=>{
+   if(++sent===1)return response(bad);
+   const {messages}=JSON.parse(String(init?.body));
+   assert.equal(messages.at(-2).content,bad.content);
+   assert.match(messages.at(-1).content,/observations\[0\]\.supportingEvidence\[0\].*digest mismatch/);
+   return response(canRepair?final:bad);
+  }});
+  const repairRequest={...request,budget:{...request.budget,maxCalls:3}};
+  if(canRepair){
+   const result=await backend.run(repairRequest,source);
+   assert.equal(result.status,'complete');
+   if(result.status==='complete')assert.deepEqual(result.value.usage,{calls:2,tokens:40});
+  }else{
+   await assert.rejects(backend.run(repairRequest,source),(error:unknown)=>{
+    assert.ok(error instanceof ResearchFailure);
+    assert.match(error.message,/observations\[0\]\.supportingEvidence\[0\].*digest mismatch/);
+    assert.doesNotMatch(error.message,/fixture-api-key/);
+    assert.deepEqual(error.usage,{calls:2,tokens:40});
+    return true;
+   });
+  }
+  assert.equal(sent,2);
+ }
+ assert.equal(notices.length,2);
+ assert.ok(notices.every(notice=>notice.includes('digest mismatch')&&!notice.includes('fixture-api-key')));
+});
+
+test('repair rejects tools without reading and retains the charged usage',async()=>{
+ let turns=0,reads=0;
+ const backend=openAICompatibleBackend({...credentials,fetch:async(_url,init)=>{
+  if(++turns===1)return response({role:'assistant',content:'{}'});
+  const body=JSON.parse(String(init?.body));assert.equal(body.tools,undefined);
+  return response({role:'assistant',content:null,tool_calls:[tool('new-read','list','{}')]},'tool_calls');
+ }});
+ await assert.rejects(backend.run(request,{...reader,list:async()=>{reads++;return [];}}),(error:unknown)=>{
+  assert.ok(error instanceof ResearchFailure);assert.match(error.message,/repair.*tool/i);
+  assert.deepEqual(error.usage,{calls:2,tokens:40});return true;
+ });
+ assert.equal(turns,2);assert.equal(reads,0);
+});
+
+test('repair cannot reset call or token budgets and preserves the original validation reason',async()=>{
+ for(const [maxCalls,maxTokens,used] of [[1,50_000,20],[2,50_000,49_999]] as const){
+  let turns=0;
+  const backend=openAICompatibleBackend({...credentials,fetch:async()=>{
+   turns++;return response({role:'assistant',content:'{}'},'stop',{total_tokens:used});
+  }});
+  await assert.rejects(backend.run({...request,budget:{maxCalls,maxTokens}},reader),(error:unknown)=>{
+   assert.ok(error instanceof ResearchFailure);assert.match(error.message,/observations.*required/);
+   assert.deepEqual(error.usage,{calls:1,tokens:used});return true;
+  });
+  assert.equal(turns,1);
+ }
+});
+
+test('validation diagnostics never echo untrusted property names or reader errors',async()=>{
+ for(const data of [{observations:[],unknowns:[],secretPropertyFixture:{path:'fixture-secret-path',startLine:1,endLine:1,digest:'bad'}},{observations:[],unknowns:[42]}]){
+  const notices:string[]=[];
+  const backend=openAICompatibleBackend({...credentials,onDiagnostic:message=>notices.push(message),fetch:async()=>response({role:'assistant',content:JSON.stringify(data)})});
+  await assert.rejects(backend.run(request,{...reader,read:async()=>{throw Error('fixture-secret-reader');}}),(error:unknown)=>{
+   assert.ok(error instanceof ResearchFailure);assert.doesNotMatch(error.message,/secretPropertyFixture|fixture-secret/);
+   assert.match(error.message,/evidence|unknowns/);return true;
+  });
+  assert.equal(notices.length,1);assert.doesNotMatch(notices[0],/secretPropertyFixture|fixture-secret/);
+ }
 });
 
 test('compatible backend accounts reported overages before rejecting the result',async()=>{

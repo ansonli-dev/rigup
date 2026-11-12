@@ -25,13 +25,15 @@ function New-AclDenial([string]$candidate, [string]$reason, [string]$principal =
 }
 
 function Assert-SafeAcl($candidate, [bool]$isDirectory, [bool]$privateLeaf) {
- $attributes = [IO.File]::GetAttributes($candidate)
+ # Keep public paths unchanged; the extended form avoids legacy .NET length limits.
+ $ioPath = '\\?\' + $candidate
+ $attributes = [IO.File]::GetAttributes($ioPath)
  if (($attributes -band [IO.FileAttributes]::ReparsePoint) -or
      ([bool]($attributes -band [IO.FileAttributes]::Directory) -ne $isDirectory)) {
   return (New-AclDenial $candidate 'unexpected-type')
  }
- $security = if ($isDirectory) { [IO.Directory]::GetAccessControl($candidate) }
-             else { [IO.File]::GetAccessControl($candidate) }
+ $security = if ($isDirectory) { [IO.Directory]::GetAccessControl($ioPath) }
+             else { [IO.File]::GetAccessControl($ioPath) }
  $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new($security.GetSecurityDescriptorBinaryForm(), 0)
  $owner = $descriptor.Owner.Value
  if ($owner -notin $trusted) {
@@ -77,8 +79,10 @@ function Assert-SafeAcl($candidate, [bool]$isDirectory, [bool]$privateLeaf) {
 
 # Verify the path from the root downward so an untrusted ancestor cannot move a checked child.
 $ancestors = [Collections.Generic.Stack[string]]::new()
-for ($parent = [IO.Directory]::GetParent($path); $null -ne $parent; $parent = $parent.Parent) {
- $ancestors.Push($parent.FullName)
+# Walk validated drive-path separators without .NET's legacy path normalization.
+for ($parent = $path; $parent.Length -gt 3;) {
+ $parent = $parent.Substring(0, [Math]::Max(3, $parent.LastIndexOf('\')))
+ $ancestors.Push($parent)
 }
 foreach ($ancestor in $ancestors) {
  $denial = Assert-SafeAcl $ancestor $true $false
@@ -93,7 +97,7 @@ if ($create) {
   $acl.AddAccessRule($rule)
  }
  # Apply the protected DACL at creation. An existing directory keeps its ACL.
- [void][IO.Directory]::CreateDirectory($path, $acl)
+ [void][IO.Directory]::CreateDirectory(('\\?\' + $path), $acl)
 }
 if (-not $ancestorsOnly) { Assert-SafeAcl $path $directory $true }
 `;
@@ -102,7 +106,7 @@ async function assertWindowsAcl(path:string,directory:boolean,ancestorsOnly:bool
  const normalized=win32.resolve(path);
  const root=win32.parse(normalized).root;
  const unsafe=normalized.slice(root.length).split(win32.sep).some(part=>
-  /[ .]$/.test(part)||part.includes(':')||/^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:[. ]|$)/i.test(part));
+  /[ .]$/.test(part)||/[<>:"|?*\u0000-\u001f]/.test(part)||/^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:[. ]|$)/i.test(part));
  if(!/^[a-z]:\\$/i.test(root)||unsafe)throw new Error(message+': unsafe Windows path');
  try{await checkWindowsAccess(checkWindowsAcl,normalized,directory,ancestorsOnly,create);}
  catch(cause){

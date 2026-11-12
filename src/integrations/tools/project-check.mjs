@@ -87,7 +87,12 @@ export async function executeCheck(command,root,options={}){
  let {env=process.env}=options;
  const {signal,timeoutMs}=options;
  if(!command||typeof command.executable!=='string'||!Array.isArray(command.args)||command.args.some(a=>typeof a!=='string')||!relativePath(command.cwd)||!Array.isArray(command.envRefs))throw Error('Invalid project check command');
- const startedAt=new Date().toISOString(),start=Date.now(),finish=result=>({command,...result,startedAt,finishedAt:new Date().toISOString(),durationMs:Date.now()-start});
+ const referenceCommand=command;
+ const startedAt=new Date().toISOString(),start=Date.now(),finish=result=>({command:referenceCommand,...result,startedAt,finishedAt:new Date().toISOString(),durationMs:Date.now()-start});
+ if(command.executable.includes('${')||command.cwd.includes('${'))return finish({status:'pending',exitCode:3,reason:'Environment references are supported only in command arguments'});
+ const references=command.args.flatMap(arg=>[...arg.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map(match=>match[1]));
+ const undeclared=[...new Set(references.filter(name=>!command.envRefs.includes(name)))];
+ if(undeclared.length)return finish({status:'pending',exitCode:3,reason:'Undeclared environment references: '+undeclared.join(', ')});
  const missing=command.envRefs.filter(name=>!env[name]);
  if(missing.length)return finish({status:'pending',exitCode:3,reason:'Missing environment references: '+missing.join(', ')});
  if(signal?.aborted)return finish({status:'pending',exitCode:130,reason:'Check cancelled before dispatch'});
@@ -125,7 +130,8 @@ export async function executeCheck(command,root,options={}){
 async function dispatchCheck(command,root,cwd,{env,signal,timeoutMs}){
  if(signal?.aborted)return {status:'pending',exitCode:130,reason:'Check cancelled before dispatch'};
  let launch;
- try{launch=command.executable==='npm'?npmCommand(command.args):command;}
+ const args=command.args.map(arg=>arg.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,(_match,name)=>env[name]));
+ try{launch=command.executable==='npm'?npmCommand(args):{...command,args};}
  catch{return {exitCode:3,status:'pending',reason:'Check executable unavailable in the selected environment'};}
  // Only allowlisted diagnostic fields leave this buffer. Keep draining after its limit.
  const chunks=[];let bytes=0;
@@ -134,7 +140,8 @@ async function dispatchCheck(command,root,cwd,{env,signal,timeoutMs}){
   ?await runWindowsCheck(launch,cwd,{env,signal,timeoutMs},collect)
   :await runPosixCheck(launch,cwd,{env,signal,timeoutMs},collect);
  if(result.status==='failed'&&!result.reason){
-  const output=stripVTControlCharacters(Buffer.concat(chunks).toString('utf8'));
+  let output=stripVTControlCharacters(Buffer.concat(chunks).toString('utf8'));
+  for(const secret of command.envRefs.map(name=>env[name]).filter(Boolean).sort((a,b)=>b.length-a.length))output=output.split(secret).join('[redacted]');
   if(command.testDatabase&&/\b(?:connect[ \t]+(?:EPERM|EACCES|ECONNREFUSED|ENETUNREACH|ETIMEDOUT)|getaddrinfo[ \t]+(?:ENOTFOUND|EAI_AGAIN))\b/i.test(output))
    return {...result,processExitCode:result.exitCode,exitCode:3,status:'pending',reason:'Test database unavailable here. Use an authorized terminal with the dedicated test database and rerun the same check.'};
   if(command.tools?.includes('playwright')&&/Executable doesn't exist|playwright install/i.test(output)&&/browserType\.launch|Playwright Test or Playwright/i.test(output))
@@ -169,7 +176,9 @@ async function runWindowsCheck(launch,cwd,{env,signal,timeoutMs},collect){
 }
 
 async function runPosixCheck(launch,cwd,{env,signal,timeoutMs},collect){
- const child=spawn(launch.executable,launch.args,{cwd,env,shell:false,detached:true,stdio:['ignore','pipe','pipe']});
+ let child;
+ try{child=spawn(launch.executable,launch.args,{cwd,env,shell:false,detached:true,stdio:['ignore','pipe','pipe']});}
+ catch{return {exitCode:3,status:'pending',reason:'Check executable or runtime arguments unavailable in the selected environment'};}
  child.stdout.on('data',collect);child.stderr.on('data',collect);
  return new Promise(resolveResult=>{
   let interrupted,unavailable=false;

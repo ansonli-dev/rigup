@@ -17,7 +17,7 @@ export function validInstallStage(value:unknown):value is InstallStage {
 
 export function stagedInstall(root:string,operation:SetupOperation,stage:InstallStage):SetupOperation {
  const id=operation.integrationId as NativeTool;
- return softwareInstallRecipe(root,id,operation.version,operation.query.integrity,'.rigup/tools/.install-'+id+'-'+stage.token);
+ return softwareInstallRecipe(root,id,operation.version,operation.query.integrity,'.rigup/tools/.install-'+id+'-'+stage.token,operation.registry);
 }
 
 export async function installDirectoryIdentity(root:string,target:string):Promise<string|undefined>{

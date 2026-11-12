@@ -31,6 +31,7 @@ function containsTomlDate(value:unknown):boolean {
 }
 export function equalOwnedContent(selector:Ownership,left:string,right:string):boolean {
  if(left===right)return true;
+ if(selector.kind==='file'||selector.kind==='block')return left.replaceAll('\r\n','\n')===right.replaceAll('\r\n','\n');
  try{
   if(selector.kind==='json-key')return isDeepStrictEqual(parseConfigJsonValue(left),parseConfigJsonValue(right));
   if(selector.kind==='toml-table'){

@@ -1,6 +1,6 @@
 import{readFile,readdir,realpath,stat}from'node:fs/promises';import{join,isAbsolute,relative}from'node:path';import{homedir}from'node:os';import{parse}from'yaml';import{parse as toml}from'smol-toml';import{digest,safePath}from'./evidence.js';import type{Agent,SetupOptions}from'../types.js';import {sddDiscoveryNames,unqualifiedSkillName,type SkillSource} from '../integrations/sdd/binding.js';
 import {loadUpstreamLock} from '../integrations/upstream.js';
-export interface NativeDiscoveryOptions{home?:string;env?:Record<string,string|undefined>;requiredOpenSpecEntriesOnly?:true}
+export interface NativeDiscoveryOptions{home?:string;env?:Record<string,string|undefined>;requiredOpenSpecEntriesOnly?:true;onWarning?:(message:string)=>void}
 export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean}|undefined{const front=text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);if(!front)return;const value=parse(front[1]);if(!value||typeof value.name!=='string'||typeof value.description!=='string')return;return{name:value.name,satisfies:value.dependencies===undefined||Array.isArray(value.dependencies)&&value.dependencies.length===0};}
 export async function discoverNativeSources(root:string,options:SetupOptions,dependencies:NativeDiscoveryOptions={}){
  const result:Partial<Record<Agent,SkillSource[]>>={};if(!options.sdd&&!options.customSkills?.length)return result;
@@ -10,6 +10,12 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
  const wanted=new Set(options.sdd?sddDiscoveryNames(options.sdd,options.sdd!=='openspec'||!dependencies.requiredOpenSpecEntriesOnly):[]);
  for(const item of options.customSkills??[]){try{const text=await readFile(join(isAbsolute(item.source)?item.source:join(root,item.source),'SKILL.md'),'utf8');const m=nativeSkillMetadata(text);if(m)wanted.add(unqualifiedSkillName(m.name));}catch{}}
  const inside=(base:string,path:string)=>{const rel=relative(base,path);return rel===''||!rel.startsWith('..')&&!isAbsolute(rel);};
+ const skipped=(id:string,error:unknown)=>{
+  const name=/^[\w.@-]{1,200}$/.test(id)?id:'invalid plugin identifier';
+  const code=(error as NodeJS.ErrnoException)?.code;
+  const reason=code==='ENOENT'?'manifest missing':code==='EACCES'||code==='EPERM'?'metadata access denied':'invalid or unavailable metadata';
+  dependencies.onWarning?.('Native plugin '+name+' skipped: '+reason);
+ };
  for(const agent of options.agents){
   const sources:SkillSource[]=[];result[agent]=sources;let count=0,bytes=0,directories=0;const visited=new Set<string>();
   const unknown=(name:string,identity:string)=>sources.push({name,identity,origin:'unknown',satisfies:false});
@@ -21,10 +27,55 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   const commands=agent==='claude'?join(claude,'commands'):agent==='opencode'?join(env.XDG_CONFIG_HOME??join(home,'.config'),'opencode/commands'):agent==='omp'?join(env.PI_CODING_AGENT_DIR??join(home,'.omp/agent'),'commands'):undefined;
   if(commands){try{for(const file of await readdir(commands)){const name=file.endsWith('.md')?file.slice(0,-3):'';if(!wanted.has(name))continue;const text=await readFile(join(commands,file),'utf8');sources.push({name,identity:await realpath(join(commands,file)),origin:'local',digest:digest(text),satisfies:!/^dependencies:/m.test(text)});}}catch{}}
   if(agent==='codex'){
-   try{const plugins:Record<string,unknown>={};for(const file of[join(codex,'config.toml'),await safePath(root,'.codex/config.toml').catch(()=>undefined)]){if(!file)continue;try{const config=toml(await metadataText(file));Object.assign(plugins,config.plugins??{});}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}}for(const[id,value]of Object.entries(plugins)as[string,any][]){if(value?.enabled!==true||!id.includes('@'))continue;if(options.sdd&&!options.customSkills?.length&&id.split('@')[0]!==options.sdd)continue;const[name,market]=id.split('@');if(!/^[\w.-]+$/.test(name)||!/^[\w.-]+$/.test(market))continue;const base=join(codex,'plugins/cache',market,name);let versions:string[];try{versions=await readdir(base);}catch{continue;}if(versions.length!==1){for(const version of versions.sort()){try{const candidate=join(base,version);const meta=JSON.parse(await metadataText(join(candidate,'.claude-plugin/plugin.json')));if(meta.name===name)await walk(join(candidate,'skills'),0,'unknown',name,meta.version);}catch{}}continue;}const path=join(base,versions[0]);const manifest=JSON.parse(await metadataText(join(path,'.claude-plugin/plugin.json')));if(manifest.name!==name||typeof manifest.version!=='string')continue;await walk(join(path,'skills'),0,'plugin',name,manifest.version);}}catch{/* Unavailable manager metadata cannot prove installed native sources. */}
+   try{
+    const plugins:Record<string,unknown>={};
+    for(const file of[join(codex,'config.toml'),await safePath(root,'.codex/config.toml').catch(()=>undefined)]){
+     if(!file)continue;
+     try{const config=toml(await metadataText(file));Object.assign(plugins,config.plugins??{});}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+    }
+    for(const[id,value]of Object.entries(plugins)as[string,any][]){
+     if(value?.enabled!==true||!id.includes('@'))continue;
+     if(options.sdd&&!options.customSkills?.length&&id.split('@')[0]!==options.sdd)continue;
+     const[name,market]=id.split('@');if(!/^[\w.-]+$/.test(name)||!/^[\w.-]+$/.test(market))continue;
+     try{
+      const base=join(codex,'plugins/cache',market,name),versions=await readdir(base);
+      const available:{path:string;version:string}[]=[];
+      for(const version of versions.sort()){
+       try{
+        const path=join(base,version),manifest=JSON.parse(await metadataText(join(path,'.claude-plugin/plugin.json')));
+        if(manifest?.name!==name||typeof manifest.version!=='string')throw Error('Invalid plugin manifest');
+        available.push({path,version:manifest.version});
+       }catch(error){skipped(id,error);}
+      }
+      for(const entry of available)await walk(join(entry.path,'skills'),0,available.length===1?'plugin':'unknown',name,entry.version);
+     }catch(error){skipped(id,error);}
+    }
+   }catch{/* Unavailable manager metadata cannot prove installed native sources. */}
   }
   if(agent==='claude'){
-   try{const settings:any={enabledPlugins:{}};for(const file of[join(claude,'settings.json'),await safePath(root,'.claude/settings.json').catch(()=>undefined),await safePath(root,'.claude/settings.local.json').catch(()=>undefined)]){if(!file)continue;try{Object.assign(settings.enabledPlugins,JSON.parse(await metadataText(file)).enabledPlugins??{});}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}}const installed=JSON.parse(await metadataText(join(claude,'plugins/installed_plugins.json')));for(const[id,records]of Object.entries(installed.plugins??{})as[string,any][]){if(settings.enabledPlugins?.[id]!==true||!Array.isArray(records))continue;const name=id.split('@')[0];for(const record of records){if(record.scope!=='user'&&!(record.scope==='project'&&record.projectPath===root))continue;if(typeof record.installPath!=='string'||!isAbsolute(record.installPath)||!inside(claude,record.installPath))continue;const manifest=JSON.parse(await metadataText(join(record.installPath,'.claude-plugin/plugin.json')));if(manifest.name!==name)continue;await walk(join(record.installPath,'skills'),0,'plugin',name,manifest.version);}}}catch{}
+   try{
+    const settings:any={enabledPlugins:{}};
+    for(const file of[join(claude,'settings.json'),await safePath(root,'.claude/settings.json').catch(()=>undefined),await safePath(root,'.claude/settings.local.json').catch(()=>undefined)]){
+     if(!file)continue;
+     try{Object.assign(settings.enabledPlugins,JSON.parse(await metadataText(file)).enabledPlugins??{});}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+    }
+    const installed=JSON.parse(await metadataText(join(claude,'plugins/installed_plugins.json')));
+    for(const[id,records]of Object.entries(installed.plugins??{})as[string,any][]){
+     if(settings.enabledPlugins?.[id]!==true)continue;
+     if(!Array.isArray(records)){skipped(id,undefined);continue;}
+     const name=id.split('@')[0];
+     for(const record of records){
+      try{
+       if(!record||typeof record!=='object')throw Error('Invalid plugin record');
+       if(record.scope!=='user'&&!(record.scope==='project'&&record.projectPath===root))continue;
+       if(typeof record.installPath!=='string'||!isAbsolute(record.installPath)||!inside(claude,record.installPath))throw Error('Invalid plugin location');
+       const manifest=JSON.parse(await metadataText(join(record.installPath,'.claude-plugin/plugin.json')));
+       if(manifest?.name!==name||typeof manifest.version!=='string')throw Error('Invalid plugin manifest');
+       await walk(join(record.installPath,'skills'),0,'plugin',name,manifest.version);
+      }catch(error){skipped(id,error);}
+     }
+    }
+   }catch{}
   }
   if(!sources.length)delete result[agent];
  }
