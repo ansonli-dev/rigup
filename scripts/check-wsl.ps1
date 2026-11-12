@@ -26,10 +26,10 @@ try {
   $ownVersion = ($version -split "`n" | Where-Object { $_ -match [regex]::Escape($distribution) }) -join "`n"
   if ($ownVersion -notmatch '\s2\s*$') { throw 'The imported distribution is not WSL2' }
   $ownVersion | Set-Content (Join-Path $EvidenceDirectory 'distribution-version.txt')
-  $kernel = (wsl -d $distribution -u root -- uname -r).Trim()
+  $kernel = (wsl -d $distribution -u root --exec uname -r).Trim()
   if ($kernel -notmatch '(?i)microsoft.*WSL2') { throw 'The running kernel is not WSL2' }
-  $stageLinux = (wsl -d $distribution -u root -- wslpath -u $stage).Trim()
-  $evidenceLinux = (wsl -d $distribution -u root -- wslpath -u $EvidenceDirectory).Trim()
+  $stageLinux = (wsl -d $distribution -u root --exec wslpath -u $stage).Trim()
+  $evidenceLinux = (wsl -d $distribution -u root --exec wslpath -u $EvidenceDirectory).Trim()
   New-Item -ItemType Directory -Path (Join-Path $stage 'fixtures') | Out-Null
   $setup = @'
 set -eu
@@ -50,7 +50,7 @@ export RIGUP_SOURCE_COMMIT="$commit"
 node scripts/check-wsl.mjs "$stage/fixtures" "$evidence/result.json"
 '@
   [IO.File]::WriteAllText((Join-Path $stage 'setup.sh'), $setup.Replace("`r`n", "`n") + "`n", [Text.UTF8Encoding]::new($false))
-  wsl -d $distribution -u root -- bash "$stageLinux/setup.sh" $stageLinux $evidenceLinux $commit
+  wsl -d $distribution -u root --exec bash "$stageLinux/setup.sh" $stageLinux $evidenceLinux $commit
   $result = Get-Content (Join-Path $EvidenceDirectory 'result.json') -Raw | ConvertFrom-Json
   if ($result.error -or -not $result.cleanup -or $result.cases.Count -ne 7 -or ($result.cases | Where-Object status -ne 'passed')) { throw 'WSL2 verification is incomplete' }
 } finally {

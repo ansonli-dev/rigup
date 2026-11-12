@@ -52,7 +52,7 @@ test('unsupported interrupted apply preserves its existing file and journal byte
  assert.equal((await apply(id,{cacheRoot,stateRoot,recover:true})).status,'complete');
 }));
 test('Windows private project records exclude inherited public read permissions from creation',{skip:process.platform!=='win32'},()=>project(async root=>{
- const script="$acl=Get-Acl -LiteralPath $env:RIGUP_ACL_FIXTURE;$sid=[Security.Principal.SecurityIdentifier]::new('S-1-5-32-545');$rule=[Security.AccessControl.FileSystemAccessRule]::new($sid,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow');$acl.AddAccessRule($rule);Set-Acl -LiteralPath $env:RIGUP_ACL_FIXTURE -AclObject $acl";
+ const script="$ErrorActionPreference='Stop';$acl=[IO.Directory]::GetAccessControl($env:RIGUP_ACL_FIXTURE);$sid=[Security.Principal.SecurityIdentifier]::new('S-1-5-32-545');$rule=[Security.AccessControl.FileSystemAccessRule]::new($sid,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow');$acl.AddAccessRule($rule);[IO.Directory]::SetAccessControl($env:RIGUP_ACL_FIXTURE,$acl)";
  await promisify(execFile)(windowsPowerShellExecutable(),['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{env:{...process.env,RIGUP_ACL_FIXTURE:root},timeout:15000});
  await atomicProjectWrite(root,'.rigup/private.json',Buffer.from('{"private":"synthetic"}\n'),0o600,true);
  const path=join(root,'.rigup/private.json');await assertPrivateAccess(path,await lstat(path),'private record is readable by another principal');
