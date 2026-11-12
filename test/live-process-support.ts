@@ -11,7 +11,7 @@ import {startWindowsProcess,resolveWindowsExecutable} from '../src/integrations/
 
 export class LiveProcessCleanupError extends Error {}
 
-interface Options {cwd?:string;env?:NodeJS.ProcessEnv}
+interface Options {cwd?:string;env?:NodeJS.ProcessEnv;terminationGraceMs?:number}
 interface LiveProcess {
  stdout:Readable;
  stderr:Readable;
@@ -49,7 +49,7 @@ async function groupExited(pid:number,ms:number):Promise<boolean>{
  return true;
 }
 
-function startPosixSession(executable:string,args:string[],options:Options):LiveSession{
+function startPosixSession(executable:string,args:string[],{terminationGraceMs=3000,...options}:Options):LiveSession{
  const child=spawn(executable,args,{...options,detached:true,stdio:['pipe','pipe','pipe']});
  const {stdin,stdout,stderr}=child;
  stdin.on('error',()=>{}); // The command may close stdin while we are writing to it.
@@ -65,7 +65,7 @@ function startPosixSession(executable:string,args:string[],options:Options):Live
   const pid=child.pid;
   if(!pid||treeExited||!signalGroup(pid,signal))return;
   if(signal!=='SIGKILL'){
-   if(await groupExited(pid,3000)||!signalGroup(pid,'SIGKILL'))return;
+   if(await groupExited(pid,terminationGraceMs)||!signalGroup(pid,'SIGKILL'))return;
   }
   if(!await groupExited(pid,5000))throw new LiveProcessCleanupError('Live probe process group did not exit');
  })();
