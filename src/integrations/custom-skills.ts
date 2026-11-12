@@ -3,6 +3,7 @@ import {resolve,relative,posix,parse as parsePath} from 'node:path';
 import {parse} from 'yaml';
 import {safePath,digest} from '../analyzer/evidence.js';
 import {secretName} from '../analyzer/read-policy.js';
+import {reservedWorkflowSkills} from './workflow-skills.js';
 export interface SkillAsset {logicalId:string;target:string;content:string;encoding:'utf8'|'base64';mode:number;ownership:{kind:'file'};source:{kind:'customer-skill';ref:string;digest:string}}
 export async function collectCustomSkill(source:string,targetRoot:string):Promise<SkillAsset[]>{
  if(!['.agents/skills','.claude/skills','.opencode/skills','.omp/skills'].includes(targetRoot)) throw new Error('skill target root unsupported');
@@ -15,7 +16,7 @@ export async function collectCustomSkill(source:string,targetRoot:string):Promis
  if(!match) throw new Error('skill: frontmatter required');
  const metadata=parse(match[1]);
  if(!metadata || typeof metadata.name !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.name) || typeof metadata.description !== 'string' || !metadata.description.trim()) throw new Error('skill: valid name and description required');
- if(['change-prepare','change-deliver','change-release'].includes(metadata.name)) throw new Error('skill: fixed public entry collision');
+ if(reservedWorkflowSkills.some(name=>name===metadata.name)) throw new Error('skill: fixed public entry collision');
  const assets:SkillAsset[]=[];let bytes=0;
  async function walk(dir:string):Promise<void>{
   for(const entry of (await readdir(dir,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))) {

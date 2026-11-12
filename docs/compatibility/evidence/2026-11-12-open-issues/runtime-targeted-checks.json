@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "scope": "Targeted runtime/provider/Git/doctor verification after the earlier full-check snapshot; not a complete repository or workflow-matrix rerun",
+  "baseContentManifestSha256": "0d517bcccdaac3987cd9623f74aa1bc76ba226aafdd703f1482d1d0bc0d12abb",
+  "overlayFileSha256": {
+    "src/cli.ts": "a6240fe99c10cc189625fc113a29a76613c8a0c83a9f56b6c1f2655bad884fce",
+    "src/runtime-inputs.ts": "827f8ffd19b0396f9099d98d9d2fcf36f3c8b6bd60faf35d5a1594b1c5b01f56",
+    "src/runtime-private-env.ts": "83a1803ac7515f1fc934e8b42ea3eb755e63c8069bf8c97e3ab1a90ffa308cdf",
+    "src/research/provider-settings.ts": "5713a465f561f675a22a191ee22f67879c765628e8504c06d0efede40926e80d",
+    "test/runtime-provider.test.ts": "071264683f36027e835bc3233d77b8ff224903b714e7098ea5350f1cf07a2953",
+    "test/runtime-git-safety.test.ts": "10a555d929bcadba1b37c59a13d8f52da7fd19188338bbaeded75f4ffea0d326"
+  },
+  "testFiles": [
+    "test/runtime-provider.test.ts",
+    "test/provider-cli.test.ts",
+    "test/runtime-git-safety.test.ts",
+    "test/runtime-inputs.test.ts",
+    "test/runtime-command.test.ts",
+    "test/doctor.test.ts"
+  ],
+  "checks": [
+    {
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": null,
+      "sourceKind": "working tree with frozen runtime files",
+      "status": "passed",
+      "typecheck": "passed",
+      "counts": {
+        "tests": 60,
+        "pass": 60,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 7458.118208
+      },
+      "privateLogSha256": "0beac3a21a4a5b746c33aa27e4bea847c1e43c332b25125bbc9fa1d4fb9f7815",
+      "privateTypecheckLogSha256": "d69ab347a68447f5c415775a9e6698dbfa57145e1606655b723b38103a3fe822"
+    },
+    {
+      "platform": "linux",
+      "architecture": "arm64",
+      "node": "24.22.2",
+      "sourceKind": "prior content snapshot plus the six overlay files",
+      "derivedContentManifestSha256": "821a06149cba2efe2524608bf568009d7d0ed90ff1b8312d88854e258d301ab2",
+      "status": "passed",
+      "typecheck": "passed",
+      "counts": {
+        "tests": 60,
+        "pass": 60,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 2440.202002
+      },
+      "privateLogSha256": "7deebf55c9de57f0e59e407ff193c67092404f732b1cba1ec2d937dbe7a3267e"
+    },
+    {
+      "platform": "win32",
+      "architecture": "arm64",
+      "node": "24.22.1",
+      "sourceKind": "prior archive plus the six overlay files in a separate directory",
+      "derivedArchiveSha256": "bac5af119e5e08e547a7378aa6f47ffd1602df61e314926433817843927948fb",
+      "status": "passed-with-skips",
+      "typecheck": "passed",
+      "counts": {
+        "tests": 60,
+        "pass": 58,
+        "fail": 0,
+        "skipped": 2,
+        "duration_ms": 29982.612
+      },
+      "skippedTests": [
+        {
+          "test": "Git safety probes receive only essential environment while checking the real repository",
+          "reason": "Uses a POSIX executable forwarding fixture"
+        },
+        {
+          "test": "symlink runtime inputs are not read or overwritten",
+          "reason": "Normal-user file-symlink creation privilege is unavailable"
+        }
+      ],
+      "privateLogSha256": "4e96fd7458fd75eca0167523ac54154aca2a4b706e32ec873635edc31287d366"
+    }
+  ],
+  "modelRequests": 0,
+  "windowsActualFileLinkSupplement": {
+    "platform": "win32",
+    "arch": "arm64",
+    "realFileSymlinks": 2,
+    "providerDeniedWithoutMetadata": true,
+    "runtimeReadDenied": true,
+    "runtimeWriteDenied": true,
+    "outsideBytesUnchanged": true,
+    "modelRequests": 0,
+    "assertionsRanAsNormalUser": true
+  },
+  "windowsSupplementalHelperHistory": {
+    "firstAttempt": "setup-failed",
+    "cause": "Standalone TypeScript helper inferred as CommonJS outside the package",
+    "correction": "ES module filename outside the source snapshot",
+    "finalStatus": "passed"
+  },
+  "windowsCleanup": {
+    "ownedProcesses": 0,
+    "temporaryTestCredentialPresent": false,
+    "personalCredentialTargetsPresent": false,
+    "proxyRunning": false,
+    "codegraphDaemonRunning": false
+  },
+  "limits": [
+    "The common earlier full-check source is unchanged; these six-file updates are separately identified.",
+    "The 60-test result does not establish complete repository or final workflow-matrix acceptance.",
+    "The Windows skip count remains two; supplemental real-link assertions are a separate result.",
+    "Mac Node version was not captured in the cited targeted logs and remains null."
+  ]
+}

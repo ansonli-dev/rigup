@@ -1,11 +1,27 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import {writeFileSync} from 'node:fs';
 import {delimiter,join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {project} from './helpers.js';
 import {nativeCodexProbe} from './live-support.js';
 import {LiveProcessCleanupError,runLiveCommand} from './live-process-support.js';
+
+test('live stdout observation happens while the real child is still running',{timeout:20_000},()=>project(async cwd=>{
+ const release=join(cwd,'output-observed'),chunks:string[]=[];
+ const program=`const fs=require('node:fs');console.log('actual child output');const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)})){clearInterval(timer);console.log('observation released child');}},20);`;
+ const result=await runLiveCommand(process.execPath,['-e',program],{cwd,timeoutMs:process.platform==='win32'?12_000:2000,onStdout(chunk:string){chunks.push(chunk);writeFileSync(release,'observed before child exit');}});
+ assert.equal(result.timedOut,false,'the child can exit only after its output was delivered to the observer');
+ assert.equal(result.code,0);assert.match(chunks.join(''),/actual child output/);assert.match(result.stdout,/observation released child/);
+}));
+
+test('a failing stdout observer stops its child and rejects the live command',{timeout:20_000},()=>project(async cwd=>{
+ const pidPath=join(cwd,'observer-child.pid');
+ const program='require("node:fs").writeFileSync('+JSON.stringify(pidPath)+',String(process.pid));console.log("observe me");setInterval(()=>{},1000);';
+ await assert.rejects(runLiveCommand(process.execPath,['-e',program],{cwd,timeoutMs:process.platform==='win32'?12_000:2000,onStdout(){throw Error('Observer failure');}}),/Observer failure/);
+ assert.equal(running(Number(await readFile(pidPath,'utf8'))),false);
+}));
 
 const grandchild=`
  const {existsSync}=require('node:fs');

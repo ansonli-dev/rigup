@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "scope": "Actual WSL2 filesystem permission and interrupted-recovery verification; separate from final native model workflow acceptance",
+  "sourceCommit": "c138e97b204006e0a31e40adc6dd76c152040f46",
+  "runId": 43216562097,
+  "jobId": 131177171793,
+  "artifactId": 13943033802,
+  "downloadedArtifactSha256": "fd4a2ca02c16be7131286bb650d75eabf64a22d150410c953cc1254a298934e2",
+  "platform": "linux",
+  "architecture": "x64",
+  "node": "v24.22.2",
+  "wslVersion": "3.0.3.0",
+  "wslGeneration": 2,
+  "kernel": "6.18.54.1-microsoft-standard-WSL2",
+  "distribution": "Ubuntu Base 24.04.5",
+  "status": "passed",
+  "caseCounts": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0
+  },
+  "modelRequests": 0,
+  "cleanup": true,
+  "mountObservations": {
+    "withoutMetadata": {
+      "filesystem": "9p",
+      "metadataEnabled": false
+    },
+    "withMetadata": {
+      "filesystem": "9p",
+      "metadataEnabled": true
+    }
+  },
+  "cases": [
+    {
+      "name": "linux-ext4",
+      "status": "passed",
+      "apply": "complete",
+      "replayWrites": 0,
+      "modes": [
+        "0644",
+        "0755",
+        "0600"
+      ]
+    },
+    {
+      "name": "linux-ext4-private",
+      "status": "passed",
+      "privateInput": "0600 read/write"
+    },
+    {
+      "name": "drvfs-without-metadata",
+      "status": "passed",
+      "apply": "denied",
+      "projectUnchanged": true,
+      "preparedJournal": false,
+      "applyHooks": 0
+    },
+    {
+      "name": "without-metadata-private",
+      "status": "passed",
+      "privateInput": "denied before private bytes"
+    },
+    {
+      "name": "with-metadata",
+      "status": "passed",
+      "apply": "complete",
+      "replayWrites": 0,
+      "modes": [
+        "0644",
+        "0755",
+        "0600"
+      ]
+    },
+    {
+      "name": "with-metadata-private",
+      "status": "passed",
+      "privateInput": "0600 read/write"
+    },
+    {
+      "name": "drvfs-metadata-loss-and-recovery",
+      "status": "passed",
+      "deniedJournalUnchanged": true,
+      "deniedProjectUnchanged": true,
+      "resumed": "complete"
+    }
+  ],
+  "historicalAttempts": [
+    {
+      "status": "setup-failed",
+      "reason": "The first invocation let the default WSL shell consume Windows path backslashes before wslpath. The later invocation used wsl.exe --exec.",
+      "filesystemVerificationCompleted": false,
+      "modelRequests": 0
+    }
+  ],
+  "limits": [
+    "This is actual WSL2 evidence; no WSL1 result is substituted.",
+    "The local ARM64 Parallels VM was not rebooted and no WSL1 distribution was imported.",
+    "Passing this job does not establish the complete repository CI result or final release acceptance."
+  ]
+}

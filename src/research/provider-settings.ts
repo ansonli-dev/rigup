@@ -2,6 +2,7 @@ import {lstat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {dirname,join} from 'node:path';
 import {validateProviderBaseURL} from '../analyzer/provider-url.js';
+import {isValidMaxOutputTokens} from '../analyzer/provider-loop.js';
 import {privateDirectory} from '../generator/cache.js';
 import {readDurableRecord} from '../private-record.js';
 import type {OnboardingIO} from '../onboarding.js';
@@ -10,8 +11,9 @@ import type {SetupOptions} from '../types.js';
 
 type Model=NonNullable<SetupOptions['model']>;
 type Provider=Model['provider'];
-interface PrivateProvider {provider:Provider;model?:string;apiKeyEnv?:string;baseURL?:string}
-export interface ResearchProvider {identity:Model;apiKey:string;baseURL:string}
+interface PrivateProvider {provider:Provider;model?:string;apiKeyEnv?:string;baseURL?:string;maxOutputTokens?:number}
+export interface ResearchProviderMetadata {identity:{provider:Provider;model?:string;apiKeyEnv:string};baseURL:string;maxOutputTokens?:number}
+export interface ResearchProvider {identity:Model;apiKey:string;baseURL:string;maxOutputTokens?:number}
 
 const providers:Provider[]=['anthropic','openai-compatible'];
 const envNames:Record<Provider,{key:string;model:string;url:string;defaultURL:string}>={
@@ -21,7 +23,7 @@ const envNames:Record<Provider,{key:string;model:string;url:string;defaultURL:st
 const envRef=/^[A-Z_][A-Z0-9_]*$/;
 const nonEmpty=(value:unknown):value is string=>typeof value==='string'&&!!value.trim()&&value.length<=1024;
 const validate=(settings:PrivateProvider)=>providers.includes(settings.provider)&&
- Object.keys(settings).every(key=>['provider','model','apiKeyEnv','baseURL'].includes(key))&&
+ Object.keys(settings).every(key=>['provider','model','apiKeyEnv','baseURL','maxOutputTokens'].includes(key))&&
  (settings.model===undefined||nonEmpty(settings.model))&&
  (settings.apiKeyEnv===undefined||typeof settings.apiKeyEnv==='string'&&envRef.test(settings.apiKeyEnv))&&
  (settings.baseURL===undefined||nonEmpty(settings.baseURL));
@@ -30,35 +32,54 @@ async function privateProvider(root:string):Promise<PrivateProvider|undefined>{
  const path=join(homedir(),'.config','rigup','provider.json');
  try{await lstat(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return;throw error;}
  await privateDirectory(dirname(path),root);
- return await readDurableRecord<PrivateProvider>(path,'Private research provider configuration',validate);
+ const settings=await readDurableRecord<PrivateProvider>(path,'Private research provider configuration',validate);
+ if(settings?.maxOutputTokens!==undefined&&!isValidMaxOutputTokens(settings.maxOutputTokens))throw Error('Private research provider configuration: maxOutputTokens must be a positive integer');
+ return settings;
 }
 
-export async function resolveResearchProvider(root:string,modelOverride?:string,projectModel?:Model):Promise<ResearchProvider|undefined>{
+function outputTokenLimit(value:string|undefined):number|undefined {
+ if(value===undefined)return;
+ const parsed=/^\d+$/.test(value.trim())?Number(value.trim()):NaN;
+ if(!isValidMaxOutputTokens(parsed))throw Error('RIGUP_MAX_OUTPUT_TOKENS must be a positive integer');
+ return parsed;
+}
+
+export async function researchProviderMetadata(root:string,modelOverride?:string,projectModel?:Model,environment:NodeJS.ProcessEnv=process.env):Promise<ResearchProviderMetadata|undefined>{
  const settings=await privateProvider(root);
- const selected=process.env.RIGUP_PROVIDER?.trim();
+ const selected=environment.RIGUP_PROVIDER?.trim();
  if(selected&&!providers.includes(selected as Provider))throw Error('RIGUP_PROVIDER must be anthropic or openai-compatible');
  const configured=(selected as Provider|undefined)||settings?.provider||projectModel?.provider;
- const candidates=configured?[]:providers.filter(provider=>{
+ const keyed=configured?[]:providers.filter(provider=>environment[envNames[provider].key]?.trim());
+ const candidates=keyed.filter(provider=>{
   const names=envNames[provider];
-  return process.env[names.key]?.trim()&&(modelOverride||process.env.RIGUP_MODEL_ID?.trim()||process.env[names.model]?.trim());
+  return modelOverride||environment.RIGUP_MODEL_ID?.trim()||environment[names.model]?.trim();
  });
  if(candidates.length>1)throw Error('Set RIGUP_PROVIDER to choose between the configured providers');
- const provider=configured||candidates[0];
+ // A sole key declares an incomplete provider; request resolution still requires its model.
+ const provider=configured||candidates[0]||(keyed.length===1?keyed[0]:undefined);
  if(!provider)return;
  const defaults=envNames[provider],privateSettings=settings?.provider===provider?settings:undefined;
  const projectSettings=projectModel?.provider===provider?projectModel:undefined;
- const model=(modelOverride??process.env.RIGUP_MODEL_ID??process.env[defaults.model]??privateSettings?.model??projectSettings?.model)?.trim();
- const apiKeyEnv=process.env.RIGUP_API_KEY_ENV??privateSettings?.apiKeyEnv??projectSettings?.apiKeyEnv??defaults.key;
+ const model=(modelOverride??environment.RIGUP_MODEL_ID??environment[defaults.model]??privateSettings?.model??projectSettings?.model)?.trim();
+ const apiKeyEnv=environment.RIGUP_API_KEY_ENV??privateSettings?.apiKeyEnv??projectSettings?.apiKeyEnv??defaults.key;
  if(!envRef.test(apiKeyEnv))throw Error('RIGUP_API_KEY_ENV must name an environment variable');
- const url=process.env.RIGUP_BASE_URL??process.env[defaults.url]??privateSettings?.baseURL??defaults.defaultURL;
+ const url=environment.RIGUP_BASE_URL??environment[defaults.url]??privateSettings?.baseURL??defaults.defaultURL;
  const baseURL=validateProviderBaseURL(url).href;
- const apiKey=process.env[apiKeyEnv]?.trim();
- if(!model||!apiKey)return;
- if(!nonEmpty(model))throw Error('Research model ID is invalid');
- return {identity:{provider,model,apiKeyEnv},baseURL,apiKey};
+ const maxOutputTokens=outputTokenLimit(environment.RIGUP_MAX_OUTPUT_TOKENS)??privateSettings?.maxOutputTokens;
+ if(model!==undefined&&!nonEmpty(model))throw Error('Research model ID is invalid');
+ return {identity:{provider,...(model===undefined?{}:{model}),apiKeyEnv},baseURL,...(maxOutputTokens===undefined?{}:{maxOutputTokens})};
 }
 
-export async function promptResearchProvider(io:OnboardingIO,modelOverride?:string):Promise<ResearchProvider|undefined>{
+export async function resolveResearchProvider(root:string,modelOverride?:string,projectModel?:Model,environment:NodeJS.ProcessEnv=process.env):Promise<ResearchProvider|undefined>{
+ const metadata=await researchProviderMetadata(root,modelOverride,projectModel,environment);
+ if(!metadata?.identity.model)return;
+ const {provider,model,apiKeyEnv}=metadata.identity;
+ const apiKey=environment[apiKeyEnv]?.trim();
+ if(!apiKey)return;
+ return {...metadata,identity:{provider,model,apiKeyEnv},apiKey};
+}
+
+export async function promptResearchProvider(io:OnboardingIO,modelOverride?:string,environment:NodeJS.ProcessEnv=process.env):Promise<ResearchProvider|undefined>{
  const later='Use Rigup MCP in the agent';
  io.write('Choose the provider for this run, or finish the setup and use Rigup MCP in the agent.\n');
  const answer=await promptChoice(io,[...providers,later],false,[later]);
@@ -71,11 +92,12 @@ export async function promptResearchProvider(io:OnboardingIO,modelOverride?:stri
  const url=await io.read();
  if(url===null||url==='\x1b')return;
  const baseURL=validateProviderBaseURL(url.trim()||defaults.defaultURL).href;
- let apiKey=process.env[defaults.key]?.trim();
+ let apiKey=environment[defaults.key]?.trim();
  if(!apiKey){
   io.write('Enter an API key for this run only (Esc to use the agent)\n');
   apiKey=(await io.read(true))?.trim();
  }
  if(!apiKey||apiKey==='\x1b')return;
- return {identity:{provider,model,apiKeyEnv:defaults.key},baseURL,apiKey};
+ const maxOutputTokens=outputTokenLimit(environment.RIGUP_MAX_OUTPUT_TOKENS);
+ return {identity:{provider,model,apiKeyEnv:defaults.key},baseURL,apiKey,...(maxOutputTokens===undefined?{}:{maxOutputTokens})};
 }

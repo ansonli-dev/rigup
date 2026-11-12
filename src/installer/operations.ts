@@ -14,6 +14,7 @@ import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {startWindowsProcess,windowsJobActive} from '../integrations/tools/windows-process.mjs';
 import {npmCommand} from '../npm-command.mjs';
 import {assertInstallDestination,clearInstallStage,createInstallStage,installDirectoryIdentity,ownedInstallStage,publishInstallStage,stagedInstall,validInstallStage,type InstallStage} from './install-staging.js';
+import {essentialEnvironment,selectedNpmRegistry} from '../runtime-inputs.js';
 export interface OperationResult {status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:{version:string;packageLockDigest:string};nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 type WriterIdentity=ProcessIdentity&{windowsJob?:string};
 interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult;installStage?:InstallStage}
@@ -113,6 +114,13 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   else assertToolOperationRecipe(root,operation,recipe,operation.prerequisiteIds);
  }
  catch(error){return {status:'pending',message:(error as Error).message};}
+ const registryPending=async():Promise<OperationResult|undefined>=>{
+  if(operation.kind!=='install')return;
+  try{if(await selectedNpmRegistry(root)===operation.registry)return;}
+  catch{return {status:'pending',message:'Correct the private npm registry input and prepare a new preview before installation'};}
+  return {status:'pending',message:'Npm registry selection changed after review; prepare a new preview before installation'};
+ };
+ const changed=await registryPending();if(changed)return changed;
  const {records,persist}=await getJournal(root);
  const key=signature(operation);let record=records.find(r=>r.parametersDigest===key);
  if(record){
@@ -177,6 +185,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  if(dependencies.launch){
   // The injected test adapter completes its writes within this process.
   if(dependencies.signal?.aborted)return cancelledBeforeDispatch;
+  const changed=await registryPending();if(changed)return changed;
   const result=await dependencies.launch(dispatched);
   return terminal(stage&&result.status==='done'?await acceptInstall(dispatched,stage,await queryOperation(dispatched)):result);
  }
@@ -186,7 +195,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   const verified=await queryOperation(dispatched);
   return terminal(stage?await acceptInstall(dispatched,stage,verified):verified);
  };
- const env=operation.kind==='initialize'?nativeEnvironment(dispatched):undefined;
+ const env=operation.kind==='initialize'?nativeEnvironment(dispatched):essentialEnvironment();
  if(process.platform==='win32'){
   const command=dispatched.parameters.executable==='npm'?npmCommand(dispatched.parameters.args):dispatched.parameters;
   const child=startWindowsProcess({...command,cwd:root,env,captureOutput:false});
@@ -195,6 +204,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
    if(!child.pid)throw Error('Cannot start protected operation process');
    await markDispatching({...await processIdentity(child.pid),windowsJob:child.job});
    if(dependencies.signal?.aborted){child.stop();await child.completed;return restoreUndispatched();}
+   const changed=await registryPending();if(changed){child.stop();await child.completed;await restoreUndispatched();return changed;}
    timeout=setTimeout(child.stop,operation.timeoutMs);
    dependencies.signal?.addEventListener('abort',child.stop,{once:true});
    child.start();
@@ -212,6 +222,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>(resolve=>{child.once('error',()=>resolve({code:1,signal:null}));child.once('exit',(code,signal)=>resolve({code,signal}));});
  try{await markDispatching(await processIdentity(child.pid));}catch(e){child.stdin.end();await completed;throw e;}
  if(dependencies.signal?.aborted){child.stdin.end();await completed;return restoreUndispatched();}
+ const changedBeforeDispatch=await registryPending();if(changedBeforeDispatch){child.stdin.end();await completed;await restoreUndispatched();return changedBeforeDispatch;}
  let cancelled=false,timedOut=false;let forceTimer:ReturnType<typeof setTimeout>|undefined;
  const terminate=()=>{cancelled=true;try{process.kill(-child.pid!,'SIGTERM');}catch{};forceTimer??=setTimeout(()=>{try{process.kill(-child.pid!,'SIGKILL');}catch{}},3000);};
  const timeout=setTimeout(()=>{timedOut=true;terminate();},operation.timeoutMs);

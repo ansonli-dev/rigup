@@ -17,13 +17,22 @@ import {resolveSddBinding,resolveSkillSource,type SddBinding} from './sdd/bindin
 import {digest} from '../analyzer/evidence.js';
 import {loadUpstreamLock,requireRecipeEvidence} from './upstream.js';
 import {openspecPreparationCommand} from './sdd/openspec.js';
+import {RIGUP_VERSION} from '../version.js';
+import {runtimeSetupSummary,selectedNpmRegistry} from '../runtime-inputs.js';
 export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVersion,type Recipe} from './upstream.js';
 export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
-export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
+export interface IntegrationPreparation {pendingRuntimeTools?:('openwiki'|'codegraph')[];assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
 export async function prepareIntegrations(profile:import('../analyzer/repository.js').ProjectProfile,options:import('../types.js').SetupOptions):Promise<IntegrationPreparation>{
  const [lock,quality]=await Promise.all([loadUpstreamLock(),prepareQuality(profile,options)]);const assets:PreparedAsset[]=[];const operations:SetupOperation[]=[];const warnings:string[]=[];const requirements:IntegrationPreparation['requirements']=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
+ const runtime=await runtimeSetupSummary(profile.root,options),pendingRuntimeTools:('openwiki'|'codegraph')[]=[];
+ let registry:string|undefined,registryUnavailable=false;
+ if(options.tools?.some(tool=>tool.install))try{registry=await selectedNpmRegistry(profile.root);}catch(error){
+  if(runtime.template.state!=='pending')throw error;
+  registryUnavailable=true;
+  warnings.push('Automatic tool installation is pending: preserve .rigup/.env and correct its private access and ignore state, then prepare a new review.');
+ }
  const requireKnown=(id:string)=>{const recipe=lock.find(r=>r.integrationId === id);if(!recipe) throw new Error('unsupported integration: '+id);requireRecipeEvidence(recipe);return recipe;};
  for(const agent of options.agents) {if(!Object.hasOwn(agents,agent)) throw new Error('unknown agent');requireKnown(agent);}
  const push=(added:PreparedAsset[])=>{
@@ -57,7 +66,7 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
  }
  if(options.projectRules&&options.agents.length){
   const target='.rigup/rigup-mcp.mjs';
-  const content=await readFile(new URL('../../templates/rigup-mcp.mjs',import.meta.url),'utf8');
+  const content=(await readFile(new URL('../../templates/rigup-mcp.mjs',import.meta.url),'utf8')).replace('__RIGUP_VERSION__',RIGUP_VERSION);
   push([{logicalId:'rigup:research-launcher',target,content,ownership:{kind:'file'},source:{kind:'fixed-template',ref:'rigup-mcp',digest:digest(content)}}]);
   for(const agent of options.agents){
    const args=projectMcpArgs(agents[agent].mcpTarget,target,[agent]);
@@ -74,20 +83,21 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   for(const agent of selection.agents) {
    const executable=useProjectTool?'node':tool.software;
    const nativeArgs=tool.mcpArgs(agent);
-   const windowsDefaults=tool.id==='codegraph'?{CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS:'3500'}:undefined;
-   const args=useProjectTool?projectMcpArgs(agents[agent].mcpTarget,[prefix,'node_modules',name,entry].join('/'),nativeArgs,windowsDefaults):nativeArgs;
+   const args=useProjectTool?projectMcpArgs(agents[agent].mcpTarget,[prefix,'node_modules',name,entry].join('/'),nativeArgs):nativeArgs;
    const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable,args,cwd:'.',envRefs:[]}},true);push(prepared.assets);requirements.push(...prepared.requirements);
   }
   warnings.push(tool.id+': binary '+recipe.version+' availability and native connection pending');
+  const deferred=registryUnavailable&&useProjectTool&&!profile.installedTools?.[tool.id];
+  if(deferred)pendingRuntimeTools.push(selection.id);
   let installed=false;
-  if(useProjectTool) {
-   const prepared=await prepareSoftwareInstall(profile.root,selection.id,recipe.version,recipe.packageIntegrity,profile.installedTools?.[tool.id]);
+  if(useProjectTool&&!deferred) {
+   const prepared=await prepareSoftwareInstall(profile.root,selection.id,recipe.version,recipe.packageIntegrity,profile.installedTools?.[tool.id],registry);
    if('pending' in prepared) {warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}
    else if('reused' in prepared) {installed=true;warnings.push(tool.id+': reuse receipted project installation '+prepared.version);}
    else if(selection.install) operations.push(prepared);
   }
   if(selection.id==='openwiki')warnings.push(openwikiInitializationGuide);
-  else if(selection.initialize) {
+  else if(selection.initialize&&!deferred) {
    const prepared=await prepareNativeInitialization(profile.root,selection.id,recipe.version,recipe.packageIntegrity,{installed,prerequisiteIds:operations.filter(o=>o.id==='install:'+selection.id).map(o=>o.id),receipt:profile.initializedTools?.[tool.id]});
    if('pending' in prepared){warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}else if('reused' in prepared)warnings.push(tool.id+': verified native initialization reused');else operations.push(prepared);
   }
@@ -112,9 +122,9 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
  if(options.projectConventions?.tracker) warnings.push('Tracker convention recorded; executable tracker adapter is pending');
  push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
- if(profile.git.available&&(assets.length||bindings.length)){
+ if(profile.git.available&&(assets.length||bindings.length)||runtime.inputs.some(input=>input.destination==='.rigup/.env')){
   const ownership={kind:'block' as const,start:'# rigup:start',end:'# rigup:end'};
-  const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/','/check-results/',ownership.end,''].join('\n');
+  const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/','/check-results/','/.env','/.env.rigup-*.tmp',ownership.end,''].join('\n');
   push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
  }
  for(let i=operations.length-1;i>=0;i--) {
@@ -126,5 +136,5 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
  }
  // Software installations have no prerequisites. Put them together before native initialization.
  operations.sort((a,b)=>Number(a.kind!=='install')-Number(b.kind!=='install'));
- return {assets,operations,warnings,requirements,bindings,skillBindings};
+ return {assets,operations,warnings,requirements,bindings,skillBindings,...(pendingRuntimeTools.length?{pendingRuntimeTools}:{})};
 }

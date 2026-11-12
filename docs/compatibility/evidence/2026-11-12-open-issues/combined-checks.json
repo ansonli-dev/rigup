@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "candidateCi": {
+    "commit": "8ac830583eaf232e5118dbbf8f205c7e857b1743",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "name": "WSL2 / ext4 and Windows drive permissions",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "Node 22.19.0 / macos-latest",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "Node 22.19.0 / windows-latest",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "Node 24 / windows-latest",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "Node 24 / macos-latest",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "Node 22.19.0 / ubuntu-latest",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "Node 24 / ubuntu-latest",
+        "status": "completed"
+      }
+    ],
+    "runId": 43251313192,
+    "status": "completed",
+    "url": "https://github.com/ansonli-dev/rigup/actions/runs/43251313192"
+  },
+  "earlierCi": [
+    {
+      "runId": 43216562097,
+      "commit": "c138e97b204006e0a31e40adc6dd76c152040f46",
+      "passedJobs": 7,
+      "wslCasesPassed": 7
+    },
+    {
+      "runId": 43246786729,
+      "commit": "489f8d516c654f49f1f32c77e7aeed9d9b71fdd0",
+      "passedJobs": 6,
+      "wslConclusion": "cancelled",
+      "wslJobLogAvailable": false
+    }
+  ],
+  "localChecks": [
+    {
+      "platform": "darwin",
+      "node": "24.15.0",
+      "sourceDigest": "fd91fe3db8dd003f2b605de384d0dd77bb8e88551307779ab29cf0c29b397a7f",
+      "total": 980,
+      "passed": 896,
+      "failed": 0,
+      "skipped": 84
+    },
+    {
+      "platform": "darwin",
+      "node": "22.19.0",
+      "sourceDigest": "fd91fe3db8dd003f2b605de384d0dd77bb8e88551307779ab29cf0c29b397a7f",
+      "total": 980,
+      "passed": 896,
+      "failed": 0,
+      "skipped": 84
+    },
+    {
+      "platform": "linux",
+      "node": "24.22.2",
+      "sourceDigest": "34c0fbe60593f932324445bf57d2f92169871278b0f480347acc50f5fce74418",
+      "total": 985,
+      "passed": 900,
+      "failed": 0,
+      "skipped": 85
+    }
+  ],
+  "npmAuditVulnerabilities": 0
+}

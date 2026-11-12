@@ -27,9 +27,6 @@ try{
  process.exitCode=1;
 }`.trim();
 
-export function projectMcpArgs(config:string,entry:string,args:string[],windowsDefaults?:Record<string,string>):string[]{
- const script=windowsDefaults
-  ? "if(process.platform==='win32')for(const [key,value] of Object.entries("+JSON.stringify(windowsDefaults)+"))process.env[key]??=value;\n"+projectEntry
-  : projectEntry;
- return ['-e',script,'--',config,entry,...args];
+export function projectMcpArgs(config:string,entry:string,args:string[]):string[]{
+ return ['-e',projectEntry,'--',config,entry,...args];
 }

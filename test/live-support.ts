@@ -56,7 +56,7 @@ export async function nativeOpenCodeProbe(){
  try{
   const version=await liveVersion('opencode');const skills=(await checkedLiveCommand('opencode',['debug','skill'],{cwd:root,env,timeoutMs:30000,maxBuffer:2_000_000})).stdout;const mcp=(await checkedLiveCommand('opencode',['mcp','list'],{cwd:root,env,timeoutMs:30000,maxBuffer:1_000_000})).stdout;
   let calls:any[]=[];try{calls=(await readFile(control+'/server-trace.jsonl','utf8')).split('\n').filter(Boolean).map(line=>JSON.parse(line));}catch{}
-  const discovered=skills.includes('rigup-live-canary')&&skills.includes(root+'/.opencode/skills/');const connected=calls.some(c=>c.method==='initialize')&&calls.some(c=>c.method==='tools/list');
+  const discovered=JSON.parse(skills).some((skill:{name?:unknown;location?:unknown})=>skill.name==='rigup-live-canary'&&typeof skill.location==='string'&&resolve(skill.location)===join(root,'.opencode','skills','rigup-live-canary','SKILL.md'));const connected=calls.some(c=>c.method==='initialize')&&calls.some(c=>c.method==='tools/list');
   return {caseId:'opencode/none/customer-mcp',status:discovered&&connected?'passed':'failed',startedAt,finishedAt:new Date().toISOString(),version,fixture:root,fixtureDigest:createHash('sha256').update(server).digest('hex'),configuredByRigup:installed.status,skillDiscovered:discovered,mcpConnected:connected,mcpMethods:calls.map(c=>c.method),commands:[{executable:'opencode',args:['debug','skill'],cwd:root},{executable:'opencode',args:['mcp','list'],cwd:root}],clientOutput:mcp.replace(/\x1b\[[0-9;]*m/g,'').slice(0,1000),scope:'Actual OpenCode native discovery and MCP initialize/list. No model or SDD gate inference'};
  }catch(error){return {caseId:'opencode/none/customer-mcp',status:'failed',startedAt,finishedAt:new Date().toISOString(),fixture:root,reason:(error as Error).message.slice(0,1200)};}
 }
@@ -64,14 +64,15 @@ export async function nativeOmpProbe(){
  const {root,control,startedAt,installed}=await nativeCanary('omp');const home=control+'/client-home';await mkdir(home,{mode:0o700});let stderr='',buffer='',next=1;const pending=new Map<string,{resolve:(value:any)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>();
  try{
   const version=await liveVersion('omp');
-  const child=await startLiveSession('omp',['--mode','rpc','--no-session','--approval-mode','always-ask'],{cwd:root,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,HOME:home,PI_CODING_AGENT_DIR:home+'/agent',NO_COLOR:'1',LANG:'en_US.UTF-8'}});
+  const args=['--model','openai-codex/gpt-6.1-sol','--mode','rpc','--no-session','--approval-mode','always-ask'];
+  const child=await startLiveSession('omp',args,{cwd:root,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,HOME:home,PI_CODING_AGENT_DIR:home+'/agent',NO_COLOR:'1',LANG:'en_US.UTF-8'}});
   try{
   child.stdout.setEncoding('utf8').on('data',chunk=>{buffer+=chunk;let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const message=JSON.parse(line);const item=pending.get(message.id);if(item){clearTimeout(item.timer);pending.delete(message.id);message.success?item.resolve(message.data):item.reject(Error(message.error??'RPC failed'));}}catch{}}});child.stderr.setEncoding('utf8').on('data',chunk=>stderr+=chunk);
   const exited=child.completed.then(code=>{throw Error('OMP native client exited (code '+code+')');});
   const request=(type:string):Promise<any>=>Promise.race([exited,new Promise((done,reject)=>{const id=String(next++);const timer=setTimeout(()=>{pending.delete(id);reject(Error('OMP native RPC timeout: '+type));},30000);pending.set(id,{resolve:done,reject,timer});child.stdin.write(JSON.stringify({id,type})+'\n');})]);
   const commands=await request('get_available_commands');const state=await request('get_state');const skill=commands.commands?.find((c:any)=>JSON.stringify(c).includes('rigup-live-canary'));let calls:any[]=[];try{calls=(await readFile(control+'/server-trace.jsonl','utf8')).split('\n').filter(Boolean).map(line=>JSON.parse(line));}catch{}
   const connected=calls.some(c=>c.method==='initialize')&&calls.some(c=>c.method==='tools/list');
-  return {caseId:'omp/none/customer-mcp',status:skill&&connected?'passed':'failed',startedAt,finishedAt:new Date().toISOString(),version,fixture:root,configuredByRigup:installed.status,skill:skill?{name:skill.name,source:skill.source}:null,mcpConnected:connected,mcpMethods:calls.map(c=>c.method),toolNames:state.dumpTools?.map((t:any)=>t.name),commands:[{executable:'omp',args:['--mode','rpc','--no-session','--approval-mode','always-ask'],cwd:root}],scope:'Actual OMP session RPC; no model request or SDD gate inference'};
+  return {caseId:'omp/none/customer-mcp',status:skill&&connected?'passed':'failed',startedAt,finishedAt:new Date().toISOString(),version,fixture:root,configuredByRigup:installed.status,skill:skill?{name:skill.name,source:skill.source}:null,mcpConnected:connected,mcpMethods:calls.map(c=>c.method),toolNames:state.dumpTools?.map((t:any)=>t.name),commands:[{executable:'omp',args,cwd:root}],scope:'Actual OMP session RPC; no model request or SDD gate inference'};
   }finally{
    for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('Native probe finished'));}
    await child.stop();

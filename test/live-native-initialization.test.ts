@@ -52,8 +52,10 @@ test('live scaffold recovers CodeGraph initialization and hands OpenWiki to a se
   assert.deepEqual(Object.keys(manifest.initializedTools!).sort(),['codegraph']);
   await assert.rejects(access(root+'/openwiki'));await assert.rejects(access(root+'/.rigup/native/openwiki'));
   evidence.scaffoldOpenWiki={initialized:false,nativeWrites:[],handoff:prepared.warnings.find(w=>/openwiki_begin/.test(w))};
-  const cg=root+'/.rigup/tools/codegraph/node_modules/.bin/codegraph';
-  const query=JSON.parse((await exec(cg,['query','createOrder','--path',root,'--json'],{cwd:root,env:{...process.env,CODEGRAPH_NO_DAEMON:'1',DO_NOT_TRACK:'1',CODEGRAPH_NO_DOWNLOAD:'1'},timeout:30000})).stdout);
+  const cgPackage=join(root,'.rigup/tools/codegraph/node_modules/@colbymchenry/codegraph');
+  const cgManifest=JSON.parse(await readFile(join(cgPackage,'package.json'),'utf8'));
+  assert.equal(cgManifest.name,'@colbymchenry/codegraph');assert.equal(cgManifest.bin?.codegraph,'npm-shim.js');
+  const query=JSON.parse((await exec(process.execPath,[join(cgPackage,'npm-shim.js'),'query','createOrder','--path',root,'--json'],{cwd:root,env:{...process.env,CODEGRAPH_NO_DAEMON:'1',DO_NOT_TRACK:'1',CODEGRAPH_NO_DOWNLOAD:'1'},timeout:30000})).stdout);
   assert.match(JSON.stringify(query),/createOrder/);assert.match(JSON.stringify(query),/src\/order\.js/);
   assert.equal(await readFile(root+'/AGENTS.md','utf8'),'User agent instructions\n');
   assert.equal(await readFile(root+'/CLAUDE.md','utf8'),'User Claude instructions\n');
@@ -67,7 +69,7 @@ test('live scaffold recovers CodeGraph initialization and hands OpenWiki to a se
   assert.equal(current.truncated,false);assert.ok(!current.files.some(p=>p.startsWith('.codegraph/')||p.startsWith('openwiki/')||p.startsWith('.rigup/native/')));
   // Kill the real CodeGraph writer after it creates a DB, then rebuild only its
   // unpublished staging directory. The existing initialized project is retained.
-  const interruptedRoot=control+'/interrupted-project';await mkdir(interruptedRoot);await mkdir(interruptedRoot+'/.rigup/tools',{recursive:true});
+  const interruptedRoot=join(control,'interrupted-project');await mkdir(interruptedRoot);await mkdir(interruptedRoot+'/.rigup/tools',{recursive:true});
   await cp(root+'/.rigup/tools/codegraph',interruptedRoot+'/.rigup/tools/codegraph',{recursive:true,verbatimSymlinks:true,mode:constants.COPYFILE_FICLONE});
   await mkdir(interruptedRoot+'/src');for(let i=0;i<80;i++)await writeFile(interruptedRoot+'/src/file'+i+'.js','export function createOrder'+i+'(id) { return {id}; }\n');
   const cgRecipe=(await loadUpstreamLock()).find(r=>r.integrationId==='codegraph')!;

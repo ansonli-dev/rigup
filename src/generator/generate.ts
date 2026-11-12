@@ -23,6 +23,7 @@ import {signature,privateDirectory,readCache,saveCache} from './cache.js';
 import {isGitlabWiring} from '../integrations/gitlab/ci.js';
 import {planHarness,sourceGuidance} from './harness.js';
 import {renderConventionSeed} from '../project-conventions.js';
+import {RIGUP_VERSION} from '../version.js';
 export interface GenerationDependencies {prepared?:GenerationPreparation;effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
 interface Candidate extends ArtifactContent {job:ArtifactJob;digest:string;accepted:boolean}
 interface State extends RuleEvidenceState {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];referenceIndex?:ArtifactPage;dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;ruleRepairs?:Record<string,RuleRepair>;spent:{calls:number;tokens:number|'unknown'}}
@@ -58,12 +59,13 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
  const notApplicable=profile.conventions?.flatMap(page=>page.status==='not-applicable'?
   [{path:page.path,topic:page.title,topicId:page.topicId,scope:[page.scope]}]:[])??[];
  return {root:profile.root,fingerprint:profile.fingerprint,options,assets,operations:integration.operations,dispositions,
+  ...(integration.pendingRuntimeTools?.length?{pendingRuntimeTools:integration.pendingRuntimeTools}:{}),
   harness:harness.summary,
   ...(navigation.targets.length||navigation.conventionPaths.length?{harnessNavigation:{targets:navigation.targets,conventionPaths:navigation.conventionPaths,...(notApplicable.length?{notApplicable}:{})}}:{}),
   ...(projectDocuments.length?{projectDocuments}:{}),
   ...(gitlabReviewRequired?{gitlabReviewRequired:true as const}:{}),
   warnings:[...profile.unknowns,...integration.warnings,...navigation.warnings,...(gitlabReviewRequired?['GitLab wiring was left as-is. A complete root review is required to verify and change the selection.']:[])],requirements:integration.requirements,
-  versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},
+  versions:{rigup:RIGUP_VERSION,prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},
   ...(projectRules?{projectRules}:{})};
 }
 

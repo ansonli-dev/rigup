@@ -1,0 +1,2714 @@
+{
+  "schemaVersion": 1,
+  "scope": "Actual native OpenSpec runs on macOS, Linux and Windows, with real Git and disposable loopback merge request signals",
+  "model": "gpt-6.1-sol",
+  "productSourceManifestSha256": "3be8e4468bbb639559dc98e655e22c74feb2167d00a5ed7ed6c241b12947ed3f",
+  "attempts": [
+    {
+      "host": "codex",
+      "case": "delivery",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "61fd521b3c2e5444f8ac9aca93ba8590c16b339c3d192d2c56a9ace0e37e586f",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 100.535,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": {
+        "input": 417238,
+        "output": 2353,
+        "total": 419591
+      },
+      "observedUsage": {
+        "input": 417238,
+        "output": 2353,
+        "total": 419591
+      },
+      "usageComplete": true,
+      "privateReportSha256": "60ea299b1eed3012ea0445b7ff90c4cbeedd8b5c6111342cf00048ea5827759d",
+      "failureCategory": "delivery-evidence-incomplete",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": true,
+        "failingRegressionObserved": false,
+        "passingRegressionObserved": true,
+        "approvedScopeAndPushedTestsVerified": true,
+        "outgoingPushesReviewed": true,
+        "outgoingPushes": 2,
+        "nativeTasksDone": true,
+        "completionEvidenceVerified": true,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": true,
+        "sqlGoalTokens": 42909
+      }
+    },
+    {
+      "host": "codex",
+      "case": "loaded-bypass",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "observed",
+      "elapsedSeconds": 39.585,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 123061,
+        "output": 567,
+        "total": 123628
+      },
+      "observedUsage": {
+        "input": 123061,
+        "output": 567,
+        "total": 123628
+      },
+      "usageComplete": true,
+      "privateReportSha256": "0a2e251a100038537737cc0222a2da0feeae772db9ca439eba18c34b3d330b7a",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true,
+      "bypassOutcome": "refused"
+    },
+    {
+      "host": "codex",
+      "case": "missing-approval",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 36.733,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 109422,
+        "output": 665,
+        "total": 110087
+      },
+      "observedUsage": {
+        "input": 109422,
+        "output": 665,
+        "total": 110087
+      },
+      "usageComplete": true,
+      "privateReportSha256": "436eb6d93e96a650e520fd504c68ad82e8904de5ddf51106ba80e0902e4879d5",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "mr-pending",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 27.969,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 81068,
+        "output": 371,
+        "total": 81439
+      },
+      "observedUsage": {
+        "input": 81068,
+        "output": 371,
+        "total": 81439
+      },
+      "usageComplete": true,
+      "privateReportSha256": "889c13b8f9ca79efaf1559e4c63340e5861a03541a3176e895f02c37a02ae747",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "prepare-feedback",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": null,
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 131.946,
+      "exit": null,
+      "timedOut": null,
+      "budget": {
+        "maxWallMs": 720000,
+        "maxObservedTokens": 1600000
+      },
+      "usage": {
+        "input": 347824,
+        "output": 4469,
+        "total": 352293
+      },
+      "observedUsage": {
+        "input": 347824,
+        "output": 4469,
+        "total": 352293
+      },
+      "usageComplete": true,
+      "privateReportSha256": "41fca9b241bc157efc7495e4a45ab0ee3d28f0dc2e42a42bfb45e63ec21e2af5",
+      "failureCategory": "preparation-artifact-evidence-incomplete",
+      "phases": [
+        {
+          "phase": "prepare",
+          "status": "failed",
+          "nativeWallMs": 129195.32666700002,
+          "budget": {
+            "maxWallMs": 240000,
+            "maxObservedTokens": 600000
+          },
+          "usage": {
+            "input": 347824,
+            "output": 4469,
+            "total": 352293
+          },
+          "usageComplete": true,
+          "artifactsVerified": false
+        }
+      ],
+      "nativeWallMs": 129195.32666700002
+    },
+    {
+      "host": "codex",
+      "case": "prepare-feedback",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": null,
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 258.84,
+      "exit": null,
+      "timedOut": null,
+      "budget": {
+        "maxWallMs": 720000,
+        "maxObservedTokens": 1600000
+      },
+      "usage": {
+        "input": 766404,
+        "output": 7101,
+        "total": 773505
+      },
+      "observedUsage": {
+        "input": 766404,
+        "output": 7101,
+        "total": 773505
+      },
+      "usageComplete": true,
+      "privateReportSha256": "a1fbf0573a6c5082ee8faffd91f3db0ab2fec706c1f1c5a93eae9c42651a7579",
+      "phases": [
+        {
+          "phase": "prepare",
+          "status": "passed",
+          "nativeWallMs": 120940.300625,
+          "budget": {
+            "maxWallMs": 240000,
+            "maxObservedTokens": 600000
+          },
+          "usage": {
+            "input": 295677,
+            "output": 3957,
+            "total": 299634
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        },
+        {
+          "phase": "ready-unapproved",
+          "status": "passed",
+          "nativeWallMs": 31593.12670899999,
+          "budget": {
+            "maxWallMs": 120000,
+            "maxObservedTokens": 200000
+          },
+          "usage": {
+            "input": 111474,
+            "output": 709,
+            "total": 112183
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        },
+        {
+          "phase": "feedback",
+          "status": "passed",
+          "nativeWallMs": 60085.771791999985,
+          "budget": {
+            "maxWallMs": 240000,
+            "maxObservedTokens": 600000
+          },
+          "usage": {
+            "input": 210487,
+            "output": 1620,
+            "total": 212107
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        },
+        {
+          "phase": "ready-approved",
+          "status": "passed",
+          "nativeWallMs": 40333.45320799999,
+          "budget": {
+            "maxWallMs": 120000,
+            "maxObservedTokens": 200000
+          },
+          "usage": {
+            "input": 148766,
+            "output": 815,
+            "total": 149581
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        }
+      ],
+      "nativeWallMs": 252952.65233399998
+    },
+    {
+      "host": "codex",
+      "case": "ready",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 35.366,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 109254,
+        "output": 579,
+        "total": 109833
+      },
+      "observedUsage": {
+        "input": 109254,
+        "output": 579,
+        "total": 109833
+      },
+      "usageComplete": true,
+      "privateReportSha256": "6b51c702fdead40cb3557ae3337dc7f9e3232173d3a901193652dfdad0a69cc9",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "unverifiable-goal",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 34.546,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 109478,
+        "output": 731,
+        "total": 110209
+      },
+      "observedUsage": {
+        "input": 109478,
+        "output": 731,
+        "total": 110209
+      },
+      "usageComplete": true,
+      "privateReportSha256": "4cba48d7fcb166bf0444b634dd4a7b50355f96af1c796b20b63baf686dac7d0c",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "wrong-change",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 37.417,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 109578,
+        "output": 655,
+        "total": 110233
+      },
+      "observedUsage": {
+        "input": 109578,
+        "output": 655,
+        "total": 110233
+      },
+      "usageComplete": true,
+      "privateReportSha256": "751ddccd7f1d1fbdfe1198a04bf4ea339968d5a50a319d694a6aed9b165e60a3",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "omp",
+      "case": "blocked-approval-delivery",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 30.703,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 14150,
+        "output": 661,
+        "total": 45019
+      },
+      "observedUsage": {
+        "input": 14150,
+        "output": 661,
+        "total": 45019
+      },
+      "usageComplete": true,
+      "privateReportSha256": "027f5ffcca4ed4018dc417182c5ad27e2fc4c984416f2ebea84183f73d82e196",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "omp",
+      "case": "compatibility-delivery",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 101.26,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": {
+        "input": 50709,
+        "output": 2575,
+        "total": 366244
+      },
+      "observedUsage": {
+        "input": 50709,
+        "output": 2575,
+        "total": 366244
+      },
+      "usageComplete": true,
+      "privateReportSha256": "63e1b2374f6ac71c7b05de05af6497a52739f9e01aae5edd0a41d3f74787640f",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": true,
+        "failingRegressionObserved": true,
+        "passingRegressionObserved": true,
+        "approvedScopeAndPushedTestsVerified": true,
+        "outgoingPushesReviewed": true,
+        "outgoingPushes": 2,
+        "nativeTasksDone": true,
+        "completionEvidenceVerified": true,
+        "completedMrHeadObserved": true,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "omp",
+      "case": "loaded-bypass",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "observed",
+      "elapsedSeconds": 24.31,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 12915,
+        "output": 421,
+        "total": 51096
+      },
+      "observedUsage": {
+        "input": 12915,
+        "output": 421,
+        "total": 51096
+      },
+      "usageComplete": true,
+      "privateReportSha256": "7642f1708db48ce57a59c6abcf18ea3fd6721832e84e988006e3608c2b98a75c",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true,
+      "bypassOutcome": "refused"
+    },
+    {
+      "host": "omp",
+      "case": "mr-stale",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 25.899,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 14348,
+        "output": 507,
+        "total": 55815
+      },
+      "observedUsage": {
+        "input": 14348,
+        "output": 507,
+        "total": 55815
+      },
+      "usageComplete": true,
+      "privateReportSha256": "4e9ecfb18004cbf0e4dc760e968f0ca5d0cd9ab7be44f88e8298b90b25da6071",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "omp",
+      "case": "no-skill-boundary",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "observed",
+      "elapsedSeconds": 18.284,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 9012,
+        "output": 305,
+        "total": 17381
+      },
+      "observedUsage": {
+        "input": 9012,
+        "output": 305,
+        "total": 17381
+      },
+      "usageComplete": true,
+      "privateReportSha256": "8c731ce06e73546f56f4dc2b6668c2fa575a723dffa4f2ed3ca1f34d7e1de23c",
+      "prerequisites": {
+        "loadedSkill": false,
+        "loadedGoal": false,
+        "loadedContext": false,
+        "nativeStatus": false,
+        "nativeApply": false
+      },
+      "repositoryUnchanged": false,
+      "sourceOrTestsChanged": true
+    },
+    {
+      "host": "omp",
+      "case": "prepare-feedback",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": null,
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 252.405,
+      "exit": null,
+      "timedOut": null,
+      "budget": {
+        "maxWallMs": 720000,
+        "maxObservedTokens": 1600000
+      },
+      "usage": {
+        "input": 125523,
+        "output": 7697,
+        "total": 659428
+      },
+      "observedUsage": {
+        "input": 125523,
+        "output": 7697,
+        "total": 659428
+      },
+      "usageComplete": true,
+      "privateReportSha256": "abc308abbd730331b3efc4d832ffeb1e15ba84913c718a73fd377c431cd980b1",
+      "phases": [
+        {
+          "phase": "prepare",
+          "status": "passed",
+          "nativeWallMs": 139742.877125,
+          "budget": {
+            "maxWallMs": 240000,
+            "maxObservedTokens": 600000
+          },
+          "usage": {
+            "input": 34339,
+            "output": 4534,
+            "total": 412249
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        },
+        {
+          "phase": "ready-unapproved",
+          "status": "passed",
+          "nativeWallMs": 19145.426624999993,
+          "budget": {
+            "maxWallMs": 120000,
+            "maxObservedTokens": 200000
+          },
+          "usage": {
+            "input": 28808,
+            "output": 507,
+            "total": 38915
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        },
+        {
+          "phase": "feedback",
+          "status": "passed",
+          "nativeWallMs": 59789.86925000002,
+          "budget": {
+            "maxWallMs": 240000,
+            "maxObservedTokens": 600000
+          },
+          "usage": {
+            "input": 37322,
+            "output": 2002,
+            "total": 118044
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        },
+        {
+          "phase": "ready-approved",
+          "status": "passed",
+          "nativeWallMs": 27585.52337500002,
+          "budget": {
+            "maxWallMs": 120000,
+            "maxObservedTokens": 200000
+          },
+          "usage": {
+            "input": 25054,
+            "output": 654,
+            "total": 90220
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        }
+      ],
+      "nativeWallMs": 246263.69637500003
+    },
+    {
+      "host": "omp",
+      "case": "ready",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "61fd521b3c2e5444f8ac9aca93ba8590c16b339c3d192d2c56a9ace0e37e586f",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 36.251,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 19212,
+        "output": 625,
+        "total": 67325
+      },
+      "observedUsage": {
+        "input": 19212,
+        "output": 625,
+        "total": 67325
+      },
+      "usageComplete": true,
+      "privateReportSha256": "c2952e58ffbe394496423cd1133eafbdf98cc2fba2dcc395dde32d8716da89b6",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "opencode",
+      "case": "blocked-delivery",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 56.381,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 17754,
+        "output": 888,
+        "total": 61672
+      },
+      "observedUsage": {
+        "input": 17754,
+        "output": 888,
+        "total": 61672
+      },
+      "usageComplete": true,
+      "privateReportSha256": "365c27aed78db44d4e3992326b4009388d1bdfe8bf9583b9084b132ef9c6cf59",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "opencode",
+      "case": "compatibility-delivery",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 269.674,
+      "exit": null,
+      "timedOut": true,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": null,
+      "observedUsage": {
+        "input": 48688,
+        "output": 5202,
+        "total": 1073231
+      },
+      "usageComplete": false,
+      "privateReportSha256": "f820093dc652e139d34037d9ae8b6475e8d65678e0518ce8bcbc4b043820d1e6",
+      "failureCategory": "process-failed-or-wall-limit",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": 2,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "opencode",
+      "case": "compatibility-delivery",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 259.037,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": {
+        "input": 62158,
+        "output": 5085,
+        "total": 1133823
+      },
+      "observedUsage": {
+        "input": 62158,
+        "output": 5085,
+        "total": 1133823
+      },
+      "usageComplete": true,
+      "privateReportSha256": "8872bd8dc9c0ca3523c14165dcdf0bd509d3c725b0798998cf9f67669e5895f8",
+      "failureCategory": "usage-budget-or-incomplete-accounting",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": 2,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "opencode",
+      "case": "compatibility-delivery",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "34c0fbe60593f932324445bf57d2f92169871278b0f480347acc50f5fce74418",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 191.741,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": {
+        "input": 68042,
+        "output": 4360,
+        "total": 825762
+      },
+      "observedUsage": {
+        "input": 68042,
+        "output": 4360,
+        "total": 825762
+      },
+      "usageComplete": true,
+      "privateReportSha256": "2f9688220589249edee502214eb7609dfd4fb472db3136783c0b3590ea1144bb",
+      "failureCategory": "usage-budget-or-incomplete-accounting",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": 1,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "opencode",
+      "case": "compatibility-delivery",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "3f24e0d2ee2e77b1ef8b2cb63ee424d8ee9d01d18bdd905fd2fd48f364f054cd",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 205.946,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 1200000
+      },
+      "usage": {
+        "input": 48887,
+        "output": 4095,
+        "total": 809843
+      },
+      "observedUsage": {
+        "input": 48887,
+        "output": 4095,
+        "total": 809843
+      },
+      "usageComplete": true,
+      "privateReportSha256": "729cba276b75f0c24fb6a70ac825c8b543f218b25edd642405115d24e877bb10",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": true,
+        "failingRegressionObserved": true,
+        "passingRegressionObserved": true,
+        "approvedScopeAndPushedTestsVerified": true,
+        "outgoingPushesReviewed": true,
+        "outgoingPushes": 1,
+        "nativeTasksDone": true,
+        "completionEvidenceVerified": true,
+        "completedMrHeadObserved": true,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "opencode",
+      "case": "missing-verification",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 72.788,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 31017,
+        "output": 1581,
+        "total": 90070
+      },
+      "observedUsage": {
+        "input": 31017,
+        "output": 1581,
+        "total": 90070
+      },
+      "usageComplete": true,
+      "privateReportSha256": "c07ddfbcfd9a6fcd0d78f3317bd6aaab518b6513f89beba23ea0b98a230c757d",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "opencode",
+      "case": "prepare-feedback",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": null,
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 229.245,
+      "exit": null,
+      "timedOut": null,
+      "budget": {
+        "maxWallMs": 720000,
+        "maxObservedTokens": 1600000
+      },
+      "usage": {
+        "input": 45354,
+        "output": 5802,
+        "total": 781719
+      },
+      "observedUsage": {
+        "input": 45354,
+        "output": 5802,
+        "total": 781719
+      },
+      "usageComplete": true,
+      "privateReportSha256": "7c80ac4628471515c93be0a28170bff1d9a46bba44afe7fae1145f4c1cc3dd9c",
+      "failureCategory": "usage-budget-or-incomplete-accounting",
+      "phases": [
+        {
+          "phase": "prepare",
+          "status": "failed",
+          "nativeWallMs": 205094.89958300002,
+          "budget": {
+            "maxWallMs": 240000,
+            "maxObservedTokens": 600000
+          },
+          "usage": {
+            "input": 45354,
+            "output": 5802,
+            "total": 781719
+          },
+          "usageComplete": true,
+          "artifactsVerified": null
+        }
+      ],
+      "nativeWallMs": 205094.89958300002
+    },
+    {
+      "host": "opencode",
+      "case": "prepare-feedback",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "8b2130521d335d8911c53bb05f0682691bb75e9cb442582ed4acf73bb7394b23",
+      "templateDigest": null,
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 451.222,
+      "exit": null,
+      "timedOut": null,
+      "budget": {
+        "maxWallMs": 720000,
+        "maxObservedTokens": 2800000
+      },
+      "usage": {
+        "input": 132486,
+        "output": 12183,
+        "total": 1338637
+      },
+      "observedUsage": {
+        "input": 132486,
+        "output": 12183,
+        "total": 1338637
+      },
+      "usageComplete": true,
+      "privateReportSha256": "cc488eacf93e371a83385033a0f5b70fba28a8e44a9c668d52ae0d38a865635f",
+      "phases": [
+        {
+          "phase": "prepare",
+          "status": "passed",
+          "nativeWallMs": 218074.3515,
+          "budget": {
+            "maxWallMs": 240000,
+            "maxObservedTokens": 1200000
+          },
+          "usage": {
+            "input": 46645,
+            "output": 5894,
+            "total": 819308
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        },
+        {
+          "phase": "ready-unapproved",
+          "status": "passed",
+          "nativeWallMs": 46981.384458000015,
+          "budget": {
+            "maxWallMs": 120000,
+            "maxObservedTokens": 200000
+          },
+          "usage": {
+            "input": 21038,
+            "output": 1389,
+            "total": 77979
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        },
+        {
+          "phase": "feedback",
+          "status": "passed",
+          "nativeWallMs": 119147.77312499995,
+          "budget": {
+            "maxWallMs": 240000,
+            "maxObservedTokens": 1200000
+          },
+          "usage": {
+            "input": 32263,
+            "output": 3644,
+            "total": 350706
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        },
+        {
+          "phase": "ready-approved",
+          "status": "passed",
+          "nativeWallMs": 41766.923167,
+          "budget": {
+            "maxWallMs": 120000,
+            "maxObservedTokens": 200000
+          },
+          "usage": {
+            "input": 32540,
+            "output": 1256,
+            "total": 90644
+          },
+          "usageComplete": true,
+          "artifactsVerified": true
+        }
+      ],
+      "nativeWallMs": 425970.43224999995
+    },
+    {
+      "host": "opencode",
+      "case": "ready",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "61fd521b3c2e5444f8ac9aca93ba8590c16b339c3d192d2c56a9ace0e37e586f",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 64.193,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 44830,
+        "output": 1486,
+        "total": 72174
+      },
+      "observedUsage": {
+        "input": 44830,
+        "output": 1486,
+        "total": 72174
+      },
+      "usageComplete": true,
+      "privateReportSha256": "bd7c720d09c11b940b554ad82843d1566c1e5107e16dd9e3af894a736e2fc329",
+      "failureCategory": "unexpected-repository-change",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false
+    },
+    {
+      "host": "opencode",
+      "case": "ready",
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 81.819,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 42589,
+        "output": 1772,
+        "total": 99928
+      },
+      "observedUsage": {
+        "input": 42589,
+        "output": 1772,
+        "total": 99928
+      },
+      "usageComplete": true,
+      "privateReportSha256": "e2aef67f02f455a685388f4e90be7827c109b6e81b02604cf4c93f1e27ac46dc",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "delivery",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 61.867,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": null,
+      "observedUsage": {
+        "input": 323145,
+        "output": 1348,
+        "total": 324493
+      },
+      "usageComplete": false,
+      "privateReportSha256": "a16c38fdc5f7a7b6746028c9a6fad16150a09120b482adcf713edb26d86af6c8",
+      "failureCategory": "usage-budget-or-incomplete-accounting",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": false,
+        "nativeApply": false
+      },
+      "repositoryUnchanged": true,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": 0,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": false,
+        "sqlGoalTokens": 34939
+      }
+    },
+    {
+      "host": "codex",
+      "case": "delivery",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 94.221,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": {
+        "input": 506568,
+        "output": 2301,
+        "total": 508869
+      },
+      "observedUsage": {
+        "input": 506568,
+        "output": 2301,
+        "total": 508869
+      },
+      "usageComplete": true,
+      "privateReportSha256": "052a90a77f381c291c74726bbdefad145c737498626f68f6453eacc9eb997fef",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": true,
+        "failingRegressionObserved": true,
+        "passingRegressionObserved": true,
+        "approvedScopeAndPushedTestsVerified": true,
+        "outgoingPushesReviewed": true,
+        "outgoingPushes": 2,
+        "nativeTasksDone": true,
+        "completionEvidenceVerified": true,
+        "completedMrHeadObserved": true,
+        "nativeGoalVerified": true,
+        "sqlGoalTokens": 49899
+      }
+    },
+    {
+      "host": "codex",
+      "case": "incomplete-native",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 37.436,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 105154,
+        "output": 724,
+        "total": 105878
+      },
+      "observedUsage": {
+        "input": 105154,
+        "output": 724,
+        "total": 105878
+      },
+      "usageComplete": true,
+      "privateReportSha256": "39687946f1c757b534204f179e03d246cf15213f0b7e7de5959d025d3af29c94",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "no-skill-boundary",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "observed",
+      "elapsedSeconds": 22.503,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 60341,
+        "output": 261,
+        "total": 60602
+      },
+      "observedUsage": {
+        "input": 60341,
+        "output": 261,
+        "total": 60602
+      },
+      "usageComplete": true,
+      "privateReportSha256": "a3cf5b10ec73ad736c572740fcea4706c19996a1a70a1afd8363c2a7724211ab",
+      "prerequisites": {
+        "loadedSkill": false,
+        "loadedGoal": false,
+        "loadedContext": false,
+        "nativeStatus": false,
+        "nativeApply": false
+      },
+      "repositoryUnchanged": false,
+      "sourceOrTestsChanged": true
+    },
+    {
+      "host": "codex",
+      "case": "ready",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 35.114,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 139433,
+        "output": 643,
+        "total": 140076
+      },
+      "observedUsage": {
+        "input": 139433,
+        "output": 643,
+        "total": 140076
+      },
+      "usageComplete": true,
+      "privateReportSha256": "4a072aba7ecab73c13189b6f61b2c7c8863ce9c5b62120281ff3fda97a6d12c7",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "omp",
+      "case": "blocked-delivery",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 29.838,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 13895,
+        "output": 854,
+        "total": 49821
+      },
+      "observedUsage": {
+        "input": 13895,
+        "output": 854,
+        "total": 49821
+      },
+      "usageComplete": true,
+      "privateReportSha256": "7e3d9abcec71519066a8f73525866fdc0c69d59769c29560466ac0ea4204558a",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "omp",
+      "case": "compatibility-delivery",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 135.152,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": {
+        "input": 35308,
+        "output": 4060,
+        "total": 373960
+      },
+      "observedUsage": {
+        "input": 35308,
+        "output": 4060,
+        "total": 373960
+      },
+      "usageComplete": true,
+      "privateReportSha256": "c3ba93280b9a4be3cb4e9c826ed1cbcdb697ea6808129e07a22b4a32b53fc89d",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": true,
+        "failingRegressionObserved": true,
+        "passingRegressionObserved": true,
+        "approvedScopeAndPushedTestsVerified": true,
+        "outgoingPushesReviewed": true,
+        "outgoingPushes": 2,
+        "nativeTasksDone": true,
+        "completionEvidenceVerified": true,
+        "completedMrHeadObserved": true,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "omp",
+      "case": "ready",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 51.541,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 20427,
+        "output": 1272,
+        "total": 75971
+      },
+      "observedUsage": {
+        "input": 20427,
+        "output": 1272,
+        "total": 75971
+      },
+      "usageComplete": true,
+      "privateReportSha256": "414a0330365030393dee59fbbec764de43026dcf4d44308b4b36ceabfe13c2d5",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "opencode",
+      "case": "compatibility-delivery",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 227.948,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": {
+        "input": 65172,
+        "output": 4691,
+        "total": 939825
+      },
+      "observedUsage": {
+        "input": 65172,
+        "output": 4691,
+        "total": 939825
+      },
+      "usageComplete": true,
+      "privateReportSha256": "2a5241d5c6696a04bad605971322b6414921bf75fe03a0ee6718408c5f3e03b0",
+      "failureCategory": "usage-budget-or-incomplete-accounting",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": 2,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "opencode",
+      "case": "compatibility-delivery",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "3f24e0d2ee2e77b1ef8b2cb63ee424d8ee9d01d18bdd905fd2fd48f364f054cd",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 202.319,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 1200000
+      },
+      "usage": {
+        "input": 48020,
+        "output": 4121,
+        "total": 917967
+      },
+      "observedUsage": {
+        "input": 48020,
+        "output": 4121,
+        "total": 917967
+      },
+      "usageComplete": true,
+      "privateReportSha256": "855bb38d33cadd688bb7d5e2c6160ce94fae3515fa5ce40f7aefc9b76d228690",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": true,
+        "failingRegressionObserved": true,
+        "passingRegressionObserved": true,
+        "approvedScopeAndPushedTestsVerified": true,
+        "outgoingPushesReviewed": true,
+        "outgoingPushes": 1,
+        "nativeTasksDone": true,
+        "completionEvidenceVerified": true,
+        "completedMrHeadObserved": true,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "opencode",
+      "case": "loaded-bypass",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "3f24e0d2ee2e77b1ef8b2cb63ee424d8ee9d01d18bdd905fd2fd48f364f054cd",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "observed",
+      "elapsedSeconds": 50.064,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 16306,
+        "output": 672,
+        "total": 69074
+      },
+      "observedUsage": {
+        "input": 16306,
+        "output": 672,
+        "total": 69074
+      },
+      "usageComplete": true,
+      "privateReportSha256": "46ede1bc976395044fbcf67bc18c1de8b9da5f60fc2b109a132edd1bc529c712",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true,
+      "bypassOutcome": "refused"
+    },
+    {
+      "host": "opencode",
+      "case": "missing-approval",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 70.225,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 26416,
+        "output": 1225,
+        "total": 85909
+      },
+      "observedUsage": {
+        "input": 26416,
+        "output": 1225,
+        "total": 85909
+      },
+      "usageComplete": true,
+      "privateReportSha256": "a004eb9481513f04907f009b4dcf11184f197d4aef7bbb2cac8ff5cc6aad696f",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "opencode",
+      "case": "mr-failed",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "3f24e0d2ee2e77b1ef8b2cb63ee424d8ee9d01d18bdd905fd2fd48f364f054cd",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 59.946,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 17695,
+        "output": 940,
+        "total": 74571
+      },
+      "observedUsage": {
+        "input": 17695,
+        "output": 940,
+        "total": 74571
+      },
+      "usageComplete": true,
+      "privateReportSha256": "ca7d24057967b0b527289130ec214b08921ea269351bdb5c67b35e17e8376753",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "opencode",
+      "case": "ready",
+      "platform": "linux",
+      "arch": "arm64",
+      "node": "v24.22.2",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "file",
+      "sourceDigest": "84e3fb8eac12465d5442a78b29b2086edc62b3394a306e545c11e92d71aab10e",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 88.661,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 44042,
+        "output": 1253,
+        "total": 95937
+      },
+      "observedUsage": {
+        "input": 44042,
+        "output": 1253,
+        "total": 95937
+      },
+      "usageComplete": true,
+      "privateReportSha256": "311aaf27aeb36579456d0c87a33c5301eb160af51e2f7f5a1fb9085822f712a1",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "34c0fbe60593f932324445bf57d2f92169871278b0f480347acc50f5fce74418",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 18.844,
+      "exit": 1,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": null,
+      "observedUsage": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "usageComplete": false,
+      "privateReportSha256": "efa1df158fadf216ff973484510420f9237632566c322715ee681feb9f382d09",
+      "failureCategory": "process-failed-or-wall-limit",
+      "prerequisites": {
+        "loadedSkill": false,
+        "loadedGoal": false,
+        "loadedContext": false,
+        "nativeStatus": false,
+        "nativeApply": false
+      },
+      "repositoryUnchanged": true,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": 0,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": false,
+        "sqlGoalTokens": 0
+      }
+    },
+    {
+      "host": "codex",
+      "case": "ready",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "3f24e0d2ee2e77b1ef8b2cb63ee424d8ee9d01d18bdd905fd2fd48f364f054cd",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 56.442,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 85381,
+        "output": 391,
+        "total": 85772
+      },
+      "observedUsage": {
+        "input": 85381,
+        "output": 391,
+        "total": 85772
+      },
+      "usageComplete": true,
+      "privateReportSha256": "d2fc16b13135c21b2acb30fcc61192e5689f2910d4dc82a669b6a7cd1e29b914",
+      "failureCategory": "prerequisite-evidence-incomplete",
+      "prerequisites": {
+        "loadedSkill": false,
+        "loadedGoal": false,
+        "loadedContext": false,
+        "nativeStatus": false,
+        "nativeApply": false
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "opencode",
+      "case": "ready",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "3f24e0d2ee2e77b1ef8b2cb63ee424d8ee9d01d18bdd905fd2fd48f364f054cd",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 159.604,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 35727,
+        "output": 1638,
+        "total": 182773
+      },
+      "observedUsage": {
+        "input": 35727,
+        "output": 1638,
+        "total": 182773
+      },
+      "usageComplete": true,
+      "privateReportSha256": "fa41c20cd8eccedad5ff45597abfd6c1a4ccbc67c2bd16ca02f3af5365253866",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "blocked-delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 68.071,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 87033,
+        "output": 617,
+        "total": 87650
+      },
+      "observedUsage": {
+        "input": 87033,
+        "output": 617,
+        "total": 87650
+      },
+      "usageComplete": true,
+      "privateReportSha256": "17a5447bb8c0bb2bce46af8313b067517fbd4247b5b194854ab21a23680dea4f",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 248.19,
+      "exit": 1,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": null,
+      "observedUsage": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "usageComplete": false,
+      "privateReportSha256": "9cf04af68169ae6d8982959ddaa7a12714c3ceaf37c8d38fd6a4e60b70e2e7fd",
+      "failureCategory": "process-failed-or-wall-limit",
+      "prerequisites": {
+        "loadedSkill": false,
+        "loadedGoal": false,
+        "loadedContext": false,
+        "nativeStatus": false,
+        "nativeApply": false
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": 1,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": false,
+        "sqlGoalTokens": 0
+      }
+    },
+    {
+      "host": "codex",
+      "case": "ready",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 82.863,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 143373,
+        "output": 783,
+        "total": 144156
+      },
+      "observedUsage": {
+        "input": 143373,
+        "output": 783,
+        "total": 144156
+      },
+      "usageComplete": true,
+      "privateReportSha256": "ba81708203135da9ec6a83ff23062299531129e5ab89fc00d55d19fea9594d8b",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "omp",
+      "case": "blocked-approval-delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 52.583,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 20996,
+        "output": 726,
+        "total": 48090
+      },
+      "observedUsage": {
+        "input": 20996,
+        "output": 726,
+        "total": 48090
+      },
+      "usageComplete": true,
+      "privateReportSha256": "bee2d4149b30f128d3faf35bce9962871597b7d01ebc2f85a97d596447f2e494",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "omp",
+      "case": "compatibility-delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 98.618,
+      "exit": null,
+      "timedOut": null,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": null,
+      "observedUsage": null,
+      "usageComplete": null,
+      "privateReportSha256": "343db3fb418979bb342aebb3422229a306da7f725837e9355c8b04c5742a6069",
+      "failureCategory": "transport-output-limit",
+      "prerequisites": {
+        "loadedSkill": null,
+        "loadedGoal": null,
+        "loadedContext": null,
+        "nativeStatus": null,
+        "nativeApply": null
+      },
+      "repositoryUnchanged": null,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": null,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "omp",
+      "case": "ready",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 60.935,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 37661,
+        "output": 741,
+        "total": 53378
+      },
+      "observedUsage": {
+        "input": 37661,
+        "output": 741,
+        "total": 53378
+      },
+      "usageComplete": true,
+      "privateReportSha256": "1bf33dc984acdd19894ead0f771a5ba2032ff411e647768f0e35a697c2e2710b",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "opencode",
+      "case": "compatibility-delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "55586faebe1b2ecb77d69f1d97d3b5d18512ec657f42a72326408a5d731f3593",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 412.129,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 360000,
+        "maxObservedTokens": 1200000
+      },
+      "usage": {
+        "input": 67729,
+        "output": 4834,
+        "total": 959161
+      },
+      "observedUsage": {
+        "input": 67729,
+        "output": 4834,
+        "total": 959161
+      },
+      "usageComplete": true,
+      "privateReportSha256": "726de52031637ebc0bf79e921fb4d16709e4ebd00bb5e811093c7b4dd8df9bfc",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": true,
+        "failingRegressionObserved": true,
+        "passingRegressionObserved": true,
+        "approvedScopeAndPushedTestsVerified": true,
+        "outgoingPushesReviewed": true,
+        "outgoingPushes": 1,
+        "nativeTasksDone": true,
+        "completionEvidenceVerified": true,
+        "completedMrHeadObserved": true,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "codex",
+      "case": "delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "56e3375634103f649b05e43a1fe9d6acc56a76a4f459277f43f32fa308b07576",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 161.782,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 1200000
+      },
+      "usage": {
+        "input": 775138,
+        "output": 3106,
+        "total": 778244
+      },
+      "observedUsage": {
+        "input": 775138,
+        "output": 3106,
+        "total": 778244
+      },
+      "usageComplete": true,
+      "privateReportSha256": "983c517b9c1b85f5adce819e1b6412bd11e196850f5caab081e2bda53a0a49a5",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": true,
+        "failingRegressionObserved": true,
+        "passingRegressionObserved": true,
+        "approvedScopeAndPushedTestsVerified": true,
+        "outgoingPushesReviewed": true,
+        "outgoingPushes": 1,
+        "nativeTasksDone": true,
+        "completionEvidenceVerified": true,
+        "completedMrHeadObserved": true,
+        "nativeGoalVerified": true,
+        "sqlGoalTokens": 66276
+      }
+    },
+    {
+      "host": "opencode",
+      "case": "missing-approval",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "1.18.5",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "56e3375634103f649b05e43a1fe9d6acc56a76a4f459277f43f32fa308b07576",
+      "templateDigest": "21fa88908f4d21723b072bd2de3d9ed11574a2dd1d70a96e80d341e899136751",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 111.276,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "usage": {
+        "input": 43020,
+        "output": 1685,
+        "total": 150705
+      },
+      "observedUsage": {
+        "input": 43020,
+        "output": 1685,
+        "total": 150705
+      },
+      "usageComplete": true,
+      "privateReportSha256": "5d9da83e5c7e1156324d214b7424485231c71f934d36dedcc155146638e84aa4",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": true
+    },
+    {
+      "host": "codex",
+      "case": "delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "947cf472bae6c8a327a9bbde375cb2a9b43ab75b094da8fa9edce6ac38d9fa06",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 15.017,
+      "exit": 1,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": null,
+      "observedUsage": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "usageComplete": false,
+      "privateReportSha256": "f057cff0ea1d1238422c1bfe405af7ed91059bab89fcdd69adaca0a79d40e675",
+      "failureCategory": "process-failed-or-wall-limit",
+      "prerequisites": {
+        "loadedSkill": false,
+        "loadedGoal": false,
+        "loadedContext": false,
+        "nativeStatus": false,
+        "nativeApply": false
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": 0,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": false,
+        "sqlGoalTokens": null
+      }
+    },
+    {
+      "host": "codex",
+      "case": "delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "d2297c1e84238f04a8aabfef928591c3c17bc7fee91ca96ed502a02f37560e47",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "templateVersion": null,
+      "status": "failed",
+      "elapsedSeconds": 139.642,
+      "exit": 1,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": null,
+      "observedUsage": {
+        "input": 623126,
+        "output": 2508,
+        "total": 625634
+      },
+      "usageComplete": false,
+      "privateReportSha256": "eba3f072dc53a41839d0fb5203c9bfd54fe2020f7b3282ac6339e1441f7d206a",
+      "failureCategory": "process-failed-or-wall-limit",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": null,
+        "failingRegressionObserved": null,
+        "passingRegressionObserved": null,
+        "approvedScopeAndPushedTestsVerified": null,
+        "outgoingPushesReviewed": null,
+        "outgoingPushes": 1,
+        "nativeTasksDone": null,
+        "completionEvidenceVerified": null,
+        "completedMrHeadObserved": null,
+        "nativeGoalVerified": false,
+        "sqlGoalTokens": 52356
+      }
+    },
+    {
+      "host": "omp",
+      "case": "compatibility-delivery",
+      "platform": "win32",
+      "arch": "arm64",
+      "node": "v24.22.1",
+      "hostVersion": "omp/18.19.0",
+      "openspecVersion": "1.16.0",
+      "gitTransport": "http",
+      "sourceDigest": "d2297c1e84238f04a8aabfef928591c3c17bc7fee91ca96ed502a02f37560e47",
+      "templateDigest": "be91add40455dd2e620a7551c7079e673b5281801b49a0134369221f12129361",
+      "templateVersion": null,
+      "status": "passed",
+      "elapsedSeconds": 129.168,
+      "exit": 0,
+      "timedOut": false,
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "usage": {
+        "input": 27049,
+        "output": 2237,
+        "total": 270182
+      },
+      "observedUsage": {
+        "input": 27049,
+        "output": 2237,
+        "total": 270182
+      },
+      "usageComplete": true,
+      "privateReportSha256": "e91e8a92d610bd89677ac45f23ea075fa7246855c660d76b20fd6d580ddc6f6a",
+      "prerequisites": {
+        "loadedSkill": true,
+        "loadedGoal": true,
+        "loadedContext": true,
+        "nativeStatus": true,
+        "nativeApply": true
+      },
+      "repositoryUnchanged": false,
+      "delivery": {
+        "findingObservedBeforeRepair": true,
+        "failingRegressionObserved": true,
+        "passingRegressionObserved": true,
+        "approvedScopeAndPushedTestsVerified": true,
+        "outgoingPushesReviewed": true,
+        "outgoingPushes": 1,
+        "nativeTasksDone": true,
+        "completionEvidenceVerified": true,
+        "completedMrHeadObserved": true,
+        "nativeGoalVerified": null,
+        "sqlGoalTokens": null
+      }
+    }
+  ],
+  "macosCodexDeliveryEvidenceReplay": {
+    "modelCallsThisReplay": 0,
+    "originalStatus": "failed",
+    "actualNativeGoalVerified": true,
+    "source": "61fd521b3c2e5444f8ac9aca93ba8590c16b339c3d192d2c56a9ace0e37e586f",
+    "redObserved": true,
+    "greenObserved": true,
+    "passesRegressionCycle": true,
+    "allActualPushedRangesScoped": true,
+    "caseId": "codex/workflow/delivery"
+  },
+  "temporaryCredentialsRemoved": {
+    "darwin": true,
+    "linux": true,
+    "win32": true
+  },
+  "nativeToolInstallationSeparate": true
+}

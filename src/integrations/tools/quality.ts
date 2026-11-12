@@ -8,6 +8,7 @@ import type {IntegrationPreparation} from '../registry.js';
 import {prepareGitlab} from '../gitlab/ci.js';
 import {checkCommand,selectedChecks} from './check-catalog.js';
 import {executeCheck} from './project-check.mjs';
+import {runtimeEnvironment} from '../../runtime-inputs.js';
 
 const exec=promisify(execFile);
 async function hasNativeHook(root:string,name:string):Promise<boolean>{
@@ -58,9 +59,17 @@ export async function prepareQuality(profile:ProjectProfile,options:SetupOptions
  return result;
 }
 
-export async function runProjectChecks(profile:ProjectProfile,selectors:CheckSelector[],signal?:AbortSignal):Promise<import('../../installer/apply.js').CheckResult[]>{
+export async function runProjectChecks(profile:ProjectProfile,selectors:CheckSelector[],signal?:AbortSignal,options?:SetupOptions):Promise<import('../../installer/apply.js').CheckResult[]>{
  const results:import('../../installer/apply.js').CheckResult[]=[];
  for(const {name,check} of selectedChecks(profile,selectors)){
+  if(name==='environment'&&options?.customer?.commands?.environment){
+   let env:NodeJS.ProcessEnv;
+   try{env=await runtimeEnvironment(profile.root,options,'customer:environment');}
+   catch{results.push({name,status:'pending',message:'Correct the private runtime input file before running the environment check'});continue;}
+   const {reason,...result}=await executeCheck(options.customer.commands.environment,profile.root,{signal,env});
+   results.push({name,...result,message:reason,fingerprint:profile.fingerprint,commit:profile.git.head??'unavailable',environment:{node:process.version,platform:process.platform}});
+   continue;
+  }
   if(!check){results.push({name,status:'pending',message:'No existing command; not evaluated'});continue;}
   const {reason,...result}=await executeCheck(checkCommand(check),profile.root,{signal});
   results.push({name,...result,message:reason,fingerprint:profile.fingerprint,commit:profile.git.head??'unavailable',environment:{node:process.version,platform:process.platform}});

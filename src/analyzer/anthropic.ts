@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {ResearchFailure,type AnalysisBackend} from './backend.js';
-import {providerBackend,readTools,totalProviderTokens,type ProviderOptions} from './provider-loop.js';
+import {estimateProviderInput,ProviderRequestFailure,providerBackend,readTools,totalProviderTokens,type ProviderOptions} from './provider-loop.js';
 import {validateProviderBaseURL} from './provider-url.js';
 import {researchPrompt} from './prompts.js';
 
@@ -16,11 +16,29 @@ export function nativeBackend(options:ProviderOptions={apiKey:process.env.ANTHRO
    maxRetries:0,timeout:60000,logLevel:'off',
   });
   const messages:Anthropic.MessageParam[]=[{role:'user',content:input}];
-  const body={model,system:researchPrompt,messages,tools:readTools};
+  let countAvailable=true,repair=false;
+  const body=()=>({model,system:researchPrompt,messages,...(repair?{}:{tools:readTools})});
   return {
-   countsInputRemotely:true,
-   countInput:async()=>(await client.messages.countTokens(body,{signal:options.signal}))?.input_tokens,
-   generate:maxTokens=>client.messages.create({...body,max_tokens:maxTokens},{signal:options.signal}),
+   get countsInputRemotely(){return countAvailable;},
+   countInput:async maxTokens=>{
+    if(!countAvailable)return estimateProviderInput({...body(),max_tokens:maxTokens});
+    try{return (await client.messages.countTokens(body(),{signal:options.signal}))?.input_tokens;}
+    catch(error){
+     const status=error instanceof Anthropic.APIError?error.status:undefined;
+     if(status!==404&&status!==405)throw new ProviderRequestFailure('count_tokens',status);
+     countAvailable=false;
+     options.onDiagnostic?.('Provider count_tokens unavailable (HTTP '+status+'); using a conservative UTF-8 byte estimate for this session.');
+     return estimateProviderInput({...body(),max_tokens:maxTokens});
+    }
+   },
+   generate:async maxTokens=>{
+    try{return await client.messages.create({...body(),max_tokens:maxTokens},{signal:options.signal});}
+    catch(error){throw new ProviderRequestFailure('messages',error instanceof Anthropic.APIError?error.status:undefined);}
+   },
+   repair:(candidate,reason)=>{
+    repair=true;
+    messages.push({role:'assistant',content:[{type:'text',text:candidate}]},{role:'user',content:reason});
+   },
    usage:response=>{
     const usage=response?.usage;
     return totalProviderTokens(usage?.input_tokens,usage?.output_tokens,usage?.cache_creation_input_tokens??0,usage?.cache_read_input_tokens??0);
@@ -38,7 +56,7 @@ export function nativeBackend(options:ProviderOptions={apiKey:process.env.ANTHRO
      kind:'tools',calls:toolBlocks.map(({id,name,input})=>({id,name,input})),
      replay:results=>{
       messages.push({role:'assistant',content});
-      messages.push({role:'user',content:results.map(({id,content})=>({type:'tool_result',tool_use_id:id,content}))});
+      messages.push({role:'user',content:results.map(({id,content,isError})=>({type:'tool_result',tool_use_id:id,content,...(isError?{is_error:true}:{})}))});
      },
     };
    },

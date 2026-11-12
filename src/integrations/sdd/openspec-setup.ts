@@ -10,6 +10,8 @@ import {acquireLock} from '../../installer/lock.js';
 import {atomicProjectWrite} from '../../installer/manifest.js';
 import {assertNoUnknownWriters} from '../../installer/operations.js';
 import {targetPath} from '../../installer/ownership.js';
+import {assertSupportedFileModes} from '../../installer/filesystem-modes.js';
+import {essentialEnvironment,selectedNpmRegistry} from '../../runtime-inputs.js';
 import {quoteShell} from '../../shell-command.js';
 import type {Agent,SetupOptions} from '../../types.js';
 import {agents} from '../agents/index.js';
@@ -23,7 +25,7 @@ const windows=process.platform==='win32';
 const nodeName=windows?'node.exe':'node';
 const packageDirectory=(name:string)=> (windows?'node_modules/':'lib/node_modules/')+name;
 type Program={file:string;args?:string[]};
-const npmFlags=['--ignore-scripts','--no-audit','--no-fund','--prefer-offline','--registry','https://registry.npmjs.org/'];
+const npmFlags=['--ignore-scripts','--no-audit','--no-fund','--prefer-offline'];
 const hostScopes=(agent:Agent)=>[agents[agent].skillDirectory,agents[agent].skillDirectory.replace(/\/skills$/,'/commands')];
 const within=(root:string,path:string)=>{const rel=relative(root,path);return rel===''||rel!=='..'&&!rel.startsWith('..'+sep)&&!isAbsolute(rel);};
 const available=(path:string,mode:number)=>access(path,mode).then(()=>true,()=>false);
@@ -83,7 +85,8 @@ async function findProgram(name:'openspec'|'npm',root:string,pathDirs:string[]):
 }
 
 function commandEnvironment(path:string[],extraEnv?:NodeJS.ProcessEnv):NodeJS.ProcessEnv{
- return {...process.env,PATH:path.join(delimiter),DO_NOT_TRACK:'1',OPENSPEC_TELEMETRY:'0',...extraEnv};
+ const prefix=Object.fromEntries(Object.entries(process.env).filter(([name])=>/^npm_config_prefix$/i.test(name)));
+ return {...essentialEnvironment(),...prefix,PATH:path.join(delimiter),DO_NOT_TRACK:'1',OPENSPEC_TELEMETRY:'0',OPENSPEC_NO_UPDATE_CHECK:'1',...extraEnv};
 }
 
 async function command(program:Program,args:string[],cwd:string,path:string[],signal?:AbortSignal){
@@ -92,9 +95,10 @@ async function command(program:Program,args:string[],cwd:string,path:string[],si
 
 async function writingCommand(program:Program,args:string[],cwd:string,path:string[],signal?:AbortSignal,extraEnv?:NodeJS.ProcessEnv,timeout=20_000){
  const argv=[...(program.args??[]),...args];
- const env=commandEnvironment(path,extraEnv);
+ const env={...essentialEnvironment(),PATH:path.join(delimiter),DO_NOT_TRACK:'1',OPENSPEC_TELEMETRY:'0',OPENSPEC_NO_UPDATE_CHECK:'1',...extraEnv};
  if(!windows){
-  await exec(program.file,argv,{cwd,signal,timeout,maxBuffer:256_000,env});
+  try{await exec(program.file,argv,{cwd,signal,timeout,maxBuffer:256_000,env});}
+  catch{throw Error('OpenSpec command failed; inspect its installation or retry the approved preparation.');}
   return;
  }
  signal?.throwIfAborted();
@@ -195,7 +199,8 @@ export async function inspectOpenSpec(root:string,options:Pick<SetupOptions,'age
    ?['openspec',...openspecInitArgs(options.agents),quoteShell(root)].join(' ')
    :openspecPreparationCommand(root,options.agents)]:[])
  ];
- return {cli,cliVersion,npm,prefix,path,recipe,needsProject,needsRoot,needsEntries,requirements,canPrepare,steps,entries:profile.nativeEntries};
+ const registry=!cli||needsProject?await selectedNpmRegistry(root):undefined;
+ return {cli,cliVersion,npm,prefix,path,recipe,...(registry?{registry}:{}),needsProject,needsRoot,needsEntries,requirements,canPrepare,steps,entries:profile.nativeEntries};
 }
 type OpenSpecSetup=Awaited<ReturnType<typeof inspectOpenSpec>>;
 
@@ -206,16 +211,23 @@ export function reportOpenSpecPending(setup:OpenSpecSetup,resumeCommand:string,w
  write('补齐 OpenSpec 后继续原设置：\n'+(nextCommand??resumeCommand)+'\n');
 }
 
-async function installOpenSpec(setup:OpenSpecSetup,stage:string,signal?:AbortSignal){
+async function assertRegistry(root:string,approved:OpenSpecSetup){
+ if(await selectedNpmRegistry(root)!==approved.registry)throw Error('Npm registry selection changed after review; review OpenSpec preparation again.');
+}
+
+async function installOpenSpec(root:string,setup:OpenSpecSetup,stage:string,signal?:AbortSignal){
  const {npm,prefix,recipe}=setup;
  if(!npm||!prefix||!recipe.packageIntegrity)throw Error('A writable npm bin directory on PATH is required');
  const name=openspecPackage+'@'+recipe.version;
  const archive='fission-ai-openspec-'+recipe.version+'.tgz';
- await writingCommand(npm,['pack','--ignore-scripts','--prefer-offline','--registry','https://registry.npmjs.org/','--pack-destination',stage,name],stage,setup.path,signal,undefined,120_000);
+ const registryFlags=['--registry',setup.registry??'https://registry.npmjs.org/','--userconfig',join(stage,'.npmrc.user'),'--globalconfig',join(stage,'.npmrc.global'),'--cache',join(stage,'.npm-cache')];
+ await assertRegistry(root,setup);
+ await writingCommand(npm,['pack','--ignore-scripts','--prefer-offline',...registryFlags,'--pack-destination',stage,name],stage,setup.path,signal,undefined,120_000);
  const tarball=join(stage,archive);
  const integrity='sha512-'+createHash('sha512').update(await readFile(tarball)).digest('base64');
  if(integrity!==recipe.packageIntegrity)throw Error('OpenSpec package integrity mismatch');
- await writingCommand(npm,['install','--global','--prefix',prefix,...npmFlags,tarball],stage,setup.path,signal,undefined,120_000);
+ await assertRegistry(root,setup);
+ await writingCommand(npm,['install','--global','--prefix',prefix,...npmFlags,...registryFlags,tarball],stage,setup.path,signal,undefined,120_000);
 }
 
 async function addNativeFiles(root:string,staged:string,setup:OpenSpecSetup,signal?:AbortSignal){
@@ -251,22 +263,27 @@ export async function prepareOpenSpec(root:string,options:Pick<SetupOptions,'age
   await assertNoUnknownWriters(root,lock.stateRoot);
   let setup=await inspectOpenSpec(root,options,signal);
   if(!setup.requirements.length)return setup;
-  const covered=(current:OpenSpecSetup)=>(current.cli||current.prefix===approved.prefix)
+  await assertRegistry(root,approved);
+  const covered=(current:OpenSpecSetup)=>current.registry===approved.registry&&(current.cli||current.prefix===approved.prefix)
     && (!current.needsRoot||approved.needsRoot)&&current.needsEntries.every(agent=>approved.needsEntries.includes(agent));
   if(!setup.canPrepare||!covered(setup))return setup;
+  await assertSupportedFileModes(root,[{target:'openspec/config.yaml',mode:0o644},...setup.needsEntries.flatMap(agent=>hostScopes(agent).map(scope=>({target:scope+'/probe',mode:0o644})))]);
+  if(!setup.cli&&setup.prefix)await assertSupportedFileModes(setup.prefix,[{target:packageDirectory(openspecPackage)+'/package.json',mode:0o644},{target:windows?'openspec.cmd':'bin/openspec',mode:0o755}]);
   stage=await mkdtemp(join(lock.stateRoot,'openspec-'));
   if(!setup.cli){
    const installLock=await acquireLock(root,{stateRoot:lock.stateRoot,recover,resource:'openspec:'+setup.prefix});
    try{
     setup=await inspectOpenSpec(root,options,signal);
-    if(!setup.cli&&setup.prefix===approved.prefix&&setup.canPrepare){
+    await assertRegistry(root,approved);
+    if(!setup.cli&&setup.prefix===approved.prefix&&setup.canPrepare&&covered(setup)){
      write('正在安装 OpenSpec CLI '+setup.recipe.version+' 到 '+setup.prefix+'\n');
-     await installOpenSpec(setup,stage,signal);
+     await installOpenSpec(root,setup,stage,signal);
     }
    }finally{await installLock.release();}
    setup=await inspectOpenSpec(root,options,signal);
   }
   if(setup.cli&&setup.cliVersion===setup.recipe.version&&setup.canPrepare&&setup.needsProject&&covered(setup)){
+   await assertRegistry(root,approved);
    const staged=join(stage,'project');
    await mkdir(staged);
    write('正在准备 OpenSpec 项目入口\n');

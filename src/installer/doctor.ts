@@ -18,6 +18,9 @@ import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js
 import {verifyToolInitializationReceipt} from '../integrations/tools/native-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {probeClaudeProjectMcp} from '../integrations/agents/claude-health.js';
+import {runtimeSetupSummary} from '../runtime-inputs.js';
+import {probeRigupProjectMcp} from '../integrations/agents/rigup-health.js';
+import {RIGUP_VERSION} from '../version.js';
 export interface DoctorOptions {checkHost?:'claude';runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
 export interface Diagnostic {category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
 
@@ -104,15 +107,18 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
      if(connected.length===ids.length){
       state='passed';
       reason='A fresh Claude Code probe connected to the managed project MCP servers: '+connected.join(', ');
+      if(ids.includes('rigup')){
+       const expected=manifest.versions?.rigup??RIGUP_VERSION,observed=await probeRigupProjectMcp(root,options.signal);
+       const matches=observed===expected;
+       add('host','rigup:version',matches?'passed':'failed',observed?'Rigup MCP serverInfo.version '+observed+'; project requires '+expected:'Rigup MCP version could not be verified through the managed project launcher. Check the first Rigup installation on PATH and regenerate setup with the matching version.');
+       if(!matches){state='reload-required';reason='Rigup responding version is stale or unavailable; review PATH and reload the project MCP server.';}
+      }
      }else reason='Claude Code did not confirm project-scoped connections for: '+ids.filter(id=>!connected.includes(id)).join(', ')+'. Check approvals and connection status in /mcp.';
     }else reason='Review the managed MCP configuration before probing Claude Code';
    }else if(servers.length)reason+=' or run rigup doctor --check-host claude for a fresh MCP probe';
   }
   add('host',agent+':load',state,reason);
  }
- const mcpRefs=(selected.mcp??[]).flatMap(m=>[...(m.envRefs??[]),...(m.command?.envRefs??[]),...(m.bearerTokenEnv?[m.bearerTokenEnv]:[])]);
- const envRefs=new Set([...(selected.customer?.envRefs??[]),...mcpRefs,...(selected.quality?.gitlab?.openwiki?.envRefs??[])]);
- for(const ref of envRefs)add('environment','env:'+ref,process.env[ref]?'available':'pending',process.env[ref]?'Environment reference is available; value omitted':'Missing credential/environment reference; value never stored');
  const recipes=await loadUpstreamLock();for(const tool of selected.tools??[]){
   const recipe=recipes.find(r=>r.integrationId===tool.id)!;
   const verified=await verifyToolInstallReceipt(root,tool.id,recipe,manifest.installedTools?.[tool.id]);
@@ -131,7 +137,7 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   try{
    await assertNoUnknownWriters(root,lock.stateRoot);
    profile=await scanRepository(root,selected);
-   report.checks=await runProjectChecks(profile,options.runChecks,options.signal);
+   report.checks=await runProjectChecks(profile,options.runChecks,options.signal,selected);
   }finally{await lock.release();}
  }else{
   try{profile=await scanRepository(root,selected);}
@@ -141,6 +147,12 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   report.harness=planHarness(profile,selected,[]).summary;
   report.warnings.push(...profile.unknowns);
  }
+ report.runtimeSetup=await runtimeSetupSummary(root,selected,{configured:['*'],verified:report.checks.filter(check=>check.status==='passed').map(check=>'customer:'+check.name)});
+ for(const input of report.runtimeSetup.inputs){
+  if(input.state==='optional')continue;
+  add('environment','env:'+input.name,input.state==='present'?'available':'pending',input.reason+'; destination: '+input.destination+(input.source?'; source: '+input.source:'')+(input.state==='unverified'?'; verify in its host or CI runner':''));
+ }
+ if(report.runtimeSetup.template.state==='pending')add('environment','runtime-template','pending',report.runtimeSetup.template.reason??'Private runtime inputs need attention');
  for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??'Actual selected command result; separate from installation status');
  const failed=diagnostics.some(d=>d.state==='failed');const pending=diagnostics.some(d=>d.state==='pending'||d.state==='reload-required');report.status=diagnostics.some(d=>d.category==='config'&&d.state==='failed')?'failed':interrupted?'pending':'complete';report.exitCode=options.signal?.aborted?130:failed?1:pending?3:0;return report;
 }

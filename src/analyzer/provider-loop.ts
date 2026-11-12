@@ -1,6 +1,6 @@
-import {ResearchFailure,selectResearchOutput,validateResearch,validateResearchRequest,type AnalysisBackend,type RepositoryReader,type ResearchRequest} from './backend.js';
+import {ResearchFailure,ResearchValidationError,selectResearchOutput,validateResearch,validateResearchRequest,type AnalysisBackend,type RepositoryReader,type ResearchRequest} from './backend.js';
 import {stageSourceGuidance,STAGE_EVIDENCE_POLICY} from './stage-context.js';
-import type {EvidenceRead} from './evidence.js';
+import {EvidenceRangeError,type EvidenceRead} from './evidence.js';
 
 export interface ProviderOptions {
  apiKey?:string;
@@ -8,7 +8,25 @@ export interface ProviderOptions {
  baseURL?:string;
  fetch?:typeof fetch;
  signal?:AbortSignal;
+ maxOutputTokens?:number;
  onUsage?:(usage:{calls:number;tokens:number|'unknown'})=>Promise<void>;
+ onDiagnostic?:(message:string)=>void;
+}
+
+export const DEFAULT_MAX_OUTPUT_TOKENS=16384;
+export const isValidMaxOutputTokens=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>0;
+// Compatible APIs do not share a tokenizer; reserve one token per UTF-8 byte plus protocol framing.
+export const estimateProviderInput=(body:unknown)=>Buffer.byteLength(JSON.stringify(body),'utf8')+128;
+
+type ProviderOperation='count_tokens'|'messages'|'chat/completions';
+export class ProviderRequestFailure extends ResearchFailure {
+ constructor(operation:ProviderOperation,status?:number){
+  const guidance=status===401?'check the API key':status===403?'check API key and model permission':
+   status===404||status===405?'check the configured base URL and endpoint support':
+   status===429?'provider rate limit reached; retry later':status!==undefined&&status>=500?'provider server failure; retry later':
+   status===undefined?'check network connectivity and timeout':'check provider configuration and request limits';
+  super('provider '+operation+' request failed'+(status===undefined?' (network or timeout)':' (HTTP '+status+')')+'; '+guidance+'; research incomplete');
+ }
 }
 
 export const readTools=[
@@ -18,14 +36,15 @@ export const readTools=[
 ];
 
 interface ReadToolCall {id:string;name:string;input:unknown}
-interface ReadToolResult {id:string;content:string}
+interface ReadToolResult {id:string;content:string;isError?:true}
 type ProviderOutcome={kind:'final';text:string;model:string}|{kind:'tools';calls:ReadToolCall[];replay(results:ReadToolResult[]):void};
 interface ProviderSession<Response> {
  countsInputRemotely:boolean;
- countInput():Promise<unknown>|number;
+ countInput(maxTokens:number):Promise<unknown>|number;
  generate(maxTokens:number):Promise<Response>;
  usage(response:Response):number|'unknown';
  outcome(response:Response):ProviderOutcome;
+ repair(candidate:string,reason:string):void;
 }
 
 export function providerObject(value:unknown):Record<string,unknown>|undefined {
@@ -60,15 +79,21 @@ function prepareReadTool(call:ReadToolCall,reader:RepositoryReader):()=>Promise<
 async function acceptedResult(request:ResearchRequest,reader:RepositoryReader,text:string,model:string,exportedSourceEvidence:EvidenceRead[]){
  if(typeof model!=='string'||!model.trim())throw new ResearchFailure('provider did not identify the research model');
  let data:unknown;
- try{data=selectResearchOutput(request,JSON.parse(text));}catch{throw new ResearchFailure('provider returned invalid research JSON');}
- try{await validateResearch(data,reader,undefined,exportedSourceEvidence);}catch{throw new ResearchFailure('provider returned invalid research evidence or structure');}
+ try{data=selectResearchOutput(request,JSON.parse(text));}catch{throw new ResearchValidationError('provider returned invalid research JSON');}
+ try{await validateResearch(data,reader,undefined,exportedSourceEvidence);}catch(error){
+  if(error instanceof ResearchValidationError)throw error;
+  throw new ResearchValidationError('provider returned invalid research evidence or structure');
+ }
  const unknowns=providerObject(data)?.unknowns;
- if(!Array.isArray(unknowns)||unknowns.some(x=>typeof x!=='string'))throw new ResearchFailure('unknowns: string array required');
+ if(!Array.isArray(unknowns)||unknowns.some(x=>typeof x!=='string'))throw new ResearchValidationError('unknowns: string array required');
  return {data,model,unknowns};
 }
 
 async function dispatch<T>(send:()=>Promise<T>):Promise<T> {
- try{return await send();}catch{throw new ResearchFailure('provider request failed; research incomplete');}
+ try{return await send();}catch(error){
+  if(error instanceof ProviderRequestFailure)throw error;
+  throw new ResearchFailure('provider request failed; research incomplete');
+ }
 }
 
 export function providerBackend<Response>(options:ProviderOptions,createSession:(credentials:{apiKey:string;model:string},input:string)=>ProviderSession<Response>):AnalysisBackend {
@@ -76,6 +101,8 @@ export function providerBackend<Response>(options:ProviderOptions,createSession:
   validateResearchRequest(request);
   const {apiKey,model,signal}=options;
   if(!apiKey?.trim()||!model?.trim())throw new Error('model configuration: API key and model required');
+  const outputCap=options.maxOutputTokens??DEFAULT_MAX_OUTPUT_TOKENS;
+  if(!isValidMaxOutputTokens(outputCap))throw new Error('model configuration: maximum output tokens must be a positive integer');
   if(request.budget.maxCalls<1||request.budget.maxTokens<1)throw new ResearchFailure('research budget exhausted');
   const spent=request.spent??{calls:0,tokens:0};
   if(!isNonNegativeInteger(spent.calls)||!isNonNegativeInteger(spent.tokens)||spent.calls>=request.budget.maxCalls||spent.tokens>=request.budget.maxTokens)throw new ResearchFailure('restored research budget exhausted or unknown');
@@ -84,10 +111,10 @@ export function providerBackend<Response>(options:ProviderOptions,createSession:
   const sourceEvidence=await stageSourceGuidance(reader,request.sourceGuidance);
   const exportedSourceEvidence=[...sourceEvidence];
   const session=createSession({apiKey,model},JSON.stringify({...request,...(sourceEvidence.length?{sourceEvidence}:{})}));
-  const callsPerTurn=session.countsInputRemotely?2:1;
   let calls=0;
   let tokens=0;
   let usageKnown=true;
+  let repairReason:ResearchValidationError|undefined;
   const usage=()=>({calls,tokens:usageKnown?tokens:'unknown' as const});
   const persistUsage=async()=>{
    try{await options.onUsage?.(usage());}catch{throw new ResearchFailure('could not persist research usage');}
@@ -99,22 +126,22 @@ export function providerBackend<Response>(options:ProviderOptions,createSession:
   try{
    for(;;){
     checkCancellation();
-    if(callsPerTurn>maxCalls-calls)throw new ResearchFailure('research request budget exhausted');
-    if(tokens>=maxTokens)throw new ResearchFailure('research token budget exhausted; incomplete research');
+    if((session.countsInputRemotely?2:1)>maxCalls-calls)throw repairReason??new ResearchFailure('research request budget exhausted');
+    if(tokens>=maxTokens)throw repairReason??new ResearchFailure('research token budget exhausted; incomplete research');
     if(session.countsInputRemotely){
      calls++;
      await persistUsage();
      checkCancellation();
     }
-    const inputTokens=await dispatch(async()=>session.countInput());
+    const inputTokens=await dispatch(async()=>session.countInput(outputCap));
     const remaining=maxTokens-tokens;
-    if(!isNonNegativeInteger(inputTokens)||inputTokens>=remaining)throw new ResearchFailure('research input token budget exhausted');
+    if(!isNonNegativeInteger(inputTokens)||inputTokens>=remaining)throw repairReason??new ResearchFailure('research input token budget exhausted');
     checkCancellation();
     calls++;
     usageKnown=false;
     await persistUsage();
     checkCancellation();
-    const response=await dispatch(()=>session.generate(Math.min(4096,remaining-inputTokens)));
+    const response=await dispatch(()=>session.generate(Math.min(outputCap,remaining-inputTokens)));
     const used=session.usage(response);
     if(used==='unknown'||!Number.isSafeInteger(spent.tokens+tokens+used))throw new ResearchFailure('provider token usage unknown; research incomplete');
     tokens+=used;
@@ -123,7 +150,17 @@ export function providerBackend<Response>(options:ProviderOptions,createSession:
     if(tokens>maxTokens)throw new ResearchFailure('research token budget exhausted; incomplete research');
     checkCancellation();
     const outcome=session.outcome(response);
-    if(outcome.kind==='final')return {status:'complete',value:{...await acceptedResult(request,reader,outcome.text,outcome.model,exportedSourceEvidence),usage:{calls,tokens}}};
+    if(outcome.kind==='final'){
+     try{return {status:'complete',value:{...await acceptedResult(request,reader,outcome.text,outcome.model,exportedSourceEvidence),usage:{calls,tokens}}};}
+     catch(error){
+      if(!(error instanceof ResearchValidationError)||repairReason)throw error;
+      repairReason=error;
+      options.onDiagnostic?.('Research final validation failed; attempting one repair: '+error.message);
+      session.repair(outcome.text,'Repair the final JSON using only evidence already provided. No tools are available. Validation failed: '+error.message);
+      continue;
+     }
+    }
+    if(repairReason)throw new ResearchFailure('provider final repair attempted tool operations; research incomplete');
 
     const ids=new Set(outcome.calls.map(call=>call.id));
     if(!outcome.calls.length||ids.size!==outcome.calls.length||outcome.calls.some(call=>typeof call.id!=='string'||!call.id.trim()))throw new ResearchFailure('invalid provider tool call IDs');
@@ -139,12 +176,16 @@ export function providerBackend<Response>(options:ProviderOptions,createSession:
       }
       results.push({id:outcome.calls[index].id,content:JSON.stringify(value)});
      }
-     catch{throw new ResearchFailure('repository read failed; research incomplete');}
+     catch(error){
+      if(error instanceof EvidenceRangeError)results.push({id:outcome.calls[index].id,isError:true,content:JSON.stringify({error:'evidence range beyond file',lineCount:error.lineCount})});
+      else throw new ResearchFailure('repository read failed; research incomplete');
+     }
     }
     outcome.replay(results);
    }
   }catch(error){
    if(error instanceof ResearchFailure)throw new ResearchFailure(error.message,error.unknowns,usage());
+   if(error instanceof ResearchValidationError)throw new ResearchFailure(error.message,undefined,usage());
    throw new ResearchFailure('provider returned invalid research response',undefined,usage());
   }
  }};

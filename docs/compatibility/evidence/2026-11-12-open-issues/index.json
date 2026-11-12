@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "targetRelease": "0.5.0",
+  "testedPackageVersionBeforeBump": "0.4.1",
+  "artifacts": [
+    {
+      "file": "cross-platform-checks.json",
+      "sha256": "b3ffbd39ff711a5cda8e7b857ed39d86f871e6f1d39c5a1bb7b1a88e3aca8a97",
+      "purpose": "Earlier complete checks, shared package integrity and default skips"
+    },
+    {
+      "file": "runtime-targeted-checks.json",
+      "sha256": "502721df29006ac5977ade359a94e434561526b422f9f5bcfe4300a52d068d1d",
+      "purpose": "Focused runtime, provider, Git and doctor checks"
+    },
+    {
+      "file": "native-tools.json",
+      "sha256": "861494e0d67b57201076e34e691d43f4e26ddf520486841497f1e6fe2e8a4587",
+      "purpose": "Native discovery and MCP, initialization and recovery, local GitLab Runner"
+    },
+    {
+      "file": "model-observations.json",
+      "sha256": "16ab81979fd82ae29ee28dc97e7545c1a5d667d0fdd976fa2b9680b75b9d90bb",
+      "purpose": "Historical authenticated smokes and workflow attempts"
+    },
+    {
+      "file": "wsl2-checks.json",
+      "sha256": "1670e58ea8127ace996ba8cf49f17674792a030d99528c68e84935b7db9ab44b",
+      "purpose": "Actual WSL2 ext4 and drvfs permissions and recovery"
+    },
+    {
+      "file": "native-workflows.json",
+      "sha256": "6e1d0771e8116431dd6859a8372dd0bd0df46ca3fc9a0a6b86680baab6202b10",
+      "purpose": "Native preparation, readiness, blocked cases and complete delivery with run-specific evidence"
+    },
+    {
+      "file": "combined-checks.json",
+      "sha256": "df4935b1fae8485d0f971e63c9da14bf09d7fa757cbf073880c4b9355f555f23",
+      "purpose": "Candidate CI and earlier complete check observations"
+    }
+  ],
+  "rawTranscriptsPublished": false,
+  "externalClaudeCodeValidation": "separate Windows machine"
+}

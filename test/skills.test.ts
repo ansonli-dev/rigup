@@ -1,10 +1,42 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {renderFixed} from '../src/generator/render.js';
+import {renderFixed,validateNavigation} from '../src/generator/render.js';
+import {collectCustomSkill} from '../src/integrations/custom-skills.js';
+import {renderCustomerTemplate} from '../src/integrations/custom-templates.js';
+import {validateTemplateContent} from '../src/generator/document-policy.js';
 import {project,setNativeEntries} from './helpers.js';import {scanRepository} from '../src/analyzer/repository.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
 import {loadUpstreamLock} from '../src/integrations/upstream.js';
+test('every selected host installs a navigable readiness entry and a fixed GOAL resource',()=>project(async root=>{
+ const options={agents:['codex','claude','opencode','omp'] as const,backend:'host' as const,sdd:'openspec' as const};
+ const selected={...options,agents:[...options.agents]};
+ const profile=await scanRepository(root,selected);
+ const native=['openspec-propose','openspec-apply-change','openspec-archive-change'];
+ setNativeEntries(profile,{codex:native,claude:native,opencode:native,omp:native});
+ const assets=await renderFixed(profile,selected,await prepareIntegrations(profile,selected),[],[]);
+ for(const directory of ['.agents/skills','.claude/skills','.opencode/skills','.omp/skills']){
+  for(const resource of ['change-ready/SKILL.md','change-ready/references/project.md','change-prepare/references/GOAL.md']){
+   assert.ok(assets.some(asset=>asset.target===directory+'/'+resource),'missing installed resource: '+directory+'/'+resource);
+  }
+ }
+ validateNavigation(assets,profile.files);
+ for(const asset of assets)validateTemplateContent(asset.content);
+}));
+test('customer skills cannot shadow any fixed workflow entry',()=>project(async root=>{
+ for(const name of ['change-prepare','change-ready','change-deliver','change-release']){
+  await writeFile(root+'/SKILL.md','---\nname: '+name+'\ndescription: Customer workflow\n---\n');
+  await assert.rejects(collectCustomSkill(root,'.agents/skills'),/fixed public entry collision/,name);
+ }
+}));
+test('customer templates cannot replace fixed readiness context or GOAL resources',()=>project(async root=>{
+ await writeFile(root+'/review.md','Customer guidance\n');
+ for(const resource of ['change-prepare/references/GOAL.md','change-ready/references/project.md','change-deliver/references/project.md']){
+  await assert.rejects(renderCustomerTemplate(root,{source:'review.md',target:'.agents/skills/'+resource},['.agents/skills'],'review'),/fixed flow/,resource);
+ }
+ const extra=await renderCustomerTemplate(root,{source:'review.md',target:'.agents/skills/customer/references/review.md'},['.agents/skills'],'review');
+ assert.equal(extra.content,'Customer guidance\n');
+}));
 test('workflow_reuses_selected_sdd_artifacts_and_release_requires_real_adapter',()=>project(async root=>{
  const options={agents:['codex' as const],backend:'host' as const,sdd:'openspec' as const};const profile=await scanRepository(root,options);setNativeEntries(profile,{codex:['openspec-propose','openspec-apply-change','openspec-archive-change']});
  const assets=await renderFixed(profile,options,await prepareIntegrations(profile,options),[],[]);

@@ -1,11 +1,11 @@
 import {ResearchFailure,type AnalysisBackend} from './backend.js';
-import {providerBackend,providerObject,readTools,totalProviderTokens,type ProviderOptions} from './provider-loop.js';
+import {estimateProviderInput,ProviderRequestFailure,providerBackend,providerObject,readTools,totalProviderTokens,type ProviderOptions} from './provider-loop.js';
 import {validateProviderBaseURL} from './provider-url.js';
 import {researchPrompt} from './prompts.js';
 
 interface FunctionCall {id:string;type:'function';function:{name:string;arguments:string}}
 type Message={role:'system'|'user';content:string}
- | {role:'assistant';content:string|null;tool_calls:FunctionCall[]}
+ | {role:'assistant';content:string|null;tool_calls?:FunctionCall[]}
  | {role:'tool';content:string;tool_call_id:string};
 const tools=readTools.map(({name,description,input_schema})=>({type:'function',function:{name,description,parameters:input_schema}}));
 
@@ -35,24 +35,30 @@ export function openAICompatibleBackend(options:ProviderOptions):AnalysisBackend
   url.pathname=url.pathname.replace(/\/+$/,'')+'/chat/completions';
   const fetcher=options.fetch??fetch;
   const messages:Message[]=[{role:'system',content:researchPrompt},{role:'user',content:input}];
-  const body={model,messages,tools};
+  let repair=false;
+  const body=()=>({model,messages,...(repair?{}:{tools})});
   return {
    countsInputRemotely:false,
-   // Compatible APIs do not share a tokenizer. Budget one token per UTF-8 byte plus framing allowance.
-   countInput:()=>Buffer.byteLength(JSON.stringify(body),'utf8')+128,
+   countInput:maxTokens=>estimateProviderInput({...body(),max_completion_tokens:maxTokens}),
    generate:async maxTokens=>{
     const timeout=AbortSignal.timeout(60_000);
     const signal=options.signal?AbortSignal.any([options.signal,timeout]):timeout;
-    const response=await fetcher(url.href,{
-     method:'POST',redirect:'error',signal,
-     headers:{'Authorization':`Bearer ${apiKey}`,'Content-Type':'application/json'},
-     body:JSON.stringify({...body,max_completion_tokens:maxTokens}),
-    });
+    let response:Response;
+    try{response=await fetcher(url.href,{
+      method:'POST',redirect:'error',signal,
+      headers:{'Authorization':`Bearer ${apiKey}`,'Content-Type':'application/json'},
+      body:JSON.stringify({...body(),max_completion_tokens:maxTokens}),
+     });}
+    catch{throw new ProviderRequestFailure('chat/completions');}
     if(!response.ok){
-     await response.body?.cancel();
-     throw new ResearchFailure('provider request failed; research incomplete');
+     try{await response.body?.cancel();}catch{/* The status remains the useful safe diagnostic. */}
+     throw new ProviderRequestFailure('chat/completions',response.status);
     }
     return await response.json() as unknown;
+   },
+   repair:(candidate,reason)=>{
+    repair=true;
+    messages.push({role:'assistant',content:candidate},{role:'user',content:reason});
    },
    usage:completionUsage,
    outcome:response=>{

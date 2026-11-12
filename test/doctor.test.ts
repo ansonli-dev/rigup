@@ -3,6 +3,7 @@ import {delimiter,join} from 'node:path';
 import type {SetupOptions} from '../src/types.js';
 import {project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
 import {doctor} from '../src/installer/doctor.js';import {preview} from '../src/installer/preview.js';import {apply} from '../src/installer/apply.js';import {scanRepository} from '../src/analyzer/repository.js';
+import {fakeRigup} from './launcher-support.js';
 async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>{await writeFile(root+'/package.json',JSON.stringify({scripts:{test:'node -e "process.exit(7)"',environment:'node -e "process.exit(0)"'}}));const options={agents:['codex' as const],backend:'host' as const};const p=await preview({root,fingerprint:(await scanRepository(root,options)).fingerprint,options,assets:[],dispositions:[],operations:[],warnings:[],requirements:[],versions:{}},[],{cacheRoot:cache});await apply(p.previewId,{cacheRoot:cache,stateRoot:state});await fn(root,cache,state);})));}
 test('doctor_separates_config_environment_tests_and_eval',()=>fixture(async(root,cache,state)=>{
  const r=await doctor(root,{runChecks:['environment','test','eval'],stateRoot:state});assert.equal(r.exitCode,1);assert.ok(r.diagnostics.some(d=>d.category==='config'&&d.state==='configured'));assert.ok(r.checks.some(c=>c.name==='environment'&&c.status==='passed'));assert.ok(r.checks.some(c=>c.name==='test'&&c.status==='failed'));assert.ok(r.checks.some(c=>c.name==='eval'&&c.status==='pending'));
@@ -75,6 +76,8 @@ test('Claude health probe requires connected project-scoped MCP and keeps output
   await writeFile(join(bin,'claude.cmd'),'@echo off\r\n');
   await writeFile(join(packageRoot,'cli.js'),script);
  }else await writeFile(join(bin,'claude'),'#!'+process.execPath+'\n'+script,{mode:0o700});
+ const version=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8')).version;
+ await fakeRigup(bin,version,version,false,true);
  const path=process.env.PATH;
  try{
   process.env.PATH=bin+delimiter+path;
@@ -83,7 +86,14 @@ test('Claude health probe requires connected project-scoped MCP and keeps output
   assert.equal(plain.diagnostics.find((d:{id:string})=>d.id==='claude:load')?.state,'reload-required');
   const connected=await cli(['doctor','--check-host','claude'],3);
   assert.equal(connected.diagnostics.find((d:{id:string})=>d.id==='claude:load')?.state,'passed');
+  assert.equal(connected.diagnostics.find((d:{id:string})=>d.id==='rigup:version')?.state,'passed');
+  assert.ok(connected.diagnostics.find((d:{id:string})=>d.id==='rigup:version')?.reason.includes(version));
   assert.doesNotMatch(JSON.stringify(connected),/fixture-token/);
+  await fakeRigup(bin,version,'0.0.1',false,true);
+  const stale=await cli(['doctor','--check-host','claude'],1);
+  assert.notEqual(stale.diagnostics.find((d:{id:string})=>d.id==='claude:load')?.state,'passed');
+  assert.equal(stale.diagnostics.find((d:{id:string})=>d.id==='rigup:version')?.state,'failed');
+  await fakeRigup(bin,version,version,false,true);
   process.env.RIGUP_TEST_CLAUDE_SCOPE='User config';
   const shadowed=await cli(['doctor','--check-host','claude'],3);
   assert.equal(shadowed.diagnostics.find((d:{id:string})=>d.id==='claude:load')?.state,'reload-required');

@@ -1,9 +1,207 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {nativeBackend} from '../src/analyzer/anthropic.js';
-import {validateResearch,type ResearchRequest,type RepositoryReader} from '../src/analyzer/backend.js';
+import {ResearchFailure,validateResearch,type ResearchRequest,type RepositoryReader} from '../src/analyzer/backend.js';
+import {repositoryReader} from '../src/analyzer/repository.js';
+import {mkdir,symlink,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {project} from './helpers.js';
 const request:ResearchRequest={kind:'analyze',runId:'fixture-run',root:process.cwd(),fingerprint:'x',options:{agents:['claude']},versions:{policy:'1'},budget:{maxCalls:2,maxTokens:10000},previousInventoryDigest:'none',templateSourcesDigest:'none'};
 const reader:RepositoryReader={list:async()=>[],read:async()=>{throw new Error('unknown source');},search:async()=>[]};
+
+const gatewayFinal=(data:unknown={observations:[],unknowns:[]})=>gatewayMessage([{type:'text',text:JSON.stringify(data)}]);
+const gatewayMessage=(content:unknown[],stop_reason='end_turn')=>Response.json({
+ id:'msg_fixture',type:'message',role:'assistant',model:'served-model',content,stop_reason,stop_sequence:null,usage:{input_tokens:10,output_tokens:10},
+});
+
+test('missing Anthropic count endpoint falls back once and keeps counting HTTP requests',async()=>{
+ for(const status of [404,405]){
+  const sent:string[]=[];
+  const notices:string[]=[];
+  const usage:unknown[]=[];
+  const backend=nativeBackend({apiKey:'fixture-api-key',model:'gateway-model',onDiagnostic:notice=>notices.push(notice),onUsage:async value=>{usage.push(value);},fetch:async(url,init)=>{
+   const endpoint=new URL(String(url)).pathname;
+   sent.push(endpoint);
+   const body=JSON.parse(String(init?.body));
+   assert.equal(body.model,'gateway-model');
+   if(endpoint.endsWith('/count_tokens'))return new Response('private gateway body fixture-api-key',{status});
+   assert.ok(body.max_tokens>0&&body.max_tokens<20_000);
+   return sent.length===2?gatewayMessage([{type:'tool_use',id:'list-1',name:'list',input:{}}],'tool_use'):gatewayFinal();
+  }});
+  const result=await backend.run({...request,budget:{maxCalls:3,maxTokens:20_000}},reader);
+  assert.deepEqual(sent,['/v1/messages/count_tokens','/v1/messages','/v1/messages']);
+  assert.equal(notices.length,1);
+  assert.match(notices[0],new RegExp('count_tokens.*HTTP '+status+'.*estimate'));
+  assert.doesNotMatch(notices[0],/private gateway body|fixture-api-key/);
+  assert.deepEqual(usage,[{calls:1,tokens:0},{calls:2,tokens:'unknown'},{calls:2,tokens:20},{calls:3,tokens:'unknown'},{calls:3,tokens:40}]);
+  assert.equal(result.status,'complete');
+ }
+});
+
+test('the fallback estimate blocks generation when the input cannot fit',async()=>{
+ const sent:string[]=[];
+ const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async url=>{
+  sent.push(new URL(String(url)).pathname);
+  return new Response(null,{status:404});
+ }});
+ await assert.rejects(backend.run({...request,input:'🦦'.repeat(10_000)},reader),(error:unknown)=>{
+  assert.ok(error instanceof ResearchFailure);
+  assert.match(error.message,/input token budget/);
+  assert.deepEqual(error.usage,{calls:1,tokens:0});
+  return true;
+ });
+ assert.deepEqual(sent,['/v1/messages/count_tokens']);
+});
+
+test('fallback cap reserves the full serialized UTF-8 request plus framing',async()=>{
+ const maxTokens=50_000;let offered=0,bytes=0;
+ const backend=nativeBackend({apiKey:'fixture',model:'fixture',maxOutputTokens:100_000,fetch:async(url,init)=>{
+  if(String(url).endsWith('/count_tokens'))return new Response(null,{status:404});
+  const body=String(init?.body);offered=JSON.parse(body).max_tokens;bytes=Buffer.byteLength(body,'utf8');
+  return gatewayFinal();
+ }});
+ assert.equal((await backend.run({...request,input:'🦦\\\"'.repeat(250),budget:{maxCalls:2,maxTokens}},reader)).status,'complete');
+ assert.ok(offered>0);assert.ok(offered+bytes+128<=maxTokens);
+});
+
+test('Anthropic gateway failures give endpoint and cause without echoing secrets',async()=>{
+ for(const [status,cause] of [[401,/HTTP 401.*API key/i],[403,/HTTP 403.*model/i],[500,/HTTP 500/],[undefined,/network/i]] as const){
+  const sent:string[]=[];
+  const backend=nativeBackend({apiKey:'fixture-api-key',model:'fixture',fetch:async url=>{
+   sent.push(new URL(String(url)).pathname);
+   if(status===undefined)throw Error('private gateway body fixture-api-key');
+   return new Response('private gateway body fixture-api-key',{status});
+  }});
+  await assert.rejects(backend.run(request,reader),(error:unknown)=>{
+   assert.ok(error instanceof ResearchFailure);
+   assert.match(error.message,/count_tokens/);
+   assert.match(error.message,cause);
+   assert.doesNotMatch(error.message,/private gateway body|fixture-api-key/);
+   assert.deepEqual(error.usage,{calls:1,tokens:0});
+   return true;
+  });
+  assert.deepEqual(sent,['/v1/messages/count_tokens']);
+ }
+});
+
+test('an oversized read returns the filtered file length alongside other tool results',()=>project(async root=>{
+ await writeFile(join(root,'a.txt'),'first line\nsecond line');
+ await writeFile(join(root,'b.txt'),'other line');
+ const repo=await repositoryReader(root,{agents:[],backend:'host'});
+ let generations=0;
+ const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async(url,init)=>{
+  if(String(url).endsWith('/count_tokens'))return Response.json({input_tokens:10});
+  const {messages}=JSON.parse(String(init?.body));
+  generations++;
+  if(generations===1)return gatewayMessage([
+   {type:'tool_use',id:'oversized',name:'read',input:{path:'a.txt',startLine:1,endLine:200}},
+   {type:'tool_use',id:'valid',name:'read',input:{path:'b.txt',startLine:1,endLine:1}},
+  ],'tool_use');
+  assert.equal(messages[2].content[0].tool_use_id,'oversized');
+  assert.equal(messages[2].content[0].is_error,true);
+  assert.equal(JSON.parse(messages[2].content[0].content).lineCount,2);
+  assert.equal(JSON.parse(messages[2].content[1].content).content,'other line');
+  return gatewayFinal();
+ }});
+ assert.equal((await backend.run({...request,root,budget:{...request.budget,maxCalls:4}},repo)).status,'complete');
+ await assert.rejects(repo.read('a.txt',1,200),/range/);
+}));
+
+test('Anthropic generation caps honor defaults, overrides, and remaining tokens',async()=>{
+ const limits:number[]=[];
+ const fetcher:typeof fetch=async(url,init)=>{
+  if(String(url).endsWith('/count_tokens'))return Response.json({input_tokens:10});
+  limits.push(JSON.parse(String(init?.body)).max_tokens);
+  return gatewayFinal();
+ };
+ const backend=(maxOutputTokens?:number)=>nativeBackend({apiKey:'fixture',model:'fixture',maxOutputTokens,fetch:fetcher});
+ for(const [cap,maxTokens] of [[undefined,60_000],[32_000,60_000],[500,60_000],[150_000,1_000]] as const){
+  assert.equal((await backend(cap).run({...request,budget:{maxCalls:2,maxTokens}},reader)).status,'complete');
+ }
+ for(const bad of [0,-1,1.5,NaN,Number.MAX_SAFE_INTEGER+1])await assert.rejects(backend(bad).run(request,reader),/maximum output tokens/);
+ assert.deepEqual(limits,[16384,32_000,500,990]);
+});
+
+test('EOF recovery retries the same authorized file within its read budget',()=>project(async root=>{
+ await writeFile(join(root,'config.yaml'),'token: fixture-secret\nname: visible');
+ const budget={calls:0,bytes:0};
+ const repo=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:3,maxBytes:1000}},{budget});
+ let turns=0;
+ const backend=nativeBackend({apiKey:'fixture',model:'claude-auto[1m]',fetch:async(url,init)=>{
+  if(String(url).endsWith('/count_tokens'))return new Response(null,{status:405});
+  const body=JSON.parse(String(init?.body));
+  assert.equal(body.model,'claude-auto[1m]');
+  if(++turns===1)return gatewayMessage([{type:'tool_use',id:'too-long',name:'read',input:{path:'config.yaml',startLine:1,endLine:200}}],'tool_use');
+  const result=body.messages.at(-1).content[0];
+  if(turns===2){
+   assert.deepEqual(JSON.parse(result.content),{error:'evidence range beyond file',lineCount:2});
+   return gatewayMessage([{type:'tool_use',id:'retry',name:'read',input:{path:'config.yaml',startLine:1,endLine:2}}],'tool_use');
+  }
+  assert.match(JSON.parse(result.content).content,/name: visible/);
+  assert.doesNotMatch(result.content,/fixture-secret/);
+  return gatewayFinal();
+ }});
+ const result=await backend.run({...request,root,budget:{maxCalls:4,maxTokens:50_000}},repo);
+ assert.equal(result.status,'complete');
+ assert.equal(turns,3);assert.equal(budget.calls,2);
+}));
+
+for(const [kind,path,calls] of [['out-of-scope','outside/private.txt',0],['symlink','allowed/link.txt',0],['read-budget','allowed/visible.txt',2000]] as const){
+test(`${kind} denied reads never return EOF metadata or continue generation`,t=>project(async root=>{
+ await mkdir(join(root,'allowed'));await mkdir(join(root,'outside'));
+ await writeFile(join(root,'allowed','visible.txt'),'line');await writeFile(join(root,'outside','private.txt'),'private');
+ if(kind==='symlink')try{await symlink(join(root,'outside','private.txt'),join(root,'allowed','link.txt'));}
+ catch(error){if(process.platform==='win32'&&(error as NodeJS.ErrnoException).code==='EPERM'){t.skip('Windows file symlink privilege is unavailable');return;}throw error;}
+  const repo=await repositoryReader(root,{agents:[],backend:'host',scope:['allowed']},{budget:{calls,bytes:0}});
+  let sent=0;
+  const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async url=>{
+   sent++;
+   if(String(url).endsWith('/count_tokens'))return Response.json({input_tokens:10});
+   return gatewayMessage([{type:'tool_use',id:'denied',name:'read',input:{path,startLine:1,endLine:200}}],'tool_use');
+  }});
+  await assert.rejects(backend.run({...request,budget:{maxCalls:6,maxTokens:50_000}},repo),(error:unknown)=>{
+   assert.ok(error instanceof ResearchFailure);assert.match(error.message,/repository read failed/);
+   assert.doesNotMatch(error.message,/lineCount|private|outside|visible/);return true;
+  });
+  assert.equal(sent,2);
+}));
+}
+
+test('Anthropic repairs invalid JSON once and charges both HTTP operations',async()=>{
+ const requests:unknown[]=[];let turns=0;
+ const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async(url,init)=>{
+  const body=JSON.parse(String(init?.body));requests.push(body);
+  if(String(url).endsWith('/count_tokens'))return Response.json({input_tokens:10});
+  if(++turns===1)return gatewayMessage([{type:'text',text:'{"private-fixture-secret":'}]);
+  assert.equal(body.messages.at(-2).content[0].text,'{"private-fixture-secret":');
+  assert.match(body.messages.at(-1).content,/invalid research JSON/);
+  assert.doesNotMatch(body.messages.at(-1).content,/private-fixture-secret/);
+  assert.equal(body.tools,undefined);
+  return gatewayFinal();
+ }});
+ const result=await backend.run({...request,budget:{maxCalls:4,maxTokens:50_000}},reader);
+ assert.equal(result.status,'complete');
+ if(result.status==='complete')assert.deepEqual(result.value.usage,{calls:4,tokens:40});
+ assert.equal(requests.length,4);
+});
+
+test('Anthropic generation HTTP failures remain safe after a count fallback',async()=>{
+ for(const failure of [new Response('fixture-secret',{status:403}),new Response('fixture-secret',{status:500}),null]){
+  let sent=0;
+  const backend=nativeBackend({apiKey:'fixture-secret',model:'fixture',fetch:async url=>{
+   sent++;
+   if(String(url).endsWith('/count_tokens'))return new Response(null,{status:404});
+   if(failure===null)throw Error('fixture-secret');
+   return failure;
+  }});
+  await assert.rejects(backend.run({...request,budget:{maxCalls:2,maxTokens:50_000}},reader),(error:unknown)=>{
+   assert.ok(error instanceof ResearchFailure);assert.match(error.message,/messages.*(?:HTTP|network)/);
+   assert.doesNotMatch(error.message,/fixture-secret|count_tokens/);
+   assert.deepEqual(error.usage,{calls:2,tokens:'unknown'});return true;
+  });
+  assert.equal(sent,2);
+ }
+});
 test('tool_loop_only_exposes_read_tools_and_preserves_actual_model',async()=>{
  let body:any;
  const backend=nativeBackend({apiKey:'fixture-key',model:'fixture-model',fetch:async(url,init)=>{
@@ -340,7 +538,7 @@ test('harness provider request supplies verified source bodies and rejects metad
    }});
    const run=backend.run({...request,root,options,fingerprint:authority.profile.fingerprint,sourceGuidance:include?authority.sourceGuidance:undefined},authority.reader);
    if(include)assert.equal((await run).status,'complete');
-   else await assert.rejects(run,/invalid research evidence/);
+   else await assert.rejects(run,/guidance\[0\]\.sourceRef.*scoped source body was not exported/);
   }
  });
 });
@@ -363,6 +561,6 @@ test('harness rejects provider citations to replacement bytes at an exported sou
     content:[{type:'text',text:JSON.stringify({observations:[],unknowns:[],guidance:[{...binding,sourceRef}]})}],
     stop_reason:'end_turn',usage:{input_tokens:10,output_tokens:10}});
   }});
-  await assert.rejects(backend.run({...request,root,options,fingerprint:authority.profile.fingerprint,sourceGuidance:authority.sourceGuidance},authority.reader),/invalid research evidence/);
+  await assert.rejects(backend.run({...request,root,options,fingerprint:authority.profile.fingerprint,sourceGuidance:authority.sourceGuidance},authority.reader),/guidance\[0\]\.sourceRef.*scoped source body was not exported/);
  });
 });

@@ -22,6 +22,7 @@ import {readDurableRecord,saveDurable} from './private-record.js';
 import {quoteShell,quoteShellList} from './shell-command.js';
 import {LinkedRigupDirectoryError} from './installer/ownership.js';
 import {promptResearchProvider,resolveResearchProvider} from './research/provider-settings.js';
+import {essentialEnvironment,runtimeEnvironment,runtimeSetupSummary,writeRuntimeSummary,type RuntimeSetupSummary} from './runtime-inputs.js';
 export interface CliIO {cwd:string;isTTY:boolean;write(text:string):void;writeError?(text:string):void;read?(secret?:boolean):Promise<string|null>;services?:LifecycleServices}
 const errorMessage=(error:unknown)=>error instanceof SyntaxError?'input/cache: invalid JSON syntax; inspect the local file without exporting its contents':error instanceof Error?error.message:'operation failed';
 const help='rigup                         Open the interactive project menu (TTY)\nrigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none] [--tools openwiki,codegraph|none] [--defer-research]\nrigup update [path] [--configure] [--dry-run|--review] [--apply previewId] [--sessions-ended] [--resume]\nrigup doctor [path] [--check-host claude] [--run-checks build,lint,test,environment,eval]\nrigup mcp [path] --host claude|codex|opencode|omp\nOptions: --profile path --language auto|language-tag --model modelId --json\nAdvanced: --retire logicalId,... --prepare-openspec\nChoose a CLI provider with RIGUP_PROVIDER and its model and API-key environment variables. Without a provider, use Rigup MCP from the installed agent.\nOmit path to use the current directory. Missing setup choices are prompted in a TTY; --json never prompts.\n';
@@ -173,6 +174,9 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
   const inlineReview=!flags.review&&options.executionPolicy?.mode!=='review';
   if(!flags.dryRun&&(flags.deferResearch||manifest?.projectRules==='pending'||options.executionPolicy?.mode==='review')){flags.review=true;flags.yes=false;}
   validateOptions(options as unknown as Record<string,unknown>);
+  const runtimeSetup=await runtimeSetupSummary(root,options);
+  const report=services.report;
+  services.report=value=>report?.({runtimeSetup,...value});
   if(values['--prepare-openspec']){
    if(options.sdd!=='openspec'||!options.agents.length)throw Error('--prepare-openspec requires --sdd openspec and at least one agent');
    let setup=await inspectOpenSpec(root,options,services.signal);
@@ -271,9 +275,10 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
   }
   if(flags.deferResearch&&!options.sdd&&options.projectRules===undefined)options.projectRules=true;
   if(modernResearch&&!flags.deferResearch){
-   services.provider??=await resolveResearchProvider(root,values['--model'],options.model);
+   const environment=runtimeSetup.template.state==='pending'?essentialEnvironment():await runtimeEnvironment(root,options,'provider',values['--model']);
+   services.provider??=await resolveResearchProvider(root,values['--model'],options.model,environment);
    if(!services.provider&&guided&&!flags.dryRun&&(!manifest||flags.configure||values['--model'])){
-    services.provider=await promptResearchProvider({write:io.write,read:io.read!},values['--model']);
+    services.provider=await promptResearchProvider({write:io.write,read:io.read!},values['--model'],environment);
    }
    if(!services.provider){
     if(manifest&&!flags.configure&&values['--model']){
@@ -303,7 +308,12 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  }catch(e){io.write(errorMessage(e)+'\n');return io.services?.signal?.aborted?130:1;}
 }
 export async function runCli(argv:string[],io:CliIO):Promise<number>{
- if(!argv.includes('--json'))return runCliInternal(argv,io);
+ if(!argv.includes('--json')){
+  let runtimeSetup:RuntimeSetupSummary|undefined;
+  const code=await runCliInternal(argv,{...io,services:{...io.services,report:value=>{runtimeSetup=value.runtimeSetup as RuntimeSetupSummary|undefined;io.services?.report?.(value);}}});
+  if(runtimeSetup)writeRuntimeSummary(runtimeSetup,io.write);
+  return code;
+ }
  let actual:Record<string,unknown>={};let last='';const report=(value:Record<string,unknown>)=>{actual=value;io.services?.report?.(value);};
  const code=await runCliInternal(argv.filter(a=>a!=='--json'),{...io,isTTY:false,read:undefined,write:text=>{last=text;io.writeError?.(text);},services:{...io.services,report}});
  const result={phase:actual.phase??'preflight',installStatus:actual.installStatus??(code===0?'complete':code===3?'pending':'failed'),checks:[],pending:[],conflicts:[],requiredInput:[],nextCommand:null,...actual,exitCode:code,...((code===1||code===2)?{error:actual.error??last.trim()}:{})};io.write(JSON.stringify(result)+'\n');return code;

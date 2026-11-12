@@ -46,6 +46,7 @@ export interface HarnessSummary {
 }
 
 export interface SetupOperation {
+ registry?:string;
  id:string;integrationId:string;kind:'install'|'initialize'|'check';parameters:CommandSpec;prerequisiteIds:string[];declaredWrites:string[];version:string;timeoutMs:number;
  protection:{kind:'new-empty-scope';target:string}|{kind:'native-staging';target:string;staging:string;control:string};
  query:{kind:'npm-package'|'native-initialization';packageJson:string;packageLock:string;name:string;version:string;integrity?:string};
@@ -56,7 +57,7 @@ export interface ManagedAsset {logicalId:string;target:string;ownership:import('
 export interface AssetDisposition {logicalId:string;action:'retain'|'update'|'retire'|'pending';reason:string}
 export type ProjectRulesStatus='pending'|'ready';
 export interface SetupRequirement {integrationId:string;reason:string;nextCommand?:string}
-export interface SetupPlan {projectRules?:ProjectRulesStatus;harness?:HarnessSummary;projectDocuments?:{target:string;content:string}[];harnessNavigation?:{targets:string[];conventionPaths:string[];notApplicable?:{path:string;topic:string;topicId:string;scope:string[]}[]};gitlabReviewRequired?:true;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
+export interface SetupPlan {pendingRuntimeTools?:('openwiki'|'codegraph')[];projectRules?:ProjectRulesStatus;harness?:HarnessSummary;projectDocuments?:{target:string;content:string}[];harnessNavigation?:{targets:string[];conventionPaths:string[];notApplicable?:{path:string;topic:string;topicId:string;scope:string[]}[]};gitlabReviewRequired?:true;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
 
 export function validateTopicId(value:unknown):string{
  if(typeof value!=='string'||value.length>48||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)||

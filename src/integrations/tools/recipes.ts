@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {signature} from '../../generator/cache.js';
 import type {SetupOperation} from '../../types.js';
 import type {Recipe} from '../upstream.js';
+import {validateProviderBaseURL} from '../../analyzer/provider-url.js';
 
 export type NativeTool='openwiki'|'codegraph';
 export type ToolPin=Pick<Recipe,'version'|'packageIntegrity'>;
@@ -26,9 +27,10 @@ export function toolPackage(id:NativeTool) {
  return {id,prefix:'.rigup/tools/'+id,name:id==='openwiki'?'openwiki':'@colbymchenry/codegraph',entry:id==='openwiki'?'dist/cli/cli.js':'npm-shim.js'};
 }
 
-export function softwareInstallRecipe(root:string,id:NativeTool,version:string,integrity?:string,prefix=toolPackage(id).prefix):SetupOperation {
+export function softwareInstallRecipe(root:string,id:NativeTool,version:string,integrity?:string,prefix=toolPackage(id).prefix,registry?:string):SetupOperation {
  const {name}=toolPackage(id);
- return {id:'install:'+id,integrationId:id,kind:'install',parameters:{executable:'npm',args:['install','--prefix',resolve(root,prefix),'--cache',resolve(root,prefix,'.npm-cache'),'--ignore-scripts','--save-exact','--no-audit','--no-fund','--userconfig',resolve(root,prefix,'.npmrc.user'),'--globalconfig',resolve(root,prefix,'.npmrc.global'),'--registry','https://registry.npmjs.org/',name+'@'+version],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],version,timeoutMs:300000,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity}};
+ if(registry!==undefined&&validateProviderBaseURL(registry).href.replace(/\/?$/,'/')!==registry)throw Error('Operation registry must use its normalized credential-free identity');
+ return {id:'install:'+id,integrationId:id,kind:'install',...(registry?{registry}:{}),parameters:{executable:'npm',args:['install','--prefix',resolve(root,prefix),'--cache',resolve(root,prefix,'.npm-cache'),'--ignore-scripts','--save-exact','--no-audit','--no-fund','--userconfig',resolve(root,prefix,'.npmrc.user'),'--globalconfig',resolve(root,prefix,'.npmrc.global'),'--registry',registry??'https://registry.npmjs.org/',name+'@'+version],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],version,timeoutMs:300000,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity}};
 }
 
 export function initializationRecipe(root:string,id:NativeTool,version:string,integrity?:string,prerequisiteIds:string[]=[]):SetupOperation {
@@ -45,7 +47,7 @@ function expectedToolOperation(root:string,operation:SetupOperation,pin:ToolPin,
  if(!isNativeTool(id)||!['install','initialize'].includes(operation.kind))throw Error('External operation has no verified adapter');
  if(operation.version!==pin.version||operation.query.integrity!==pin.packageIntegrity)throw Error('Operation version/integrity is not verified');
  return operation.kind==='install'
-  ?softwareInstallRecipe(root,id,pin.version,pin.packageIntegrity)
+  ?softwareInstallRecipe(root,id,pin.version,pin.packageIntegrity,undefined,operation.registry)
   :initializationRecipe(root,id,pin.version,pin.packageIntegrity,prerequisites);
 }
 
