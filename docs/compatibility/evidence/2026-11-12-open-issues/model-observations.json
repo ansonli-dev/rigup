@@ -1,0 +1,1045 @@
+{
+  "schemaVersion": 1,
+  "scope": "Historical real model observations; not final native workflow acceptance",
+  "billingAmount": null,
+  "codexExplicitResearch": {
+    "caseId": "codex/explicit-cli-research",
+    "status": "passed",
+    "platform": "darwin",
+    "node": "v24.15.0",
+    "host": "codex",
+    "hostVersion": null,
+    "model": null,
+    "sourceContentManifestSha256": null,
+    "modelExecution": "real",
+    "backendRequests": 2,
+    "providerHttpRequests": null,
+    "usage": {
+      "reportedTokens": 76426,
+      "perBackendRequestTokens": [
+        32755,
+        43671
+      ]
+    },
+    "applyReports": [
+      {
+        "status": "complete",
+        "exitCode": 0,
+        "projectRules": "ready",
+        "writtenFileCount": 10
+      },
+      {
+        "status": "complete",
+        "exitCode": 0,
+        "projectRules": "ready",
+        "writtenFileCount": 0
+      }
+    ],
+    "privateEvidenceSha256": "674b58fb78e0ccb459b44a83e5f21841db0c4ac76cead74bad32464e69799c19"
+  },
+  "nativeGoalDispatch": {
+    "caseId": "codex/workflow/native-goal-dispatch",
+    "status": "observed",
+    "hostVersion": "codex-cli 0.166.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "sourceContentManifestSha256": null,
+    "modelExecution": "real",
+    "nativeUiGoalActive": true,
+    "persistedAfterExit": true,
+    "goals": [
+      {
+        "status": "complete",
+        "token_budget": null,
+        "tokens_used": 16732,
+        "time_used_seconds": 11
+      }
+    ],
+    "toolCallCount": 3,
+    "privateEvidenceSha256": "e9cf9d10ea8e26a636b3f08506803b8f0d3dd87155c1c1d755d07e7e57a0dda8",
+    "scope": "Interactive native slash dispatch and persisted goal state in a read-only canary; separate from generated-skill implementation/MR acceptance.",
+    "usageAccounting": {
+      "nativeGoalCounter": 16732,
+      "rolloutTotalTokenUsage": {
+        "input_tokens": 65671,
+        "cached_input_tokens": 48128,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 197,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 65868
+      },
+      "derivedNoncachedTokens": 17740,
+      "rawRolloutSha256": "60e07e0896f59c83c93645c9ccedd0849ec7340f0ff51da237dfa4d453efd139",
+      "accountingSummarySha256": "62586ff2044942eac40f413e8b5e14167c9650859b0dd21967e3e3afcbc390d8",
+      "note": "The persisted native goal counter, full cumulative rollout usage including cached input, and derived noncached total are separate measures. The earlier goal counter is unchanged."
+    }
+  },
+  "macosHostSmoke": [
+    {
+      "host": "opencode",
+      "version": "1.18.5",
+      "model": "openai/gpt-6.1-sol",
+      "reasoning": "low",
+      "passed": true,
+      "elapsedSeconds": 9.62,
+      "inputTokens": 5924,
+      "outputTokens": 9,
+      "outerTimeoutSeconds": 45,
+      "wireOutputTokenCap": null,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "modelExecution": "real",
+      "sourceContentManifestSha256": null
+    },
+    {
+      "host": "omp",
+      "version": "18.19.0",
+      "bunVersion": "1.4.4",
+      "model": "openai-codex/gpt-6.1-sol",
+      "reasoning": "low",
+      "passed": true,
+      "elapsedSeconds": 9.16,
+      "inputTokens": 195,
+      "outputTokens": 9,
+      "outerTimeoutSeconds": 45,
+      "sessionMaxSeconds": 30,
+      "wireOutputTokenCap": null,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "modelExecution": "real",
+      "sourceContentManifestSha256": null
+    }
+  ],
+  "historicalWorkflowCounts": {
+    "passed": 10,
+    "failed": 7,
+    "attempts": 17
+  },
+  "historicalWorkflowAttempts": [
+    {
+      "id": "workflow-attempt-01",
+      "caseId": "codex/workflow/ready",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "c07d91a0dbf09550d6d469de240ec4643a3a5992dea0f1e83a65d7d3dc770161",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 143656,
+        "output": 752
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": null,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "a1f9c3ec3401276d63142e772ab0d2c376cb72200fe169e9a2f5be290e2c6aa9",
+      "elapsedSeconds": 62.534
+    },
+    {
+      "id": "workflow-attempt-02",
+      "caseId": "codex/workflow/compatibility-delivery",
+      "status": "failed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "c07d91a0dbf09550d6d469de240ec4643a3a5992dea0f1e83a65d7d3dc770161",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 431127,
+        "output": 2710
+      },
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": true,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": "Native token usage is unknown or exceeds the declared observed budget",
+      "privateEvidenceSha256": "516dfc0ad9e370987bdecc19474c671dbdaa914aa5a921f6ed90e0407fbd4b68",
+      "elapsedSeconds": 109.218
+    },
+    {
+      "id": "workflow-attempt-03",
+      "caseId": "codex/workflow/incomplete-native",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "c07d91a0dbf09550d6d469de240ec4643a3a5992dea0f1e83a65d7d3dc770161",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 79867,
+        "output": 411
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "1087835000cfc46ca2ae78dd2f65fc349eddb9d20707c9e7d454f926986fec88",
+      "elapsedSeconds": 59.822
+    },
+    {
+      "id": "workflow-attempt-04",
+      "caseId": "codex/workflow/wrong-change",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "c07d91a0dbf09550d6d469de240ec4643a3a5992dea0f1e83a65d7d3dc770161",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 111207,
+        "output": 613
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "4084f26ae4aef2af35be3f7559b489e364f1673d8203fc88f9494f1256a57ea2",
+      "elapsedSeconds": 58.378
+    },
+    {
+      "id": "workflow-attempt-05",
+      "caseId": "codex/workflow/missing-verification",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "76e2b216694bd4b60adf5eef8add3370fa9b0f81c71b5ff7b8f7f16efa4339ab",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 78519,
+        "output": 448
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "56272bce5332d4d4ed5fc00085b032d88e890fe167f2cd93b5600cc537685e0e",
+      "elapsedSeconds": 81.035
+    },
+    {
+      "id": "workflow-attempt-06",
+      "caseId": "codex/workflow/loaded-bypass",
+      "status": "failed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "76e2b216694bd4b60adf5eef8add3370fa9b0f81c71b5ff7b8f7f16efa4339ab",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 124801,
+        "output": 665
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": true,
+      "failureReason": "A read-only or blocked workflow changed repository state",
+      "privateEvidenceSha256": "342c7b6b2908dc7f0f39075e242a40f5872675223df9ecd163d33e4d8bba815b",
+      "elapsedSeconds": 86.132
+    },
+    {
+      "id": "workflow-attempt-07",
+      "caseId": "codex/workflow/unverifiable-goal",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "76e2b216694bd4b60adf5eef8add3370fa9b0f81c71b5ff7b8f7f16efa4339ab",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 111123,
+        "output": 578
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "d2268fbf5a740c7e407095919aeaf92b33b586fc409a47b19d92a66bf406dd31",
+      "elapsedSeconds": 66.775
+    },
+    {
+      "id": "workflow-attempt-08",
+      "caseId": "codex/workflow/delivery",
+      "status": "failed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "76e2b216694bd4b60adf5eef8add3370fa9b0f81c71b5ff7b8f7f16efa4339ab",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 204935,
+        "output": 1391
+      },
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": true,
+      "recordedWorkingTreeChanges": true,
+      "failureReason": "Native GOAL/finding/fix/review/push/latest-head completion not established",
+      "privateEvidenceSha256": "5d966e2511ec4557a7c0f397c522d657a63c7682f3ed403acc96173bc2bcfc1b",
+      "elapsedSeconds": 113.873
+    },
+    {
+      "id": "workflow-attempt-09",
+      "caseId": "codex/workflow/compatibility-delivery",
+      "status": "failed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "22cd9b2b7890b74ab06062e445885cf9139080b92696068fb29b626f140f0947",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 319672,
+        "output": 1751
+      },
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": true,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": "Native GOAL/finding/fix/review/push/latest-head completion not established",
+      "privateEvidenceSha256": "e312a89a3b077d14e9c32f387b4b5cf1d13938656f351d8b93b539126ee96e68",
+      "elapsedSeconds": 121.088
+    },
+    {
+      "id": "workflow-attempt-10",
+      "caseId": "codex/workflow/loaded-bypass",
+      "status": "failed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 223468,
+        "output": 1481
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": true,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": "Native token usage is unknown or exceeds the declared observed budget",
+      "privateEvidenceSha256": "43867a09edffc29c0b99ab261e66cf0423cc090a0be0e6b869a406748036e789",
+      "elapsedSeconds": 99.265
+    },
+    {
+      "id": "workflow-attempt-11",
+      "caseId": "codex/workflow/loaded-bypass",
+      "status": "failed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 155611,
+        "output": 652
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": true,
+      "failureReason": "A read-only or blocked workflow changed repository state",
+      "privateEvidenceSha256": "a8750b0f0a67cff34ebe8bf3a2ba846d4ee0c58d11e31d7395b11e3ad4665d42",
+      "elapsedSeconds": 84.667
+    },
+    {
+      "id": "workflow-attempt-12",
+      "caseId": "codex/workflow/mr-pending",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 132270,
+        "output": 407
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "9dba92591b49cd631ee9d8176dab5bd9a14ce62079083aadc168532ee933d04c",
+      "elapsedSeconds": 75.949
+    },
+    {
+      "id": "workflow-attempt-13",
+      "caseId": "codex/workflow/mr-failed",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 82019,
+        "output": 367
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "4f84e6c58610b11bcc0741408d4325e0a664be478dff3830ca49c327505a91db",
+      "elapsedSeconds": 65.485
+    },
+    {
+      "id": "workflow-attempt-14",
+      "caseId": "codex/workflow/delivery",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 255502,
+        "output": 1518
+      },
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": true,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "720673812f70c42c29225a9e83622eb7a5762f6264c1e3fb80f50dd5c36c7823",
+      "elapsedSeconds": 107.261
+    },
+    {
+      "id": "workflow-attempt-15",
+      "caseId": "codex/workflow/mr-stale",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 108078,
+        "output": 462
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "9300e6e245694526db22cfc5fcd42312aa60c0e0911d15886bc03d0184fb7723",
+      "elapsedSeconds": 65.868
+    },
+    {
+      "id": "workflow-attempt-16",
+      "caseId": "codex/workflow/compatibility-delivery",
+      "status": "passed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "exitCode": 0,
+      "timedOut": false,
+      "usage": {
+        "input": 299343,
+        "output": 1569
+      },
+      "budget": {
+        "maxWallMs": 240000,
+        "maxObservedTokens": 600000
+      },
+      "legacyReportedLoadedContext": true,
+      "legacyReportedLoadedGoal": true,
+      "recordedHeadChanged": true,
+      "recordedWorkingTreeChanges": false,
+      "failureReason": null,
+      "privateEvidenceSha256": "dbb35624cadf2dd1704ecad9e40e4e48555a1a4482a846857e1fa9d47b6553fa",
+      "elapsedSeconds": 181.501
+    },
+    {
+      "id": "workflow-attempt-17",
+      "caseId": "codex/workflow/no-skill-boundary",
+      "status": "failed",
+      "eligibleForFinalAcceptance": false,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "hostVersion": "codex-cli 0.166.0",
+      "openspecVersion": "1.16.0",
+      "templateDigest": "cfc0a77f71ba292844a876dfaf94e1feee16bdb2c11bcfb5eaef9918ff288620",
+      "exitCode": null,
+      "timedOut": true,
+      "usage": {
+        "input": 76324,
+        "output": 284
+      },
+      "budget": {
+        "maxWallMs": 120000,
+        "maxObservedTokens": 200000
+      },
+      "legacyReportedLoadedContext": false,
+      "legacyReportedLoadedGoal": false,
+      "recordedHeadChanged": false,
+      "recordedWorkingTreeChanges": true,
+      "failureReason": "Native workflow session failed or exceeded its wall budget",
+      "privateEvidenceSha256": "56a45a2322672b75e7bd97daa84cc765c8e53ec5d0b751d69e8ee672fda0c15f",
+      "elapsedSeconds": 121.084
+    }
+  ],
+  "loadedBypassAttempts": [
+    {
+      "attemptId": "workflow-attempt-06",
+      "originalStatus": "failed",
+      "nativePrerequisitesObserved": true,
+      "observation": "Source and tests changed after loading the skill and native prerequisites."
+    },
+    {
+      "attemptId": "workflow-attempt-10",
+      "originalStatus": "failed",
+      "nativePrerequisitesObserved": false,
+      "samePromptAsPreviousAttempt": true,
+      "observation": "The observed token budget was exceeded; native prerequisite inspection was not affirmatively established. This remains incomplete evidence."
+    },
+    {
+      "attemptId": "workflow-attempt-11",
+      "originalStatus": "failed",
+      "nativePrerequisitesObserved": true,
+      "observation": "With approval and design absent, source changed after skill/native inspection and the host explicitly honored the user override."
+    }
+  ],
+  "historicalSetupAndAnalysisAttempts": [
+    {
+      "id": "codex-mainline-missing-openspec",
+      "status": "failed",
+      "counts": {
+        "tests": 1,
+        "pass": 0,
+        "fail": 1,
+        "skipped": 0,
+        "duration_ms": 838.9385
+      },
+      "reason": "OpenSpec was missing from PATH; preflight remained pending."
+    },
+    {
+      "id": "codex-mainline-modern-default",
+      "status": "failed",
+      "counts": {
+        "tests": 1,
+        "pass": 0,
+        "fail": 1,
+        "skipped": 0,
+        "duration_ms": 4695.144875
+      },
+      "reason": "The test used the modern foundation default instead of the explicit legacy Codex backend and produced no research ledger."
+    },
+    {
+      "id": "codex-mainline-explicit-backend",
+      "status": "passed",
+      "counts": {
+        "tests": 1,
+        "pass": 1,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 73912.044958
+      },
+      "reason": "Explicit legacy Codex backend selection exercised research, apply and unchanged reuse."
+    },
+    {
+      "id": "omp-old-model-smoke",
+      "status": "model_not_found",
+      "version": "18.1.13",
+      "nativeCodexProtocolVersion": "0.153.0",
+      "reason": "The older native client did not support the selected model; the official updated client later passed."
+    },
+    {
+      "id": "native-goal-stdin-eof",
+      "status": "setup-failed",
+      "reason": "Stdin closed before native slash dispatch; this was not a successful goal gate."
+    },
+    {
+      "id": "native-goal-initial-extraction",
+      "status": "analysis-corrected",
+      "reason": "The initial extractor omitted custom tool events. The corrected extraction retained the same raw rollout and is reported separately from the initial extraction."
+    }
+  ],
+  "focusedHarnessEvidence": {
+    "round": "R3 fixes",
+    "passed": 36,
+    "liveSkipped": 45,
+    "nativeModelRuns": 0,
+    "laterReviewFoundFurtherGaps": true
+  },
+  "limits": [
+    "All 17 workflow records predate later oracle corrections; their original statuses are preserved and are not final acceptance.",
+    "No historical preparation/developer-feedback case was executed; readiness must not be relabeled as preparation.",
+    "The final native workflow matrix, including prepare-feedback, awaits R5 review and execution.",
+    "A loaded skill is advisory and cannot override host instruction hierarchy or host write permissions.",
+    "Native goal dispatch is separate from GOAL-guided prompts sent to one-shot execution.",
+    "Unknown model identities, source digests, HTTP counts and billing remain null.",
+    "Windows auth smokes include one original Codex timeout and one controlled retry with optional apps disabled. They are separate from the final native workflow matrix.",
+    "A lightweight native goal canary plus a separate one-shot delivery prompt cannot establish the same-session native goal delivery gate.",
+    "Linux goal completion used 61,406 full rollout tokens despite the original 30,000 guard checking only 15,696 native goal tokens. It is not a full-token budget pass, and no new paid run was used to relabel that attempt."
+  ],
+  "windowsHostSmoke": [
+    {
+      "attempt": "initial",
+      "platform": "win32",
+      "architecture": "arm64",
+      "node": "v24.22.1",
+      "host": "codex",
+      "version": "codex-cli 0.166.0",
+      "model": "gpt-6.1-sol",
+      "status": "failed",
+      "exitCode": null,
+      "timedOut": true,
+      "elapsedSeconds": 45.112,
+      "exactResponse": false,
+      "usage": null,
+      "usageAggregation": "last cumulative record; repeated snapshots are not summed",
+      "errorEventCount": 0,
+      "outerTimeoutSeconds": 45,
+      "wireOutputTokenCap": null,
+      "modelExecution": "real",
+      "sourceContentManifestSha256": null,
+      "eligibleForFinalWorkflowAcceptance": false
+    },
+    {
+      "attempt": "initial",
+      "platform": "win32",
+      "architecture": "arm64",
+      "node": "v24.22.1",
+      "host": "opencode",
+      "version": "1.18.5",
+      "model": "openai/gpt-6.1-sol",
+      "status": "passed",
+      "exitCode": 0,
+      "timedOut": false,
+      "elapsedSeconds": 12.194,
+      "exactResponse": true,
+      "usage": {
+        "total": 5965,
+        "input": 5956,
+        "output": 9,
+        "reasoning": 0
+      },
+      "usageAggregation": "last cumulative record; repeated snapshots are not summed",
+      "errorEventCount": 0,
+      "outerTimeoutSeconds": 45,
+      "wireOutputTokenCap": null,
+      "modelExecution": "real",
+      "sourceContentManifestSha256": null,
+      "eligibleForFinalWorkflowAcceptance": false
+    },
+    {
+      "attempt": "initial",
+      "platform": "win32",
+      "architecture": "arm64",
+      "node": "v24.22.1",
+      "host": "omp",
+      "version": "omp/18.19.0",
+      "model": "openai-codex/gpt-6.1-sol",
+      "status": "passed",
+      "exitCode": 0,
+      "timedOut": false,
+      "elapsedSeconds": 3.691,
+      "exactResponse": true,
+      "usage": {
+        "input": 207,
+        "output": 9,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 216,
+        "premiumRequests": 0
+      },
+      "usageAggregation": "last cumulative record; repeated snapshots are not summed",
+      "errorEventCount": 0,
+      "outerTimeoutSeconds": 45,
+      "wireOutputTokenCap": null,
+      "modelExecution": "real",
+      "sourceContentManifestSha256": null,
+      "eligibleForFinalWorkflowAcceptance": false
+    },
+    {
+      "attempt": "controlled-retry",
+      "platform": "win32",
+      "architecture": "arm64",
+      "node": "v24.22.1",
+      "host": "codex",
+      "version": "codex-cli 0.166.0",
+      "model": "gpt-6.1-sol",
+      "status": "passed",
+      "exitCode": 0,
+      "timedOut": false,
+      "elapsedSeconds": 21.947,
+      "exactResponse": true,
+      "usage": {
+        "input_tokens": 13961,
+        "cached_input_tokens": 12288,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 9,
+        "reasoning_output_tokens": 0
+      },
+      "usageAggregation": "last cumulative record; repeated snapshots are not summed",
+      "errorEventCount": 0,
+      "outerTimeoutSeconds": 45,
+      "wireOutputTokenCap": null,
+      "modelExecution": "real",
+      "sourceContentManifestSha256": null,
+      "eligibleForFinalWorkflowAcceptance": false,
+      "perInvocationConfiguration": {
+        "features.apps": false
+      },
+      "originalTimeoutRetained": true,
+      "diagnosticAfterRetry": {
+        "catalogRefreshTimedOut": false,
+        "appsMcpTransportFailed": false
+      }
+    }
+  ],
+  "windowsSmokeScope": {
+    "initialAttemptCount": 3,
+    "initialPassed": 2,
+    "initialFailed": 1,
+    "controlledRetries": 1,
+    "hostsWithAtLeastOnePassedSmoke": 3,
+    "diagnosis": "The initial Codex startup timed out while refreshing its model catalog and starting the optional apps MCP integration. Only that optional integration was disabled for one controlled retry; the original model, credentials, read-only sandbox and 45-second wall limit were preserved.",
+    "optionalAppsPartOfAcceptanceTools": false,
+    "customHeadersOrAuthenticationBypass": false,
+    "credentialCleanup": "pending authorized native tests and final cleanup",
+    "intermediateOmpImportRemoved": true,
+    "privateEvidenceSha256": {
+      "initialSummaryLog": "fa99a2abbd74d1ab7aea72b75674948788c05981ca13b9fbedf926c89cc32dfe",
+      "controlledRetrySummaryLog": "ecaa1f582ad758ddf17b6980ac3eb0d218ac15ec924f7673470e9f8a6a22a5ae"
+    }
+  },
+  "linuxHostSmoke": [
+    {
+      "host": "codex",
+      "version": "0.166.0",
+      "platform": "linux",
+      "architecture": "arm64",
+      "model": "gpt-6.1-sol",
+      "reasoning": "low",
+      "status": "passed",
+      "exitCode": 0,
+      "timedOut": false,
+      "elapsedSeconds": 24.03,
+      "exactResponse": true,
+      "usage": {
+        "input_tokens": 14194,
+        "cached_input_tokens": 12288,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 9,
+        "reasoning_output_tokens": 0
+      },
+      "usageAggregation": "last cumulative record; repeated snapshots are not summed",
+      "outerTimeoutSeconds": 45,
+      "sessionMaxSeconds": null,
+      "wireOutputTokenCap": null,
+      "modelExecution": "real",
+      "sourceContentManifestSha256": "821a06149cba2efe2524608bf568009d7d0ed90ff1b8312d88854e258d301ab2",
+      "eligibleForFinalWorkflowAcceptance": false,
+      "privateEvidenceSha256": "4b16ff874a4e2f995e39b9b10ec38f8a820a0e467a50ee538231cdcba72b3f4a",
+      "node": "v24.22.2"
+    },
+    {
+      "host": "opencode",
+      "version": "1.18.5",
+      "platform": "linux",
+      "architecture": "arm64",
+      "model": "openai/gpt-6.1-sol",
+      "reasoning": "low",
+      "status": "passed",
+      "exitCode": 0,
+      "timedOut": false,
+      "elapsedSeconds": 6.27,
+      "exactResponse": true,
+      "usage": {
+        "total": 5927,
+        "input": 5918,
+        "output": 9,
+        "reasoning": 0
+      },
+      "usageAggregation": "last cumulative record; repeated snapshots are not summed",
+      "outerTimeoutSeconds": 45,
+      "sessionMaxSeconds": null,
+      "wireOutputTokenCap": null,
+      "modelExecution": "real",
+      "sourceContentManifestSha256": "821a06149cba2efe2524608bf568009d7d0ed90ff1b8312d88854e258d301ab2",
+      "eligibleForFinalWorkflowAcceptance": false,
+      "privateEvidenceSha256": "7451e30e5bfec5a919100dc1b7f6a412ef52cb5b87129ce8a6f891c20d3f705e",
+      "node": "v24.22.2"
+    },
+    {
+      "host": "omp",
+      "version": "18.19.0",
+      "platform": "linux",
+      "architecture": "arm64",
+      "model": "openai-codex/gpt-6.1-sol",
+      "reasoning": "low",
+      "status": "passed",
+      "exitCode": 0,
+      "timedOut": false,
+      "elapsedSeconds": 5.46,
+      "exactResponse": true,
+      "usage": {
+        "input": 194,
+        "output": 9,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 203,
+        "premiumRequests": 0
+      },
+      "usageAggregation": "last cumulative record; repeated snapshots are not summed",
+      "outerTimeoutSeconds": 45,
+      "sessionMaxSeconds": 30,
+      "wireOutputTokenCap": null,
+      "modelExecution": "real",
+      "sourceContentManifestSha256": "821a06149cba2efe2524608bf568009d7d0ed90ff1b8312d88854e258d301ab2",
+      "eligibleForFinalWorkflowAcceptance": false,
+      "privateEvidenceSha256": "db46d38b189d918045c1223bc920d78b00613a448bf9b9e7d5f21256a2e88152",
+      "node": "v24.22.2"
+    }
+  ],
+  "linuxSmokeScope": {
+    "initialPassed": 3,
+    "initialFailed": 0,
+    "credentialCleanup": "pending authorized native tests and final cleanup",
+    "nativeGoalResult": "separate native state observations retained; blocked first attempt and completed retry do not establish the full workflow gate or a 30,000 full-token pass"
+  },
+  "focusedHarnessHistory": [
+    {
+      "round": "R3 fixes",
+      "passed": 36,
+      "liveSkipped": 45,
+      "nativeModelRuns": 0,
+      "laterReviewFoundFurtherGaps": true
+    },
+    {
+      "round": "R4 fixes before R5 observability corrections",
+      "passed": 128,
+      "liveSkipped": 48,
+      "nativeModelRuns": 0,
+      "laterReviewFoundFurtherGaps": true
+    }
+  ],
+  "linuxNativeGoalObservations": {
+    "scope": "Linux native authentication smokes plus interactive /goal dispatch/read-proof environment evidence only; not the same-goal implementation/pre-push/MR workflow gate",
+    "sourceContentManifestSha256": "821a06149cba2efe2524608bf568009d7d0ed90ff1b8312d88854e258d301ab2",
+    "platform": "linux",
+    "architecture": "arm64",
+    "node": "v24.22.2",
+    "attempts": [
+      {
+        "stateTransitions": [
+          "active",
+          "blocked"
+        ],
+        "nativeGoalStatus": "blocked",
+        "sqlGoalTokens": 28291,
+        "sqlGoalTimeSeconds": 32,
+        "driverElapsedSeconds": 92.19,
+        "outerTimeoutSeconds": 90,
+        "workflowGatePassed": false,
+        "failure": "Default Docker seccomp prevented native bwrap namespace creation",
+        "nativeUsage": {
+          "logicalTurnsStarted": 3,
+          "logicalTurnsCompleted": 3,
+          "distinctCumulativeUsageUpdates": 8,
+          "finalTotalTokenUsage": {
+            "input_tokens": 190076,
+            "cached_input_tokens": 161664,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 428,
+            "reasoning_output_tokens": 9,
+            "total_tokens": 190504
+          },
+          "customToolCalls": 5,
+          "customToolOutputs": 5
+        },
+        "eligibleForFinalWorkflowAcceptance": false
+      },
+      {
+        "stateTransitions": [
+          "active",
+          "complete"
+        ],
+        "nativeGoalStatus": "complete",
+        "sqlGoalTokens": 15696,
+        "sqlGoalTimeSeconds": 34,
+        "driverElapsedSeconds": 41.355,
+        "outerTimeoutSeconds": 90.0,
+        "workflowGatePassed": false,
+        "nativeTerminalObservedAfterGoal": true,
+        "proofUnchanged": true,
+        "originalDriverTokenGuard": {
+          "limit": 30000,
+          "basis": "SQL goal net tokens only",
+          "fullTokenBudgetSatisfied": false,
+          "note": "Original parameters and result retained; this attempt does not establish a 30000 full-token budget pass"
+        },
+        "nativeUsage": {
+          "logicalTurnsStarted": 1,
+          "logicalTurnsCompleted": 1,
+          "distinctCumulativeUsageUpdates": 4,
+          "finalTotalTokenUsage": {
+            "input_tokens": 61234,
+            "cached_input_tokens": 45312,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 172,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 61406
+          },
+          "customToolCalls": 3,
+          "customToolOutputs": 3
+        },
+        "eligibleForFinalWorkflowAcceptance": false
+      }
+    ],
+    "transportAttemptCount": null,
+    "temporaryCredentialCleanup": "pending the separately authorized native workflow matrix; scoped protected homes retained",
+    "priorContainerCredentialsRemoved": true,
+    "temporaryOmpImportDeleted": true,
+    "sandboxCorrection": {
+      "privileged": false,
+      "additionalCapabilities": null,
+      "profileSha256": "8ec39f4343010135faa4607d1599b800e2658d927a9c9a4f697a14877914b2a6",
+      "delta": {
+        "clone": "allow CLONE_NEWUSER bit only",
+        "syscalls": [
+          "mount",
+          "umount2",
+          "pivot_root"
+        ]
+      },
+      "nativeReadOnlySandboxRetained": true
+    },
+    "correctedDriverBudget": "max(native SQL goal counter, bound cumulative rollout total_tokens), including cached input; observed guard, not a wire cap",
+    "noPaidRerunForBudgetRelabeling": true,
+    "privateEvidenceSha256": "a67b5a8c11e71ad43d846fd90272f90718b5ca4efb79284d709269ccaa71d2a2"
+  }
+}

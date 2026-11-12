@@ -1,0 +1,1009 @@
+{
+  "schemaVersion": 1,
+  "status": "historical-passed-snapshot-not-final-acceptance",
+  "recordedAt": "2026-11-12T11:26:03.872464+00:00",
+  "sourceContentManifestSha256": "0d517bcccdaac3987cd9623f74aa1bc76ba226aafdd703f1482d1d0bc0d12abb",
+  "sourceFileCount": 571,
+  "windowsArchiveSha256": "57e4b494ca74f9c073b1c301f5405ca2ec6690b1fdbcc3d726509898dc2960d5",
+  "testedPackageVersion": "0.4.1",
+  "targetRelease": "0.5.0",
+  "checks": [
+    {
+      "id": "check-1",
+      "platform": "macOS 27.0.1 arm64",
+      "node": "24.15.0",
+      "status": "passed",
+      "counts": {
+        "tests": 823,
+        "pass": 742,
+        "fail": 0,
+        "skipped": 81
+      },
+      "stages": {
+        "typecheck": "passed",
+        "tests": "passed",
+        "build": "passed",
+        "documentation": "passed",
+        "package": "passed"
+      },
+      "skippedTests": [
+        "skip-001",
+        "skip-002",
+        "skip-003",
+        "skip-004",
+        "skip-005",
+        "skip-006",
+        "skip-007",
+        "skip-008",
+        "skip-009",
+        "skip-010",
+        "skip-011",
+        "skip-012",
+        "skip-013",
+        "skip-014",
+        "skip-015",
+        "skip-016",
+        "skip-017",
+        "skip-018",
+        "skip-019",
+        "skip-020",
+        "skip-021",
+        "skip-022",
+        "skip-023",
+        "skip-024",
+        "skip-025",
+        "skip-026",
+        "skip-027",
+        "skip-028",
+        "skip-029",
+        "skip-030",
+        "skip-031",
+        "skip-032",
+        "skip-033",
+        "skip-034",
+        "skip-035",
+        "skip-036",
+        "skip-037",
+        "skip-038",
+        "skip-039",
+        "skip-040",
+        "skip-041",
+        "skip-042",
+        "skip-043",
+        "skip-044",
+        "skip-045",
+        "skip-046",
+        "skip-047",
+        "skip-048",
+        "skip-049",
+        "skip-050",
+        "skip-051",
+        "skip-052",
+        "skip-053",
+        "skip-054",
+        "skip-055",
+        "skip-056",
+        "skip-057",
+        "skip-058",
+        "skip-059",
+        "skip-060",
+        "skip-061",
+        "skip-062",
+        "skip-063",
+        "skip-064",
+        "skip-065",
+        "skip-066",
+        "skip-067",
+        "skip-068",
+        "skip-069",
+        "skip-070",
+        "skip-071",
+        "skip-072",
+        "skip-073",
+        "skip-074",
+        "skip-075",
+        "skip-076",
+        "skip-077",
+        "skip-078",
+        "skip-079",
+        "skip-080",
+        "skip-081"
+      ],
+      "privateLogSha256": "40713845d79690b0774b0be662d3576b3867dbab095c63565429db59be1f0779"
+    },
+    {
+      "id": "check-2",
+      "platform": "macOS 27.0.1 arm64",
+      "node": "22.19.0",
+      "status": "passed",
+      "counts": {
+        "tests": 823,
+        "pass": 742,
+        "fail": 0,
+        "skipped": 81
+      },
+      "stages": {
+        "typecheck": "passed",
+        "tests": "passed",
+        "build": "passed",
+        "documentation": "passed",
+        "package": "passed"
+      },
+      "skippedTests": [
+        "skip-001",
+        "skip-002",
+        "skip-003",
+        "skip-004",
+        "skip-005",
+        "skip-006",
+        "skip-007",
+        "skip-008",
+        "skip-009",
+        "skip-010",
+        "skip-011",
+        "skip-012",
+        "skip-013",
+        "skip-014",
+        "skip-015",
+        "skip-016",
+        "skip-017",
+        "skip-018",
+        "skip-019",
+        "skip-020",
+        "skip-021",
+        "skip-022",
+        "skip-023",
+        "skip-024",
+        "skip-025",
+        "skip-026",
+        "skip-027",
+        "skip-028",
+        "skip-029",
+        "skip-030",
+        "skip-031",
+        "skip-032",
+        "skip-033",
+        "skip-034",
+        "skip-035",
+        "skip-036",
+        "skip-037",
+        "skip-038",
+        "skip-039",
+        "skip-040",
+        "skip-041",
+        "skip-042",
+        "skip-043",
+        "skip-044",
+        "skip-045",
+        "skip-046",
+        "skip-047",
+        "skip-048",
+        "skip-049",
+        "skip-050",
+        "skip-051",
+        "skip-052",
+        "skip-053",
+        "skip-054",
+        "skip-055",
+        "skip-056",
+        "skip-057",
+        "skip-058",
+        "skip-059",
+        "skip-060",
+        "skip-061",
+        "skip-062",
+        "skip-063",
+        "skip-064",
+        "skip-065",
+        "skip-066",
+        "skip-067",
+        "skip-068",
+        "skip-069",
+        "skip-070",
+        "skip-071",
+        "skip-072",
+        "skip-073",
+        "skip-074",
+        "skip-075",
+        "skip-076",
+        "skip-077",
+        "skip-078",
+        "skip-079",
+        "skip-080",
+        "skip-081"
+      ],
+      "privateLogSha256": "3117c751c0698629f1d59ff781281734f398d6efec7ab3128fdd1f12da287797"
+    },
+    {
+      "id": "check-3",
+      "platform": "Linux ARM64 container with init",
+      "node": "24.22.2",
+      "status": "passed",
+      "counts": {
+        "tests": 823,
+        "pass": 741,
+        "fail": 0,
+        "skipped": 82
+      },
+      "stages": {
+        "typecheck": "passed",
+        "tests": "passed",
+        "build": "passed",
+        "documentation": "passed",
+        "package": "passed"
+      },
+      "skippedTests": [
+        "skip-001",
+        "skip-082",
+        "skip-002",
+        "skip-003",
+        "skip-004",
+        "skip-005",
+        "skip-006",
+        "skip-007",
+        "skip-008",
+        "skip-009",
+        "skip-010",
+        "skip-011",
+        "skip-012",
+        "skip-013",
+        "skip-014",
+        "skip-015",
+        "skip-016",
+        "skip-017",
+        "skip-018",
+        "skip-019",
+        "skip-020",
+        "skip-021",
+        "skip-022",
+        "skip-023",
+        "skip-024",
+        "skip-025",
+        "skip-026",
+        "skip-027",
+        "skip-028",
+        "skip-029",
+        "skip-030",
+        "skip-031",
+        "skip-032",
+        "skip-033",
+        "skip-034",
+        "skip-035",
+        "skip-036",
+        "skip-037",
+        "skip-038",
+        "skip-039",
+        "skip-040",
+        "skip-041",
+        "skip-042",
+        "skip-043",
+        "skip-044",
+        "skip-045",
+        "skip-046",
+        "skip-047",
+        "skip-048",
+        "skip-049",
+        "skip-050",
+        "skip-051",
+        "skip-052",
+        "skip-053",
+        "skip-054",
+        "skip-055",
+        "skip-056",
+        "skip-057",
+        "skip-058",
+        "skip-059",
+        "skip-060",
+        "skip-061",
+        "skip-062",
+        "skip-063",
+        "skip-064",
+        "skip-065",
+        "skip-066",
+        "skip-067",
+        "skip-068",
+        "skip-069",
+        "skip-070",
+        "skip-071",
+        "skip-072",
+        "skip-073",
+        "skip-074",
+        "skip-075",
+        "skip-076",
+        "skip-077",
+        "skip-078",
+        "skip-079",
+        "skip-080",
+        "skip-081"
+      ],
+      "privateLogSha256": "a50ecc58f875eec2386bb9fe085fd8a4b845f51cfb81dd3c8c7ebeaedb78d3f9"
+    },
+    {
+      "id": "check-4",
+      "platform": "Windows 11 ARM64 native",
+      "node": "24.22.1",
+      "status": "passed",
+      "counts": {
+        "tests": 823,
+        "pass": 731,
+        "fail": 0,
+        "skipped": 92
+      },
+      "stages": {
+        "typecheck": "passed",
+        "tests": "passed",
+        "build": "passed",
+        "documentation": "passed",
+        "package": "passed"
+      },
+      "skippedTests": [
+        "skip-083",
+        "skip-082",
+        "skip-084",
+        "skip-004",
+        "skip-005",
+        "skip-006",
+        "skip-007",
+        "skip-008",
+        "skip-009",
+        "skip-010",
+        "skip-011",
+        "skip-012",
+        "skip-013",
+        "skip-014",
+        "skip-015",
+        "skip-016",
+        "skip-017",
+        "skip-018",
+        "skip-019",
+        "skip-020",
+        "skip-021",
+        "skip-022",
+        "skip-023",
+        "skip-024",
+        "skip-025",
+        "skip-026",
+        "skip-027",
+        "skip-028",
+        "skip-029",
+        "skip-030",
+        "skip-031",
+        "skip-032",
+        "skip-033",
+        "skip-034",
+        "skip-035",
+        "skip-036",
+        "skip-037",
+        "skip-038",
+        "skip-039",
+        "skip-040",
+        "skip-041",
+        "skip-042",
+        "skip-043",
+        "skip-044",
+        "skip-045",
+        "skip-046",
+        "skip-047",
+        "skip-048",
+        "skip-049",
+        "skip-050",
+        "skip-051",
+        "skip-052",
+        "skip-053",
+        "skip-054",
+        "skip-055",
+        "skip-056",
+        "skip-057",
+        "skip-058",
+        "skip-059",
+        "skip-060",
+        "skip-061",
+        "skip-062",
+        "skip-063",
+        "skip-064",
+        "skip-065",
+        "skip-066",
+        "skip-067",
+        "skip-085",
+        "skip-086",
+        "skip-087",
+        "skip-088",
+        "skip-089",
+        "skip-090",
+        "skip-091",
+        "skip-092",
+        "skip-093",
+        "skip-094",
+        "skip-095",
+        "skip-096",
+        "skip-097",
+        "skip-098",
+        "skip-099",
+        "skip-100",
+        "skip-101",
+        "skip-102",
+        "skip-103",
+        "skip-104",
+        "skip-105",
+        "skip-106",
+        "skip-107",
+        "skip-108",
+        "skip-109"
+      ],
+      "privateLogSha256": "1c0362e36423579bdfb976261cdff3ba486be2bf5b28e5d0111313be99781392"
+    }
+  ],
+  "samePackageIntegrity": true,
+  "package": {
+    "status": "passed",
+    "package": "ansonli.dev-rigup-0.4.1.tgz",
+    "integrity": "sha512-ROLaQjGJv9+llzseZUtAoep9ZAHdseocy54iQXpP5uwYntP7Q2ANZy7IM7Y7iEGwhFMzN8qOBp9mNVwena8dfQ==",
+    "files": 123,
+    "lifecycle": [
+      "PATH command",
+      "help",
+      "version",
+      "current-directory preview",
+      "session handoff",
+      "independent apply",
+      "no-op update",
+      "doctor",
+      "stdio MCP from a nested Unicode path"
+    ],
+    "doctorExit": 3,
+    "doctorHostState": "reload-required",
+    "modelCalls": 0
+  },
+  "skipCatalog": [
+    {
+      "id": "skip-001",
+      "test": "Windows private project records exclude inherited public read permissions from creation",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-002",
+      "test": "Windows first unresolved PATH shim blocks fallback to a later CLI",
+      "reportedReason": "uses native Windows npm shims"
+    },
+    {
+      "id": "skip-003",
+      "test": "Windows PATH package without a command shim is not an executable candidate",
+      "reportedReason": "uses native Windows npm shims"
+    },
+    {
+      "id": "skip-004",
+      "test": "live explicit Codex backend researches generates applies and reuses without another API credential",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-005",
+      "test": "live Codex native skill discovery and customer MCP connection",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-006",
+      "test": "live OpenCode native discovery and MCP connection",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-007",
+      "test": "live OMP session discovery and MCP connection",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-008",
+      "test": "live packaged assets stay discoverable after CLI and dependencies are removed",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-009",
+      "test": "live Claude native prerequisites",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-010",
+      "test": "live Codex OpenSpec fixed delivery gate consumes customer reference",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-011",
+      "test": "live native service generation and counterexample update",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-012",
+      "test": "live native monorepo generation and counterexample update",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-013",
+      "test": "live host service generation and counterexample update",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-014",
+      "test": "live host monorepo generation and counterexample update",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-015",
+      "test": "live Bulletproof React completes semantic setup within its unchanged budget",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-016",
+      "test": "live Domain-Driven Hexagon completes semantic setup within its unchanged budget",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-017",
+      "test": "live local GitLab lints and runs generated checks reports and wiki guards",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-018",
+      "test": "harness upgrade preserves v035 installation",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-019",
+      "test": "harness upgrade rejects stale approval",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-020",
+      "test": "harness upgrade preserves interrupted transaction",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-021",
+      "test": "live scaffold recovers CodeGraph initialization and hands OpenWiki to a separate Codex session",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-022",
+      "test": "live pinned CodeGraph indexes queries and syncs a real source fixture",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-023",
+      "test": "native workflow codex incomplete-native",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-024",
+      "test": "native workflow codex blocked-delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-025",
+      "test": "native workflow codex missing-approval",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-026",
+      "test": "native workflow codex blocked-approval-delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-027",
+      "test": "native workflow codex wrong-change",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-028",
+      "test": "native workflow codex missing-verification",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-029",
+      "test": "native workflow codex unverifiable-goal",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-030",
+      "test": "native workflow codex loaded-bypass",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-031",
+      "test": "native workflow codex ready",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-032",
+      "test": "native workflow codex delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-033",
+      "test": "native workflow codex compatibility-delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-034",
+      "test": "native workflow codex mr-pending",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-035",
+      "test": "native workflow codex mr-failed",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-036",
+      "test": "native workflow codex mr-stale",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-037",
+      "test": "native workflow codex no-skill-boundary",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-038",
+      "test": "native workflow opencode incomplete-native",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-039",
+      "test": "native workflow opencode blocked-delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-040",
+      "test": "native workflow opencode missing-approval",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-041",
+      "test": "native workflow opencode blocked-approval-delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-042",
+      "test": "native workflow opencode wrong-change",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-043",
+      "test": "native workflow opencode missing-verification",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-044",
+      "test": "native workflow opencode unverifiable-goal",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-045",
+      "test": "native workflow opencode loaded-bypass",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-046",
+      "test": "native workflow opencode ready",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-047",
+      "test": "native workflow opencode delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-048",
+      "test": "native workflow opencode compatibility-delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-049",
+      "test": "native workflow opencode mr-pending",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-050",
+      "test": "native workflow opencode mr-failed",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-051",
+      "test": "native workflow opencode mr-stale",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-052",
+      "test": "native workflow opencode no-skill-boundary",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-053",
+      "test": "native workflow omp incomplete-native",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-054",
+      "test": "native workflow omp blocked-delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-055",
+      "test": "native workflow omp missing-approval",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-056",
+      "test": "native workflow omp blocked-approval-delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-057",
+      "test": "native workflow omp wrong-change",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-058",
+      "test": "native workflow omp missing-verification",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-059",
+      "test": "native workflow omp unverifiable-goal",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-060",
+      "test": "native workflow omp loaded-bypass",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-061",
+      "test": "native workflow omp ready",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-062",
+      "test": "native workflow omp delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-063",
+      "test": "native workflow omp compatibility-delivery",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-064",
+      "test": "native workflow omp mr-pending",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-065",
+      "test": "native workflow omp mr-failed",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-066",
+      "test": "native workflow omp mr-stale",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-067",
+      "test": "native workflow omp no-skill-boundary",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-068",
+      "test": "Windows npm preflight uses the global prefix on PATH and refuses to overwrite a package",
+      "reportedReason": "uses Windows npm shims"
+    },
+    {
+      "id": "skip-069",
+      "test": "Windows OpenSpec preflight resolves a local npm prefix through its package entry",
+      "reportedReason": "uses Windows npm shims"
+    },
+    {
+      "id": "skip-070",
+      "test": "Windows preview preserves a read-only skill target when upstream bytes change",
+      "reportedReason": "requires the Windows read-only attribute"
+    },
+    {
+      "id": "skip-071",
+      "test": "Windows rejects drive-relative components, NTFS streams and DOS device aliases",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-072",
+      "test": "Windows previews reject case aliases for installer metadata and planned files",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-073",
+      "test": "Windows creates and verifies private directories and files beyond legacy path limits",
+      "reportedReason": "requires native Windows ACLs"
+    },
+    {
+      "id": "skip-074",
+      "test": "Windows deep private files still reject public read grants with the original path",
+      "reportedReason": "requires native Windows ACLs"
+    },
+    {
+      "id": "skip-075",
+      "test": "Windows deep ancestor denials prevent creation and report the original ancestor path",
+      "reportedReason": "requires native Windows ACLs"
+    },
+    {
+      "id": "skip-076",
+      "test": "Windows private state rejects an NTFS grant to Everyone",
+      "reportedReason": "requires NTFS access control"
+    },
+    {
+      "id": "skip-077",
+      "test": "Windows creates a private leaf below an ancestor with inherited read grants",
+      "reportedReason": "requires NTFS access control"
+    },
+    {
+      "id": "skip-078",
+      "test": "Windows job dispatch waits for authorization and preserves arguments and stdin",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-079",
+      "test": "Windows job cancellation stops a detached grandchild before reporting completion",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-080",
+      "test": "Windows job reports a lone descendant left by a normally exited root",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-081",
+      "test": "Windows job loses its writer when the controller exits abruptly",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-082",
+      "test": "harness leaves GitLab wiring unverified when an ignored directory cannot be inventoried",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-083",
+      "test": "symlink denied reads never return EOF metadata or continue generation",
+      "reportedReason": "Windows file symlink privilege is unavailable"
+    },
+    {
+      "id": "skip-084",
+      "test": "a symlinked overlay fails setup without opening a model session",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-085",
+      "test": "a live CodeGraph daemon socket preserves verified initialization",
+      "reportedReason": "SKIP"
+    },
+    {
+      "id": "skip-086",
+      "test": "review upstream mode-only skill update is installed and truthfully diagnosed",
+      "reportedReason": "requires POSIX executable and group mode bits"
+    },
+    {
+      "id": "skip-087",
+      "test": "review user chmod is preserved and diagnosed while divergent upstream chmod conflicts",
+      "reportedReason": "requires POSIX executable and group mode bits"
+    },
+    {
+      "id": "skip-088",
+      "test": "review chmod after preview invalidates apply before writes",
+      "reportedReason": "requires POSIX executable and group mode bits"
+    },
+    {
+      "id": "skip-089",
+      "test": "review interrupted mode-only application survives ordinary-cache loss",
+      "reportedReason": "requires POSIX executable and group mode bits"
+    },
+    {
+      "id": "skip-090",
+      "test": "review recovery rejects a user chmod even when bytes match both before and after",
+      "reportedReason": "requires POSIX executable and group mode bits"
+    },
+    {
+      "id": "skip-091",
+      "test": "review final verification and completed replay check actual modes",
+      "reportedReason": "requires POSIX executable and group mode bits"
+    },
+    {
+      "id": "skip-092",
+      "test": "review legacy previews without mode preconditions require regeneration",
+      "reportedReason": "requires POSIX executable and group mode bits"
+    },
+    {
+      "id": "skip-093",
+      "test": "installer verifies then installs repeats and upgrades without deleting the old version",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-094",
+      "test": "checksum failure preserves the installed command and never promotes the new version",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-095",
+      "test": "an unrelated rigup command is never replaced or executed",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-096",
+      "test": "unsafe archive members never escape staging or install a command",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-097",
+      "test": "invalid version overrides stop before downloading or changing directories",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-098",
+      "test": "installer preserves an occupied install lock and never steals it",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-099",
+      "test": "modified owned version directories are retained for manual reconciliation",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-100",
+      "test": "archive links that leave the version directory are refused before installation",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-101",
+      "test": "an installed command replaced by a directory cannot receive the next version link",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-102",
+      "test": "dot segments cannot hide an archive symlink that escapes its version directory",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-103",
+      "test": "trailing slashes cannot hide an archive symlink that escapes its version directory",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-104",
+      "test": "first installation preserves a command created after the ownership check",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-105",
+      "test": "the one-line installer runs the release script only after a complete download",
+      "reportedReason": "The shell installer requires macOS or Linux"
+    },
+    {
+      "id": "skip-106",
+      "test": "portable launcher uses its own runtime and resources through relocation and a symlink",
+      "reportedReason": "The portable launcher requires macOS or Linux"
+    },
+    {
+      "id": "skip-107",
+      "test": "an incomplete portable directory never falls back to system Node or another checkout",
+      "reportedReason": "The portable launcher requires macOS or Linux"
+    },
+    {
+      "id": "skip-108",
+      "test": "Git safety probes receive only essential environment while checking the real repository",
+      "reportedReason": "uses a POSIX executable forwarding fixture"
+    },
+    {
+      "id": "skip-109",
+      "test": "symlink runtime inputs are not read or overwritten",
+      "reportedReason": "Windows file symlink privilege is unavailable"
+    }
+  ],
+  "limitations": [
+    "The implementation and workflow harness changed after this snapshot for review findings.",
+    "Default skips remain skips; separate native results do not rewrite these counts.",
+    "Repository CI and the v0.5.0 release have not started."
+  ]
+}

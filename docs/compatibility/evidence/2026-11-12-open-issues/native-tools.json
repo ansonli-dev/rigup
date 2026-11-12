@@ -1,0 +1,562 @@
+{
+  "schemaVersion": 1,
+  "scope": "Actual native CLI discovery/MCP and native tool recovery; no model or workflow-matrix inference",
+  "canaries": [
+    {
+      "id": "macos-codex-discovery-mcp",
+      "caseId": "codex/none/customer-mcp",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "host": "codex",
+      "hostVersion": "codex-cli 0.166.0",
+      "status": "passed",
+      "modelRequests": 0,
+      "sourceContentManifestSha256": null,
+      "sourceIdentityRecorded": false,
+      "privateEvidenceSha256": "60bd0d487f8bcdaa8eabcf383b467338ecd81ea56f9c77cf122d6b42fd122675",
+      "skillDiscovered": true,
+      "mcpInitialized": true,
+      "mcpToolCallEchoed": true,
+      "mcpToolCount": 1
+    },
+    {
+      "id": "macos-opencode-discovery-mcp",
+      "caseId": "opencode/none/customer-mcp",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "host": "opencode",
+      "hostVersion": "1.18.5",
+      "status": "passed",
+      "modelRequests": 0,
+      "sourceContentManifestSha256": null,
+      "sourceIdentityRecorded": false,
+      "privateEvidenceSha256": "847a69dbec4210ff6eeb0ae8c41c3c76658a77b9050b2eb5b83a15a86d7ba4fc",
+      "skillDiscovered": true,
+      "mcpConnected": true,
+      "mcpMethods": [
+        "initialize",
+        "tools/list"
+      ]
+    },
+    {
+      "id": "macos-omp-discovery-mcp",
+      "caseId": "omp/none/customer-mcp",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "host": "omp",
+      "hostVersion": "omp/18.19.0",
+      "status": "passed",
+      "modelRequests": 0,
+      "sourceContentManifestSha256": null,
+      "sourceIdentityRecorded": false,
+      "privateEvidenceSha256": "c15904ae665dfa502639c6e022796270c41a5190af725193cde957ecab7cb7d0",
+      "skillDiscovered": false,
+      "mcpConnected": true,
+      "mcpMethods": [
+        "initialize",
+        "tools/list"
+      ]
+    },
+    {
+      "id": "linux-codex-discovery-mcp",
+      "caseId": "codex/none/customer-mcp",
+      "platform": "linux",
+      "architecture": "arm64",
+      "host": "codex",
+      "hostVersion": "codex-cli 0.166.0",
+      "status": "passed",
+      "modelRequests": 0,
+      "sourceContentManifestSha256": "acdfcb87551fb64ab5af129060f3677fe62ea0643eb5cd07db7438a08512d305",
+      "sourceIdentityRecorded": true,
+      "privateEvidenceSha256": "f2be18d64f21a88c5812364a35304a45849205792e37e4846befc4d206e4a267",
+      "skillDiscovered": true,
+      "mcpInitialized": true,
+      "mcpToolCallEchoed": true,
+      "mcpToolCount": 1
+    },
+    {
+      "id": "linux-opencode-discovery-mcp",
+      "caseId": "opencode/none/customer-mcp",
+      "platform": "linux",
+      "architecture": "arm64",
+      "host": "opencode",
+      "hostVersion": "1.18.5",
+      "status": "passed",
+      "modelRequests": 0,
+      "sourceContentManifestSha256": "acdfcb87551fb64ab5af129060f3677fe62ea0643eb5cd07db7438a08512d305",
+      "sourceIdentityRecorded": true,
+      "privateEvidenceSha256": "9b42aa16797b76ce378219ae8b34e82d8b0f79a3d65de00f5f0a1a0bd676f670",
+      "skillDiscovered": true,
+      "mcpConnected": true,
+      "mcpMethods": [
+        "initialize",
+        "tools/list"
+      ]
+    },
+    {
+      "id": "linux-omp-discovery-mcp",
+      "caseId": "omp/none/customer-mcp",
+      "platform": "linux",
+      "architecture": "arm64",
+      "host": "omp",
+      "hostVersion": "omp/18.19.0",
+      "status": "passed",
+      "modelRequests": 0,
+      "sourceContentManifestSha256": "acdfcb87551fb64ab5af129060f3677fe62ea0643eb5cd07db7438a08512d305",
+      "sourceIdentityRecorded": true,
+      "privateEvidenceSha256": "0bfcf311f21961fbcd2b7ef3744df143c26d1412ce5972a4cb6ae0b87237149c",
+      "skillDiscovered": false,
+      "mcpConnected": true,
+      "mcpMethods": [
+        "initialize",
+        "tools/list"
+      ]
+    },
+    {
+      "id": "windows-codex-discovery-mcp",
+      "caseId": "codex/none/customer-mcp",
+      "platform": "win32",
+      "architecture": "arm64",
+      "host": "codex",
+      "hostVersion": "codex-cli 0.166.0",
+      "status": "passed",
+      "modelRequests": 0,
+      "sourceContentManifestSha256": null,
+      "sourceIdentityRecorded": false,
+      "privateEvidenceSha256": "0a0446f51a733d706b480bcaba3caec6c80f4166a8e26c046eaaf78ef6156a6f",
+      "skillDiscovered": true,
+      "mcpInitialized": true,
+      "mcpToolCallEchoed": true,
+      "mcpToolCount": 1
+    },
+    {
+      "id": "windows-opencode-discovery-mcp",
+      "caseId": "opencode/none/customer-mcp",
+      "platform": "win32",
+      "architecture": "arm64",
+      "host": "opencode",
+      "hostVersion": "1.18.5",
+      "status": "passed",
+      "modelRequests": 0,
+      "sourceContentManifestSha256": null,
+      "sourceIdentityRecorded": false,
+      "privateEvidenceSha256": "e6c782d05981b94cd5c7f796d49f40762f4d7d4d558e308d66ec7ffdf9c2ee5c",
+      "skillDiscovered": true,
+      "mcpConnected": true,
+      "mcpMethods": [
+        "initialize",
+        "tools/list"
+      ]
+    },
+    {
+      "id": "windows-omp-discovery-mcp",
+      "caseId": "omp/none/customer-mcp",
+      "platform": "win32",
+      "architecture": "arm64",
+      "host": "omp",
+      "hostVersion": "omp/18.19.0",
+      "status": "passed",
+      "modelRequests": 0,
+      "sourceContentManifestSha256": null,
+      "sourceIdentityRecorded": false,
+      "privateEvidenceSha256": "c49237366a53f61e682df06532f8f3b57bf63454894a494e00a653daa0c9d1f2",
+      "skillDiscovered": false,
+      "mcpConnected": true,
+      "mcpMethods": [
+        "initialize",
+        "tools/list"
+      ]
+    }
+  ],
+  "initialization": [
+    {
+      "id": "macos-codegraph-openwiki-initialization",
+      "caseId": "scaffold-scope/codegraph-recovery-openwiki-handoff",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v24.15.0",
+      "status": "passed",
+      "sourceContentManifestSha256": null,
+      "versions": {
+        "codegraph": "1.6.2",
+        "openwiki": "0.7.3"
+      },
+      "codexVersion": "codex-cli 0.166.0",
+      "modelRequests": 0,
+      "interruptedWriterStatus": "unknown",
+      "partialAttemptStatus": "unknown",
+      "recoveredStatus": "done",
+      "indexPhase": "complete",
+      "indexedFiles": 80,
+      "indexedNodes": 160,
+      "openWiki": {
+        "phase": "planning",
+        "resumed": true,
+        "wikiPagesCompleted": false
+      },
+      "daemonCleanup": {
+        "outcome": "term",
+        "aliveAfterClientClose": false
+      },
+      "privateEvidenceSha256": "e432e32e6a5a60ae639cfc1d998275705d1fef94e14fc849b45dfb36b4b0d69e"
+    },
+    {
+      "id": "linux-codegraph-openwiki-initialization",
+      "caseId": "scaffold-scope/codegraph-recovery-openwiki-handoff",
+      "platform": "linux",
+      "architecture": "arm64",
+      "node": "v24.22.2",
+      "status": "passed",
+      "sourceContentManifestSha256": "acdfcb87551fb64ab5af129060f3677fe62ea0643eb5cd07db7438a08512d305",
+      "versions": {
+        "codegraph": "1.6.2",
+        "openwiki": "0.7.3"
+      },
+      "codexVersion": "codex-cli 0.166.0",
+      "modelRequests": 0,
+      "interruptedWriterStatus": "unknown",
+      "partialAttemptStatus": "unknown",
+      "recoveredStatus": "done",
+      "indexPhase": "complete",
+      "indexedFiles": 80,
+      "indexedNodes": 160,
+      "openWiki": {
+        "phase": "planning",
+        "resumed": true,
+        "wikiPagesCompleted": false
+      },
+      "daemonCleanup": {
+        "outcome": "term",
+        "aliveAfterClientClose": false
+      },
+      "privateEvidenceSha256": "f1c73971450518fa73025ac32726ea8c1df6a46d49197b48dd701354a463854d"
+    },
+    {
+      "id": "windows-codegraph-openwiki-initialization",
+      "caseId": "scaffold-scope/codegraph-recovery-openwiki-handoff",
+      "platform": "win32",
+      "architecture": "arm64",
+      "node": "v24.22.1",
+      "status": "passed",
+      "sourceContentManifestSha256": null,
+      "versions": {
+        "codegraph": "1.6.2",
+        "openwiki": "0.7.3"
+      },
+      "codexVersion": "codex-cli 0.166.0",
+      "modelRequests": 0,
+      "interruptedWriterStatus": "unknown",
+      "partialAttemptStatus": "unknown",
+      "recoveredStatus": "done",
+      "indexPhase": "complete",
+      "indexedFiles": 80,
+      "indexedNodes": 160,
+      "openWiki": {
+        "phase": "planning",
+        "resumed": true,
+        "wikiPagesCompleted": false
+      },
+      "daemonCleanup": {
+        "outcome": "not-running",
+        "aliveAfterClientClose": false
+      },
+      "privateEvidenceSha256": "c43e4a021f770a540564cb2563934e32f390d41ae6ef77a75cef776a7b49879b"
+    }
+  ],
+  "localGitlab": [
+    {
+      "id": "macos-local-gitlab-runner",
+      "caseId": "gitlab/local-lint-runner",
+      "status": "passed",
+      "platform": "darwin",
+      "node": "v24.15.0",
+      "runnerVersion": "19.5.2",
+      "runnerPlatform": "darwin/arm64",
+      "gitlabVersion": "19.5.3",
+      "pipelineCount": 4,
+      "pipelines": [
+        {
+          "case": "passing-check-and-junit",
+          "reportedStatus": "success",
+          "jobs": [
+            {
+              "name": "rigup:checks",
+              "status": "success",
+              "junitArtifact": true
+            }
+          ]
+        },
+        {
+          "case": "expected-failing-check-and-junit",
+          "reportedStatus": "failed",
+          "jobs": [
+            {
+              "name": "rigup:checks",
+              "status": "failed",
+              "junitArtifact": true
+            }
+          ]
+        },
+        {
+          "case": "generated-openwiki-job-skipped",
+          "reportedStatus": "success",
+          "jobs": [
+            {
+              "name": "rigup:checks",
+              "status": "success",
+              "junitArtifact": true
+            }
+          ]
+        },
+        {
+          "case": "missing-runtime-reference-rejected",
+          "reportedStatus": "failed",
+          "jobs": [
+            {
+              "name": "rigup:openwiki",
+              "status": "failed",
+              "junitArtifact": false
+            },
+            {
+              "name": "rigup:checks",
+              "status": "success",
+              "junitArtifact": true
+            }
+          ]
+        }
+      ],
+      "disposableProjectDeleted": true,
+      "modelRequests": 0,
+      "sourceContentManifestSha256": null,
+      "privateEvidenceSha256": "a4ebd61856ec43fa7923d820a24610d8a643d29c1f7dec4b97e5d6fc015e3594"
+    },
+    {
+      "id": "windows-local-gitlab-runner",
+      "caseId": "gitlab/local-lint-runner",
+      "status": "passed",
+      "platform": "win32",
+      "node": "v24.22.1",
+      "runnerVersion": "19.5.2",
+      "runnerPlatform": "windows/arm64",
+      "gitlabVersion": "19.5.3",
+      "pipelineCount": 4,
+      "pipelines": [
+        {
+          "case": "passing-check-and-junit",
+          "reportedStatus": "success",
+          "jobs": [
+            {
+              "name": "rigup:checks",
+              "status": "success",
+              "junitArtifact": true
+            }
+          ]
+        },
+        {
+          "case": "expected-failing-check-and-junit",
+          "reportedStatus": "failed",
+          "jobs": [
+            {
+              "name": "rigup:checks",
+              "status": "failed",
+              "junitArtifact": true
+            }
+          ]
+        },
+        {
+          "case": "generated-openwiki-job-skipped",
+          "reportedStatus": "success",
+          "jobs": [
+            {
+              "name": "rigup:checks",
+              "status": "success",
+              "junitArtifact": true
+            }
+          ]
+        },
+        {
+          "case": "missing-runtime-reference-rejected",
+          "reportedStatus": "failed",
+          "jobs": [
+            {
+              "name": "rigup:openwiki",
+              "status": "failed",
+              "junitArtifact": false
+            },
+            {
+              "name": "rigup:checks",
+              "status": "success",
+              "junitArtifact": true
+            }
+          ]
+        }
+      ],
+      "disposableProjectDeleted": true,
+      "modelRequests": 0,
+      "sourceContentManifestSha256": null,
+      "privateEvidenceSha256": "45ebb86b060aea1f80390d5968cb303c6a14f50a066403f4009dad0101df29e5"
+    }
+  ],
+  "windowsSecurity": {
+    "platform": "win32",
+    "defaultTempAccepted": false,
+    "protectedTestTempUsed": true,
+    "privateAclRegression": {
+      "red": {
+        "tests": 4,
+        "pass": 0,
+        "fail": 4,
+        "skipped": 0,
+        "duration_ms": 1343.045125
+      },
+      "green": {
+        "tests": 4,
+        "pass": 4,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 1206.631459
+      }
+    },
+    "combinedFilesystemAcl": {
+      "tests": 9,
+      "pass": 9,
+      "fail": 0,
+      "skipped": 0,
+      "duration_ms": 6171.560041
+    },
+    "backendRuntimeCapabilitySuite": {
+      "tests": 57,
+      "pass": 55,
+      "fail": 0,
+      "skipped": 2,
+      "duration_ms": 29264.363833
+    },
+    "actualFileLinkProbe": {
+      "linksCreatedBySystemInOwnedFixture": 2,
+      "assertionsRanAsNormalUser": true,
+      "providerReadDeniedWithoutMetadata": true,
+      "runtimeReadDenied": true,
+      "runtimeWriteDenied": true,
+      "outsideBytesUnchanged": true,
+      "modelRequests": 0
+    },
+    "launcherRegression": {
+      "red": {
+        "tests": 8,
+        "pass": 6,
+        "fail": 2,
+        "skipped": 0,
+        "duration_ms": 8155.301958
+      },
+      "green": {
+        "tests": 8,
+        "pass": 8,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 7495.813833
+      }
+    },
+    "cleanup": {
+      "ownedProcesses": 0,
+      "temporaryTestCredentialPresent": false,
+      "proxyRunning": false,
+      "codegraphDaemonRunning": false
+    },
+    "globalDeveloperModeChanged": false
+  },
+  "historicalAttempts": [
+    {
+      "id": "linux-no-init-check",
+      "status": "failed",
+      "counts": {
+        "tests": 764,
+        "pass": 687,
+        "fail": 3,
+        "skipped": 74,
+        "duration_ms": 39958.229767
+      },
+      "reason": "Three process-cleanup tests failed in a container without an init reaper.",
+      "resolution": "A new container with init and empty credential homes was used for subsequent passing checks."
+    },
+    {
+      "id": "linux-initial-native-canaries",
+      "status": "failed",
+      "counts": {
+        "tests": 3,
+        "pass": 1,
+        "fail": 1,
+        "skipped": 1,
+        "duration_ms": 20429.158217
+      },
+      "reason": "Initial Codex cleanup failed; one of the three native cases was skipped in that attempt.",
+      "resolution": "A subsequent init-enabled container ran all three native canaries successfully."
+    },
+    {
+      "id": "windows-initial-full-check",
+      "status": "failed",
+      "counts": {
+        "tests": 771,
+        "pass": 685,
+        "fail": 3,
+        "skipped": 83
+      },
+      "reason": "Two file-symlink fixture creations lacked native privilege; one workflow test captured a parallel intentional RED before its fix.",
+      "resolution": "Cases were separated, actual file-link rejection was separately verified, and a fresh snapshot later passed the full check."
+    },
+    {
+      "id": "windows-codegraph-shim-attempt",
+      "status": "failed",
+      "counts": {
+        "tests": 1,
+        "pass": 0,
+        "fail": 1,
+        "skipped": 0,
+        "duration_ms": 109864.933333
+      },
+      "reason": "The test tried to execute a Unix extensionless npm shim on native Windows."
+    },
+    {
+      "id": "windows-codegraph-canonical-root-attempt",
+      "status": "failed",
+      "counts": {
+        "tests": 1,
+        "pass": 0,
+        "fail": 1,
+        "skipped": 0,
+        "duration_ms": 125926.103833
+      },
+      "reason": "The test constructed a noncanonical mixed-separator fixture root."
+    },
+    {
+      "id": "windows-codegraph-corrected-test",
+      "status": "passed",
+      "counts": {
+        "tests": 1,
+        "pass": 1,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 179299.22075
+      },
+      "resolution": "The test used the verified installed npm entry with Node and a canonical joined root."
+    }
+  ],
+  "limits": [
+    "No-model MCP discovery does not establish authenticated model or SDD workflow acceptance.",
+    "OpenWiki reached planning/resume; complete wiki-page generation was not established.",
+    "The GitLab server was a disposable local fixture, not repository CI or customer deployment.",
+    "Earlier native records without a source manifest retain a null source digest."
+  ],
+  "independentAssets": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "status": "passed",
+    "archiveIntegrity": "sha512-m6sHBfTwgpoPRtpCBSlnYeVcYcP3SwgcrDPlyGjg3oT17YBfPaXqhYZJoNIfQWxi45IlLOCxipUhqS3XmGSAIA==",
+    "archiveFileCount": 123,
+    "rigupRemoved": true,
+    "hookExitCode": 0,
+    "nativeEcho": true,
+    "modelRequests": 0,
+    "privateEvidenceSha256": "62d2cb8d82e24beb51cf3711fba151e7f997b39aae7bafdafa82c06d3772135d",
+    "scope": "Separate generated customer skill/MCP asset probe after removing its temporary Rigup CLI installation."
+  }
+}

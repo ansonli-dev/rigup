@@ -1,14 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 · 2026-11-13 · Development preview
 
-- Add a reusable GOAL template and `change-ready`. Keep native prerequisites, approval and same-change references explicit; require outgoing review before each push and configured MR checks and reviewer results for the latest head. Skills depend on host instruction handling and permissions.
+- Add a reusable GOAL template and `change-ready`. Keep native prerequisites, approval and same-change references explicit. Require outgoing review before each push, plus configured MR checks and reviewer results for the latest head. Skills depend on host instruction handling and permissions.
 - Prepare declared runtime inputs in a private, ignored `.rigup/.env`, preserve existing values and report configuration separately from verification. Pass credentials only to their selected consumers and bind pinned package installation to the reviewed npm registry.
 - Bound provider output and final-result repair. Fall back from unsupported Anthropic token counting with explicit accounting, preserve exact model names, and return authorized end-of-file metadata without exposing denied paths or upstream error bodies.
 - Isolate damaged native plugin records, verify the selected Rigup executable against the project launcher's version, and check the responding MCP server version during the explicit host probe.
 - Accept equivalent CRLF checkouts and matching unowned clone content while preserving local edits. Check actual filesystem permissions before installation and retain interrupted recovery state when the filesystem cannot enforce them.
 - Support protected Windows paths beyond legacy path limits. Use native Git Bash and the correct user environment in GitLab Runner verification, and retain redacted failed job traces before cleanup.
 - Remove Rigup's Windows-specific CodeGraph idle timeout override, including during updates from v0.4.1. Use upstream defaults and explicitly stop test daemons.
+
+[Validation report](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/open-issues-0.5.0.md) · [npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.5.0) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.5.0)
 
 ## 0.4.1 · 2026-11-11 · Development preview
 
