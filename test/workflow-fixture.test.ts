@@ -277,6 +277,21 @@ test('every push needs complete diff and passing-check outputs observed before i
  }finally{await fixture.close();}
 });
 
+test('outgoing review identifies committed whitespace findings before a push',async()=>{
+ const fixture=await createWorkflowFixture();
+ try{
+  const base=await fixture.head();
+  await writeFile(fixture.root+'/src/greet.js',fixedGreeting+'// Changed line \n');
+  await fixture.git(['add','.']);await fixture.git(['commit','-qm','Introduce trailing whitespace']);
+  await observedMrCommand(fixture,'inspect-outgoing');
+  await observedMrCommand(fixture,'test-outgoing');
+  await assert.rejects(fixture.node(['tools/mr.mjs','record-review','Reviewed outgoing change']),error=>
+   typeof error==='object'&&error!==null&&'stderr' in error&&String(error.stderr).includes('MR fixture HTTP 422 Run git diff --check '+base+'..'));
+  assert.equal(await fixture.head(),base);
+  assert.ok(!fixture.events.some(event=>event.kind==='outgoing-review'));
+ }finally{await fixture.close();}
+});
+
 test('delivery cannot use an uncommitted local fix to cover a still-broken pushed SHA',async()=>{
  const fixture=await createWorkflowFixture();
  try{

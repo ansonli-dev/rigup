@@ -177,7 +177,12 @@ export async function createWorkflowFixture(options:{testCommand?:string;gitTran
     }
     if(typeof data.summary!=='string'||!data.summary.trim())return send(400,{error:'review summary required'});
     if(!proofs.inspection||!proofs.tests?.passed)return send(409,{error:'inspect-outgoing and successful test-outgoing are required for this exact base/head before recording review'});
-    await git(['diff','--check',sha+'..'+local]);
+    const range=sha+'..'+local;
+    try{await git(['diff','--check',range]);}
+    catch(error){
+     if((error as {code?:unknown}).code!==2)throw error;
+     return send(422,{error:'Run git diff --check '+range+' and fix the whitespace findings before inspecting, testing and reviewing the revised range.'});
+    }
     note({kind:'outgoing-review',origin,base:sha,head:local,summary:data.summary,data:{inspectionMarker:proofs.inspection.marker,testsMarker:proofs.tests.marker}});return send(200,{recorded:true,base:sha,head:local});
    }
    send(404,{error:'unknown fixture resource'});
@@ -194,7 +199,7 @@ export async function createWorkflowFixture(options:{testCommand?:string;gitTran
   await writeFile(join(root,'test/greet.test.js'),'import {test} from "node:test"; import assert from "node:assert/strict"; import {greet} from "../src/greet.js";\ntest("greets trimmed names",()=>assert.equal(greet(" Ada "),"Hello, Ada"));\n');
   const client=`import {execFileSync} from 'node:child_process';
 const base=${JSON.stringify(url+prefix)},headers={authorization:${JSON.stringify('Bearer '+token)},'content-type':'application/json'};
-async function request(path='',data){const r=await fetch(base+path,{headers,method:data?'POST':'GET',body:data?JSON.stringify(data):undefined,signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('MR fixture HTTP '+r.status);return r.json();}
+async function request(path='',data){const r=await fetch(base+path,{headers,method:data?'POST':'GET',body:data?JSON.stringify(data):undefined,signal:AbortSignal.timeout(15000)});const result=await r.json();if(!r.ok)throw Error('MR fixture HTTP '+r.status+(result.error?' '+result.error:''));return result;}
 const [action,...args]=process.argv.slice(2);
 if(action==='status'){const mr=await request(),pipeline=await request('/pipelines'),review=await request('/review'),findings=await request('/discussions'),confirmed=await request();console.log(JSON.stringify({head:mr.sha,confirmedHead:confirmed.sha,readId:mr.readId,confirmedReadId:confirmed.readId,...pipeline,review,findings},null,2));}
 else if(action==='disposition'){const [id,sha,outcome,...evidence]=args;if(id!=='empty-name')throw Error('Unknown fixture discussion');console.log(JSON.stringify(await request('/discussions/'+id,{sha,outcome,evidence:evidence.join(' ')})));}
