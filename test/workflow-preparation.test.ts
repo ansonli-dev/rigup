@@ -6,7 +6,7 @@ import {openspecFixturePath,project} from './helpers.js';
 import {inspectPreparedArtifacts,prepareFeedbackProbe} from './live-workflow-prepare-support.js';
 import {createWorkflowFixture} from './workflow-fixture-support.js';
 
-for(const defect of ['native-incomplete','other-change-link','stale-design','missing-verification','superseded-history','stale-after-history','historical-preservation','scenario-titles','spaces-only','none'] as const)test('prepared artifact oracle checks coordinated native requirements and evidence: '+defect,()=>project(async root=>{
+for(const defect of ['native-incomplete','other-change-link','stale-design','missing-verification','superseded-history','stale-after-history','historical-preservation','scenario-titles','spaces-only','internal-space-wording','none'] as const)test('prepared artifact oracle checks coordinated native requirements and evidence: '+defect,()=>project(async root=>{
  const base='openspec/changes/greeting',skillRoot='.agents/skills';
  const blank=defect==='scenario-titles'?'empty, spaces-only and tab/newline inputs':defect==='spaces-only'?'empty and spaces-only inputs':'empty and whitespace-only inputs';
  const body='REQ-BLANK: Reject '+blank+' with TypeError.\nREQ-PRESERVE: Preserve " Ada Lovelace " as "Hello, Ada Lovelace" and keep internal spaces.\nVerification: npm test at repository root.\n';
@@ -23,9 +23,10 @@ for(const defect of ['native-incomplete','other-change-link','stale-design','mis
   await writeFile(join(root,base,'design.md'),body+history+(defect==='stale-after-history'?'\n## Current implementation decision\nREQ-BLANK: Empty and whitespace-only names must throw RangeError.\n':''));
  }
  if(defect==='missing-verification')await writeFile(join(root,base,'tasks.md'),body.replace('npm test at repository root','unspecified'));
+ if(defect==='internal-space-wording')await writeFile(join(root,base,'tasks.md'),body.replace('keep internal spaces','avoid internal-space normalization'));
  if(defect==='historical-preservation')await writeFile(join(root,base,'design.md'),body.replace(/REQ-PRESERVE:.*\n/,'')+'\n## Superseded draft history\n'+body.match(/REQ-PRESERVE:.*\n/)![0]);
  const nativeState={status:{changeName:'greeting',isPlanningComplete:defect!=='native-incomplete',artifacts:paths.map(path=>({id:path,status:'done'}))},apply:{changeName:'greeting',state:'ready',missingPrerequisites:defect==='native-incomplete'?['design']:[],contextFiles:{proposal:[join(root,base,'proposal.md')],design:[join(root,base,'design.md')],tasks:[join(root,base,'tasks.md')],specs:[join(root,base,'specs/greeting/spec.md'),join(root,base,'specs/preservation/spec.md')]}}};
- assert.equal((await inspectPreparedArtifacts(root,nativeState,'TypeError',skillRoot)).passed,['none','superseded-history','scenario-titles'].includes(defect));
+ assert.equal((await inspectPreparedArtifacts(root,nativeState,'TypeError',skillRoot)).passed,['none','superseded-history','scenario-titles','internal-space-wording'].includes(defect));
 }));
 
 // Scripted unit driver tests the harness state machine only; it is never native-host acceptance.

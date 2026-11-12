@@ -154,6 +154,7 @@ async function hostEnvironment(host:WorkflowHost,control:string,binDirectory:str
  const nativeDirectory=process.platform==='win32'?dirname(resolveWindowsExecutable(host,process.cwd(),process.env)):undefined;
  const nativePath=[nativeDirectory,binDirectory,process.env.PATH].filter(Boolean).join(delimiter);
  const env:NodeJS.ProcessEnv={SystemRoot:process.env.SystemRoot,ComSpec:process.env.ComSpec,LANG:'en_US.UTF-8',NO_COLOR:'1',OPENSPEC_TELEMETRY:'0',GIT_TERMINAL_PROMPT:'0'};
+ if(process.platform==='win32')Object.assign(env,{SystemDrive:process.env.SystemDrive,PATHEXT:process.env.PATHEXT});
  for(const name of (process.env['RIGUP_LIVE_WORKFLOW_'+host.toUpperCase()+'_ENV']??'').split(',').filter(Boolean)){
   if(!/^[A-Z][A-Z0-9_]*$/.test(name))throw Error('Invalid declared native host environment name');
   if(process.env[name]!==undefined)env[name]=process.env[name];
@@ -184,7 +185,9 @@ async function runWorkflowTurn({host,fixture,env,prompt,budget,stem}:WorkflowTur
   host==='opencode'?['run','--pure','--format','json','--auto','--variant','low',...(model?['--model',model]:[]),'--dir',root,prompt]:
   ['--print','--mode','json','--no-session','--no-extensions','--no-lsp','--no-pty','--tools','read,bash,edit,write,grep,glob','--approval-mode','yolo','--max-time',String(budget.maxWallMs/1000),...(model?['--model',model]:[]),prompt];
  const command={executable:host,args:host==='codex'?args:args.slice(0,-1),cwd:root},arrival=workflowOutputArrival(()=>workflowWorkingFiles(root));
- const transport=await runLiveCommand(host,args,{cwd:root,env,input:host==='codex'?prompt:undefined,timeoutMs:budget.maxWallMs,maxBuffer:4_000_000,onStdout:arrival.onStdout});
+ // Oh My Pi repeats message snapshots in its streaming JSON events.
+ const maxBuffer=host==='omp'?16_000_000:4_000_000;
+ const transport=await runLiveCommand(host,args,{cwd:root,env,input:host==='codex'?prompt:undefined,timeoutMs:budget.maxWallMs,maxBuffer,onStdout:arrival.onStdout});
  const privateEvidence=join(control,stem+'.private.json');
  await writeFile(privateEvidence,JSON.stringify({...transport,stdoutArrivals:arrival.arrivals,stdoutFileStates:arrival.fileStates}),{mode:0o600});
  const observation=observedRun(host,transport.stdout,host==='codex'?await readFile(output,'utf8').catch(()=>undefined):undefined,arrival.arrivals,arrival.fileStates);
@@ -196,7 +199,8 @@ export async function nativeWorkflowProbe(host:WorkflowHost,scenario:WorkflowCas
  const delivery=scenario==='delivery'||scenario==='compatibility-delivery';
  // OpenCode reports repeated cached context in the full count for each generation.
  const maxObservedTokens=delivery?(host==='opencode'?1_200_000:600_000):200_000;
- const result:any={caseId:host+'/workflow/'+scenario,status:'failed',startedAt:new Date().toISOString(),platform:process.platform,arch:process.arch,node:process.version,templateVersion:TEMPLATE_VERSION,budget:{maxWallMs:delivery?240000:120000,maxObservedTokens},scope:'Actual native host consumes generated skills and real OpenSpec; loopback MR/AI-review signals are a controlled fixture, not a real GitLab service or reviewer'};
+ const maxWallMs=delivery?(host==='opencode'&&process.platform==='win32'?360_000:240_000):120_000;
+ const result:any={caseId:host+'/workflow/'+scenario,status:'failed',startedAt:new Date().toISOString(),platform:process.platform,arch:process.arch,node:process.version,templateVersion:TEMPLATE_VERSION,budget:{maxWallMs,maxObservedTokens},scope:'Actual native host consumes generated skills and real OpenSpec; loopback MR/AI-review signals are a controlled fixture, not a real GitLab service or reviewer'};
  let fixture:Awaited<ReturnType<typeof createWorkflowFixture>>|undefined,turnEvidence:string|undefined;
  try{
   const bin=process.env.RIGUP_OPENSPEC_BIN;if(!bin)throw Error('RIGUP_OPENSPEC_BIN must name a verified OpenSpec 1.16.0 installation');

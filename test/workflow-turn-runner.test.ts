@@ -27,7 +27,11 @@ test('an injected native turn uses the prepared fixture but cannot replace the p
    assert.ok(request.fixture.root.includes('workspace with space'));assert.equal(request.env.HOME,home);assert.match(request.prompt,/change-deliver/);assert.ok(request.budget.maxWallMs>0);assert.equal(request.stem,'transport');
    const selectedPath=request.env.PATH?.split(delimiter)??[];
    assert.equal(selectedPath[process.platform==='win32'?1:0],join(modules,'.bin'),'agent commands keep the installed OpenSpec launcher directory on PATH');
-   if(process.platform==='win32')assert.equal(selectedPath[0],bin,'the selected native host executable stays ahead of npm .cmd launchers');
+   if(process.platform==='win32'){
+    assert.equal(selectedPath[0],bin,'the selected native host executable stays ahead of npm .cmd launchers');
+    assert.equal(request.env.SystemDrive,process.env.SystemDrive,'MXC needs the host system drive');
+    assert.equal(request.env.PATHEXT,process.env.PATHEXT,'PowerShell needs the host executable suffixes');
+   }
    const storage={APPDATA:join(home,'AppData','Roaming'),LOCALAPPDATA:join(home,'AppData','Local'),TEMP:join(home,'AppData','Local','Temp'),TMP:join(home,'AppData','Local','Temp'),TMPDIR:join(home,'AppData','Local','Temp')};
    for(const [name,path]of Object.entries(storage)){assert.equal(request.env[name],path,'native storage cannot inherit ambient user paths even through the declared env allowlist');assert.equal((await stat(path)).isDirectory(),true,'native sandbox prerequisites must exist before launch');}
    return {command:{executable:'unit-native-driver',args:[],cwd:request.fixture.root},transport:{code:0,timedOut:false,stdout:'',stderr:''},privateEvidence:join(request.fixture.control,'unit-driver.json'),observation:observedRun('codex',[{type:'turn.started'},{type:'turn.completed',usage:{input_tokens:1,output_tokens:1}}].map(value=>JSON.stringify(value)).join('\n'),'Delivery status: complete')};
