@@ -19,6 +19,14 @@ test('every selected host installs a navigable readiness entry and a fixed GOAL 
   for(const resource of ['change-ready/SKILL.md','change-ready/references/project.md','change-prepare/references/GOAL.md']){
    assert.ok(assets.some(asset=>asset.target===directory+'/'+resource),'missing installed resource: '+directory+'/'+resource);
   }
+  // These installed instructions are the contract; this does not prove host compliance.
+  for(const resource of ['change-ready/SKILL.md','change-deliver/SKILL.md','change-prepare/references/GOAL.md']){
+   const content=assets.find(asset=>asset.target===directory+'/'+resource)!.content;
+   assert.doesNotMatch(content,/(?:submitting|submission)[^.\n]*authorizes (?:its )?implementation/i,resource);
+   assert.match(content,/already approved scope/,resource);
+  }
+  const ready=assets.find(asset=>asset.target===directory+'/change-ready/SKILL.md')!.content;
+  assert.match(ready,/missing, pending, stale or scope-mismatched implementation approval blocks readiness/i);
  }
  validateNavigation(assets,profile.files);
  for(const asset of assets)validateTemplateContent(asset.content);

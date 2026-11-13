@@ -5,15 +5,16 @@ Fill this template in the native change directory. Replace every placeholder, us
 ## Reviewed change
 
 - Change ID and native workflow: <exact ID and selected workflow>.
-- Outcome and approved scope: <observable behavior and allowed paths>; preserve <out-of-scope behavior>.
+- Outcome and reviewed scope: <observable behavior and allowed paths>; preserve <out-of-scope behavior>.
 - Spec artifacts: <links to every current requirement/scenario file for this change>.
 - Plan artifacts: <links to every current design, implementation and verification task file for this change>.
 - Native implementation entry: <installed skill or command and its resolved path>.
-- Native status/instructions and required approvals: <current evidence, exact scope and any remaining gate>.
+- Native status/instructions: <current evidence and any remaining prerequisite>.
+- Implementation approval: <pending, or explicit human approval and its current instruction or applicable, verified project-designated record; identify the approved change, revision and scope, and any remaining gate>.
 
 ## Delivery instructions
 
-Read the [installed delivery skill](../../change-deliver/SKILL.md) and [project context](project.md), including applicable original guidance, before implementation. Follow the selected native implementation entry with these same reviewed artifacts. A developer submitting the ready-produced `/goal` for this same reviewed change authorizes implementation of this scope; extra native prerequisites and approvals still apply. Changed scope requires review again. On hosts without `/goal`, invoke change-deliver with this GOAL.
+Read the [installed delivery skill](../../change-deliver/SKILL.md) and [project context](project.md), including applicable original guidance, before implementation. Follow the selected native implementation entry with these same reviewed artifacts. Missing, pending, stale or scope-mismatched implementation approval blocks readiness and delivery. Emitting a ready-produced command grants no approval; the developer's later submission of that exact `/goal` is the separate act of starting the already approved scope. Extra native prerequisites and approvals still apply. Changed scope requires review and approval again. On hosts without `/goal`, invoke change-deliver with this GOAL and the same approvals.
 
 ## Completion criteria and evidence
 
