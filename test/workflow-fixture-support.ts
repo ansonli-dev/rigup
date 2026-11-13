@@ -12,7 +12,7 @@ export function workflowComplete(snapshot:WorkflowSnapshot):boolean{
   snapshot.findings.every(finding=>finding.disposition?.sha===snapshot.head&&['fixed','disputed','accepted'].includes(finding.disposition.outcome)&&!!finding.disposition.evidence.trim());
 }
 
-export interface WorkflowEvent {kind:string;origin?:'agent'|'oracle';head?:string;base?:string;summary?:string;path?:string;data?:unknown;at:string}
+export interface WorkflowEvent {kind:string;origin?:'agent'|'oracle';head?:string;base?:string;summary?:string;path?:string;data?:unknown;at:string;tick?:number}
 export async function createWorkflowFixture(options:{testCommand?:string;gitTransport?:'file'|'http'}={}){
  const control=await realpath(await mkdtemp(join(tmpdir(),'rigup-workflow-')));
  const removeFixture=()=>rm(control,{recursive:true,force:true,maxRetries:3});
@@ -20,10 +20,18 @@ export async function createWorkflowFixture(options:{testCommand?:string;gitTran
  await mkdir(root);await mkdir(join(control,'home'));
  const env:NodeJS.ProcessEnv={PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,ComSpec:process.env.ComSpec,HOME:join(control,'home'),USERPROFILE:join(control,'home'),GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:join(control,'no-global-config'),GIT_TERMINAL_PROMPT:'0',LANG:'en_US.UTF-8'};
  const gitTransport=options.gitTransport??(process.platform==='win32'?'http':'file'),gitHttp=gitTransport==='http'?workflowGitHttp(control,env):undefined;
- const git=async(args:string[],cwd=root)=>(await exec('git',args,{cwd,env,timeout:workflowCommandTimeoutMs,maxBuffer:2_000_000})).stdout;
- const node=async(args:string[])=>(await exec(process.execPath,args,{cwd:root,env,timeout:workflowClientTimeoutMs,maxBuffer:2_000_000})).stdout;
+ const command=async(executable:string,args:string[],cwd:string,timeout:number)=>{
+  const started=performance.now();
+  try{return (await exec(executable,args,{cwd,env,timeout,maxBuffer:2_000_000})).stdout;}
+  catch(error){
+   const child=error as {code?:unknown;signal?:unknown;killed?:boolean;stdout?:unknown;stderr?:unknown};
+   throw Object.assign(Error('Workflow fixture command failed '+fixtureDiagnostic({timeoutMs:timeout,elapsedMs:Math.round(performance.now()-started)},[control])+'\n'+fixtureError(error,[control,process.execPath])+'\nRecent Git HTTP failures:\n'+(gitHttp?.diagnostics()||'none')),{code:child.code,signal:child.signal,killed:child.killed,stdout:fixtureDiagnostic(String(child.stdout??''),[control]).slice(0,4000),stderr:fixtureDiagnostic(String(child.stderr??''),[control]).slice(0,4000)});
+  }
+ };
+ const git=(args:string[],cwd=root)=>command('git',args,cwd,workflowCommandTimeoutMs);
+ const node=(args:string[])=>command(process.execPath,args,root,workflowClientTimeoutMs);
  const events:WorkflowEvent[]=[];
- const note=(event:Omit<WorkflowEvent,'at'>)=>events.push({...event,at:new Date().toISOString()});
+ const note=(event:Omit<WorkflowEvent,'at'>)=>events.push({...event,at:new Date().toISOString(),tick:performance.now()});
  const dispositions=new Map<string,NonNullable<WorkflowSnapshot['findings'][number]['disposition']>>();
  const outgoingProofs=new Map<string,{inspection?:{marker:string};tests?:{marker:string;passed:boolean}}>();
  let observedHead='',seenPushes=0,signals:Partial<Omit<WorkflowSnapshot,'head'|'confirmedHead'>>={};
@@ -239,4 +247,5 @@ import {workflowGitHttp} from './workflow-git-http-support.js';
 import {listenWorkflowServer,closeWorkflowServer} from './workflow-server-support.js';
 import {npmCommand} from '../src/npm-command.mjs';
 import {runLiveCommand} from './live-process-support.js';
+import {fixtureDiagnostic,fixtureError} from './fixture-diagnostics.js';
 const exec=promisify(execFile);

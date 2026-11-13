@@ -3,24 +3,27 @@ import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {access,readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {dirname,join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {project} from './helpers.js';
+import {fixtureError} from './fixture-diagnostics.js';
 
 const skip=process.platform!=='win32';
 const grandchild=`require('node:fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000);`;
 const launchGrandchild=`const child=require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(grandchild)},process.argv[1]],{detached:true,stdio:'ignore',windowsHide:true});child.unref();`;
 const writer=launchGrandchild+'setInterval(()=>{},1000);';
 
-async function writerPid(path:string):Promise<number>{
- const deadline=Date.now()+25_000;
+async function readyFile(path:string,phase:string,ended:()=>unknown=()=>undefined,isReady:(value:string)=>boolean=Boolean):Promise<string>{
+ const started=performance.now(),deadline=started+25_000;
  do{
-  const value=await readFile(path,'utf8').catch(()=>undefined);
-  if(value&&/^\d+$/.test(value))return Number(value);
+  const value=await readFile(path,'utf8').catch(error=>{if(error.code==='ENOENT')return undefined;throw Error('Windows fixture '+phase+' readiness read failed: '+fixtureError(error,[dirname(path)]));});
+  if(value&&isReady(value))return value;
+  const result=ended();if(result!==undefined)throw Error('Windows fixture '+phase+' exited before readiness: '+fixtureError(result,[dirname(path)]));
   await delay(50);
- }while(Date.now()<deadline);
- throw Error('Windows fixture descendant did not start');
+ }while(performance.now()<deadline);
+ throw Error('Windows fixture '+phase+' did not start within 25000 ms (elapsed '+Math.round(performance.now()-started)+' ms)');
 }
+async function writerPid(path:string,ended?:()=>unknown):Promise<number>{return Number(await readyFile(path,'descendant',ended,value=>/^\d+$/.test(value)));}
 
 test('Windows job dispatch waits for authorization and preserves arguments and stdin',{skip},()=>project(async root=>{
  const {startWindowsProcess}=await import('../src/integrations/tools/windows-process.mjs');
@@ -84,12 +87,15 @@ test('Windows job loses its writer when the controller exits abruptly',{skip},()
  const {windowsJobActive}=await import('../src/integrations/tools/windows-process.mjs');
  const file=join(root,'writer.pid'),jobFile=join(root,'job.json');
  const modulePath=new URL('../src/integrations/tools/windows-process.mjs',import.meta.url).href;
- const program=`import {startWindowsProcess} from ${JSON.stringify(modulePath)};import {writeFileSync} from 'node:fs';const child=startWindowsProcess(${JSON.stringify({executable:process.execPath,args:['-e',writer,file],cwd:root,captureOutput:false})});writeFileSync(${JSON.stringify(jobFile)},JSON.stringify(child.job));child.start();await child.completed;`;
- const controller=spawn(process.execPath,['--input-type=module','-e',program],{cwd:root,stdio:'ignore',windowsHide:true});
+ const program=`import {startWindowsProcess} from ${JSON.stringify(modulePath)};import {writeFileSync} from 'node:fs';const child=startWindowsProcess(${JSON.stringify({executable:process.execPath,args:['-e',writer,file],cwd:root,captureOutput:false})});writeFileSync(${JSON.stringify(jobFile)},JSON.stringify(child.job));child.start();process.stderr.write(JSON.stringify(await child.completed));`;
+ const controller=spawn(process.execPath,['--input-type=module','-e',program],{cwd:root,stdio:['ignore','ignore','pipe'],windowsHide:true});
+ let stderr='',controllerResult:unknown;controller.stderr.on('data',chunk=>{stderr+=chunk.toString().slice(0,2000-stderr.length);});
+ controller.once('error',error=>{controllerResult=fixtureError(error,[root]);});controller.once('exit',(code,signal)=>{controllerResult={code,signal,stderr};});
  const exited=once(controller,'exit');
  try{
-  const pid=await writerPid(file);
-  const job=JSON.parse(await readFile(jobFile,'utf8'));
+  // Controller startup is a separate phase from its supervised writer startup.
+  const job=JSON.parse(await readyFile(jobFile,'controller',()=>controllerResult,value=>/^"[a-f0-9-]{36}"$/.test(value)));
+  const pid=await writerPid(file,()=>controllerResult);
   controller.kill('SIGKILL');
   await exited;
   const deadline=Date.now()+15_000;
