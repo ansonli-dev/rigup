@@ -33,34 +33,34 @@ export type WorkflowTurnRunner=(request:WorkflowTurnRequest)=>Promise<WorkflowTu
 const change='greeting',goalPath='openspec/changes/greeting/GOAL.md';
 const expectedGoal='/goal Implement the reviewed change in "'+goalPath+'" and verify every completion criterion in that file.';
 const hash=(text:string)=>createHash('sha256').update(text).digest('hex');
-const jsonEvents=(text:string,arrivals?:string[],fileStates?:(Record<string,string>|undefined)[])=>{
+const jsonEvents=(text:string,arrivals?:string[],fileStates?:(Record<string,string>|undefined)[],ticks?:number[])=>{
  let valid=true;
  const events=text.split('\n').flatMap((line,index)=>{
   if(!line.trim())return [];
   try{
    const event=JSON.parse(line);
    if(!event||typeof event!=='object'||Array.isArray(event)||typeof event.type!=='string'||!event.type){valid=false;return [];}
-   return [{...event,observedAt:arrivals?.[index],workingFiles:fileStates?.[index]}];
+   return [{...event,observedAt:arrivals?.[index],observedTick:ticks?.[index],workingFiles:fileStates?.[index]}];
   }catch{valid=false;return [];}
  });
  return {events,valid};
 };
 
 export function workflowOutputArrival(captureFiles?:()=>Record<string,string>){
- const arrivals:string[]=[],fileStates:(Record<string,string>|undefined)[]=[];let pending='';
- return {arrivals,fileStates,onStdout(chunk:string){
+ const arrivals:string[]=[],ticks:number[]=[],fileStates:(Record<string,string>|undefined)[]=[];let pending='';
+ return {arrivals,ticks,fileStates,onStdout(chunk:string){
   pending+=chunk;
-  for(let end=pending.indexOf('\n');end>=0;end=pending.indexOf('\n')){arrivals.push(new Date().toISOString());fileStates.push(captureFiles?.());pending=pending.slice(end+1);}
+  for(let end=pending.indexOf('\n');end>=0;end=pending.indexOf('\n')){arrivals.push(new Date().toISOString());ticks.push(performance.now());fileStates.push(captureFiles?.());pending=pending.slice(end+1);}
  }};
 }
 
-export function observedRun(host:WorkflowHost,stdout:string,answerFile?:string,arrivals?:string[],fileStates?:(Record<string,string>|undefined)[]){
- const {events,valid}=jsonEvents(stdout,arrivals,fileStates);
+export function observedRun(host:WorkflowHost,stdout:string,answerFile?:string,arrivals?:string[],fileStates?:(Record<string,string>|undefined)[],ticks?:number[]){
+ const {events,valid}=jsonEvents(stdout,arrivals,fileStates,ticks);
  const calls=new Map(events.flatMap(event=>event.type==='message_end'&&event.message?.role==='assistant'?(event.message.content??[]).filter((part:any)=>part.type==='toolCall').map((part:any)=>[part.id,part.arguments]):[]));
  const tools=events.flatMap(event=>{
-  if(host==='codex')return event.type==='item.completed'&&event.item?.type==='command_execution'?[{...event.item,observedAt:event.observedAt,workingFiles:event.workingFiles}]:[];
-  if(host==='opencode')return event.type==='tool_use'&&event.part?.state?.status==='completed'?[{...event.part,observedAt:event.observedAt,workingFiles:event.workingFiles}]:[];
-  return event.type==='message_end'&&event.message?.role==='toolResult'&&calls.has(event.message.toolCallId)?[{...event.message,input:calls.get(event.message.toolCallId),observedAt:event.observedAt,workingFiles:event.workingFiles}]:[];
+  if(host==='codex')return event.type==='item.completed'&&event.item?.type==='command_execution'?[{...event.item,observedAt:event.observedAt,observedTick:event.observedTick,workingFiles:event.workingFiles}]:[];
+  if(host==='opencode')return event.type==='tool_use'&&event.part?.state?.status==='completed'?[{...event.part,observedAt:event.observedAt,observedTick:event.observedTick,workingFiles:event.workingFiles}]:[];
+  return event.type==='message_end'&&event.message?.role==='toolResult'&&calls.has(event.message.toolCallId)?[{...event.message,input:calls.get(event.message.toolCallId),observedAt:event.observedAt,observedTick:event.observedTick,workingFiles:event.workingFiles}]:[];
  });
  const assistantMessages:string[]=[],openCodeMessages=new Map<string,Map<string,string>>();let answer='';
  for(const [index,event] of events.entries()){
@@ -189,8 +189,8 @@ async function runWorkflowTurn({host,fixture,env,prompt,budget,stem}:WorkflowTur
  const maxBuffer=host==='omp'?16_000_000:4_000_000;
  const transport=await runLiveCommand(host,args,{cwd:root,env,input:host==='codex'?prompt:undefined,timeoutMs:budget.maxWallMs,maxBuffer,onStdout:arrival.onStdout});
  const privateEvidence=join(control,stem+'.private.json');
- await writeFile(privateEvidence,JSON.stringify({...transport,stdoutArrivals:arrival.arrivals,stdoutFileStates:arrival.fileStates}),{mode:0o600});
- const observation=observedRun(host,transport.stdout,host==='codex'?await readFile(output,'utf8').catch(()=>undefined):undefined,arrival.arrivals,arrival.fileStates);
+ await writeFile(privateEvidence,JSON.stringify({...transport,stdoutArrivals:arrival.arrivals,stdoutTicks:arrival.ticks,stdoutFileStates:arrival.fileStates}),{mode:0o600});
+ const observation=observedRun(host,transport.stdout,host==='codex'?await readFile(output,'utf8').catch(()=>undefined):undefined,arrival.arrivals,arrival.fileStates,arrival.ticks);
  return {command,transport,observation,privateEvidence};
 }
 

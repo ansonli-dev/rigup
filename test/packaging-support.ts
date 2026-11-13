@@ -3,6 +3,7 @@ import {tmpdir} from 'node:os';
 import assert from 'node:assert/strict';
 import {parse} from 'smol-toml';
 import {nativeCodexProbe} from './live-support.js';
+import {fixtureDiagnostic,fixtureError} from './fixture-diagnostics.js';
 const exec=promisify(execFile);
 const windows=process.platform==='win32';
 const npmCli=process.env.npm_execpath||(windows?join(dirname(process.execPath),'node_modules','npm','bin','npm-cli.js'):undefined);
@@ -20,7 +21,9 @@ export async function packagedIndependence(withNative=false){
  const executable=windows?process.execPath:join(consumer,'node_modules','.bin','rigup');
  const args=['init',root,'--json'];
  if(windows)args.unshift(join(consumer,'node_modules',meta.name,'dist','cli.js'));
- const report=JSON.parse((await exec(executable,args,{env,timeout:60000,maxBuffer:2_000_000})).stdout);if(report.exitCode!==0)throw Error('Packaged CLI did not install fixture: '+JSON.stringify(report));
+ const started=performance.now();
+ const installed=await exec(executable,args,{env,timeout:60000,maxBuffer:2_000_000}).catch(error=>{throw Error('Packaged fixture init failed (timeoutMs=60000, elapsedMs='+Math.round(performance.now()-started)+')\n'+fixtureError(error,[control]));});
+ const report=JSON.parse(installed.stdout);if(report.exitCode!==0)throw Error('Packaged CLI did not install fixture: '+fixtureDiagnostic(report,[control]));
  await rm(consumer+'/node_modules',{recursive:true,force:true});
  await rm(root+'/.rigup/manifest.json');
  for(const asset of ['scripts','mcp','checks.json'])await assert.rejects(readFile(root+'/.rigup/'+asset),{code:'ENOENT'});

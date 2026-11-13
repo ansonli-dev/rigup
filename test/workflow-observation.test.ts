@@ -87,16 +87,18 @@ test('native result arrival captures actual source/test bytes before later edits
 }));
 
 test('native tool proof gets the actual complete-line arrival time rather than a host claim or post-exit timestamp',async()=>{
- const arrival=workflowOutputArrival(),started=Date.now();
- const event={type:'item.completed',observedAt:'1900-01-01T00:00:00Z',item:{type:'command_execution',command:'actual fixture command',aggregated_output:'actual result',exit_code:0}};
+ const arrival=workflowOutputArrival(),started=Date.now(),startTick=performance.now();
+ const event={type:'item.completed',observedAt:'1900-01-01T00:00:00Z',observedTick:-1,item:{type:'command_execution',command:'actual fixture command',aggregated_output:'actual result',exit_code:0,observedTick:-2}};
  const line=JSON.stringify(event),half=Math.floor(line.length/2);
  const program='console.log("diagnostic before JSON");process.stdout.write('+JSON.stringify(line.slice(0,half))+');setTimeout(()=>process.stdout.write('+JSON.stringify(line.slice(half)+'\n')+'),25);';
  const transport=await runLiveCommand(process.execPath,['-e',program],{timeoutMs:workflowObservationTimeoutMs,maxBuffer:10000,onStdout:arrival.onStdout});
  const ended=Date.now();assert.equal(transport.code,0);
- const tool=observedRun('codex',transport.stdout,undefined,arrival.arrivals).tools[0];
+ const tool=observedRun('codex',transport.stdout,undefined,arrival.arrivals,arrival.fileStates,arrival.ticks).tools[0];
  assert.ok(Date.parse(tool.observedAt)>=started&&Date.parse(tool.observedAt)<=ended,'tool proof must be timestamped when its complete JSON line is delivered');
  assert.equal(tool.observedAt,arrival.arrivals[1],'diagnostic and partial lines cannot shift the tool timestamp');
+ assert.equal(tool.observedTick,arrival.ticks[1]);assert.ok(tool.observedTick>=startTick&&tool.observedTick<=performance.now());
  assert.equal(observedRun('codex',transport.stdout).tools[0].observedAt,undefined,'re-reading an old transcript cannot invent an arrival timestamp');
+ assert.equal(observedRun('codex',transport.stdout).tools[0].observedTick,undefined,'native-host tick claims cannot establish ordering');
 });
 
 test('ordinary blocked observation cannot pass from paths or echoed claims without actual read and native outputs',()=>{

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {writeFile} from 'node:fs/promises';
+import {appendFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createWorkflowFixture} from './workflow-fixture-support.js';
 
@@ -34,4 +34,22 @@ test('workflow HTTP origin restricts routes and closes its server',async()=>{
   await fixture.close();closed=true;
   await assert.rejects(fetch(fixture.url+'/origin.git/info/refs?service=git-receive-pack',{signal:AbortSignal.timeout(2000)}));
  }finally{if(!closed)await fixture.close();}
+});
+
+test('workflow HTTP failure retains the client error and non-timeout backend evidence',async()=>{
+ const fixture=await createWorkflowFixture({gitTransport:'http'});
+ try{
+  await appendFile(join(fixture.remote,'config'),'\n[invalid fixture config\n');
+  await assert.rejects(fixture.git(['push','origin','HEAD:main']),error=>{
+   const message=(error as Error).message;
+   assert.match(message,/returned error: 500|remote end hung up/);
+   assert.match(message,/timedOut.*false/);
+   assert.match(message,/bad config|bad configuration/i);
+   assert.match(message,/exitCode.*0/);
+   assert.match(message,/httpStatus.*500/);
+   assert.match(message,/"code":128/);
+   assert.ok(!message.includes(fixture.control),'scratch paths must be sanitized');
+   return true;
+  });
+ }finally{await fixture.close();}
 });
