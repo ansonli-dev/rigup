@@ -1,23 +1,24 @@
+import {workflowGitBackendTimeoutMs} from './workflow-timeouts.js';
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {startLiveSession,type LiveSession} from './live-process-support.js';
 
 // One disposable repository, served on the fixture's existing loopback listener.
 // Native Windows MXC cannot run the MSYS shell used by Git's local-path transport.
-export function workflowGitHttp(control:string,env:NodeJS.ProcessEnv){
+export function workflowGitHttp(control:string,env:NodeJS.ProcessEnv,startSession=startLiveSession){
  const sessions=new Set<LiveSession>(),requests=new Set<Promise<void>>();let closing=false;
  const reject=(res:ServerResponse,status:number)=>{if(!res.destroyed){res.writeHead(status);res.end('Local Git fixture request rejected');}};
  async function serve(req:IncomingMessage,res:ServerResponse,url:URL){
   const chunks:Buffer[]=[];let size=0;
   for await(const chunk of req){size+=chunk.length;if(size>2_000_000){reject(res,413);return;}chunks.push(Buffer.from(chunk));}
   if(closing){reject(res,503);return;}
-  const input=Buffer.concat(chunks),session=await startLiveSession('git',['http-backend'],{cwd:control,env:{...env,
+  const input=Buffer.concat(chunks),session=await startSession('git',['http-backend'],{cwd:control,env:{...env,
    GIT_PROJECT_ROOT:control.replaceAll('\\','/'),GIT_HTTP_EXPORT_ALL:'1',REQUEST_METHOD:req.method,
    PATH_INFO:url.pathname,QUERY_STRING:url.search.slice(1),CONTENT_TYPE:req.headers['content-type']??'',CONTENT_LENGTH:String(input.length),
    REMOTE_ADDR:'127.0.0.1',REMOTE_USER:'rigup-local-fixture',SERVER_PROTOCOL:'HTTP/1.1',GATEWAY_INTERFACE:'CGI/1.1',
    HTTP_GIT_PROTOCOL:req.headers['git-protocol']==='version=2'?'version=2':'',
   }});
   sessions.add(session);const output:Buffer[]=[];let bytes=0,overflow=false,timedOut=false;
-  const timer=setTimeout(()=>{timedOut=true;void session.stop().catch(()=>{});},10000);
+  const timer=setTimeout(()=>{timedOut=true;void session.stop().catch(()=>{});},workflowGitBackendTimeoutMs);
   session.stdout.on('data',(chunk:Buffer)=>{bytes+=chunk.length;if(bytes>2_000_000){overflow=true;void session.stop().catch(()=>{});}else output.push(Buffer.from(chunk));});
   session.stderr.resume();
   try{
