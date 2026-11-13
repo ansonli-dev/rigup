@@ -13,6 +13,68 @@ $trusted = @(
 # Generic write/all, ACL/owner changes, deletion and reparse-point writes.
 $replacementRights = 0x500d0142
 
+# System.IO can reject extended paths in Windows PowerShell 5.1, depending on
+# the host's .NET path handling. Use Unicode Win32 APIs for filesystem access;
+# keep the managed ACL types for in-memory construction and policy checks.
+if (-not ('RigupNativeAcl' -as [type])) {
+ Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class RigupNativeAcl {
+ [StructLayout(LayoutKind.Sequential)]
+ struct SecurityAttributes { public int Length; public IntPtr Descriptor; public int InheritHandle; }
+ [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+ static extern uint GetFileAttributesW(string path);
+ [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+ [return: MarshalAs(UnmanagedType.Bool)]
+ static extern bool CreateDirectoryW(string path, ref SecurityAttributes attributes);
+ [DllImport("advapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+ static extern uint GetNamedSecurityInfoW(string path, int type, uint information, IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl, out IntPtr descriptor);
+ [DllImport("advapi32.dll", ExactSpelling = true)]
+ static extern uint GetSecurityDescriptorLength(IntPtr descriptor);
+ [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
+ static extern IntPtr LocalFree(IntPtr memory);
+ public static uint Attributes(string path) {
+  uint attributes = GetFileAttributesW(path);
+  if (attributes == 0xFFFFFFFF) throw new Win32Exception(Marshal.GetLastWin32Error());
+  return attributes;
+ }
+ public static byte[] Descriptor(string path) {
+  IntPtr descriptor;
+  // SE_FILE_OBJECT; OWNER | GROUP | DACL_SECURITY_INFORMATION. This API
+  // returns its error code directly, not through GetLastError.
+  uint status = GetNamedSecurityInfoW(path, 1, 7, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out descriptor);
+  if (status != 0) throw new Win32Exception((int)status);
+  try {
+   if (descriptor == IntPtr.Zero) throw new InvalidOperationException("Missing security descriptor");
+   byte[] bytes = new byte[checked((int)GetSecurityDescriptorLength(descriptor))];
+   Marshal.Copy(descriptor, bytes, 0, bytes.Length);
+   return bytes;
+  } finally {
+   if (LocalFree(descriptor) != IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+  }
+ }
+ public static void CreateDirectory(string path, byte[] descriptor) {
+  // Keep the self-relative descriptor alive through the synchronous native
+  // call. SECURITY_ATTRIBUTES applies the protected DACL at creation.
+  IntPtr memory = Marshal.AllocHGlobal(descriptor.Length);
+  try {
+   Marshal.Copy(descriptor, 0, memory, descriptor.Length);
+   SecurityAttributes attributes = new SecurityAttributes();
+   attributes.Length = Marshal.SizeOf(typeof(SecurityAttributes));
+   attributes.Descriptor = memory;
+   if (!CreateDirectoryW(path, ref attributes)) {
+    int error = Marshal.GetLastWin32Error();
+    // ERROR_ALREADY_EXISTS: leave it unchanged and validate it below.
+    if (error != 183) throw new Win32Exception(error);
+   }
+  } finally { Marshal.FreeHGlobal(memory); }
+ }
+}
+'@
+}
+
 function New-AclDenial([string]$candidate, [string]$reason, [string]$principal = '') {
  $denial = @{status = 'denied'; path = $candidate; reason = $reason; principal = $principal}
  if ($principal) {
@@ -25,16 +87,14 @@ function New-AclDenial([string]$candidate, [string]$reason, [string]$principal =
 }
 
 function Assert-SafeAcl($candidate, [bool]$isDirectory, [bool]$privateLeaf) {
- # Keep public paths unchanged; the extended form avoids legacy .NET length limits.
+ # Keep public paths unchanged; only the Win32 calls use the extended form.
  $ioPath = '\\?\' + $candidate
- $attributes = [IO.File]::GetAttributes($ioPath)
+ $attributes = [IO.FileAttributes][RigupNativeAcl]::Attributes($ioPath)
  if (($attributes -band [IO.FileAttributes]::ReparsePoint) -or
      ([bool]($attributes -band [IO.FileAttributes]::Directory) -ne $isDirectory)) {
   return (New-AclDenial $candidate 'unexpected-type')
  }
- $security = if ($isDirectory) { [IO.Directory]::GetAccessControl($ioPath) }
-             else { [IO.File]::GetAccessControl($ioPath) }
- $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new($security.GetSecurityDescriptorBinaryForm(), 0)
+ $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new([RigupNativeAcl]::Descriptor($ioPath), 0)
  $owner = $descriptor.Owner.Value
  if ($owner -notin $trusted) {
   return (New-AclDenial $candidate 'untrusted-owner' $owner)
@@ -97,7 +157,7 @@ if ($create) {
   $acl.AddAccessRule($rule)
  }
  # Apply the protected DACL at creation. An existing directory keeps its ACL.
- [void][IO.Directory]::CreateDirectory(('\\?\' + $path), $acl)
+ [RigupNativeAcl]::CreateDirectory(('\\?\' + $path), $acl.GetSecurityDescriptorBinaryForm())
 }
 if (-not $ancestorsOnly) { Assert-SafeAcl $path $directory $true }
 `;
