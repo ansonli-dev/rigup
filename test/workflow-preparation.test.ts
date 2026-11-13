@@ -30,7 +30,7 @@ for(const defect of ['native-incomplete','other-change-link','stale-design','mis
 }));
 
 // Scripted unit driver tests the harness state machine only; it is never native-host acceptance.
-for(const defect of ['unknown-usage','partial-usage','over-budget','configuration-edit','outside-directory','invented-approval','stale-feedback','ready-edit','failed-artifact-read','numbered-read-output','none'] as const)test('preparation phase accounting and actual-prompt approval stop safely: '+defect,async()=>{
+for(const defect of ['unknown-usage','partial-usage','over-budget','configuration-edit','outside-directory','invented-approval','stale-feedback','ready-edit','pending-ready','pending-ready-verdict','pending-delivery-command','scope-mismatch','scope-mismatch-ready','wrong-goal-command','failed-artifact-read','numbered-read-output','none'] as const)test('preparation phase accounting and actual-prompt approval stop safely: '+defect,async()=>{
  const fixture=await createWorkflowFixture();
  try{
   const {root,control}=fixture,base='openspec/changes/greeting',skillRoot='.agents/skills',paths=['proposal.md','design.md','tasks.md','specs/greeting/spec.md','specs/preservation/spec.md'];
@@ -38,7 +38,8 @@ for(const defect of ['unknown-usage','partial-usage','over-budget','configuratio
   for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){await mkdir(join(root,skillRoot,name),{recursive:true});await writeFile(join(root,skillRoot,name,'SKILL.md'),'---\nname: '+name+'\ndescription: Unit native entry\n---\n');}
   const state={status:{changeName:'greeting',isPlanningComplete:true,artifacts:paths.map(id=>({id,status:'done'}))},apply:{changeName:'greeting',state:'ready',tasks:[],contextFiles:{proposal:[join(root,base,paths[0])],design:[join(root,base,paths[1])],tasks:[join(root,base,paths[2])],specs:paths.slice(3).map(path=>join(root,base,path))}}};
   const native=async(args:string[])=>({stdout:JSON.stringify(args[0]==='status'?state.status:state.apply)}),calls:{prompt:string;stem:string}[]=[];
-  const result=await prepareFeedbackProbe({host:'codex',fixture,env,native,runTurn:async(prompt,budget,stem)=>{
+  const mismatch=defect==='scope-mismatch'||defect==='scope-mismatch-ready';
+  const result=await prepareFeedbackProbe({host:'codex',fixture,env,native,readinessApproval:mismatch?'scope-mismatch':'pending',runTurn:async(prompt,budget,stem)=>{
    calls.push({prompt,stem});const phase=stem.slice('prepare-'.length),preparing=phase==='prepare'||phase==='feedback';
    if(preparing){
     const kind=phase==='feedback'&&defect!=='stale-feedback'?'TypeError':'RangeError';
@@ -54,23 +55,27 @@ for(const defect of ['unknown-usage','partial-usage','over-budget','configuratio
    const readPaths=[skillRoot+'/'+skill+'/SKILL.md',skillRoot+'/'+skill+'/references/project.md',skillRoot+'/change-prepare/references/GOAL.md',...paths.map(path=>base+'/'+path),base+'/GOAL.md'];
    let payload=(await Promise.all(readPaths.map(path=>readFile(join(root,path),'utf8')))).join('\n')+'\n'+JSON.stringify(state.status)+'\n'+JSON.stringify(state.apply);
    if(defect==='numbered-read-output')payload=payload.split('\n').map((line,index)=>(index+1)+': '+line).join('\n');
-   const answer=phase==='ready-unapproved'?'Blocked: implementation approval is missing. Obtain developer approval and rerun readiness.':phase==='ready-approved'?'Ready for implementation\n/goal Implement the reviewed change in "openspec/changes/greeting/GOAL.md" and verify every completion criterion in that file.':'Prepared; implementation approval remains pending.';
+   const ready='Ready for implementation\n/goal Implement the reviewed change in "openspec/changes/'+(defect==='wrong-goal-command'?'other':'greeting')+'/GOAL.md" and verify every completion criterion in that file.';
+   const blocked=mismatch?'Blocked: approval scope mismatch; src/other.js approval does not cover the reviewed greeting scope. Obtain approval for src/greet.js and test/greet.test.js and rerun readiness.':'Not ready for implementation: implementation approval is pending. Obtain developer approval and rerun readiness.';
+   const answer=phase==='ready-unapproved'?(defect==='pending-ready'||defect==='scope-mismatch-ready'?ready:defect==='pending-ready-verdict'?blocked+'\n**Ready for implementation**':blocked+(defect==='pending-delivery-command'?'\n/change-deliver Implement openspec/changes/greeting/GOAL.md.':'')):phase==='ready-approved'?ready:'Prepared; implementation approval remains pending.';
    const command='cat artifacts; openspec status --change greeting --json; openspec instructions apply --change greeting --json';
    const tools:any[]=defect==='failed-artifact-read'?[{type:'command_execution',command,aggregated_output:(await Promise.all(readPaths.slice(0,2).map(path=>readFile(join(root,path),'utf8')))).join('\n')+'\n'+JSON.stringify(state.status)+'\n'+JSON.stringify(state.apply),exit_code:0},{tool:'shell',state:{status:'completed',input:{command},output:payload,metadata:{exit:17}}}]:[{type:'command_execution',command,aggregated_output:payload,exit_code:0}];
    const usageComplete=defect!=='unknown-usage'&&defect!=='partial-usage',observedUsage=defect==='unknown-usage'?{input:0,output:0,total:0}:{input:5,output:3,total:defect==='over-budget'?budget.maxObservedTokens+1:8};
    return {command:{unitDriver:true},transport:{code:0,timedOut:false},privateEvidence:'unit-driver',observation:{answer,tools,usageComplete,observedUsage,usage:usageComplete?observedUsage:undefined}};
   }});
-  const valid=defect==='none'||defect==='numbered-read-output',expected=valid?4:defect==='stale-feedback'?3:defect==='ready-edit'?2:1;
+  const valid=defect==='none'||defect==='numbered-read-output'||defect==='scope-mismatch',expected=valid||defect==='wrong-goal-command'?4:defect==='stale-feedback'?3:['ready-edit','pending-ready','pending-ready-verdict','pending-delivery-command','scope-mismatch-ready'].includes(defect)?2:1;
   assert.equal(calls.length,expected);assert.equal(result.phases.length,expected);assert.equal(result.status,valid?'passed':'failed',result.reason);
   assert.ok(calls.slice(0,3).every(call=>!call.prompt.includes('As developer, I approve')),'the first preparation cannot pre-populate approval');
   assert.equal(result.cumulative.total,defect==='unknown-usage'?0:defect==='over-budget'?600001:8*expected);
   assert.equal(result.cumulative.usageComplete,defect!=='unknown-usage'&&defect!=='partial-usage','known subtotals must not present unknown usage as zero');
   for(const phase of result.phases){assert.deepEqual(JSON.parse(await readFile(join(control,'prepare-'+phase.id+'.result.json'),'utf8')),phase);assert.ok(phase.budget.maxWallMs>0);assert.ok(phase.after,'retain actual post-attempt bytes even after unknown or excessive usage');}
   if(valid){
+   assert.match(calls[1].prompt,mismatch?/approve greeting only in src\/other\.js/:/Implementation approval is pending/);
    assert.match(calls[3].prompt,/As developer, I approve the current greeting scope/);assert.match(calls[3].prompt,/GOAL SHA256 [a-f0-9]{64}/);
    assert.equal(result.phases[0].artifacts.documents[base+'/design.md'].includes('RangeError'),true);
    assert.equal(result.phases[2].artifacts.documents[base+'/design.md'].includes('TypeError'),true);
    assert.deepEqual(result.phases[1].before,result.phases[1].after);assert.deepEqual(result.phases[3].before,result.phases[3].after);
+   assert.equal(result.phases[1].artifacts.nativeComplete,true,'complete native planning does not establish approval');
   }
  }finally{await fixture.close();}
 });
