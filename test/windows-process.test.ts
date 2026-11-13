@@ -70,6 +70,16 @@ test('Windows job reports a lone descendant left by a normally exited root',{ski
  }finally{child.stop();await child.completed;}
 }));
 
+test('Windows job permits a slow root exit after its descendant has exited',{skip},()=>project(async root=>{
+ const {startWindowsProcess}=await import('../src/integrations/tools/windows-process.mjs');
+ const command=`const child=require('node:child_process').spawn(process.execPath,['-e','process.exit(0)'],{stdio:'ignore',windowsHide:true});child.once('exit',()=>setTimeout(()=>process.exit(0),1500));`;
+ const child=startWindowsProcess({executable:process.execPath,args:['-e',command],cwd:root,captureOutput:false});
+ try{
+  child.start();
+  assert.deepEqual(await child.completed,{code:0,unavailable:false,remaining:false,interrupted:false});
+ }finally{child.stop();await child.completed;}
+}));
+
 test('Windows job loses its writer when the controller exits abruptly',{skip},()=>project(async root=>{
  const {windowsJobActive}=await import('../src/integrations/tools/windows-process.mjs');
  const file=join(root,'writer.pid'),jobFile=join(root,'job.json');

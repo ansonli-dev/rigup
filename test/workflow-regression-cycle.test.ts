@@ -1,3 +1,4 @@
+import {workflowCommandTimeoutMs} from './workflow-timeouts.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,writeFile} from 'node:fs/promises';
@@ -20,7 +21,7 @@ for(const scenario of ['codex','opencode','omp','missing-red','suppressed-red','
    return {type:'command_execution',command,aggregated_output:output,exit_code:exit,observedAt,workingFiles};
   };
   const observeMr=async(action:string)=>wrap('node tools/mr.mjs '+action,await fixture.node(['tools/mr.mjs',action]),0);
-  const observeTest=async()=>{const command=npmCommand(['test']);const result=await runLiveCommand(command.executable,command.args,{cwd:fixture.root,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,ComSpec:process.env.ComSpec,HOME:fixture.control+'/home',USERPROFILE:fixture.control+'/home',NO_COLOR:'1'},timeoutMs:15000,maxBuffer:200000});return wrap('npm test',result.stdout+result.stderr,result.code);};
+  const observeTest=async()=>{const command=npmCommand(['test']);const result=await runLiveCommand(command.executable,command.args,{cwd:fixture.root,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,ComSpec:process.env.ComSpec,HOME:fixture.control+'/home',USERPROFILE:fixture.control+'/home',NO_COLOR:'1'},timeoutMs:workflowCommandTimeoutMs,maxBuffer:200000});return wrap('npm test',result.stdout+result.stderr,result.code);};
   if(scenario!=='before-finding')tools.push(await observeMr('status'));
   if(scenario!=='unchanged-tests')await writeFile(fixture.root+'/test/greet.test.js',scenario==='infrastructure-failure'?'import "../src/missing.js";\n':scenario==='unrelated-assertion'?imports+'test("unrelated",()=>assert.equal(1,2));\n':tests);
   if(scenario==='after-fix')await writeFile(fixture.root+'/src/greet.js',source);
