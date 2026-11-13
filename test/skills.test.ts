@@ -27,6 +27,18 @@ test('every selected host installs a navigable readiness entry and a fixed GOAL 
   }
   const ready=assets.find(asset=>asset.target===directory+'/change-ready/SKILL.md')!.content;
   assert.match(ready,/missing, pending, stale or scope-mismatched implementation approval blocks readiness/i);
+  const prepare=assets.find(asset=>asset.target===directory+'/change-prepare/SKILL.md')!.content;
+  const goal=assets.find(asset=>asset.target===directory+'/change-prepare/references/GOAL.md')!.content;
+  assert.match(prepare,/every repository-relative file delivery will modify/i,'preparation must enumerate the delivered write set');
+  assert.match(goal,/reviewed write scope[\s\S]*task.*checkbox[\s\S]*evidence/i,'the fixed GOAL must account for task and evidence writes');
+  for(const name of ['change-ready','change-deliver']){
+   const content=assets.find(asset=>asset.target===directory+'/'+name+'/SKILL.md')!.content;
+   assert.match(content,/planned writes[\s\S]*reviewed write scope/i,name+' must reconcile delivery destinations');
+   assert.match(content,/GOAL itself[\s\S]*defined record write/i,name+' must bound GOAL writes');
+   assert.match(content,/older GOALs[\s\S]*format/i,name+' must accept complete legacy artifacts');
+   assert.match(content,/additional authorization[\s\S]*unused/i,name+' must distinguish authorization from the reviewed scope');
+   assert.match(content,/omits any part[\s\S]*blocks/i,name+' must retain the full-scope approval gate');
+  }
  }
  validateNavigation(assets,profile.files);
  for(const asset of assets)validateTemplateContent(asset.content);

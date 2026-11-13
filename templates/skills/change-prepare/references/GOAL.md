@@ -5,12 +5,20 @@ Fill this template in the native change directory. Replace every placeholder, us
 ## Reviewed change
 
 - Change ID and native workflow: <exact ID and selected workflow>.
-- Outcome and reviewed scope: <observable behavior and allowed paths>; preserve <out-of-scope behavior>.
+- Outcome: <observable behavior>; preserve <out-of-scope behavior>.
 - Spec artifacts: <links to every current requirement/scenario file for this change>.
 - Plan artifacts: <links to every current design, implementation and verification task file for this change>.
 - Native implementation entry: <installed skill or command and its resolved path>.
 - Native status/instructions: <current evidence and any remaining prerequisite>.
-- Implementation approval: <pending, or explicit human approval and its current instruction or applicable, verified project-designated record; identify the approved change, revision and scope, and any remaining gate>.
+- Implementation approval: <pending, or explicit human approval and its current instruction or applicable, verified project-designated record; identify the approved change, revision and full reviewed write scope, and any remaining gate>.
+
+## Reviewed write scope
+
+- <repository-relative business file>: <permitted change>.
+- <repository-relative native task file, when applicable>: <task checkboxes/status and verification evidence to update>.
+- <any other actually planned repository-relative evidence/record file>: <defined record write; include this GOAL itself only if that write is explicitly reviewed>.
+
+Enumerate every file delivery will modify. Reconcile the native task instructions and all evidence destinations below with this list, using this workflow's actual paths. Remove inapplicable entries; a linked input is not automatically writable.
 
 ## Delivery instructions
 
@@ -22,7 +30,7 @@ Read the [installed delivery skill](../../change-deliver/SKILL.md) and [project 
 | --- | --- | --- | --- |
 | <material scenario, including rejection/preservation cases> | <task link/ID> | <existing check and cwd, or an explicit manual observation> | <expected result and where actual results will be recorded> |
 
-Complete every row, run the required project checks, and record actual results. A claim without observable evidence is incomplete. Report unavailable checks and blockers instead of marking them passed.
+Complete every row, run the required project checks, and record actual results only in the reviewed destinations. A claim without observable evidence is incomplete. Report unavailable checks and blockers instead of marking them passed.
 
 ## Commit, push and MR scope
 

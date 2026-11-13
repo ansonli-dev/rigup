@@ -6,7 +6,7 @@ import {openspecFixturePath,project} from './helpers.js';
 import {inspectPreparedArtifacts,prepareFeedbackProbe} from './live-workflow-prepare-support.js';
 import {createWorkflowFixture} from './workflow-fixture-support.js';
 
-for(const defect of ['native-incomplete','other-change-link','stale-design','missing-verification','superseded-history','stale-after-history','historical-preservation','scenario-titles','spaces-only','internal-space-wording','none'] as const)test('prepared artifact oracle checks coordinated native requirements and evidence: '+defect,()=>project(async root=>{
+for(const defect of ['native-incomplete','other-change-link','stale-design','missing-verification','omitted-task-write','legacy-inline-scope','superseded-history','stale-after-history','historical-preservation','scenario-titles','spaces-only','internal-space-wording','none'] as const)test('prepared artifact oracle checks coordinated native requirements and evidence: '+defect,()=>project(async root=>{
  const base='openspec/changes/greeting',skillRoot='.agents/skills';
  const blank=defect==='scenario-titles'?'empty, spaces-only and tab/newline inputs':defect==='spaces-only'?'empty and spaces-only inputs':'empty and whitespace-only inputs';
  const body='REQ-BLANK: Reject '+blank+' with TypeError.\nREQ-PRESERVE: Preserve " Ada Lovelace " as "Hello, Ada Lovelace" and keep internal spaces.\nVerification: npm test at repository root.\n';
@@ -14,7 +14,9 @@ for(const defect of ['native-incomplete','other-change-link','stale-design','mis
  for(const path of paths){await mkdir(dirname(join(root,base,path)),{recursive:true});await writeFile(join(root,base,path),body);}
  const context=skillRoot+'/'+(defect==='scenario-titles'?'change-prepare':'change-deliver')+'/references/project.md';
  for(const path of [skillRoot+'/openspec-apply-change/SKILL.md',skillRoot+'/change-deliver/SKILL.md',context,'CONTRIBUTING.md']){await mkdir(dirname(join(root,path)),{recursive:true});await writeFile(join(root,path),'Fixture guidance\n');}
- const goal=body+paths.map(path=>`[${path}](${path})`).join('\n')+'\n[native](../../../.agents/skills/openspec-apply-change/SKILL.md)\n[delivery](../../../.agents/skills/change-deliver/SKILL.md)\n[context](../../../'+context+')\n[guidance](../../../CONTRIBUTING.md)\n';
+ const writePaths='src/greet.js, test/greet.test.js'+(defect==='omitted-task-write'?'':', '+base+'/tasks.md');
+ const scope=defect==='legacy-inline-scope'?'Scope: '+writePaths+'.\n':'## Reviewed write scope\n\n'+writePaths.split(', ').map(path=>'- `'+path+'`').join('\n')+'\n';
+ const goal=body+scope+'\nEvidence: record actual results and native checkboxes in '+base+'/tasks.md.\n'+paths.map(path=>`[${path}](${path})`).join('\n')+'\n[native](../../../.agents/skills/openspec-apply-change/SKILL.md)\n[delivery](../../../.agents/skills/change-deliver/SKILL.md)\n[context](../../../'+context+')\n[guidance](../../../CONTRIBUTING.md)\n';
  await writeFile(join(root,base,'GOAL.md'),defect==='other-change-link'?goal.replace('(design.md)','(../other/design.md)'):goal);
  if(defect==='other-change-link'){await mkdir(join(root,'openspec/changes/other'));await writeFile(join(root,'openspec/changes/other/design.md'),body);}
  if(defect==='stale-design')await writeFile(join(root,base,'design.md'),body.replaceAll('TypeError','RangeError'));
@@ -26,7 +28,9 @@ for(const defect of ['native-incomplete','other-change-link','stale-design','mis
  if(defect==='internal-space-wording')await writeFile(join(root,base,'tasks.md'),body.replace('keep internal spaces','avoid internal-space normalization'));
  if(defect==='historical-preservation')await writeFile(join(root,base,'design.md'),body.replace(/REQ-PRESERVE:.*\n/,'')+'\n## Superseded draft history\n'+body.match(/REQ-PRESERVE:.*\n/)![0]);
  const nativeState={status:{changeName:'greeting',isPlanningComplete:defect!=='native-incomplete',artifacts:paths.map(path=>({id:path,status:'done'}))},apply:{changeName:'greeting',state:'ready',missingPrerequisites:defect==='native-incomplete'?['design']:[],contextFiles:{proposal:[join(root,base,'proposal.md')],design:[join(root,base,'design.md')],tasks:[join(root,base,'tasks.md')],specs:[join(root,base,'specs/greeting/spec.md'),join(root,base,'specs/preservation/spec.md')]}}};
- assert.equal((await inspectPreparedArtifacts(root,nativeState,'TypeError',skillRoot)).passed,['none','superseded-history','scenario-titles','internal-space-wording'].includes(defect));
+ const result=await inspectPreparedArtifacts(root,nativeState,'TypeError',skillRoot);
+ assert.equal(result.passed,['none','legacy-inline-scope','superseded-history','scenario-titles','internal-space-wording'].includes(defect),result.reason);
+ if(defect==='omitted-task-write')assert.match(result.reason??'',/openspec\/changes\/greeting\/tasks\.md/,'name the missing write even when tasks are linked and named as evidence');
 }));
 
 // Scripted unit driver tests the harness state machine only; it is never native-host acceptance.
@@ -45,7 +49,7 @@ for(const defect of ['unknown-usage','partial-usage','over-budget','configuratio
     const kind=phase==='feedback'&&defect!=='stale-feedback'?'TypeError':'RangeError';
     const body='REQ-BLANK: Reject empty and whitespace-only inputs with '+kind+'.\nREQ-PRESERVE: Preserve " Ada Lovelace " as "Hello, Ada Lovelace" and keep internal spaces.\nVerification: npm test at repository root.\n';
     for(const path of paths){await mkdir(dirname(join(root,base,path)),{recursive:true});await writeFile(join(root,base,path),body);}
-    await writeFile(join(root,base,'GOAL.md'),body+'Implementation approval: pending.\n'+paths.map(path=>`[${path}](${path})`).join('\n')+'\n[native](../../../.agents/skills/openspec-apply-change/SKILL.md)\n[delivery](../../../.agents/skills/change-deliver/SKILL.md)\n[context](../../../.agents/skills/change-deliver/references/project.md)\n[guidance](../../../CONTRIBUTING.md)\n');
+    await writeFile(join(root,base,'GOAL.md'),body+'Implementation approval: pending.\nScope: src/greet.js, test/greet.test.js, '+base+'/tasks.md.\nEvidence: native checkboxes and actual results in '+base+'/tasks.md.\n'+paths.map(path=>`[${path}](${path})`).join('\n')+'\n[native](../../../.agents/skills/openspec-apply-change/SKILL.md)\n[delivery](../../../.agents/skills/change-deliver/SKILL.md)\n[context](../../../.agents/skills/change-deliver/references/project.md)\n[guidance](../../../CONTRIBUTING.md)\n');
    }
    if(defect==='configuration-edit')await writeFile(join(root,'package.json'),'{}\n');
    if(defect==='outside-directory')await mkdir(join(root,'unapproved-directory'),{recursive:true});
