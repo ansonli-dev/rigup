@@ -18,10 +18,20 @@ async function runNpmPublish(args) {
 
 export async function publishNpmArchive({archive, version, expectedIntegrity, request = fetch, runNpm = runNpmPublish}) {
   assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, 'Invalid package version');
-  const integrity = `sha512-${createHash('sha512').update(await readFile(archive)).digest('base64')}`;
+  const bytes = await readFile(archive);
+  const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
   assert.equal(integrity, expectedIntegrity, 'npm archive integrity differs from the verified release');
-  const {stdout} = await exec('tar', ['-xOzf', archive, 'package/package.json'], {timeout: 15_000});
-  const manifest = JSON.parse(stdout);
+  // stdin avoids GNU tar's drive parsing without changing cwd or tool lookup.
+  const extraction = exec('tar', ['-xOzf', '-', 'package/package.json'], {timeout: 15_000});
+  const input = new Promise((done, fail) => {
+    extraction.child.stdin.on('error', fail);
+    extraction.child.stdin.end(bytes, error => error ? fail(error) : done());
+  });
+  const [result, written] = await Promise.allSettled([extraction, input]);
+  if (result.status === 'rejected') throw result.reason;
+  // A successful tar can close its input after finding the requested member.
+  if (written.status === 'rejected' && written.reason.code !== 'EPIPE') throw written.reason;
+  const manifest = JSON.parse(result.value.stdout);
   assert.equal(manifest.name, packageName, 'Unexpected npm package name');
   assert.equal(manifest.version, version, 'npm package version differs from the release');
 
