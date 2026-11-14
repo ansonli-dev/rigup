@@ -12,7 +12,7 @@ npm audit --audit-level=low
 
 ## Windows and agent sessions
 
-Run the default checks in a fresh PowerShell 7 terminal with Git for Windows. Windows release tests pass absolute drive paths to `tar`. In Git Bash, GNU `tar` can read `C:\...` as a remote path. If you use Git Bash, put the directory containing Windows system `tar.exe` (`C:\Windows\System32`) first on `PATH` and check which `tar` resolves.
+Run the default checks in a fresh PowerShell 7 terminal with Git for Windows. The npm release tests and publisher pass archive bytes through tar's standard streams, so both Windows system `tar.exe` and Git for Windows GNU `tar` work with absolute drive paths. Record which `tar` resolves when reporting release-test results.
 
 Use Node.js 22.19 or later in the 22.x line, or 24.2 or later. Record `node --version` with the results. To select another Node version in PowerShell, prepend its directory to a `PATH` built from the Machine and User values so Windows tools and Git remain available. Check `Get-Command tar.exe` after the change.
 
