@@ -27,6 +27,17 @@ test('every selected host installs a navigable readiness entry and a fixed GOAL 
   }
   const ready=assets.find(asset=>asset.target===directory+'/change-ready/SKILL.md')!.content;
   assert.match(ready,/missing, pending, stale or scope-mismatched implementation approval blocks readiness/i);
+  const deliver=assets.find(asset=>asset.target===directory+'/change-deliver/SKILL.md')!.content;
+  const preflight=deliver.slice(deliver.indexOf('\n1. '),deliver.indexOf('\n2. '));
+  assert.match(preflight,/GOAL completion criteria, evidence destinations and native tasks/i,'delivery must independently derive writes, including task/evidence writes');
+  assert.match(preflight,/List each repository-relative path and its intended purpose/i,'the first read-only gate must expose the planned writes');
+  assert.match(preflight,/current request explicitly authorizes the missing path/i,'current permission cannot repair omitted review');
+  assert.match(preflight,/before any edit, task checkbox update or verification record write/i,'all delivery writes wait for scope reconciliation');
+  const inventory=preflight.indexOf('List each repository-relative path');
+  const comparison=preflight.indexOf('Compare every planned write');
+  const approval=deliver.indexOf('Verify explicit human approval');
+  assert.ok(inventory>=0&&comparison>inventory,'list planned writes before comparing them with reviewed scope');
+  assert.ok(approval>deliver.indexOf('\n2. '),'verify scope before considering current implementation approval');
   const prepare=assets.find(asset=>asset.target===directory+'/change-prepare/SKILL.md')!.content;
   const goal=assets.find(asset=>asset.target===directory+'/change-prepare/references/GOAL.md')!.content;
   assert.match(prepare,/every repository-relative file delivery will modify/i,'preparation must enumerate the delivered write set');

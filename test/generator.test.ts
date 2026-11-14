@@ -506,7 +506,7 @@ test('fixed_inventory_dispositions_follow_actual_candidates_without_model_predic
 
 test('delivery skill requires an active OpenSpec change and scoped human approval before writes', async()=>{
  const skill=await readFile(new URL('../templates/skills/change-deliver/SKILL.md',import.meta.url),'utf8');
- const gate=skill.slice(skill.indexOf('\n1.'),skill.indexOf('\n2.'));
+ const gate=skill.slice(skill.indexOf('\n1.'),skill.indexOf('\n3.'));
  assert.match(gate,/openspec list --json/);
  assert.match(gate,/openspec status --change <id> --json/);
  assert.match(gate,/openspec instructions apply --change <id> --json/);
