@@ -46,7 +46,9 @@ macOS 和 Linux 也可以通过安装器下载内置 Node.js 的便携版。安�
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
 ```
 
-原生 Windows 使用 npm 安装，需准备 受支持的 Windows Node.js、PowerShell 7 和 Git for Windows。便携版安装器需要 Git 和 `ps` 等 POSIX 工具，Linux（含 WSL2）需要 glibc 2.35 或更新版本。[安装、升级与固定版本](docs/guides/releases.md)
+原生 Windows 使用 npm 安装，需要受支持的 Windows Node.js、PowerShell 7 和 Git for Windows。Rigup 的 npm 安装目录、项目目录和 `TEMP`、`TMP` 临时目录的各级目录名只支持英文字母、数字、连字符（`-`）和下划线（`_`）。含中文、空格或其他符号的路径不在支持范围内。[安装与 Windows 路径要求](docs/guides/releases.md#npm)
+
+便携版安装器需要 Git 和 `ps` 等 POSIX 工具，Linux（含 WSL2）需要 glibc 2.35 或更新版本。[安装、升级与固定版本](docs/guides/releases.md)
 
 ### 2. 初始化项目
 

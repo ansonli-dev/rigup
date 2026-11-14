@@ -6,6 +6,8 @@ Use Node.js 22.19 or later in the 22.x line, or Node.js 24.2 or later, to instal
 
 On native Windows, run the npm commands in PowerShell 7 with a supported Windows Node.js version and Git for Windows on PATH. [Verified platform scope](../compatibility/status.md)
 
+Use only ASCII letters, digits, hyphens (`-`), and underscores (`_`) in each directory name along the full path to the npm install prefix used by Rigup, the project root, and the directories set by `TEMP` and `TMP`. For example, use `C:\dev\my-project` as a project root and `C:\RigupTemp` as a temporary directory. Paths containing Chinese characters, spaces, or other symbols are outside the supported native Windows setup.
+
 ```sh
 npm install -g @ansonli.dev/rigup
 rigup --version
