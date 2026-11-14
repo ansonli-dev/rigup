@@ -1,3 +1,4 @@
+import {workflowObservationTimeoutMs} from './workflow-timeouts.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
@@ -47,7 +48,7 @@ const completeStreams={
 for(const host of ['codex','opencode','omp'] as const)for(const defect of ['none','complete-final-json','truncated-tail','malformed-line','leading-malformed','null-record','array-record','missing-event-type'] as const)test('native CLI accounting rejects corrupt streams while retaining the known subtotal: '+host+'/'+defect,async()=>{
  const valid=stream(completeStreams[host]),suffix=defect==='truncated-tail'?'{"type":"unfinished",':defect==='malformed-line'?'{"type":"unfinished",\n':defect==='null-record'?'null\n':defect==='array-record'?'[]\n':defect==='missing-event-type'?'{"usage":{"total":999}}\n':'';
  const text=(defect==='leading-malformed'?'malformed complete record\n':'')+valid+(defect==='complete-final-json'?'':'\n')+suffix,arrival=workflowOutputArrival();
- const transport=await runLiveCommand(process.execPath,['-e','process.stdout.write('+JSON.stringify(text)+')'],{timeoutMs:10000,maxBuffer:10000,onStdout:arrival.onStdout});
+ const transport=await runLiveCommand(process.execPath,['-e','process.stdout.write('+JSON.stringify(text)+')'],{timeoutMs:workflowObservationTimeoutMs,maxBuffer:10000,onStdout:arrival.onStdout});
  assert.equal(transport.code,0);assert.equal(transport.timedOut,false);
  const result=observedRun(host,transport.stdout,undefined,arrival.arrivals,arrival.fileStates),complete=defect==='none'||defect==='complete-final-json';
  assert.equal(result.usageComplete,complete,'a damaged stream cannot reuse an earlier completed generation');assert.deepEqual(result.usage,complete?{input:10,output:5,total:15}:undefined);
@@ -77,7 +78,7 @@ test('native result arrival captures actual source/test bytes before later edits
  const event={type:'item.completed',workingFiles:before,item:{type:'command_execution',command:'actual fixture result',aggregated_output:'read result',exit_code:0,workingFiles:before}};
  const line=JSON.stringify(event),half=Math.floor(line.length/2);
  const program='process.stdout.write('+JSON.stringify(line.slice(0,half))+');require("node:fs").writeFileSync('+JSON.stringify(join(root,'src/greet.js'))+',"at result arrival");setTimeout(()=>process.stdout.write('+JSON.stringify(line.slice(half)+'\n')+'),25);';
- const transport=await runLiveCommand(process.execPath,['-e',program],{cwd:root,timeoutMs:10000,maxBuffer:10000,onStdout:arrival.onStdout});
+ const transport=await runLiveCommand(process.execPath,['-e',program],{cwd:root,timeoutMs:workflowObservationTimeoutMs,maxBuffer:10000,onStdout:arrival.onStdout});
  assert.equal(transport.code,0);const during=workflowWorkingFiles(root);
  await writeFile(join(root,'src/greet.js'),'after process exit');
  const tool=observedRun('codex',transport.stdout,undefined,arrival.arrivals,arrival.fileStates).tools[0];
@@ -86,16 +87,18 @@ test('native result arrival captures actual source/test bytes before later edits
 }));
 
 test('native tool proof gets the actual complete-line arrival time rather than a host claim or post-exit timestamp',async()=>{
- const arrival=workflowOutputArrival(),started=Date.now();
- const event={type:'item.completed',observedAt:'1900-01-01T00:00:00Z',item:{type:'command_execution',command:'actual fixture command',aggregated_output:'actual result',exit_code:0}};
+ const arrival=workflowOutputArrival(),started=Date.now(),startTick=performance.now();
+ const event={type:'item.completed',observedAt:'1900-01-01T00:00:00Z',observedTick:-1,item:{type:'command_execution',command:'actual fixture command',aggregated_output:'actual result',exit_code:0,observedTick:-2}};
  const line=JSON.stringify(event),half=Math.floor(line.length/2);
  const program='console.log("diagnostic before JSON");process.stdout.write('+JSON.stringify(line.slice(0,half))+');setTimeout(()=>process.stdout.write('+JSON.stringify(line.slice(half)+'\n')+'),25);';
- const transport=await runLiveCommand(process.execPath,['-e',program],{timeoutMs:10000,maxBuffer:10000,onStdout:arrival.onStdout});
+ const transport=await runLiveCommand(process.execPath,['-e',program],{timeoutMs:workflowObservationTimeoutMs,maxBuffer:10000,onStdout:arrival.onStdout});
  const ended=Date.now();assert.equal(transport.code,0);
- const tool=observedRun('codex',transport.stdout,undefined,arrival.arrivals).tools[0];
+ const tool=observedRun('codex',transport.stdout,undefined,arrival.arrivals,arrival.fileStates,arrival.ticks).tools[0];
  assert.ok(Date.parse(tool.observedAt)>=started&&Date.parse(tool.observedAt)<=ended,'tool proof must be timestamped when its complete JSON line is delivered');
  assert.equal(tool.observedAt,arrival.arrivals[1],'diagnostic and partial lines cannot shift the tool timestamp');
+ assert.equal(tool.observedTick,arrival.ticks[1]);assert.ok(tool.observedTick>=startTick&&tool.observedTick<=performance.now());
  assert.equal(observedRun('codex',transport.stdout).tools[0].observedAt,undefined,'re-reading an old transcript cannot invent an arrival timestamp');
+ assert.equal(observedRun('codex',transport.stdout).tools[0].observedTick,undefined,'native-host tick claims cannot establish ordering');
 });
 
 test('ordinary blocked observation cannot pass from paths or echoed claims without actual read and native outputs',()=>{

@@ -27,6 +27,11 @@ export async function inspectPreparedArtifacts(root:string,nativeState:{status:a
   const nativePaths=Object.values(apply.contextFiles??{}).flatMap(value=>Array.isArray(value)?value:[]) as string[];
   const paths=[base+'/proposal.md',base+'/design.md',base+'/tasks.md',base+'/specs/greeting/spec.md',base+'/specs/preservation/spec.md',goalPath];
   for(const path of paths)documents[path]=await readFile(join(root,path),'utf8');
+  // Fixture oracle only: recognize its heading/list and legacy inline scope forms, not evidence/link mentions elsewhere.
+  const scope=/(?:^|\n)#{1,6}\s+Reviewed write scope[^\n]*\n\s*\n?([\s\S]*?)(?=\n\s*\n|\n#{1,6}\s|$)|(?:^|\n)(?:[-*]\s+)?(?:Outcome and reviewed scope|Scope):\s*([^\n]*)/i.exec(currentCriteria(documents[goalPath]));
+  const reviewedWrites=scope?.[1]??scope?.[2]??'';
+  const missingWrites=['src/greet.js','test/greet.test.js',base+'/tasks.md'].filter(path=>!reviewedWrites.includes(path));
+  if(missingWrites.length)throw Error('Reviewed write scope omits planned writes: '+missingWrites.join(', '));
   const linked=new Set<string>();
   for(const match of documents[goalPath].matchAll(/\[[^\]]+\]\(([^)]+)\)/g)){
    const value=decodeURIComponent(match[1].replace(/^<|>$/g,'').split('#')[0]);
@@ -53,7 +58,7 @@ export async function inspectPreparedArtifacts(root:string,nativeState:{status:a
 
 type Budget=WorkflowBudget;
 type Turn={command:unknown;transport:Pick<WorkflowTurnResult['transport'],'code'|'timedOut'>;observation:Pick<WorkflowTurnResult['observation'],'answer'|'tools'|'usage'|'usageComplete'|'observedUsage'>;privateEvidence:string};
-type PreparationOptions={host:'codex'|'opencode'|'omp';fixture:Awaited<ReturnType<typeof createWorkflowFixture>>;env:NodeJS.ProcessEnv;native:(args:string[])=>Promise<{stdout:string}>;runTurn:(prompt:string,budget:Budget,stem:string)=>Promise<Turn>};
+type PreparationOptions={host:'codex'|'opencode'|'omp';fixture:Awaited<ReturnType<typeof createWorkflowFixture>>;env:NodeJS.ProcessEnv;native:(args:string[])=>Promise<{stdout:string}>;runTurn:(prompt:string,budget:Budget,stem:string)=>Promise<Turn>;readinessApproval?:'pending'|'scope-mismatch'};
 
 function output(tool:any){return typeof tool.aggregated_output==='string'?tool.aggregated_output:typeof tool.state?.output==='string'?tool.state.output:(tool.content??[]).filter((part:any)=>part.type==='text').map((part:any)=>part.text).join('\n');}
 function observedText(tools:any[],text:string){return tools.some(tool=>{
@@ -63,13 +68,13 @@ function observedText(tools:any[],text:string){return tools.some(tool=>{
  return actual.includes(expected)||actual.replace(/^\s*\d+(?::|\||\t) ?/gm,'').includes(expected);
 });}
 
-export async function prepareFeedbackProbe({host,fixture,env,native,runTurn}:PreparationOptions){
+export async function prepareFeedbackProbe({host,fixture,env,native,runTurn,readinessApproval='pending'}:PreparationOptions){
  const {root,control}=fixture,base='openspec/changes/greeting',goalPath=base+'/GOAL.md',skillRoot=agents[host].skillDirectory;
  // Include OpenCode's per-generation cached context when bounding the artifact-writing turns.
  const prepareBudget={maxWallMs:240_000,maxObservedTokens:host==='opencode'?1_200_000:600_000};
  const readyBudget={maxWallMs:120_000,maxObservedTokens:200_000};
  const report:any={status:'failed',budget:{maxWallMs:2*(prepareBudget.maxWallMs+readyBudget.maxWallMs),maxObservedTokens:2*(prepareBudget.maxObservedTokens+readyBudget.maxObservedTokens)},phases:[],cumulative:{nativeWallMs:0,input:0,output:0,total:0,usageComplete:true},scope:'Four actual native CLI invocations in one disposable repository: requirements-only preparation, unapproved read-only readiness, developer feedback revision, explicitly approved read-only readiness. Cumulative tokens are observed subtotals when usageComplete is false. This does not claim implementation or native slash dispatch.'};
- const request='Change ID: greeting. Preparation only; no implementation approval. Use native OpenSpec split specs named greeting and preservation.\nREQ-BLANK: Reject empty and whitespace-only string inputs (empty string, spaces, tab/newline) with RangeError.\nREQ-PRESERVE: Preserve surrounding trimming and internal spaces: greet(" Ada Lovelace ") returns "Hello, Ada Lovelace".\nFuture implementation scope: src/greet.js and test/greet.test.js. Existing verification: npm test at repository root. No dependency, configuration, tool, commit or push changes.\nKeep requirement IDs, the error type, empty/whitespace scenarios and the preservation example explicit across the relevant native Spec, design decisions, implementation/verification tasks and GOAL completion evidence.\n';
+ const request='Change ID: greeting. Preparation only; no implementation approval. Use native OpenSpec split specs named greeting and preservation.\nREQ-BLANK: Reject empty and whitespace-only string inputs (empty string, spaces, tab/newline) with RangeError.\nREQ-PRESERVE: Preserve surrounding trimming and internal spaces: greet(" Ada Lovelace ") returns "Hello, Ada Lovelace".\nFuture delivery writes: business changes in src/greet.js and test/greet.test.js; native task checkboxes and actual verification results in openspec/changes/greeting/tasks.md. No delivery write to GOAL.md is planned. Existing verification: npm test at repository root. No dependency, configuration, tool, commit or push changes.\nKeep requirement IDs, the error type, empty/whitespace scenarios and the preservation example explicit across the relevant native Spec, design decisions, implementation/verification tasks and GOAL completion evidence.\n';
  await writeFile(join(root,'REQUEST.md'),request);
  await writeFile(join(root,'CONTRIBUTING.md'),'# Project guidance\nRun `npm test` at repository root. Preserve project configuration and the existing greeting behavior. This preparation probe authorizes only native planning artifacts for change greeting; no source/test edits, commits, pushes, MR actions, dependencies or tool configuration changes. Human implementation approval must come from the actual developer prompt; do not invent an approval record.\n');
  const options={agents:[host],backend:'host' as const,sdd:'openspec' as const},priorPath=process.env.PATH;
@@ -94,14 +99,14 @@ export async function prepareFeedbackProbe({host,fixture,env,native,runTurn}:Pre
  const bounded=' Stay within this repository. Do not delegate, install anything, edit source/tests/configuration/tools, create approval records, commit, push or contact another service. Use existing native OpenSpec commands. Before handing off preparation, re-read each written artifact and check native status and apply instructions. If retaining superseded rationale, place it under a "## Superseded draft history" heading and keep current criteria outside that section. Keep this turn bounded.';
  const definitions=[
   {id:'prepare',prepare:true,errorType:'RangeError' as const,budget:prepareBudget,prompt:'Use change-prepare from '+skillRoot+'/change-prepare/SKILL.md. Read its project reference and fixed GOAL template, then prepare the requirements in REQUEST.md as native change greeting. Start from requirements only; no change artifacts or approval have been provided.'+bounded},
-  {id:'ready-unapproved',prepare:false,errorType:'RangeError' as const,budget:readyBudget,prompt:'Use change-ready from '+skillRoot+'/change-ready/SKILL.md to inspect '+goalPath+'. I have NOT approved implementation. This is a read-only readiness review; identify the missing approval and its next step. Do not create approval or alter any artifact.'+bounded},
+  {id:'ready-unapproved',prepare:false,errorType:'RangeError' as const,budget:readyBudget,prompt:'Use change-ready from '+skillRoot+'/change-ready/SKILL.md to inspect '+goalPath+'. '+(readinessApproval==='scope-mismatch'?'I approve greeting only in src/other.js; this does not approve its reviewed scope in src/greet.js and test/greet.test.js.':'Implementation approval is pending.')+' Perform a read-only check of native readiness and report the next step.'+bounded},
   {id:'feedback',prepare:true,errorType:'TypeError' as const,budget:prepareBudget,prompt:'Use change-prepare from '+skillRoot+'/change-prepare/SKILL.md and its fixed GOAL template to revise native change greeting. Developer correction: REQ-BLANK must reject empty and whitespace-only strings with TypeError, replacing RangeError. Coordinate this correction across the requirement/scenarios, design decision, implementation and verification tasks, and GOAL completion evidence; remove obsolete RangeError criteria. Keep REQ-PRESERVE and its Ada Lovelace example unchanged. Implementation is still NOT approved.'+bounded},
   {id:'ready-approved',prepare:false,errorType:'TypeError' as const,budget:readyBudget,prompt:''},
  ];
  for(const definition of definitions){
   const phase:any={id:definition.id,status:'failed',budget:definition.budget,usage:'unknown',startedAt:new Date().toISOString()};report.phases.push(phase);
   try{
-   if(definition.id==='ready-approved')definition.prompt='Use change-ready from '+skillRoot+'/change-ready/SKILL.md to review '+goalPath+'. As developer, I approve the current greeting scope and its revised TypeError/REQ-PRESERVE artifacts referenced by this GOAL (GOAL SHA256 '+createHash('sha256').update(await readFile(join(root,goalPath))).digest('hex')+'). This turn is only the read-only readiness check; do not implement or record approval in a file. Emit the exact concrete /goal command only if all prerequisites are satisfied.'+bounded;
+   if(definition.id==='ready-approved')definition.prompt='Use change-ready from '+skillRoot+'/change-ready/SKILL.md to review '+goalPath+'. As developer, I approve the current greeting scope and its revised TypeError/REQ-PRESERVE artifacts referenced by this GOAL, including the full reviewed write scope: src/greet.js, test/greet.test.js and native task checkboxes/verification results in openspec/changes/greeting/tasks.md (GOAL SHA256 '+createHash('sha256').update(await readFile(join(root,goalPath))).digest('hex')+'). This turn is only the read-only readiness check; do not implement or record approval in a file. Emit the exact concrete /goal command only if all prerequisites are satisfied.'+bounded;
    phase.prompt=definition.prompt;const before=await captureWorkflowState(fixture),started=performance.now();phase.before=before;
    let turn:Turn;
    try{turn=await runTurn(definition.prompt,definition.budget,'prepare-'+definition.id);}
@@ -124,7 +129,10 @@ export async function prepareFeedbackProbe({host,fixture,env,native,runTurn}:Pre
     if(!observedText(turn.observation.tools,templateMarker)||!Object.values(phase.artifacts.documents).every(value=>observedText(turn.observation.tools,value as string)))throw Error('Actual fixed-template use and read-back review of every artifact were not observed');
    }else{
     if(!observedText(turn.observation.tools,phase.artifacts.documents[goalPath]))throw Error('Actual GOAL read was not observed');
-    if(definition.id==='ready-unapproved'&&!actionableBlocker(turn.observation.answer,'missing-approval'))throw Error('Unapproved readiness did not return an actionable approval blocker');
+    if(definition.id==='ready-unapproved'){
+     if(!actionableBlocker(turn.observation.answer,'missing-approval')||/^\s*(?:#{1,6}\s+|[-*>]\s*)?(?:\*\*)?Ready for implementation\b|\/(?:goal|change-deliver)\s+\S/im.test(turn.observation.answer))throw Error('Unapproved readiness did not return an actionable approval blocker without an implementation command');
+     if(readinessApproval==='scope-mismatch'&&!/\bscope\b|src\/other\.js/i.test(turn.observation.answer))throw Error('Readiness did not identify the approval scope mismatch');
+    }
     if(definition.id==='ready-approved'&&(!turn.observation.answer.includes('Ready for implementation')||!turn.observation.answer.includes('/goal Implement the reviewed change in "'+goalPath+'" and verify every completion criterion in that file.')))throw Error('Approved readiness did not emit the exact goal handoff');
    }
    phase.status='passed';

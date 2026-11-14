@@ -1,13 +1,16 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
-import {appendFile,chmod,link,mkdir,readdir,readFile,stat,symlink,writeFile} from 'node:fs/promises';
+import {execFile,execFileSync} from 'node:child_process';
+import {appendFile,chmod,link,lstat,mkdir,readdir,readFile,stat,symlink,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {parseEnv} from 'node:util';
+import {parseEnv,promisify} from 'node:util';
 import {runCli} from '../src/cli.js';
 import {project} from './helpers.js';
 import {applyRuntimeInputs,runtimeEnvironment,runtimeSetupSummary} from '../src/runtime-inputs.js';
 import type {SetupOptions} from '../src/types.js';
+import {essentialEnvironment} from '../src/runtime-private-env.js';
+import {fixtureDiagnostic,fixtureError} from './fixture-diagnostics.js';
+import {assertPrivateAccess,assertSafeWindowsAncestors} from '../src/private-access.js';
 
 const local='RIGUP_TEST_SERVICE_TOKEN';
 const missing='RIGUP_TEST_SERVICE_URL';
@@ -15,6 +18,23 @@ const host='RIGUP_TEST_HOST_TOKEN';
 const ci='RIGUP_TEST_CI_TOKEN';
 const ambient='synthetic-service-initial';
 const git=(root:string,...args:string[])=>execFileSync('git',['-C',root,...args],{encoding:'utf8'});
+
+async function pendingTemplateEvidence(root:string,template:unknown){
+ const probes=[];
+ const path=join(root,'.rigup/.env'),started=performance.now();
+ try{
+  await assertSafeWindowsAncestors(path,'Runtime fixture ancestor probe');
+  const info=await lstat(path).catch(error=>{if(error.code==='ENOENT')return undefined;throw error;});
+  if(info)await assertPrivateAccess(path,info,'Runtime fixture private-file probe');
+  probes.push({privateAccess:info?'passed':'file-not-created',elapsedMs:Math.round(performance.now()-started)});
+ }catch(error){probes.push({privateAccess:'failed',elapsedMs:Math.round(performance.now()-started),error:fixtureError(error,[root])});}
+ for(const args of [['rev-parse','--is-inside-work-tree'],['ls-files','--error-unmatch','--',':(icase,literal).rigup/.env'],['check-ignore','--quiet','--no-index','--','.rigup/.env','.rigup/.env.rigup-diagnostic.tmp']]){
+  const started=performance.now();
+  try{const result=await promisify(execFile)('git',['-C',root,...args],{env:essentialEnvironment(),timeout:5000,maxBuffer:4096});probes.push({args,elapsedMs:Math.round(performance.now()-started),code:0,stdout:result.stdout});}
+  catch(error){probes.push({args,elapsedMs:Math.round(performance.now()-started),error:fixtureError(error,[root])});}
+ }
+ return fixtureDiagnostic({template,gitOverrides:Object.keys(process.env).filter(name=>/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR)$/i.test(name)),probes},[root]);
+}
 
 test('apply keeps private inputs out of previews and uses them only for the declared check',()=>project(async root=>project(async state=>{
  const secretFile=join(root,'.rigup','.env');
@@ -51,7 +71,7 @@ test('apply keeps private inputs out of previews and uses them only for the decl
   await assert.rejects(readFile(secretFile),{code:'ENOENT'});
   assert.deepEqual(await readdir(join(root,'.rigup')),['config.yaml']);
   const installed=await run(['init'],0);
-  assert.equal(installed.runtimeSetup.template.state,'written');
+  assert.equal(installed.runtimeSetup.template.state,'written',installed.runtimeSetup.template.state==='written'?'':await pendingTemplateEvidence(root,installed.runtimeSetup.template));
   assert.deepEqual(installed.runtimeSetup.template.imported,[{name:local,source:'calling-environment'}]);
   assert.equal(installed.runtimeSetup.inputs.find((input:{name:string})=>input.name===missing).state,'missing');
   assert.equal(installed.runtimeSetup.inputs.find((input:{name:string})=>input.name===host).destination,'agent host (codex)');

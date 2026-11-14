@@ -3,6 +3,7 @@ import {lstat,readFile,readdir,readlink} from 'node:fs/promises';
 import {lstatSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
+import {fixtureDiagnostic} from './fixture-diagnostics.js';
 import {workflowComplete,type createWorkflowFixture,type WorkflowEvent,type WorkflowSnapshot} from './workflow-fixture-support.js';
 type Fixture=Awaited<ReturnType<typeof createWorkflowFixture>>;
 
@@ -91,6 +92,13 @@ export function workflowToolSucceeded(tool:any):boolean{
  return metadataSucceeded(tool.state.metadata);
 }
 const toolSucceeded=workflowToolSucceeded;
+// These ticks are captured by this observer process, never by the native host.
+function evidenceOrder(left:{at?:string;tick?:number},right:{at?:string;tick?:number}){
+ const a=Date.parse(left.at??''),b=Date.parse(right.at??'');
+ if(!Number.isFinite(a)||!Number.isFinite(b))return NaN;
+ return Number.isFinite(left.tick)&&Number.isFinite(right.tick)?left.tick!-right.tick!:a-b;
+}
+const toolTime=(tool:any)=>({at:tool.observedAt,tick:tool.observedTick});
 // Native CLI output can have progress text or several JSON documents in one shell result.
 function jsonObjects(text:string):any[]{
  const result:any[]=[];let start=-1,depth=0,quoted=false,escaped=false;
@@ -147,7 +155,7 @@ export function agentFollowedLatestHead(events:WorkflowEvent[],snapshot:Workflow
  return workflowComplete(snapshot)&&agentObservedMrSnapshots(events,tools).some(observed=>observed.head===snapshot.head&&workflowComplete(observed));
 }
 
-function findingReadTimes(events:WorkflowEvent[],tools:any[],before:Awaited<ReturnType<typeof captureWorkflowState>>){
+function findingReads(events:WorkflowEvent[],tools:any[],before:Awaited<ReturnType<typeof captureWorkflowState>>){
  const firstPush=events.find(event=>event.kind==='push');if(!firstPush)return [];
  const baseline=Object.fromEntries(['src/greet.js','test/greet.test.js'].map(path=>[path,before.sourceAndTests[path]?.sha256]));
  return events.flatMap(event=>{
@@ -156,17 +164,25 @@ function findingReadTimes(events:WorkflowEvent[],tools:any[],before:Awaited<Retu
    if(finding.id!=='empty-name'||finding.disposition||!finding.readMarker)return [];
    return tools.filter(tool=>{
     const observed=Date.parse(tool.observedAt);
-    if(!toolSucceeded(tool)||!Number.isFinite(observed)||observed<Date.parse(event.at)||observed>=Date.parse(firstPush.at)||Object.entries(baseline).some(([path,hash])=>!hash||tool.workingFiles?.[path]!==hash))return false;
+    if(!toolSucceeded(tool)||!Number.isFinite(observed)||!(evidenceOrder(toolTime(tool),event)>=0)||!(evidenceOrder(toolTime(tool),firstPush)<0)||Object.entries(baseline).some(([path,hash])=>!hash||tool.workingFiles?.[path]!==hash))return false;
     return jsonObjects(toolOutput(tool)).flatMap(value=>Array.isArray(value.findings)?value.findings:[value]).some(value=>value.id===finding.id&&value.sha===finding.sha&&value.body===finding.body&&value.readMarker===finding.readMarker&&!value.disposition);
-   }).map(tool=>Date.parse(tool.observedAt));
+   });
   });
  });
 }
 
-export function findingBeforeRepair(events:WorkflowEvent[],tools:any[],before:Awaited<ReturnType<typeof captureWorkflowState>>){return findingReadTimes(events,tools,before).length>0;}
+export function findingBeforeRepair(events:WorkflowEvent[],tools:any[],before:Awaited<ReturnType<typeof captureWorkflowState>>){return findingReads(events,tools,before).length>0;}
+
+export function workflowOrderEvidence(events:WorkflowEvent[],tools:any[],before:Awaited<ReturnType<typeof captureWorkflowState>>){
+ return fixtureDiagnostic({
+  events:events.filter(event=>['push','outgoing-inspection','outgoing-tests','outgoing-review'].includes(event.kind)||event.kind==='read'&&event.path==='/discussions').slice(-20).map(({kind,origin,at,tick,head,base,path})=>({kind,origin,at,tick,head,base,path})),
+  observations:tools.slice(-8).map(tool=>({observedAt:tool.observedAt,observedTick:tool.observedTick,succeeded:toolSucceeded(tool),baselineBytes:Object.fromEntries(['src/greet.js','test/greet.test.js'].map(path=>[path,tool.workingFiles?.[path]===before.sourceAndTests[path]?.sha256])),
+   matchingEvidence:events.filter(event=>{const data=event.data as any;return (Array.isArray(data)?data:[data]).some(value=>value&&(value.readMarker&&toolOutput(tool).includes(value.readMarker)||value.output&&toolOutput(tool).includes(value.output.trimEnd())));}).map(({kind,at})=>({kind,at}))})),
+ });
+}
 
 export async function observedRegressionCycle(fixture:Fixture,head:string,before:Awaited<ReturnType<typeof captureWorkflowState>>,events:WorkflowEvent[],tools:any[]){
- const findingTimes=findingReadTimes(events,tools,before),firstPush=Date.parse(events.find(event=>event.kind==='push')?.at??'');
+ const reads=findingReads(events,tools,before),firstPush=Date.parse(events.find(event=>event.kind==='push')?.at??'');
  const reds=tools.filter(tool=>{
   const metadata=tool.state?.metadata??tool.details??{},exit=tool.type==='command_execution'?tool.exit_code:tool.state?metadata.exit:tool.role==='toolResult'?metadata.exitCode:undefined;
   if(exit!==1||['timedOut','timeout','aborted','cancelled','interrupted'].some(key=>metadata[key]===true))return false;
@@ -174,7 +190,7 @@ export async function observedRegressionCycle(fixture:Fixture,head:string,before
   const command=typeof input==='string'?input:typeof input?.command==='string'?input.command:'';
   const output=toolOutput(tool).replaceAll('\r\n','\n'),observed=Date.parse(tool.observedAt);
   const assertion=/ERR_ASSERTION/.test(output)&&/Missing expected exception/i.test(output)&&/TypeError/.test(output)&&/blank|empty|whitespace/i.test(output)&&/^(?:#|ℹ)\s+fail\s+[1-9]\d*\s*$/m.test(output);
-  return /\bnpm(?:\.cmd)?\s+(?:run\s+)?test\b/.test(command)&&assertion&&Number.isFinite(observed)&&observed<firstPush&&findingTimes.some(time=>time<observed)&&tool.workingFiles?.['src/greet.js']===before.sourceAndTests['src/greet.js']?.sha256&&/^[a-f0-9]{64}$/.test(tool.workingFiles?.['test/greet.test.js']??'')&&tool.workingFiles['test/greet.test.js']!==before.sourceAndTests['test/greet.test.js']?.sha256;
+  return /\bnpm(?:\.cmd)?\s+(?:run\s+)?test\b/.test(command)&&assertion&&Number.isFinite(observed)&&observed<firstPush&&reads.some(read=>evidenceOrder(toolTime(read),toolTime(tool))<0)&&tool.workingFiles?.['src/greet.js']===before.sourceAndTests['src/greet.js']?.sha256&&/^[a-f0-9]{64}$/.test(tool.workingFiles?.['test/greet.test.js']??'')&&tool.workingFiles['test/greet.test.js']!==before.sourceAndTests['test/greet.test.js']?.sha256;
  });
  const delivered=await fixture.committedFiles(head),greens:any[]=[];
  for(const event of events){
@@ -182,9 +198,9 @@ export async function observedRegressionCycle(fixture:Fixture,head:string,before
   if(event.kind!=='outgoing-tests'||event.origin!=='agent'||!event.head||!proof?.passed||!proof.output)continue;
   const checked=await fixture.committedFiles(event.head).catch(()=>undefined);
   if(!checked||!Object.keys(delivered).every(path=>checked[path]?.equals(delivered[path])))continue;
-  for(const tool of tools)if(toolSucceeded(tool)&&Date.parse(tool.observedAt)>=Date.parse(event.at)&&toolOutput(tool).replaceAll('\r\n','\n').includes(proof.output.replaceAll('\r\n','\n').trimEnd()))greens.push(tool);
+  for(const tool of tools)if(toolSucceeded(tool)&&evidenceOrder(toolTime(tool),event)>=0&&toolOutput(tool).replaceAll('\r\n','\n').includes(proof.output.replaceAll('\r\n','\n').trimEnd()))greens.push(tool);
  }
- const red=reds.find(red=>greens.some(green=>Date.parse(green.observedAt)>Date.parse(red.observedAt))),green=red&&greens.find(green=>Date.parse(green.observedAt)>Date.parse(red.observedAt));
+ const red=reds.find(red=>greens.some(green=>evidenceOrder(toolTime(green),toolTime(red))>0)),green=red&&greens.find(green=>evidenceOrder(toolTime(green),toolTime(red))>0);
  const record=(tool:any)=>tool?{observedAt:tool.observedAt,command:tool.command??tool.state?.input??tool.input,workingFiles:tool.workingFiles}:undefined;
  return {redObserved:reds.length>0,greenObserved:greens.length>0,passed:!!red&&!!green,red:record(red),green:record(green)};
 }
@@ -193,14 +209,13 @@ export function reviewedPushes(events:WorkflowEvent[],tools:any[]){
  const pushes=events.filter(event=>event.kind==='push');
  const normal=(value:string)=>value.replaceAll('\r\n','\n').trimEnd();
  return pushes.length>0&&pushes.every(push=>events.some(review=>{
-  if(review.kind!=='outgoing-review'||review.origin!=='agent'||review.head!==push.head||review.base!==push.base||review.at>push.at)return false;
+  if(review.kind!=='outgoing-review'||review.origin!=='agent'||review.head!==push.head||review.base!==push.base||!(evidenceOrder(review,push)<=0))return false;
   const receipt=review.data as {inspectionMarker?:string;testsMarker?:string}|undefined;
   return [['outgoing-inspection',receipt?.inspectionMarker],['outgoing-tests',receipt?.testsMarker]].every(([kind,marker])=>!!marker&&events.some(proof=>{
    const data=proof.data as {marker?:string;passed?:boolean;output?:string}|undefined;
-   if(proof.kind!==kind||proof.origin!=='agent'||proof.base!==push.base||proof.head!==push.head||proof.at>review.at||data?.marker!==marker||!data.passed||!data.output)return false;
+   if(proof.kind!==kind||proof.origin!=='agent'||proof.base!==push.base||proof.head!==push.head||!(evidenceOrder(proof,review)<=0)||data?.marker!==marker||!data.passed||!data.output)return false;
    return tools.some(tool=>{
-    const observed=Date.parse(tool.observedAt),recorded=Date.parse(review.at);
-    return toolSucceeded(tool)&&Number.isFinite(observed)&&observed<recorded&&normal(toolOutput(tool)).includes(normal(data.output!));
+    return toolSucceeded(tool)&&evidenceOrder(toolTime(tool),review)<0&&normal(toolOutput(tool)).includes(normal(data.output!));
    });
   }));
  }));

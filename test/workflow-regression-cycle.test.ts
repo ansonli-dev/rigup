@@ -1,3 +1,4 @@
+import {workflowCommandTimeoutMs} from './workflow-timeouts.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,writeFile} from 'node:fs/promises';
@@ -14,13 +15,13 @@ for(const scenario of ['codex','opencode','omp','missing-red','suppressed-red','
  try{
   const initialSource=await readFile(fixture.root+'/src/greet.js','utf8'),initialTests=await readFile(fixture.root+'/test/greet.test.js','utf8'),before=await captureWorkflowState(fixture),firstEvent=fixture.events.length,tools:any[]=[];
   const wrap=(command:string,output:string,exit:number|null)=>{
-   const observedAt=new Date().toISOString(),workingFiles=workflowWorkingFiles(fixture.root);
-   if(scenario==='opencode')return {tool:'shell',state:{status:'completed',input:{command},output,metadata:{exit}},observedAt,workingFiles};
-   if(scenario==='omp'||scenario==='timeout')return {role:'toolResult',toolName:'bash',input:{command},isError:exit!==0,details:{...(exit!==0?{exitCode:exit}:{}),...(scenario==='timeout'&&exit!==0?{timedOut:true}:{})},content:[{type:'text',text:output}],observedAt,workingFiles};
-   return {type:'command_execution',command,aggregated_output:output,exit_code:exit,observedAt,workingFiles};
+   const observedAt=new Date().toISOString(),observedTick=performance.now(),workingFiles=workflowWorkingFiles(fixture.root);
+   if(scenario==='opencode')return {tool:'shell',state:{status:'completed',input:{command},output,metadata:{exit}},observedAt,observedTick,workingFiles};
+   if(scenario==='omp'||scenario==='timeout')return {role:'toolResult',toolName:'bash',input:{command},isError:exit!==0,details:{...(exit!==0?{exitCode:exit}:{}),...(scenario==='timeout'&&exit!==0?{timedOut:true}:{})},content:[{type:'text',text:output}],observedAt,observedTick,workingFiles};
+   return {type:'command_execution',command,aggregated_output:output,exit_code:exit,observedAt,observedTick,workingFiles};
   };
   const observeMr=async(action:string)=>wrap('node tools/mr.mjs '+action,await fixture.node(['tools/mr.mjs',action]),0);
-  const observeTest=async()=>{const command=npmCommand(['test']);const result=await runLiveCommand(command.executable,command.args,{cwd:fixture.root,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,ComSpec:process.env.ComSpec,HOME:fixture.control+'/home',USERPROFILE:fixture.control+'/home',NO_COLOR:'1'},timeoutMs:15000,maxBuffer:200000});return wrap('npm test',result.stdout+result.stderr,result.code);};
+  const observeTest=async()=>{const command=npmCommand(['test']);const result=await runLiveCommand(command.executable,command.args,{cwd:fixture.root,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,ComSpec:process.env.ComSpec,HOME:fixture.control+'/home',USERPROFILE:fixture.control+'/home',NO_COLOR:'1'},timeoutMs:workflowCommandTimeoutMs,maxBuffer:200000});return wrap('npm test',result.stdout+result.stderr,result.code);};
   if(scenario!=='before-finding')tools.push(await observeMr('status'));
   if(scenario!=='unchanged-tests')await writeFile(fixture.root+'/test/greet.test.js',scenario==='infrastructure-failure'?'import "../src/missing.js";\n':scenario==='unrelated-assertion'?imports+'test("unrelated",()=>assert.equal(1,2));\n':tests);
   if(scenario==='after-fix')await writeFile(fixture.root+'/src/greet.js',source);

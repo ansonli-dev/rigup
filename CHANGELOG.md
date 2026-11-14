@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 · 2026-11-14 · Development preview
+
+- Fix Windows private directory ACL checks when Windows PowerShell rejects extended-length path prefixes. Preserve permission checks for Unicode and long paths. [Issue #58](https://github.com/ansonli-dev/rigup/issues/58)
+- Require explicit approval of the full write scope before OpenSpec delivery, including task status and verification evidence. Check that scope before generating a GOAL or starting implementation. [Issue #57](https://github.com/ansonli-dev/rigup/issues/57)
+- Stabilize Windows workflow test fixtures and retain Git HTTP and process-cleanup diagnostics. Verify npm release archives with both Windows system tar and Git for Windows GNU tar. [Issue #59](https://github.com/ansonli-dev/rigup/issues/59)
+
 ## 0.5.0 · 2026-11-13 · Development preview
 
 - Add a reusable GOAL template and `change-ready`. Keep native prerequisites, approval and same-change references explicit. Require outgoing review before each push, plus configured MR checks and reviewer results for the latest head. Skills depend on host instruction handling and permissions.

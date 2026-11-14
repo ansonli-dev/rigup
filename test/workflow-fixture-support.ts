@@ -12,7 +12,7 @@ export function workflowComplete(snapshot:WorkflowSnapshot):boolean{
   snapshot.findings.every(finding=>finding.disposition?.sha===snapshot.head&&['fixed','disputed','accepted'].includes(finding.disposition.outcome)&&!!finding.disposition.evidence.trim());
 }
 
-export interface WorkflowEvent {kind:string;origin?:'agent'|'oracle';head?:string;base?:string;summary?:string;path?:string;data?:unknown;at:string}
+export interface WorkflowEvent {kind:string;origin?:'agent'|'oracle';head?:string;base?:string;summary?:string;path?:string;data?:unknown;at:string;tick?:number}
 export async function createWorkflowFixture(options:{testCommand?:string;gitTransport?:'file'|'http'}={}){
  const control=await realpath(await mkdtemp(join(tmpdir(),'rigup-workflow-')));
  const removeFixture=()=>rm(control,{recursive:true,force:true,maxRetries:3});
@@ -20,10 +20,18 @@ export async function createWorkflowFixture(options:{testCommand?:string;gitTran
  await mkdir(root);await mkdir(join(control,'home'));
  const env:NodeJS.ProcessEnv={PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,ComSpec:process.env.ComSpec,HOME:join(control,'home'),USERPROFILE:join(control,'home'),GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:join(control,'no-global-config'),GIT_TERMINAL_PROMPT:'0',LANG:'en_US.UTF-8'};
  const gitTransport=options.gitTransport??(process.platform==='win32'?'http':'file'),gitHttp=gitTransport==='http'?workflowGitHttp(control,env):undefined;
- const git=async(args:string[],cwd=root)=>(await exec('git',args,{cwd,env,timeout:15000,maxBuffer:2_000_000})).stdout;
- const node=async(args:string[])=>(await exec(process.execPath,args,{cwd:root,env,timeout:15000,maxBuffer:2_000_000})).stdout;
+ const command=async(executable:string,args:string[],cwd:string,timeout:number)=>{
+  const started=performance.now();
+  try{return (await exec(executable,args,{cwd,env,timeout,maxBuffer:2_000_000})).stdout;}
+  catch(error){
+   const child=error as {code?:unknown;signal?:unknown;killed?:boolean;stdout?:unknown;stderr?:unknown};
+   throw Object.assign(Error('Workflow fixture command failed '+fixtureDiagnostic({timeoutMs:timeout,elapsedMs:Math.round(performance.now()-started)},[control])+'\n'+fixtureError(error,[control,process.execPath])+'\nRecent Git HTTP failures:\n'+(gitHttp?.diagnostics()||'none')),{code:child.code,signal:child.signal,killed:child.killed,stdout:fixtureDiagnostic(String(child.stdout??''),[control]).slice(0,4000),stderr:fixtureDiagnostic(String(child.stderr??''),[control]).slice(0,4000)});
+  }
+ };
+ const git=(args:string[],cwd=root)=>command('git',args,cwd,workflowCommandTimeoutMs);
+ const node=(args:string[])=>command(process.execPath,args,root,workflowClientTimeoutMs);
  const events:WorkflowEvent[]=[];
- const note=(event:Omit<WorkflowEvent,'at'>)=>events.push({...event,at:new Date().toISOString()});
+ const note=(event:Omit<WorkflowEvent,'at'>)=>events.push({...event,at:new Date().toISOString(),tick:performance.now()});
  const dispositions=new Map<string,NonNullable<WorkflowSnapshot['findings'][number]['disposition']>>();
  const outgoingProofs=new Map<string,{inspection?:{marker:string};tests?:{marker:string;passed:boolean}}>();
  let observedHead='',seenPushes=0,signals:Partial<Omit<WorkflowSnapshot,'head'|'confirmedHead'>>={};
@@ -47,7 +55,7 @@ export async function createWorkflowFixture(options:{testCommand?:string;gitTran
   const files:Record<string,{kind:string;sha256?:string;target?:string}>={};
   for(const entry of (await git(['--git-dir',remote,'ls-tree','-r','-z',sha])).split('\0').filter(Boolean)){
    const path=entry.slice(entry.indexOf('\t')+1),mode=entry.slice(0,6);
-   const bytes=(await exec('git',['--git-dir',remote,'cat-file','blob',sha+':'+path],{cwd:root,env,encoding:'buffer',timeout:15000,maxBuffer:2_000_000})).stdout;
+   const bytes=(await exec('git',['--git-dir',remote,'cat-file','blob',sha+':'+path],{cwd:root,env,encoding:'buffer',timeout:workflowCommandTimeoutMs,maxBuffer:2_000_000})).stdout;
    files[path]=mode==='120000'?{kind:'symlink',target:bytes.toString('utf8')}:{kind:'file',sha256:createHash('sha256').update(bytes).digest('hex')};
   }
   return files;
@@ -75,7 +83,7 @@ export async function createWorkflowFixture(options:{testCommand?:string;gitTran
   const paths=tree.map(entry=>entry.slice(entry.indexOf('\t')+1)).sort();
   if(JSON.stringify(paths)!==JSON.stringify(snapshotPaths)||tree.some(entry=>!/^100(?:644|755) blob /.test(entry)))throw Error('Snapshot must contain exactly the two regular fixture source/test files');
   const files:Record<string,Buffer>={};
-  for(const path of snapshotPaths)files[path]=(await exec('git',['--git-dir',gitDirectory,'cat-file','blob',sha+':'+path],{cwd:root,env,encoding:'buffer',timeout:15000,maxBuffer:2_000_000})).stdout;
+  for(const path of snapshotPaths)files[path]=(await exec('git',['--git-dir',gitDirectory,'cat-file','blob',sha+':'+path],{cwd:root,env,encoding:'buffer',timeout:workflowCommandTimeoutMs,maxBuffer:2_000_000})).stdout;
   return files;
  };
  const runCommitted=async(sha:string,gitDirectory:string,kind:'tests'|'behavior'|'project-check',sourceOverride?:string)=>{
@@ -88,11 +96,11 @@ export async function createWorkflowFixture(options:{testCommand?:string;gitTran
    for(const [path,bytes] of Object.entries(files))await writeFile(join(directory,path),bytes);
    if(kind==='project-check'){
     const command=npmCommand(['test']);
-    const result=await runLiveCommand(command.executable,command.args,{cwd:directory,env,timeoutMs:15000,maxBuffer:200000});
+    const result=await runLiveCommand(command.executable,command.args,{cwd:directory,env,timeoutMs:workflowCommandTimeoutMs,maxBuffer:200000});
     return {passed:result.code===0&&!result.timedOut,exitCode:result.code,output:result.stdout+result.stderr};
    }
    const args=kind==='tests'?['--test','--test-reporter=tap','test/greet.test.js']:['--input-type=module','-e','import {greet} from "./src/greet.js"; for(const name of ["", " ", "\\t\\n"]) { let rejected=false; try {greet(name);} catch(error) {rejected=error instanceof TypeError;} if(!rejected)throw Error("Blank name was accepted"); } if(greet(" Ada Lovelace ")!=="Hello, Ada Lovelace")throw Error("Preservation failed");'];
-   try{const result=await runLiveCommand(process.execPath,args,{cwd:directory,env,timeoutMs:15000,maxBuffer:200000});return {passed:result.code===0&&!result.timedOut,exitCode:result.timedOut?null:result.code,output:result.stdout+result.stderr};}
+   try{const result=await runLiveCommand(process.execPath,args,{cwd:directory,env,timeoutMs:workflowCommandTimeoutMs,maxBuffer:200000});return {passed:result.code===0&&!result.timedOut,exitCode:result.timedOut?null:result.code,output:result.stdout+result.stderr};}
    catch(error){const result=error as {code?:number|string;killed?:boolean;stdout?:string;stderr?:string;message?:string};return {passed:false,exitCode:!result.killed&&typeof result.code==='number'?result.code:null,output:(result.stdout??'')+(result.stderr??result.message??'Snapshot check failed')};}
   }finally{await rm(directory,{recursive:true,force:true});}
  };
@@ -188,18 +196,17 @@ export async function createWorkflowFixture(options:{testCommand?:string;gitTran
    send(404,{error:'unknown fixture resource'});
   }catch{send(500,{error:'fixture operation failed'});}
  });
- server.requestTimeout=15000;server.headersTimeout=15000;
+ server.requestTimeout=workflowRequestTimeoutMs;server.headersTimeout=workflowRequestTimeoutMs;
  try{
-  await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-  const address=server.address();if(!address||typeof address==='string')throw Error('Loopback fixture did not bind');
-  const url='http://127.0.0.1:'+address.port;
+  const url=await listenWorkflowServer(server);
   await mkdir(join(root,'src'));await mkdir(join(root,'test'));await mkdir(join(root,'tools'));
   await writeFile(join(root,'package.json'),JSON.stringify({type:'module',scripts:{test:options.testCommand??'node --test test/greet.test.js'}})+'\n');
   await writeFile(join(root,'src/greet.js'),'export function greet(name) { return "Hello, " + name.trim(); }\n');
   await writeFile(join(root,'test/greet.test.js'),'import {test} from "node:test"; import assert from "node:assert/strict"; import {greet} from "../src/greet.js";\ntest("greets trimmed names",()=>assert.equal(greet(" Ada "),"Hello, Ada"));\n');
   const client=`import {execFileSync} from 'node:child_process';
+const workflowRequestTimeoutMs=${workflowRequestTimeoutMs};
 const base=${JSON.stringify(url+prefix)},headers={authorization:${JSON.stringify('Bearer '+token)},'content-type':'application/json'};
-async function request(path='',data){const r=await fetch(base+path,{headers,method:data?'POST':'GET',body:data?JSON.stringify(data):undefined,signal:AbortSignal.timeout(15000)});const result=await r.json();if(!r.ok)throw Error('MR fixture HTTP '+r.status+(result.error?' '+result.error:''));return result;}
+async function request(path='',data){const r=await fetch(base+path,{headers,method:data?'POST':'GET',body:data?JSON.stringify(data):undefined,signal:AbortSignal.timeout(workflowRequestTimeoutMs)});const result=await r.json();if(!r.ok)throw Error('MR fixture HTTP '+r.status+(result.error?' '+result.error:''));return result;}
 const [action,...args]=process.argv.slice(2);
 if(action==='status'){const mr=await request(),pipeline=await request('/pipelines'),review=await request('/review'),findings=await request('/discussions'),confirmed=await request();console.log(JSON.stringify({head:mr.sha,confirmedHead:confirmed.sha,readId:mr.readId,confirmedReadId:confirmed.readId,...pipeline,review,findings},null,2));}
 else if(action==='disposition'){const [id,sha,outcome,...evidence]=args;if(id!=='empty-name')throw Error('Unknown fixture discussion');console.log(JSON.stringify(await request('/discussions/'+id,{sha,outcome,evidence:evidence.join(' ')})));}
@@ -215,14 +222,18 @@ else throw Error('Use: node tools/mr.mjs status | inspect-outgoing | test-outgoi
   await git(['init','-q','-b','main']);await git(['config','user.name','Workflow Fixture']);await git(['config','user.email','fixture@localhost']);await git(['config','core.autocrlf','false']);await git(['add','.']);await git(['commit','-qm','Seed reviewed MR fixture']);await git(['remote','add','origin',gitHttp?url+'/origin.git':remote]);await git(['push','-q','-u','origin','main']);
   await setDeliveryBaseline();
   // Oracle credentials never enter the fixture workspace or the native host environment.
-  const request=(path='',init:RequestInit={})=>fetch(url+prefix+(path?'/'+path:''),{...init,headers:{authorization:'Bearer '+oracleToken,'content-type':'application/json'},signal:AbortSignal.timeout(15000)});
+  const request=(path='',init:RequestInit={})=>fetch(url+prefix+(path?'/'+path:''),{...init,headers:{authorization:'Bearer '+oracleToken,'content-type':'application/json'},signal:AbortSignal.timeout(workflowRequestTimeoutMs)});
   const snapshot=async():Promise<WorkflowSnapshot>=>{
    const read=async(path='')=>{const response=await request(path);if(!response.ok)throw Error('Oracle MR fixture HTTP '+response.status);return response.json();};
    const mr=await read(),pipeline=await read('pipelines'),review=await read('review'),findings=await read('discussions'),confirmed=await read();
    return {head:mr.sha,confirmedHead:confirmed.sha,readId:mr.readId,confirmedReadId:confirmed.readId,...pipeline,review,findings};
   };
-  return {root,control,remote,url,gitTransport,events,git,node,head,request,snapshot,committedFiles,repositoryFiles,deliveryScope,projectCheck,setDeliveryBaseline,remoteBehavior:(sha:string)=>runCommitted(sha,remote,'behavior'),remoteRegressions,setSignals(value:typeof signals){signals=value;},async close(keep=false){server.closeAllConnections();await gitHttp?.close();await new Promise<void>(resolve=>server.close(()=>resolve()));if(!keep)await removeFixture();}};
- }catch(error){server.closeAllConnections();server.close();await gitHttp?.close();await removeFixture();throw error;}
+  return {root,control,remote,url,gitTransport,events,git,node,head,request,snapshot,committedFiles,repositoryFiles,deliveryScope,projectCheck,setDeliveryBaseline,remoteBehavior:(sha:string)=>runCommitted(sha,remote,'behavior'),remoteRegressions,setSignals(value:typeof signals){signals=value;},async close(keep=false){await closeWorkflowServer(server,async()=>{await gitHttp?.close();},async()=>{if(!keep)await removeFixture();});}};
+ }catch(error){
+  try{await closeWorkflowServer(server,async()=>{await gitHttp?.close();},removeFixture);}
+  catch(cleanup){throw new AggregateError([error,cleanup],'Workflow fixture setup and cleanup failed');}
+  throw error;
+ }
 }
 import {createServer} from 'node:http';
 import {createHash,randomBytes} from 'node:crypto';
@@ -231,7 +242,10 @@ import {promisify} from 'node:util';
 import {mkdir,mkdtemp,readFile,realpath,rm,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {workflowCommandTimeoutMs,workflowClientTimeoutMs,workflowRequestTimeoutMs} from './workflow-timeouts.js';
 import {workflowGitHttp} from './workflow-git-http-support.js';
+import {listenWorkflowServer,closeWorkflowServer} from './workflow-server-support.js';
 import {npmCommand} from '../src/npm-command.mjs';
 import {runLiveCommand} from './live-process-support.js';
+import {fixtureDiagnostic,fixtureError} from './fixture-diagnostics.js';
 const exec=promisify(execFile);

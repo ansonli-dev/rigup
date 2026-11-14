@@ -4,7 +4,7 @@ import {mkdir,readFile,rm,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createWorkflowFixture,workflowComplete,type WorkflowSnapshot} from './workflow-fixture-support.js';
 import {observedRun} from './live-workflow-support.js';
-import {agentFollowedLatestHead,captureWorkflowState,deliveryCompletionEvidence,findingBeforeRepair,reviewedPushes,verifyDeliveredSnapshot,workflowUnchanged} from './workflow-observation-support.js';
+import {agentFollowedLatestHead,captureWorkflowState,deliveryCompletionEvidence,findingBeforeRepair,reviewedPushes,verifyDeliveredSnapshot,workflowUnchanged,workflowOrderEvidence} from './workflow-observation-support.js';
 import {checkedLiveCommand,runLiveCommand} from './live-process-support.js';
 
 const fixedGreeting='export function greet(name) { const value=name.trim(); if(!value) throw new TypeError("Name required"); return "Hello, " + value; }\n';
@@ -36,7 +36,7 @@ for(const check of ['behavior','regressions'] as const)test('committed snapshot 
 async function observedMrCommand(fixture:Awaited<ReturnType<typeof createWorkflowFixture>>,action:string){
  const output=await fixture.node(['tools/mr.mjs',action]);
  const workingFiles=Object.fromEntries(Object.entries((await captureWorkflowState(fixture)).sourceAndTests).filter(([,value])=>value.kind==='file').map(([path,value])=>[path,value.sha256]));
- return {type:'command_execution',command:'node tools/mr.mjs '+action,aggregated_output:output,exit_code:0,observedAt:new Date().toISOString(),workingFiles};
+ return {type:'command_execution',command:'node tools/mr.mjs '+action,aggregated_output:output,exit_code:0,observedAt:new Date().toISOString(),observedTick:performance.now(),workingFiles};
 }
 
 for(const missing of ['native-tasks','recorded-evidence','completed-answer','none'] as const)test('delivery completion requires native tasks, actual recorded checks and an explicit completed handoff: '+missing,async()=>{
@@ -180,13 +180,34 @@ for(const readAt of ['after-push','after-edits','before'] as const)test('finding
   await fixture.node(['tools/mr.mjs','disposition','empty-name',head,'fixed','Actual regression failed, repair made it pass']);
   tools.push(await observedMrCommand(fixture,'status'));
   const events=structuredClone(fixture.events.slice(firstEvent)),current=await fixture.snapshot();
-  assert.equal(reviewedPushes(events,tools),true);assert.equal((await verifyDeliveredSnapshot(fixture,head)).passed,true);assert.equal(workflowComplete(current),true);assert.equal(agentFollowedLatestHead(events,current,tools),true);
-  assert.equal(findingBeforeRepair(events,tools,before),readAt==='before','latest-head follow-up alone cannot stand in for consuming the finding before repair');
+  const evidence=workflowOrderEvidence(events,tools,before);
+  assert.equal(reviewedPushes(events,tools),true,'outgoing review observation order: '+evidence);
+  assert.equal((await verifyDeliveredSnapshot(fixture,head)).passed,true);
+  assert.equal(workflowComplete(current),true);
+  assert.equal(agentFollowedLatestHead(events,current,tools),true,'latest-head observation: '+evidence);
+  assert.equal(findingBeforeRepair(events,tools,before),readAt==='before','finding observation before repair: '+evidence);
   if(readAt==='before'){
    assert.equal(findingBeforeRepair(events,tools.slice(1),before),false,'a server request alone does not prove the native tool output was observed');
    assert.equal(findingBeforeRepair(events,tools.map(tool=>({...tool,aggregated_output:''})),before),false,'suppressed discussion output cannot pass');
   }
  }finally{await fixture.close();}
+});
+
+test('actual outgoing observations precede review even when the wall clock ties',async t=>{
+ const fixture=await createWorkflowFixture();
+ try{
+  t.mock.timers.enable({apis:['Date'],now:Date.now()});
+  await writeFile(fixture.root+'/src/greet.js',fixedGreeting);
+  await fixture.git(['add','.']);await fixture.git(['commit','-qm','Repair before reviewing']);
+  const start=fixture.events.length,tools=[await observedMrCommand(fixture,'inspect-outgoing'),await observedMrCommand(fixture,'test-outgoing')];
+  await fixture.node(['tools/mr.mjs','record-review','Observed the actual outgoing diff and successful project check']);
+  await fixture.git(['push','origin','HEAD:main']);await fixture.head();
+  const events=fixture.events.slice(start);
+  assert.equal(new Set([...tools.map(tool=>tool.observedAt),events.find(event=>event.kind==='outgoing-review')!.at]).size,1,'controlled clock must tie the real observations and later review');
+  assert.equal(reviewedPushes(events,tools),true);
+  assert.equal(reviewedPushes(events,tools.map(tool=>({...tool,observedTick:undefined}))),false,'tied wall times alone cannot establish observation order');
+  assert.equal(reviewedPushes(events,tools.map(tool=>({...tool,aggregated_output:''}))),false,'ordering cannot replace consuming the actual output');
+ }finally{t.mock.timers.reset();await fixture.close();}
 });
 
 for(const regression of ['unchanged','comment-only','empty-only','no-preservation'] as const)test('delivered tests must catch the original blank bug and preserve valid greetings: '+regression,async()=>{
@@ -273,7 +294,7 @@ test('every push needs complete diff and passing-check outputs observed before i
   assert.equal(reviewedPushes(events,tools.slice(0,2)),false,'first-push proof cannot cover the follow-up push');
   assert.equal(reviewedPushes(events,tools.map(tool=>({...tool,aggregated_output:''}))),false,'redirecting output away from the agent cannot pass');
   assert.equal(reviewedPushes(events,tools.map(tool=>({...tool,aggregated_output:tool.aggregated_output.split('\n').at(-2)}))),false,'receipt markers alone cannot replace the full output');
-  assert.equal(reviewedPushes(events,tools.map(tool=>({...tool,observedAt:new Date(Date.now()+1000).toISOString()}))),false,'reading saved output after the push is too late');
+  assert.equal(reviewedPushes(events,tools.map(tool=>({...tool,observedAt:new Date(Date.now()+1000).toISOString(),observedTick:performance.now()+1000}))),false,'reading saved output after the push is too late');
  }finally{await fixture.close();}
 });
 

@@ -19,6 +19,37 @@ test('every selected host installs a navigable readiness entry and a fixed GOAL 
   for(const resource of ['change-ready/SKILL.md','change-ready/references/project.md','change-prepare/references/GOAL.md']){
    assert.ok(assets.some(asset=>asset.target===directory+'/'+resource),'missing installed resource: '+directory+'/'+resource);
   }
+  // These installed instructions are the contract; this does not prove host compliance.
+  for(const resource of ['change-ready/SKILL.md','change-deliver/SKILL.md','change-prepare/references/GOAL.md']){
+   const content=assets.find(asset=>asset.target===directory+'/'+resource)!.content;
+   assert.doesNotMatch(content,/(?:submitting|submission)[^.\n]*authorizes (?:its )?implementation/i,resource);
+   assert.match(content,/already approved scope/,resource);
+  }
+  const ready=assets.find(asset=>asset.target===directory+'/change-ready/SKILL.md')!.content;
+  assert.match(ready,/missing, pending, stale or scope-mismatched implementation approval blocks readiness/i);
+  const deliver=assets.find(asset=>asset.target===directory+'/change-deliver/SKILL.md')!.content;
+  const preflight=deliver.slice(deliver.indexOf('\n1. '),deliver.indexOf('\n2. '));
+  assert.match(preflight,/GOAL completion criteria, evidence destinations and native tasks/i,'delivery must independently derive writes, including task/evidence writes');
+  assert.match(preflight,/List each repository-relative path and its intended purpose/i,'the first read-only gate must expose the planned writes');
+  assert.match(preflight,/current request explicitly authorizes the missing path/i,'current permission cannot repair omitted review');
+  assert.match(preflight,/before any edit, task checkbox update or verification record write/i,'all delivery writes wait for scope reconciliation');
+  const inventory=preflight.indexOf('List each repository-relative path');
+  const comparison=preflight.indexOf('Compare every planned write');
+  const approval=deliver.indexOf('Verify explicit human approval');
+  assert.ok(inventory>=0&&comparison>inventory,'list planned writes before comparing them with reviewed scope');
+  assert.ok(approval>deliver.indexOf('\n2. '),'verify scope before considering current implementation approval');
+  const prepare=assets.find(asset=>asset.target===directory+'/change-prepare/SKILL.md')!.content;
+  const goal=assets.find(asset=>asset.target===directory+'/change-prepare/references/GOAL.md')!.content;
+  assert.match(prepare,/every repository-relative file delivery will modify/i,'preparation must enumerate the delivered write set');
+  assert.match(goal,/reviewed write scope[\s\S]*task.*checkbox[\s\S]*evidence/i,'the fixed GOAL must account for task and evidence writes');
+  for(const name of ['change-ready','change-deliver']){
+   const content=assets.find(asset=>asset.target===directory+'/'+name+'/SKILL.md')!.content;
+   assert.match(content,/planned writes[\s\S]*reviewed write scope/i,name+' must reconcile delivery destinations');
+   assert.match(content,/GOAL itself[\s\S]*defined record write/i,name+' must bound GOAL writes');
+   assert.match(content,/older GOALs[\s\S]*format/i,name+' must accept complete legacy artifacts');
+   assert.match(content,/additional authorization[\s\S]*unused/i,name+' must distinguish authorization from the reviewed scope');
+   assert.match(content,/omits any part[\s\S]*blocks/i,name+' must retain the full-scope approval gate');
+  }
  }
  validateNavigation(assets,profile.files);
  for(const asset of assets)validateTemplateContent(asset.content);
