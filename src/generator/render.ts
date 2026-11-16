@@ -48,6 +48,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
  const hookSources=profile.files.filter(path=>/(?:^|\/)(?:\.husky\/(?:pre-commit|pre-push)|\.pre-commit-config\.ya?ml|\.?lefthook\.ya?ml|\.?lintstagedrc(?:\.[a-z]+)?|lint-staged\.config\.[a-z]+)$/.test(path));
  const rules=semantic.find(isProjectRulesIndex);
  const add=(logicalId:string,target:string,content:string,ownership:PreparedAsset['ownership']={kind:'file'})=>result.push({logicalId,target,content,ownership,source:{kind:'fixed-template',ref:TEMPLATE_VERSION,digest:digest(content)}});
+ const openSpecCommand=integration.openSpecProjectCli?'Use `rigup openspec` in place of the leading `openspec` in native CLI commands, including when invoking an OpenSpec skill directly. Preserve its arguments.':undefined;
  const entryTargets=new Set<string>();
  for(const agent of options.agents) {
   const host=agents[agent];entryTargets.add(host.entry);
@@ -60,6 +61,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
    const customerBindings=integration.skillBindings?.filter(b=>b.agent===agent&&(b.consumer===name||name==='change-ready'&&['change-prepare','change-deliver'].includes(b.consumer)))??[];
    const customerRefs=customerBindings.flatMap(b=>b.target?[b.target]:[]);
    const lines=[reference.trimEnd(),'','## Installed workflow','',...(binding ? ['Native prepare: '+binding.prepare.join(', '),...(binding.revise?['Native revise: '+binding.revise]:[]),'Native deliver: '+binding.deliver.join(', '),'Native document routes: '+binding.artifacts.join(', '),...binding.gates] : options.sdd?['Native workflow prerequisites pending. Stop at the missing entry.']:['Use the explicitly selected customer workflow and preserve its approvals.']),...customerRefs.map(p=>'- '+link(refTarget,p,'Customer workflow'))];
+   if(binding&&openSpecCommand)lines.push(openSpecCommand);
    if(binding?.projectSources?.length)lines.push(...binding.projectSources.map(path=>'- '+link(refTarget,path)));
    for(const b of customerBindings)if(b.nativeName)lines.push('- Invoke existing native customer skill: '+inline(b.nativeName)+'. Preserve its gates.');
    if(projectRulesPending)lines.push('','Project rules are pending. For the touched paths, read applicable AGENTS.md or CLAUDE.md files and repository contribution guidance. Use the checks below.',...(options.projectRules?['Use the Rigup MCP research tools to prepare a rules preview. Ask the user to apply the preview from an independent terminal after ending affected sessions.']:[]));
@@ -101,7 +103,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
   const skills=options.agents.filter(a=>agents[a].entry===target).flatMap(a=>templates.map(({name})=>agents[a].skillDirectory+'/'+name+'/SKILL.md'));
   const sources=[...reused.keys()].filter(path=>path!==target);
   const pending=projectRulesPending&&options.projectRules?['Project rules are pending. Use the Rigup MCP research tools when asked to prepare a rules preview.']:[];
-  add('entry:'+target,target,[marker.start,hasWorkflow?'## Project workflow':'## Project guidance',...pending,...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,'Project development rules')]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>{
+  add('entry:'+target,target,[marker.start,hasWorkflow?'## Project workflow':'## Project guidance',...pending,...(openSpecCommand?[openSpecCommand]:[]),...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,'Project development rules')]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>{
    const scope=reused.get(path)!;
    return '- '+link(target,path)+(scope.length&&!scope.includes('.')?' · '+inline(scope.join(', ')):'');
   }),marker.end].join('\n')+'\n',marker);

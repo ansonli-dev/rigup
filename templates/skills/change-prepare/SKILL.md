@@ -5,6 +5,8 @@ description: Use when preparing or revising a project change, proposal, requirem
 
 # Prepare a change
 
+When the project context specifies an OpenSpec CLI invocation, use it for the native steps and the commands shown below.
+
 1. Read [project context](references/project.md) once and open the selected native entry. Use OpenSpec's preparation entry for a new change or its revision entry for an active change. Follow the entry's prerequisites and load its context before discovery. Stop at a missing required entry or workflow root.
 2. At the native inspection step, batch the likely implementation, its nearest test, and applicable rule sections. For a shared type, validator or helper, search its references and check consumers outside the requested scope before choosing the boundary. Reuse these findings across artifacts. Read further only to resolve a specific scope, rule or acceptance question.
 3. Use **Existing checks** in the project context to record the command and working directory for the nearest test and applicable lint or type checks. Open package and hook sources for missing details or to verify claimed trigger coverage. For a behavior change, put concrete rejection and preservation cases in the native spec before approval. Use the native scenario titles to connect the expected behavior to the relevant tasks.

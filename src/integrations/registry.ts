@@ -24,11 +24,12 @@ import {RIGUP_VERSION} from '../version.js';
 import {runtimeSetupSummary,selectedNpmRegistry} from '../runtime-inputs.js';
 import {consumerPath,resolveExternalTool} from '../npm-command.mjs';
 import {targetPath} from '../installer/ownership.js';
+import {localIgnoreContent,localIgnoreOwnership} from './sdd/openspec-project.js';
 export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVersion,type Recipe} from './upstream.js';
 export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
-export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
+export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];openSpecProjectCli?:true;skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
 export async function prepareIntegrations(profile:ProjectProfile,options:SetupOptions):Promise<IntegrationPreparation>{
  const [quality,runtime]=await Promise.all([prepareQuality(profile,options),runtimeSetupSummary(profile.root,options)]);
  const assets:PreparedAsset[]=[];const warnings:string[]=[];const requirements:SetupRequirement[]=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
@@ -117,8 +118,7 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
  push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
  if(profile.git.available&&(assets.length||bindings.length)||runtime.inputs.some(input=>input.destination==='.rigup/.env')){
-  const ownership={kind:'block' as const,start:'# rigup:start',end:'# rigup:end'};
-  const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/','/check-results/','/.env','/.env.rigup-*.tmp',ownership.end,''].join('\n');
+  const ownership=localIgnoreOwnership,content=localIgnoreContent;
   push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
  }
  return {assets,operations:[],warnings,requirements,bindings,skillBindings};

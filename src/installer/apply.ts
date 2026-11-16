@@ -59,7 +59,7 @@ export async function interruptedInstallApplyId(root:string,stateRoot=defaultSta
  const records=await pendingOperations(root,stateRoot);
  let owner:string|undefined;
  for(const record of records){
-  if(record.operation.kind!=='install'||record.stage==='prepared'&&!record.installStage)continue;
+  if(record.operation.kind!=='install'||record.operation.integrationId==='openspec'||record.stage==='prepared'&&!record.installStage)continue;
   if(tx?.status==='prepared'&&record.authorizationRef===tx.previewId)owner=tx.previewId;
   else if(record.result?.status!=='done')throw Error('Unreconciled '+record.operation.id+' staging has no matching apply transaction; reconcile the protected tool scope.');
  }
@@ -143,7 +143,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     path:binding.sourceRef.path,topic:binding.topic,topicId:binding.topicId,scope:binding.scope,
    }]:[])??[];
   const authorityPaths=new Set(authority.map(source=>source.path));
-  const sourcesMatch=async()=>await installationInput(root,data.plan,managedTargets)===data.inputSnapshot;
+  const sourcesMatch=async()=>await installationInput(root,data.plan,managedTargets,lock.stateRoot)===data.inputSnapshot;
   const assertSources=async()=>{if(!await sourcesMatch().catch(()=>false))throw Error('source input changed since preview or cannot be verified');};
   const markSourceReview=(result:InstallReport,review:SourceReview)=>{
    const warning='Approved rule sources changed. Review current sources before relying on project rules.';

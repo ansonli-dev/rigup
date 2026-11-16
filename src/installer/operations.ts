@@ -9,7 +9,7 @@ import type {SetupOperation} from '../types.js';
 import {privateDirectory,signature} from '../generator/cache.js';
 import {defaultStateRoot,processIdentity,isAlive,type ProcessIdentity} from './lock.js';
 import {assertEmptyToolScopes} from '../integrations/tools/initialization.js';
-import {assertToolOperationRecipe,isNativeTool,toolOperationIdentity,verifiedToolOperationForResume} from '../integrations/tools/recipes.js';
+import {assertToolOperationRecipe,isNativeTool,isSoftwareTool,toolOperationIdentity,verifiedToolOperationForResume} from '../integrations/tools/recipes.js';
 import {queryNativeInitialization,resumableNativeOperation,nativeEnvironment} from '../integrations/tools/native-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {startWindowsProcess,windowsJobActive} from '../integrations/tools/windows-process.mjs';
@@ -21,7 +21,7 @@ import type {PreviewData} from './preview.js';
 export interface OperationResult {globalReceipt?:GlobalNpmReceipt;status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 type WriterIdentity=ProcessIdentity&{windowsJob?:string};
 interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult;installStage?:InstallStage}
-export interface OperationDependencies {stateRoot?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
+export interface OperationDependencies {stateRoot?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;verifyInstallScope?:(target:string)=>Promise<void>;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
 export function operationRoot(operation:SetupOperation):string {if(operation.kind==='initialize'&&isAbsolute(operation.parameters.cwd))return operation.parameters.cwd;const i=operation.parameters.args.indexOf('--prefix');const prefix=operation.parameters.args[i+1];if(i<0||!prefix||!isAbsolute(prefix))throw new Error('operation project root unavailable');return resolve(prefix,'../../..');}
 export async function queryOperation(operation:SetupOperation,stateRoot?:string):Promise<OperationResult>{
  if(operation.global)return queryGlobalNpmInstall(operation.global,stateRoot);
@@ -109,6 +109,10 @@ export function operationExecutor(approved:PreviewData,dependencies:OperationDep
   });
  };
 }
+export async function installStandaloneOpenSpec(root:string,operation:SetupOperation,authorizationRef:string,dependencies:OperationDependencies,restoringApproval=false){
+ if(operation.kind!=='install'||operation.integrationId!=='openspec'||operationRoot(operation)!==root)throw Error('Invalid OpenSpec software operation');
+ return runOperation(operation,{...dependencies,authorizationRef,restoringApproval},()=>openOperationJournal(root,dependencies));
+}
 async function assertInstalledNode(root:string,operation:SetupOperation):Promise<void>{
  const {name,version,packageJson}=operation.query;
  const pkg=await readFile(await targetPath(root,packageJson),'utf8').then(text=>JSON.parse(text)).catch(()=>undefined);
@@ -116,7 +120,7 @@ async function assertInstalledNode(root:string,operation:SetupOperation):Promise
  assertNpmNode(name,version,pkg.engines?.node,process.versions.node);
 }
 async function runOperation(operation:SetupOperation,dependencies:OperationDependencies&{authorizationRef:string;restoringApproval:boolean},getJournal:(root:string)=>Promise<OperationJournal>):Promise<OperationResult>{
- if(!['install','initialize'].includes(operation.kind)||!isNativeTool(operation.integrationId))return {status:'pending',message:'No verified executable adapter; manual operation required'};
+ if(!(operation.kind==='install'&&isSoftwareTool(operation.integrationId)||operation.kind==='initialize'&&isNativeTool(operation.integrationId)))return {status:'pending',message:'No verified executable adapter; manual operation required'};
  const root=operationRoot(operation);
  let dispatched=operation;
  try{
@@ -171,6 +175,8 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  };
  const acceptInstall=async(staged:SetupOperation,stage:InstallStage,verified:OperationResult):Promise<OperationResult>=>{
   if(verified.status!=='done')return verified;
+  await dependencies.verifyInstallScope?.(staged.protection.target);
+  await dependencies.verifyInstallScope?.(operation.protection.target);
   try{await assertInstalledNode(root,staged);}
   catch(error){return {status:'pending',message:(error as Error).message+'; resume the original approval with a compatible Node'};}
   await publishInstallStage(root,operation,staged,stage);
@@ -187,6 +193,8 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   }
   stage={token:randomUUID()};
   dispatched=stagedInstall(root,operation,stage);
+  await dependencies.verifyInstallScope?.(dispatched.protection.target);
+  await dependencies.verifyInstallScope?.(operation.protection.target);
   record.stage='prepared';delete record.identity;delete record.result;record.installStage=stage;
   await persist(); // Reserve a unique scope before touching the project.
   stage.identity=await createInstallStage(root,dispatched.protection.target);

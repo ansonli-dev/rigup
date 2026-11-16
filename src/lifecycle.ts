@@ -35,6 +35,9 @@ import {digest} from './analyzer/evidence.js';
 import {apply,interruptedApplyId,interruptedInstallApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
 import {essentialEnvironment,runtimeEnvironment,runtimeSetupSummary} from './runtime-inputs.js';
 import {prepareProjectToolOperations} from './integrations/registry.js';
+import {inspectOpenSpec,type OpenSpecRuntimeIdentity} from './integrations/sdd/openspec-setup.js';
+import {openspecPreparationCommand} from './integrations/sdd/openspec.js';
+import {readOpenSpecPreparation} from './integrations/sdd/openspec-project.js';
 import type {NpmView} from './integrations/tools/npm-resolution.js';
 import type {LifecyclePresentation} from './cli-output.js';
 export interface LifecycleFlags {globalTools?:('openwiki'|'codegraph')[];deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
@@ -82,6 +85,16 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  };
 
  try {
+  if(options.sdd==='openspec'){
+   const native=await readOpenSpecPreparation(root,lock.stateRoot);
+   if(native&&!native.complete){
+    const scope=native.approval.kind==='install'?'global':'project';
+    const nextCommand=openspecPreparationCommand(root,native.approval.agents,scope)+' --resume';
+    const message='Resume the original OpenSpec preparation.';
+    services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[message],nextCommand});
+    notice(message+'\n'+nextCommand+'\n');return 3;
+   }
+  }
   await assertNoUnknownWriters(root,lock.stateRoot);
   const seedApply=await interruptedSeedApplyId(root,lock.stateRoot);
   const protectedApply=seedApply??await interruptedInstallApplyId(root,lock.stateRoot);
@@ -123,6 +136,24 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    notice('Resumed protected installation '+installed.status+'\n');
    return installed.exitCode;
   }}
+  let openSpecRuntime:OpenSpecRuntimeIdentity|undefined;
+  let openSpecPending:Awaited<ReturnType<typeof inspectOpenSpec>>|undefined;
+  if(options.sdd==='openspec'&&options.agents.length){
+   let native=await inspectOpenSpec(root,options,services.signal,undefined,{scope:'project',stateRoot:lock.stateRoot});
+   if(!native.cli&&!native.projectAvailable&&native.globalAvailable)
+    native=await inspectOpenSpec(root,options,services.signal,undefined,{scope:'global',stateRoot:lock.stateRoot});
+   if(native.requirements.length){
+    if(!needsResearch||backendKind!=='host'||await loadManifest(root)){
+     const nextCommand=native.steps.length?native.steps.join(' && '):null;
+     const reason='Prepare the selected OpenSpec integration, then repeat your setup command.';
+     for(const problem of native.requirements)notice('OpenSpec: '+problem+'\n');
+     notice(reason+'\n'+(nextCommand?nextCommand+'\n':''));
+     services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:native.requirements,requiredInput:native.requirements,nextCommand});return 3;
+    }
+    openSpecPending=native;
+   }
+   openSpecRuntime=native.runtime;
+  }
   const providerKind=services.provider?.identity.provider??options.model?.provider??'anthropic';
   const openAI=providerKind==='openai-compatible';
   const environment=backendKind==='native'&&needsResearch?await runtimeEnvironment(root,options,'provider'):essentialEnvironment();
@@ -141,6 +172,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const authorityReview=await sourceReview(root,old,lock.stateRoot);
   if(old?.projectRules==='pending'||authorityReview)review=true;
   const prepared=await prepareGeneration(profile,options);
+  if(openSpecRuntime?.scope==='project')prepared.integration.openSpecProjectCli=true;
   const recovery=prepared.integration.requirements.find(requirement=>requirement.nextCommand);
   const nativeSetup=recovery?.nextCommand?{nativeSetupCommand:recovery.nextCommand,nativeRequirements:prepared.integration.requirements}:{};
   if(needsResearch&&!services.backend&&backendKind!=='host'&&recovery){
@@ -163,8 +195,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
      const targets=data.files.map(file=>file.target);
      const versions={rigup:RIGUP_VERSION,prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
      const reusable=data.inputSnapshotVersion===3&&(authorityReview?
-      data.plan.projectRules==='ready'&&signature(data.plan.versions)===signature(versions)&&await restoredReviewMatches(root,data).catch(()=>false):
-      await installationInput(root,data.plan,targets).catch(()=>undefined)===data.inputSnapshot);
+      data.plan.projectRules==='ready'&&signature(data.plan.versions)===signature(versions)&&await restoredReviewMatches(root,data,lock.stateRoot).catch(()=>false):
+      await installationInput(root,data.plan,targets,lock.stateRoot).catch(()=>undefined)===data.inputSnapshot);
      if(reusable){
       if(authorityReview)restoredReview=data;
       previousGuidance=tx.report?.harness?.guidance.filter(binding=>binding.sourceRef&&!targets.includes(binding.sourceRef.path)&&
@@ -271,6 +303,11 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   for(const id of flags.retireIds??[]){const disposition=plan.dispositions.find(d=>d.logicalId===id);if(!disposition)throw new Error('retirement id not in old inventory');if(plan.assets.some(a=>a.logicalId===id))throw new Error('retirement contradicts selected capability');disposition.action='retire';disposition.reason='Explicit retirement authorized before research';}
   for(const d of plan.dispositions)if(d.action==='retire'&&!flags.retireIds?.includes(d.logicalId))plan.requirements.push({integrationId:d.logicalId,reason:'Retirement is outside current consent; rerun with --retire '+d.logicalId});
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,waiting:'ownership and virtual-tree checks'});
+  if(openSpecRuntime)plan.openSpecRuntime=openSpecRuntime;
+  if(openSpecPending){
+   const nextCommand=openspecPreparationCommand(root,options.agents,openSpecPending.scope);
+   plan.requirements.push(...openSpecPending.requirements.map(reason=>({integrationId:'openspec',kind:'sdd-binding' as const,reason,nextCommand})));
+  }
   plan.runChecks=flags.runChecks??[];
   if(authorityReview&&profile.truncated)plan.projectRules='pending';
   plan=await prepareProjectToolOperations(plan,profile,{stateRoot:lock.stateRoot,signal:services.signal,view:services.npmView,globalTools:flags.globalTools});
@@ -292,7 +329,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const conflicts=result.items.filter(i=>i.action==='conflict');
   const failed=!result.executable&&(conflicts.length>0||!plan.requirements.length);
   const reviewCommand=conflicts.length?'rigup update '+quote(root)+' --review':undefined;
-  const nextCommand=reviewCommand??recovery?.nextCommand;
+  const nextCommand=reviewCommand??recovery?.nextCommand??plan.requirements.find(requirement=>requirement.nextCommand)?.nextCommand;
   const installStatus=conflicts.length?'conflict':failed?'failed':result.executable?'not-installed':'pending';
   services.report?.({phase:'preview',installStatus,...result,pending:plan.requirements,conflicts,nextCommand:nextCommand??null,...(failed?{error:result.blockers.join('\n')}:{})});
   if(display)await display.preview(await loadPreview(result.previewId,previews));

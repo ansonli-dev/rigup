@@ -8,8 +8,10 @@ import type {SetupOperation} from '../../types.js';
 import {validateProviderBaseURL} from '../../analyzer/provider-url.js';
 import {defaultNpmRegistry,isStableNpmVersion,type NpmPackageIdentity} from './npm-resolution.js';
 import {normalizeNpmIntegrity} from '../../npm-integrity.mjs';
+import {openspecPackage} from '../sdd/openspec.js';
 
 export type NativeTool='openwiki'|'codegraph';
+export type SoftwareTool=NativeTool|'openspec';
 
 // Exact bytes of the v0.2.4 adapter (cf7cd0a) in source and tsc output,
 // including CRLF variants for Windows checkouts and builds.
@@ -24,11 +26,12 @@ export function isNativeTool(id:string):id is NativeTool {
  return id==='openwiki'||id==='codegraph';
 }
 
-export function toolPackage(id:NativeTool) {
- return {id,prefix:'.rigup/tools/'+id,name:id==='openwiki'?'openwiki':'@colbymchenry/codegraph',entry:id==='openwiki'?'dist/cli/cli.js':'npm-shim.js'} as const;
+export const isSoftwareTool=(id:string):id is SoftwareTool=>id==='openspec'||isNativeTool(id);
+export function toolPackage(id:SoftwareTool) {
+ return {id,prefix:'.rigup/tools/'+id,name:id==='openspec'?openspecPackage:id==='openwiki'?'openwiki':'@colbymchenry/codegraph',entry:id==='openspec'?'bin/openspec.js':id==='openwiki'?'dist/cli/cli.js':'npm-shim.js'} as const;
 }
 
-export function softwareInstallRecipe(root:string,id:NativeTool,version:string,integrity?:string,prefix=toolPackage(id).prefix,registry?:string,enginesNode?:string):SetupOperation {
+export function softwareInstallRecipe(root:string,id:SoftwareTool,version:string,integrity?:string,prefix=toolPackage(id).prefix,registry?:string,enginesNode?:string):SetupOperation {
  const {name}=toolPackage(id);
  if(registry!==undefined&&validateProviderBaseURL(registry).href.replace(/\/?$/,'/')!==registry)throw Error('Operation registry must use its normalized credential-free identity');
  return {id:'install:'+id,integrationId:id,kind:'install',...(registry?{registry}:{}),parameters:{executable:'npm',args:['install','--prefix',resolve(root,prefix),'--cache',resolve(root,prefix,'.npm-cache'),'--ignore-scripts','--save-exact','--no-audit','--no-fund','--userconfig',resolve(root,prefix,'.npmrc.user'),'--globalconfig',resolve(root,prefix,'.npmrc.global'),'--registry',registry??defaultNpmRegistry,name+'@'+version],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],version,timeoutMs:300000,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity,enginesNode}};
@@ -66,11 +69,10 @@ export function toolOperationIdentity(operation:SetupOperation):NpmPackageIdenti
 
 function expectedToolOperation(root:string,operation:SetupOperation,prerequisites:string[]):SetupOperation {
  const id=operation.integrationId;
- if(!isNativeTool(id)||!['install','initialize'].includes(operation.kind))throw Error('External operation has no verified adapter');
  const {version,packageIntegrity}=toolOperationIdentity(operation);
- return operation.kind==='install'
-  ?softwareInstallRecipe(root,id,version,packageIntegrity,undefined,operation.registry,operation.query.enginesNode)
-  :initializationRecipe(root,id,version,packageIntegrity,prerequisites);
+ if(operation.kind==='install'&&isSoftwareTool(id))return softwareInstallRecipe(root,id,version,packageIntegrity,undefined,operation.registry,operation.query.enginesNode);
+ if(operation.kind==='initialize'&&isNativeTool(id))return initializationRecipe(root,id,version,packageIntegrity,prerequisites);
+ throw Error('External operation has no verified adapter');
 }
 
 export function assertToolOperationRecipe(root:string,operation:SetupOperation,prerequisites:string[]):void {

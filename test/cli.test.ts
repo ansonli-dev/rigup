@@ -310,7 +310,7 @@ test('OpenSpec preparation reports the required session acknowledgement in JSON'
  const report=JSON.parse(output);
  assert.equal(code,3,output);
  assert.equal(report.nextCommand,report.resumeCommand);
- assert.match(report.nextCommand,/--prepare-openspec --sessions-ended$/);
+ assert.match(report.nextCommand,/--prepare-openspec --install-scope global --sessions-ended$/);
  assert.ok(report.requiredInput.some((item:string)=>item.includes('--sessions-ended')));
  assert.deepEqual(await readdir(root),[]);
 })));

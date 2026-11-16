@@ -12,6 +12,7 @@ import {assertEmptyToolScopes} from '../integrations/tools/initialization.js';
 import {assertToolOperationRecipe,isNativeTool,toolOperationIdentity,toolOperationPrerequisites} from '../integrations/tools/recipes.js';
 import {readVerifiedToolInstall} from '../integrations/tools/installed-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
+import {assertOpenSpecRuntime} from '../integrations/sdd/openspec-setup.js';
 import {digest} from '../analyzer/evidence.js';
 import {readFileState,readFileStates,absentDigest,matchesFileState,platformFileMode} from './file-state.js';
 export {absentDigest} from './file-state.js';
@@ -277,9 +278,9 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId:'',root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644,...(creates.has(target)?{seed:creates.get(target)}:{})}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
- const inputSnapshot=await installationInput(root,plan,allTargets);
+ const inputSnapshot=await installationInput(root,plan,allTargets,dependencies.stateRoot);
  if(dependencies.restoredReview&&plan.projectRules==='ready'&&
-   (!await restoredReviewMatches(root,dependencies.restoredReview)||inputSnapshot!==await installationInput(root,plan,allTargets))){
+   (!await restoredReviewMatches(root,dependencies.restoredReview,dependencies.stateRoot)||inputSnapshot!==await installationInput(root,plan,allTargets,dependencies.stateRoot))){
   throw Error('Previously approved inputs changed during source reconciliation; prepare a new review');
  }
  // Older CLI readers use the discovery marker to verify the full approved scope.
@@ -290,17 +291,18 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  return publicPreview;
 }
 
-export async function restoredReviewMatches(root:string,data:PreviewData):Promise<boolean>{
+export async function restoredReviewMatches(root:string,data:PreviewData,stateRoot?:string):Promise<boolean>{
  const files=new Map(data.files.map(file=>[file.target,file]));
  for await(const {target,state} of readFileStates(root,[...files.keys()])){
   const file=files.get(target)!;
   const hash=file.next===undefined?absentDigest:digest(Buffer.from(file.next,file.encoding));
   if(!matchesFileState(state,hash,file.mode))return false;
  }
- return await installationInput(root,data.plan,[...files.keys()])===data.inputSnapshot;
+ return await installationInput(root,data.plan,[...files.keys()],stateRoot)===data.inputSnapshot;
 }
 
-export async function installationInput(root:string,plan:SetupPlan,managedTargets:string[]):Promise<string>{
+export async function installationInput(root:string,plan:SetupPlan,managedTargets:string[],stateRoot?:string):Promise<string>{
+ if(plan.openSpecRuntime)await assertOpenSpecRuntime(root,plan.options,plan.openSpecRuntime,stateRoot);
  // The apply journal verifies whole managed files, including customer content.
  // Keep those files out of the source snapshot so partial writes can resume.
  const scopes=[...plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites),...managedTargets];
