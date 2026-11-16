@@ -1,12 +1,10 @@
 import{readFile,readdir,realpath,stat}from'node:fs/promises';import{join,isAbsolute,relative}from'node:path';import{homedir}from'node:os';import{parse}from'yaml';import{parse as toml}from'smol-toml';import{digest,safePath}from'./evidence.js';import type{Agent,SetupOptions}from'../types.js';import {sddDiscoveryNames,unqualifiedSkillName,type SkillSource} from '../integrations/sdd/binding.js';
-import {loadUpstreamLock} from '../integrations/upstream.js';
 export interface NativeDiscoveryOptions{home?:string;env?:Record<string,string|undefined>;requiredOpenSpecEntriesOnly?:true;onWarning?:(message:string)=>void}
 export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean}|undefined{const front=text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);if(!front)return;const value=parse(front[1]);if(!value||typeof value.name!=='string'||typeof value.description!=='string')return;return{name:value.name,satisfies:value.dependencies===undefined||Array.isArray(value.dependencies)&&value.dependencies.length===0};}
 export async function discoverNativeSources(root:string,options:SetupOptions,dependencies:NativeDiscoveryOptions={}){
  const result:Partial<Record<Agent,SkillSource[]>>={};if(!options.sdd&&!options.customSkills?.length)return result;
  const metadataText=async(path:string)=>{if((await stat(path)).size>256000)throw Error('Native manager metadata exceeds budget');return readFile(path,'utf8');};
  const home=dependencies.home??homedir();const env=dependencies.env??(dependencies.home?{}:process.env);
- const pinned=options.sdd?(await loadUpstreamLock()).find(recipe=>recipe.integrationId===options.sdd)?.version:undefined;
  const wanted=new Set(options.sdd?sddDiscoveryNames(options.sdd,options.sdd!=='openspec'||!dependencies.requiredOpenSpecEntriesOnly):[]);
  for(const item of options.customSkills??[]){try{const text=await readFile(join(isAbsolute(item.source)?item.source:join(root,item.source),'SKILL.md'),'utf8');const m=nativeSkillMetadata(text);if(m)wanted.add(unqualifiedSkillName(m.name));}catch{}}
  const inside=(base:string,path:string)=>{const rel=relative(base,path);return rel===''||!rel.startsWith('..')&&!isAbsolute(rel);};
@@ -19,8 +17,14 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
  for(const agent of options.agents){
   const sources:SkillSource[]=[];result[agent]=sources;let count=0,bytes=0,directories=0;const visited=new Set<string>();
   const unknown=(name:string,identity:string)=>sources.push({name,identity,origin:'unknown',satisfies:false});
-  const add=async(path:string,origin:SkillSource['origin'],namespace?:string,version?:string)=>{const info=await stat(path);if(!info.isFile()||info.size>256000||++count>2000||(bytes+=info.size)>8_000_000)throw Error('native discovery budget exceeded');const text=await readFile(path,'utf8');const meta=nativeSkillMetadata(text);if(!meta)return;const base=unqualifiedSkillName(meta.name);if(!wanted.has(base))return;const name=namespace&&!meta.name.includes(':')?namespace+':'+meta.name:meta.name;const versionMatches=!namespace||namespace!==options.sdd||version===pinned;sources.push({name,identity:await realpath(path),origin,digest:digest(text),satisfies:meta.satisfies&&versionMatches,...(!versionMatches?{problem:'Native '+namespace+' version '+(version??'unknown')+' differs from verified '+pinned}:{}),...(version?{version}:{})});};
-  const walk=async(dir:string,depth=0,origin:SkillSource['origin']='local',namespace?:string,version?:string):Promise<void>=>{if(depth>3)return;if(++directories>2000||count>2000){for(const name of wanted)unknown(name,'native-discovery-budget');return;}let canonical:string;try{canonical=await realpath(dir);const key=canonical+'\0'+(namespace??'');if(visited.has(key))return;visited.add(key);}catch{return;}try{await add(join(dir,'SKILL.md'),origin,namespace,version);return;}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT'){for(const name of wanted)unknown(namespace?namespace+':'+name:name,dir+':unavailable');return;}}let entries;try{entries=await readdir(dir,{withFileTypes:true});}catch{return;}for(const entry of entries.sort((a,b)=>a.name.localeCompare(b.name)))if(!entry.name.startsWith('.')&&(entry.isDirectory()||entry.isSymbolicLink()))await walk(join(dir,entry.name),depth+1,origin,namespace,version);};
+  const add=async(path:string,origin:SkillSource['origin'],namespace?:string)=>{
+   const info=await stat(path);if(!info.isFile()||info.size>256000||++count>2000||(bytes+=info.size)>8_000_000)throw Error('native discovery budget exceeded');
+   const text=await readFile(path,'utf8');const meta=nativeSkillMetadata(text);
+   if(!meta||!wanted.has(unqualifiedSkillName(meta.name)))return;
+   const name=namespace&&!meta.name.includes(':')?namespace+':'+meta.name:meta.name;
+   sources.push({name,identity:await realpath(path),origin,digest:digest(text),satisfies:meta.satisfies});
+  };
+  const walk=async(dir:string,depth=0,origin:SkillSource['origin']='local',namespace?:string):Promise<void>=>{if(depth>3)return;if(++directories>2000||count>2000){for(const name of wanted)unknown(name,'native-discovery-budget');return;}let canonical:string;try{canonical=await realpath(dir);const key=canonical+'\0'+(namespace??'');if(visited.has(key))return;visited.add(key);}catch{return;}try{await add(join(dir,'SKILL.md'),origin,namespace);return;}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT'){for(const name of wanted)unknown(namespace?namespace+':'+name:name,dir+':unavailable');return;}}let entries;try{entries=await readdir(dir,{withFileTypes:true});}catch{return;}for(const entry of entries.sort((a,b)=>a.name.localeCompare(b.name)))if(!entry.name.startsWith('.')&&(entry.isDirectory()||entry.isSymbolicLink()))await walk(join(dir,entry.name),depth+1,origin,namespace);};
   const codex=env.CODEX_HOME??join(home,'.codex');const claude=env.CLAUDE_CONFIG_DIR??join(home,'.claude');
   const roots=agent==='codex'?[join(codex,'skills'),join(home,'.agents/skills')]:agent==='claude'?[join(claude,'skills')]:agent==='opencode'?[join(env.XDG_CONFIG_HOME??join(home,'.config'),'opencode/skills'),join(home,'.agents/skills')]:[join(env.PI_CODING_AGENT_DIR??join(home,'.omp/agent'),'skills')];
   for(const path of roots)await walk(path);
@@ -39,15 +43,15 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
      const[name,market]=id.split('@');if(!/^[\w.-]+$/.test(name)||!/^[\w.-]+$/.test(market))continue;
      try{
       const base=join(codex,'plugins/cache',market,name),versions=await readdir(base);
-      const available:{path:string;version:string}[]=[];
+      const available:string[]=[];
       for(const version of versions.sort()){
        try{
         const path=join(base,version),manifest=JSON.parse(await metadataText(join(path,'.claude-plugin/plugin.json')));
-        if(manifest?.name!==name||typeof manifest.version!=='string')throw Error('Invalid plugin manifest');
-        available.push({path,version:manifest.version});
+        if(manifest?.name!==name)throw Error('Invalid plugin manifest');
+        available.push(path);
        }catch(error){skipped(id,error);}
       }
-      for(const entry of available)await walk(join(entry.path,'skills'),0,available.length===1?'plugin':'unknown',name,entry.version);
+      for(const path of available)await walk(join(path,'skills'),0,available.length===1?'plugin':'unknown',name);
      }catch(error){skipped(id,error);}
     }
    }catch{/* Unavailable manager metadata cannot prove installed native sources. */}
@@ -70,8 +74,8 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
        if(record.scope!=='user'&&!(record.scope==='project'&&record.projectPath===root))continue;
        if(typeof record.installPath!=='string'||!isAbsolute(record.installPath)||!inside(claude,record.installPath))throw Error('Invalid plugin location');
        const manifest=JSON.parse(await metadataText(join(record.installPath,'.claude-plugin/plugin.json')));
-       if(manifest?.name!==name||typeof manifest.version!=='string')throw Error('Invalid plugin manifest');
-       await walk(join(record.installPath,'skills'),0,'plugin',name,manifest.version);
+       if(manifest?.name!==name)throw Error('Invalid plugin manifest');
+       await walk(join(record.installPath,'skills'),0,'plugin',name);
       }catch(error){skipped(id,error);}
      }
     }

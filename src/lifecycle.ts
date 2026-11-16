@@ -32,10 +32,12 @@ import {installationInput,preview,loadPreview,restoredReviewMatches,type Preview
 import {sessionHandoffRequired} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
-import {apply,interruptedApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
+import {apply,interruptedApplyId,interruptedInstallApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
 import {essentialEnvironment,runtimeEnvironment,runtimeSetupSummary} from './runtime-inputs.js';
+import {prepareProjectToolOperations} from './integrations/registry.js';
+import {defaultNpmRegistry,type NpmView} from './integrations/tools/npm-resolution.js';
 export interface LifecycleFlags {deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
-export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:()=>Promise<boolean>;report?:(value:Record<string,unknown>)=>void;researchSessionId?:string;expectedFingerprint?:string}
+export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:()=>Promise<boolean>;report?:(value:Record<string,unknown>)=>void;researchSessionId?:string;expectedFingerprint?:string;npmView?:NpmView}
 interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string;versions?:SetupPlan['versions']}
 async function readRun(path:string,root:string,consent:string):Promise<Run|undefined>{
  const run=await readDurableRecord<Run>(path,'Durable research run');
@@ -80,10 +82,11 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  try {
   await assertNoUnknownWriters(root,lock.stateRoot);
   const seedApply=await interruptedSeedApplyId(root,lock.stateRoot);
-  if(seedApply&&(!flags.resume||flags.continuation||flags.researchTokens!==undefined||services.researchSessionId)){
+  const protectedApply=seedApply??await interruptedInstallApplyId(root,lock.stateRoot);
+  if(protectedApply&&(!flags.resume||flags.continuation||flags.researchTokens!==undefined||services.researchSessionId)){
    const nextCommand='rigup update '+quote(root)+' --resume --review';
-   const message='Reconcile the interrupted customer document creation using the original approval.';
-   services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId:seedApply,pending:[message],nextCommand});
+   const message=seedApply?'Reconcile the interrupted customer document creation using the original approval.':'Resume the interrupted tool installation using the original approval.';
+   services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId:protectedApply,pending:[message],nextCommand});
    write(message+'\n'+nextCommand+'\n');
    return 3;
   }
@@ -244,6 +247,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,waiting:'ownership and virtual-tree checks'});
   plan.runChecks=flags.runChecks??[];
   if(authorityReview&&profile.truncated)plan.projectRules='pending';
+  plan=await prepareProjectToolOperations(plan,profile,{stateRoot:lock.stateRoot,signal:services.signal,view:services.npmView});
   const result=await preview(plan,resolutions,{cacheRoot:previews,stateRoot:lock.stateRoot,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!runtimeSetup.template.needsUpdate&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review,restoredReview});
   if(plan.gitlabReviewRequired)for(const warning of result.warnings)if(warning.startsWith('GitLab wiring'))write(warning+'\n');
   if(result.noChanges){
@@ -265,7 +269,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const nextCommand=reviewCommand??recovery?.nextCommand;
   const installStatus=conflicts.length?'conflict':failed?'failed':result.executable?'not-installed':'pending';
   services.report?.({phase:'preview',installStatus,...result,pending:plan.requirements,conflicts,nextCommand:nextCommand??null,...(failed?{error:result.blockers.join('\n')}:{})});
-  write('Preview '+result.previewId+'\n');for(const item of result.items){write(item.action+' '+item.target+(item.reason?' — '+item.reason:'')+'\n');if(item.beforeMode!==item.afterMode){const format=(value:number|undefined)=>value===undefined?'absent':value.toString(8).padStart(4,'0');write('mode '+format(item.beforeMode)+' -> '+format(item.afterMode)+'\n');}if(item.before!==undefined)write('--- owned before (filtered, max 4000 chars)\n'+item.before+'\n');if(item.after!==undefined)write('+++ owned after (filtered, max 4000 chars)\n'+item.after+'\n');}for(const operation of result.operations)write('operation '+operation.id+' '+operation.version+' scope '+operation.declaredWrites.join(', ')+'\n');
+  write('Preview '+result.previewId+'\n');for(const item of result.items){write(item.action+' '+item.target+(item.reason?' — '+item.reason:'')+'\n');if(item.beforeMode!==item.afterMode){const format=(value:number|undefined)=>value===undefined?'absent':value.toString(8).padStart(4,'0');write('mode '+format(item.beforeMode)+' -> '+format(item.afterMode)+'\n');}if(item.before!==undefined)write('--- owned before (filtered, max 4000 chars)\n'+item.before+'\n');if(item.after!==undefined)write('+++ owned after (filtered, max 4000 chars)\n'+item.after+'\n');}for(const operation of result.operations)write('operation '+operation.id+' '+operation.query.name+'@'+operation.version+(operation.kind==='install'?' registry '+(operation.registry??defaultNpmRegistry):'')+' scope '+operation.declaredWrites.join(', ')+'\n');
   for(const document of result.projectDocuments??[])write(document.action+' '+document.target+' — '+document.reason+'\n');
   for(const blocker of result.blockers)write('Blocked: '+blocker+'\n');
   for(const requirement of plan.requirements)if(requirement.nextCommand)write('Initialize the native workflow, then repeat the Rigup command:\n'+requirement.nextCommand+'\n');
@@ -283,6 +287,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(installed.nextCommand)write((installed.researchNextStep??'工作流已可用。重开 agent 后用 change-prepare 发起提案。可选的项目规则生成命令：')+'\n'+installed.nextCommand+'\n');
   write('Install '+installed.status+'; written '+installed.written.length+'; checks '+installed.checks.map(c=>c.name+':'+c.status).join(', ')+'\n');return installed.exitCode;
  }catch(error){
+  if(services.signal?.aborted){emit({...active,status:'waiting',waiting:'cancelled'});return 130;}
   if(error instanceof CodexTokenLimit&&researchResumeId){
    const suggestedLimit=Math.max(budget.maxTokens,error.suggestedLimit);
    const nextCommand='rigup update '+quote(root)+' --continue '+researchResumeId+' --research-tokens '+suggestedLimit;

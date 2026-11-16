@@ -63,7 +63,9 @@ rigup init
 rigup init --agents codex --sdd none --tools none --defer-research --dry-run --json
 ```
 
-选中 OpenSpec 时，引导会立即检查 CLI 和项目入口。确认自动补齐后，Rigup 会把锁定版本的 OpenSpec 装到 PATH 上可写的 npm 前缀，并补齐所选宿主的原生文件。手动处理后再次运行 `rigup init` 会接着已选的宿主和 OpenSpec 继续。
+选中 OpenSpec 时，引导会立即检查 CLI 和项目入口。缺少 CLI 时，自动准备会显示 registry 的稳定 `latest` 版本，确认后将该版本装到 PATH 上可写的 npm 前缀。Rigup 用可运行的 CLI 补齐所选宿主的原生文件。手动准备后再次运行 `rigup init`，可接着已选的宿主和 OpenSpec 继续。
+
+首次项目安装 OpenWiki 或 CodeGraph 时，预览记录精确版本和包完整性。`update` 可离线复用已核验的项目安装。用户安装的插件按实际入口、来源和依赖核验。 [应用与恢复](docs/guides/usage.md#应用与恢复)
 
 ### 3. 应用并重载
 

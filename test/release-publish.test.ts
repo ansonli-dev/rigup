@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {cp,mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {promisify} from 'node:util';
 import {test, type TestContext} from 'node:test';
 
 const version = '0.1.0';
@@ -12,6 +15,8 @@ const sourceLockSha256 = 'b'.repeat(64);
 const repository = 'ansonli-dev/rigup';
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const lifecycle = ['help', 'version', 'preview', 'session handoff', 'independent apply', 'no-op', 'doctor'];
+const integrity = (text:string) => 'sha512-'+createHash('sha512').update(text).digest('base64');
+const software = ['openwiki','codegraph'].map(id=>({id,version:'2.0.0',packageIntegrity:integrity(id)}));
 
 async function fixture(t: TestContext) {
   const artifactsDir = await mkdtemp(join(tmpdir(), 'rigup-release-fixture-'));
@@ -68,7 +73,9 @@ async function fixture(t: TestContext) {
           ...identity,
           archiveSha256: asset.sha256,
           systemNodeOrNpmOnCliPath: false,
-          pinnedSoftwareInstalled: ['openwiki@0.7.3', 'codegraph@1.6.2'],
+          previewId: 'c'.repeat(64),
+          softwareApproved: software,
+          softwareInstalled: [...software].reverse(),
           codegraphInitialized: true,
           businessQuery: true,
           noOpReinitialized: false,
@@ -87,6 +94,37 @@ async function fixture(t: TestContext) {
   };
   return {options, edit};
 }
+
+test('native release evidence requires one valid installed identity per approved tool',async t=>{
+  const {validateReleaseAssets}=await import('../scripts/release/publish.mjs');
+  const {options,edit}=await fixture(t);
+  const change=(value:Record<string,unknown>)=>edit('darwin-arm64','darwin-arm64-native.json',value);
+  await validateReleaseAssets(options);
+  for(const entries of [[software[0]], [software[0],software[0]], [{...software[0],version:'v2.0.0'},software[1]],
+    [{...software[0],packageIntegrity:integrity('replacement')},software[1]]]){
+    await change({softwareInstalled:entries});
+    await assert.rejects(()=>validateReleaseAssets(options),/native software/i);
+  }
+  const invalid=software.map(item=>({...item,packageIntegrity:undefined}));
+  await change({softwareApproved:invalid,softwareInstalled:invalid});
+  await assert.rejects(()=>validateReleaseAssets(options),/native software/i);
+});
+
+test('publish verifies native software evidence from a source checkout without node_modules',async t=>{
+  const {options,edit}=await fixture(t);
+  const checkout=await mkdtemp(join(tmpdir(),'rigup-publish-source-'));
+  t.after(()=>rm(checkout,{recursive:true,force:true}));
+  await mkdir(join(checkout,'scripts'),{recursive:true});
+  await mkdir(join(checkout,'src'));
+  await cp(new URL('../scripts/release',import.meta.url),join(checkout,'scripts','release'),{recursive:true});
+  await cp(new URL('../src/npm-integrity.mjs',import.meta.url),join(checkout,'src','npm-integrity.mjs'));
+  const validate=()=>promisify(execFile)(process.execPath,['--input-type=module','--eval',
+    'const {validateReleaseAssets}=await import(process.argv[1]); await validateReleaseAssets(JSON.parse(process.argv[2]));',
+    pathToFileURL(join(checkout,'scripts','release','publish.mjs')).href,JSON.stringify(options)],{cwd:checkout});
+  await validate();
+  await edit('darwin-arm64','darwin-arm64-native.json',{softwareApproved:[{...software[0],packageIntegrity:integrity('other')},software[1]]});
+  await assert.rejects(validate,/native software/i);
+});
 
 test('complete release is bound to four targets and a single verified npm package', async (t) => {
   const {validateReleaseAssets} = await import('../scripts/release/publish.mjs');

@@ -3,12 +3,13 @@ import {join} from 'node:path';
 import {isRecord,readDurableRecord} from '../private-record.js';
 import {signature} from '../generator/cache.js';
 import type {CheckResult,InstallReport} from './apply.js';
+import type {ToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import type {PreviewData} from './preview.js';
 import type {ManagedAsset,ProjectRulesStatus,SetupOptions} from '../types.js';
 import {targetPath,validateOwnership} from './ownership.js';
 import {digest} from '../analyzer/evidence.js';
 import {isConventionScope,validateConventionReceipts,type ConventionReceipt} from '../project-conventions.js';
-export interface Manifest {schemaVersion:1;installId:string;assets:ManagedAsset[];seededProjectDocuments?:ConventionReceipt[];projectRules?:ProjectRulesStatus;options?:SetupOptions;versions?:Record<string,string>;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>}
+export interface Manifest {schemaVersion:1;installId:string;assets:ManagedAsset[];seededProjectDocuments?:ConventionReceipt[];projectRules?:ProjectRulesStatus;options?:SetupOptions;versions?:Record<string,string>;installedTools?:Record<string,ToolInstallReceipt>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>}
 export async function loadManifest(root:string):Promise<Manifest|undefined>{
  let text:string;try{text=await readFile(await targetPath(root,'.rigup/manifest.json'),'utf8');}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return;throw e;}
  let manifest:Manifest;try{manifest=JSON.parse(text);}catch{throw new Error('manifest invalid JSON; manual reconciliation required');}

@@ -15,11 +15,13 @@ rigup doctor
 
 省略路径时使用当前目录。交互终端保留已给的选项并补问缺少的设置，按 `b` 返回。`update --configure` 重新打开设置引导。`--json` 使用非交互模式，stdout 输出一个最终 JSON 对象，英文进度走 stderr。文档语言只控制生成内容。
 
-`--dry-run` 保存私有候选和预览。已配置 provider 时，生成完整规则的 dry-run 仍会请求模型。首次设置可用 `--defer-research` 明确只准备基础接线。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Superpowers 和 Spec Kit 使用项目已有的官方入口。[验证范围](../compatibility/status.md) · [上游版本与入口](../compatibility/upstream-lock.json)
+`--dry-run` 保存私有候选和预览。已配置 provider 时，生成完整规则的 dry-run 仍会请求模型。首次设置可用 `--defer-research` 明确只准备基础接线。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Superpowers 和 Spec Kit 使用项目已有的官方入口并核对来源和依赖。 [验证范围](../compatibility/status.md) · [最近验证的上游组合](../compatibility/upstream-lock.json)
 
-首次选择 OpenSpec 后，Rigup 检查 PATH 中的 CLI、项目的 OpenSpec 根和所选宿主的工作流入口。缺失时可确认自动补齐。Rigup 用 npm 安装锁定版本的 CLI，在临时目录生成原生文件并补入项目的空缺。已有项目配置和技能保留原样。自动安装使用用户终端里的受支持 Node.js（22.x 中的 22.19.0 起，或 24.2.0 及以上）、npm 和 PATH 上可写的用户安装位置。便携版也按这个环境检查。
+首次选择 OpenSpec 后，Rigup 检查 PATH 中的 CLI、项目的 OpenSpec 根和所选宿主的工作流入口。需要补齐时，可当场确认或用 `--prepare-openspec` 单独准备。CLI 缺失时，独立审批会冻结 `latest` 指向的稳定版本、包完整性、registry 和 npm 前缀。Rigup 在全局安装前核验 tarball，并用准备用户 CLI 的实际 Node 核对包声明的 `engines.node`。便携版也检查用户终端里的 Node 和 npm。原生文件先在临时目录生成，通过检查后补入项目空缺。
 
 在显式审阅或非交互设置中，缺少先决条件时可执行报告的 `nextCommand`。其中 `--prepare-openspec` 单独补齐原生依赖，使用同一套保护步骤保留已有项目文件。交互中选择手动准备后，可用报告里的续跑命令，也可回到项目执行 `rigup init` 继续已选择的宿主和 OpenSpec。
+
+首次在项目内安装 OpenWiki 或 CodeGraph 时，预览解析 `latest`，展示精确版本和 registry，并冻结包完整性。registry 不可达或 Node 版本不符合包要求时，预览报告对应的包与原因。应用和中断恢复使用原审批。`update` 和 `doctor` 可离线核验已有回执。用 `RIGUP_NPM_REGISTRY` 选择内部 registry。
 
 在 PowerShell 中，用引号包住逗号分隔列表，也可以为每个值重复选项。
 

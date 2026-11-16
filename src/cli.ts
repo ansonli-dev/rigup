@@ -10,13 +10,13 @@ import {researchBudget} from './analyzer/budget.js';
 import type {SetupOptions} from './types.js';
 import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
-import {apply,interruptedApplyOptions,interruptedSeedApplyId} from './installer/apply.js';
+import {apply,interruptedApplyOptions,interruptedInstallApplyId,interruptedSeedApplyId} from './installer/apply.js';
 import {doctor} from './installer/doctor.js';
 import {sessionHandoffRequired} from './installer/session.js';
 import {defaultStateRoot} from './installer/lock.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
-import {inspectOpenSpec,prepareOpenSpec,reportOpenSpecPending} from './integrations/sdd/openspec-setup.js';
-import {openspecPreparationCommand} from './integrations/sdd/openspec.js';
+import {inspectOpenSpec,OpenSpecReceiptError,planOpenSpecPreparation,prepareOpenSpec,reportOpenSpecPending,type OpenSpecPreparation} from './integrations/sdd/openspec-setup.js';
+import {openspecPackage,openspecPreparationCommand} from './integrations/sdd/openspec.js';
 import {privateDirectory,signature} from './generator/cache.js';
 import {readDurableRecord,saveDurable} from './private-record.js';
 import {quoteShell,quoteShellList} from './shell-command.js';
@@ -135,10 +135,11 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
  try{
   if(resumeApply)savedApplyOptions=await interruptedApplyOptions(root,services.stateRoot);
   else{
-   const interruptedPreviewId=await interruptedSeedApplyId(root,services.stateRoot);
+   const seedApply=await interruptedSeedApplyId(root,services.stateRoot);
+   const interruptedPreviewId=seedApply??await interruptedInstallApplyId(root,services.stateRoot);
    if(interruptedPreviewId){
     const nextCommand='rigup update '+quoteShell(root)+' --resume --review';
-    const message='Reconcile the interrupted customer document creation using the original approval.';
+    const message=seedApply?'Reconcile the interrupted customer document creation using the original approval.':'Resume the interrupted tool installation using the original approval.';
     services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId,pending:[message],nextCommand});
     io.write(message+'\n'+nextCommand+'\n');
     return 3;
@@ -176,7 +177,21 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
   validateOptions(options as unknown as Record<string,unknown>);
   const runtimeSetup=await runtimeSetupSummary(root,options);
   const report=services.report;
-  services.report=value=>report?.({runtimeSetup,...value});
+  let nativePreparation:Record<string,unknown>|undefined;
+  services.report=value=>report?.({runtimeSetup,...(nativePreparation?{nativePreparation}:{}),...value});
+  const nativeDeps={stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write,view:services.npmView};
+  const describePreparation=(approval:OpenSpecPreparation)=>{
+   const {kind,needsRoot,needsEntries,agents}=approval;
+   nativePreparation={kind,needsRoot,needsEntries,agents,...(kind==='install'?{name:openspecPackage,version:approval.install.version,registry:approval.install.registry,prefix:approval.prefix}:{version:approval.cliVersion})};
+   if(kind==='install')io.write('将 '+openspecPackage+'@'+approval.install.version+' 从 '+approval.install.registry+' 安装到 '+approval.prefix+'\n');
+   if(needsRoot||needsEntries.length)io.write('补齐当前项目缺失的原生 OpenSpec 文件（'+agents.join(', ')+'）\n');
+  };
+  const failedPreparation=(error:unknown)=>{
+   if(services.signal?.aborted)return 130;
+   const message=errorMessage(error);
+   services.report?.({phase:'preflight',installStatus:error instanceof OpenSpecReceiptError?'partial':'failed',error:message,pending:[message]});
+   io.write(message+'\n');return 1;
+  };
   if(values['--prepare-openspec']){
    if(options.sdd!=='openspec'||!options.agents.length)throw Error('--prepare-openspec requires --sdd openspec and at least one agent');
    let setup=await inspectOpenSpec(root,options,services.signal);
@@ -188,12 +203,10 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
      io.write(message+'\n'+command+'\n');
      return 3;
     }
-    try{setup=await prepareOpenSpec(root,options,setup,{stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write});}
-    catch{
-     if(services.signal?.aborted)return 130;
-     io.write('OpenSpec setup did not finish. Inspect the remaining prerequisites and retry.\n');
-     setup=await inspectOpenSpec(root,options,services.signal);
-    }
+    try{
+     const planned=await planOpenSpecPreparation(root,options,nativeDeps,setup);setup=planned.inspection;
+     if(planned.approval){describePreparation(planned.approval);setup=await prepareOpenSpec(root,options,planned.approval,nativeDeps);}
+    }catch(error){return failedPreparation(error);}
    }
    if(services.signal?.aborted)return 130;
    if(setup.requirements.length){
@@ -229,24 +242,26 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
    if(draftPath)await saveDurable(draftPath,JSON.stringify({root,agents:selected.agents}));
    for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
    if(setup.canPrepare&&guided&&inlineReview&&!await sessionHandoffRequired(root,flags.sessionsEnded)){
-    if(!setup.cli)io.write('将 OpenSpec '+setup.recipe.version+' 安装到 '+setup.prefix+'\n');
-    if(setup.needsProject)io.write('补齐当前项目缺失的原生 OpenSpec 文件\n');
-    io.write('补齐 OpenSpec（Enter: 自动补齐，b 返回）\n');
-    const answer=await promptChoice({write:io.write,read:io.read!},['自动补齐','手动准备后继续'],false,['自动补齐']);
-    if(answer===null)return 'stop';
-    if(answer==='back'){
-     if(draftPath)await rm(draftPath,{force:true});
-     return 'back';
-    }
-    if(Array.isArray(answer)&&answer.length===1&&answer[0]==='自动补齐'){
-     try{setup=await prepareOpenSpec(root,selected,setup,{stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write});}
-     catch{
-      if(services.signal?.aborted)return 'stop';
-      io.write('自动补齐未完成。可以重新运行 rigup init 重试，或执行下面的准备命令。\n');
-      setup=await inspectOpenSpec(root,selected,services.signal);
+    try{
+     const planned=await planOpenSpecPreparation(root,selected,nativeDeps,setup);
+     for(const requirement of planned.inspection.requirements.slice(setup.requirements.length))io.write('OpenSpec: '+requirement+'\n');
+     setup=planned.inspection;
+     if(planned.approval){
+      describePreparation(planned.approval);
+      io.write('补齐 OpenSpec（Enter: 自动补齐，b 返回）\n');
+      const answer=await promptChoice({write:io.write,read:io.read!},['自动补齐','手动准备后继续'],false,['自动补齐']);
+      if(answer===null)return 'stop';
+      if(answer==='back'){
+       nativePreparation=undefined;
+       if(draftPath)await rm(draftPath,{force:true});
+       return 'back';
+      }
+      if(Array.isArray(answer)&&answer.length===1&&answer[0]==='自动补齐'){
+       setup=await prepareOpenSpec(root,selected,planned.approval,nativeDeps);
+       if(!setup.requirements.length)return 'ready';
+      }
      }
-     if(!setup.requirements.length)return 'ready';
-    }
+    }catch(error){setupExit=failedPreparation(error);return 'stop';}
    }
    const originalFlags=Object.entries(values).filter(([flag])=>flag!=='--agents'&&flag!=='--sdd').flatMap(([flag,value])=>boolean.has(flag)?[flag]:[flag,quoteShell(value)]);
    const resumeCommand=['rigup','init',quoteShell(root),'--agents',quoteShellList(selected.agents),'--sdd','openspec',...originalFlags].join(' ');
@@ -268,7 +283,7 @@ async function runCliInternal(argv:string[],io:CliIO):Promise<number>{
   }else if(firstWorkflow&&(modernResearch||flags.deferResearch||options.backend!=='host')&&await checkWorkflow(options)==='stop')return setupExit;
   while(!savedApplyOptions&&!flags.dryRun&&!flags.yes&&!flags.review&&io.isTTY&&io.read){
    const budget=researchBudget(options);
-   io.write('本轮范围：agents='+options.agents.join(',')+'; SDD='+(options.sdd??'none')+'; tools='+(options.tools??[]).map(t=>t.id+(t.install?':pinned install':':registration')).join(',')+(modernResearch?'':'; backend='+options.backend)+'; 研究上限 '+budget.maxCalls+' requests / '+(flags.researchTokens??budget.maxTokens)+' tokens。仅预览内受保护写入；b 返回修改。\n');
+   io.write('本轮范围：agents='+options.agents.join(',')+'; SDD='+(options.sdd??'none')+'; tools='+(options.tools??[]).map(t=>t.id+(t.install?':project install':':registration')).join(',')+(modernResearch?'':'; backend='+options.backend)+'; 研究上限 '+budget.maxCalls+' requests / '+(flags.researchTokens??budget.maxTokens)+' tokens。仅预览内受保护写入；b 返回修改。\n');
    const mode=await promptChoice({write:io.write,read:io.read},['continuous','review','dry-run'],false,[options.executionPolicy?.mode??'continuous']);if(mode===null)return 130;
    if(mode==='back'){const setup=await promptSetup(true,true);if(!setup)return setupExit;options=setup.options;services.credentials=setup.credentials;if(setup.deferResearch){flags.deferResearch=true;flags.review=true;}continue;}
    if(!Array.isArray(mode)||mode.length!==1)return 2;flags.yes=mode[0]==='continuous';flags.review=mode[0]==='review';flags.dryRun=mode[0]==='dry-run';

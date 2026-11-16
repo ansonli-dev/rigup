@@ -38,9 +38,7 @@ export interface SkillSource {
  identity:string;
  digest?:string;
  satisfies:boolean;
- version?:string;
  nativeName?:string;
- problem?:string;
 }
 
 export function unqualifiedSkillName(name:string):string {
@@ -87,10 +85,8 @@ export function bindSdd(id:string,agent:string,available:string[]):SddBinding|Pe
 export function resolveSkillSource(name:string,sources:SkillSource[],selectedIdentity?:string):SkillSource {
  const matches=sources.filter(source=>source.name===name && (!selectedIdentity || source.identity===selectedIdentity));
  if(!matches.length) throw new Error('missing skill source: '+name);
- if(matches.some(source=>source.origin==='unknown' || !source.satisfies)){
-  const problems=matches.flatMap(source=>source.problem?[source.problem]:[]);
-  throw new Error('skill source unknown or dependency needs verification'+(problems.length?': '+problems.join('; '):''));
- }
+ if(matches.some(source=>source.origin==='unknown' || !source.satisfies))
+  throw new Error('skill source unknown or dependency needs verification');
  if(matches.length>1 && (!matches[0].digest || matches.some(source=>source.digest!==matches[0].digest))){
   throw new Error('skill source conflict: select an explicit identity');
  }

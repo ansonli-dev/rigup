@@ -1,21 +1,16 @@
-import {verifyToolInstallReceipt,type ToolInstallReceipt} from './installed-state.js';
-import {softwareInstallRecipe,toolPackage,type NativeTool} from './recipes.js';
-import {lstat,readdir,realpath} from 'node:fs/promises';
-import {resolve} from 'node:path';
-import type {SetupOperation} from '../../types.js';
-export async function prepareSoftwareInstall(root:string,id:NativeTool,version:string,integrity?:string,receipt?:ToolInstallReceipt,registry?:string):Promise<SetupOperation|{pending:string}|{reused:true;version:string}>{
+import {realpath} from 'node:fs/promises';
+import {readVerifiedToolInstall,type ToolInstallReceipt} from './installed-state.js';
+import {assertEmptyNativeScope} from './initialization.js';
+import {toolPackage,type NativeTool} from './recipes.js';
+import type {NpmPackageIdentity} from './npm-resolution.js';
+
+export async function inspectProjectToolInstall(root:string,id:NativeTool,receipt?:ToolInstallReceipt):Promise<{root:string}|{identity:NpmPackageIdentity}|{pending:string}>{
  root=await realpath(root);
- const {prefix}=toolPackage(id);
- let current=root;
- for(const part of prefix.split('/')) {
-  current=resolve(current,part);
-  try {const info=await lstat(current);if(info.isSymbolicLink() || !info.isDirectory()) return {pending:'existing tool scope is not a safe directory'};}
-  catch(error){if((error as NodeJS.ErrnoException).code === 'ENOENT') break;throw error;}
+ if(receipt!==undefined){
+  const identity=await readVerifiedToolInstall(root,id,receipt);
+  return identity?{identity}:{pending:'Existing tool installation and receipt require reconciliation; preserve local files'};
  }
- try {if((await readdir(resolve(root,prefix))).length) {
-   if(integrity&&await verifyToolInstallReceipt(root,id,{version,packageIntegrity:integrity},receipt))return {reused:true,version};
-   return {pending:'existing non-empty tool scope requires reconciliation; no automatic overwrite'};
-  }}
- catch(error){if((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;}
- return softwareInstallRecipe(root,id,version,integrity,undefined,registry);
+ try{await assertEmptyNativeScope(root,toolPackage(id).prefix);}
+ catch{return {pending:'Existing non-empty or unsafe tool scope requires reconciliation; preserve local files'};}
+ return {root};
 }

@@ -10,13 +10,13 @@ export async function assertEmptyNativeScope(root:string,target:string):Promise<
  try {const st=await lstat(path);if(!st.isDirectory()||(await readdir(path)).length)throw new Error('existing non-empty native scope requires reconciliation; no overwrite');}
  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
 }
-export async function assertEmptyToolScopes(root:string,operation:SetupOperation):Promise<void> {
+export async function assertEmptyToolScopes(root:string,operation:Pick<SetupOperation,'declaredWrites'>):Promise<void> {
  for(const target of operation.declaredWrites)await assertEmptyNativeScope(root,target);
 }
 
-export async function prepareNativeInitialization(root:string,id:NativeTool,version:string,integrity:string|undefined,input:{installed:boolean;prerequisiteIds?:string[];receipt?:NativeInitializationReceipt}):Promise<SetupOperation|{pending:string}|{reused:true}> {
+export async function prepareNativeInitialization(root:string,id:NativeTool,version:string,integrity:string,input:{installed:boolean;prerequisiteIds?:string[];receipt?:NativeInitializationReceipt}):Promise<SetupOperation|{pending:string}|{reused:true}> {
  root=await realpath(root);
- if(!input.installed&&!input.prerequisiteIds?.length)return {pending:'Initialization requires a verified pinned project installation; enable project installation first'};
+ if(!input.installed&&!input.prerequisiteIds?.length)return {pending:'Initialization requires a verified project installation; enable project installation first'};
  const operation=initializationRecipe(root,id,version,integrity,input.prerequisiteIds);
  if(input.receipt)return await verifyToolInitializationReceipt(root,id,{version,packageIntegrity:integrity},input.receipt)?{reused:true}:{pending:'Existing initialization changed; native state reconciliation required'};
  try {await assertEmptyToolScopes(root,operation);}

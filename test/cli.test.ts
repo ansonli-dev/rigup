@@ -61,9 +61,16 @@ test('init_existing_manifest_uses_update_rules_and_doctor_is_read_only', async (
  } finally {await rm(root,{recursive:true,force:true});}
 });
 import {confirmedHarnessSource,project,writeOpenSpecFixture} from './helpers.js';
+import {fixedNpmView} from './native-tool-fixture.js';
 test('tools flag keeps OpenWiki generation separate from protected CodeGraph initialization',()=>project(async root=>project(async cache=>project(async state=>{
- let output='';const code=await runCli(['init','--tools','openwiki,codegraph','--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
+ const calls:string[]=[];
+ let output='';const code=await runCli(['init','--tools','openwiki,codegraph','--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,npmView:async(args,cwd)=>{
+  calls.push(args[1]);return JSON.stringify({...JSON.parse(await fixedNpmView(args,cwd)),version:'2.0.0','dist-tags.latest':'2.0.0'});
+ }}});
  assert.equal(code,0,output);const report=JSON.parse(output);assert.equal(report.executable,true);assert.deepEqual(report.operations.map((o:any)=>o.id),['install:openwiki','install:codegraph','initialize:codegraph']);assert.ok(report.warnings.some((w:string)=>/openwiki_begin/.test(w)));assert.deepEqual(await readdir(root),[]);
+ assert.deepEqual(calls,['openwiki@latest','@colbymchenry/codegraph@latest']);
+ assert.ok(report.operations.every((operation:any)=>operation.version==='2.0.0'));
+ assert.equal(report.operations[0].registry,'https://registry.npmjs.org/');
 }))));
 test('missing OpenSpec bindings return a copyable recovery command without applying',()=>project(async root=>project(async cache=>project(async state=>{
  let output='';const code=await runCli(['init','--agents','codex','--sdd','openspec','--defer-research','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
@@ -152,7 +159,7 @@ test('CLI list options accept PowerShell array strings, split args and repeated 
   ['--agents=claude,codex','--tools=openwiki','--tools','codegraph'],
  ]){
   let output='';
-  const code=await runCli(['init','.',...args,'--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
+  const code=await runCli(['init','.',...args,'--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,npmView:fixedNpmView}});
   assert.equal(code,0,output);
   const report=JSON.parse(output);
   assert.deepEqual(report.operations.map((op:{id:string})=>op.id),['install:openwiki','install:codegraph','initialize:codegraph']);

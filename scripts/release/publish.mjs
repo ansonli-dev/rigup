@@ -8,6 +8,7 @@ import {pathToFileURL} from 'node:url';
 import {promisify} from 'node:util';
 import {sha256, sourceRoot} from './build.mjs';
 import {renderInstaller} from './installer.mjs';
+import {verifyNativeSoftwareEvidence} from './native-software.mjs';
 
 const exec = promisify(execFile);
 const targets = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'];
@@ -111,13 +112,13 @@ export async function validateReleaseAssets({
     if (target === 'darwin-arm64') {
       verified.native = await readJson(join(directory, nativeName));
       verifyReceipt(verified.native, metadata, 'native', {
-        pinnedSoftwareInstalled: ['openwiki@0.7.3', 'codegraph@1.6.2'],
         codegraphInitialized: true,
         businessQuery: true,
         noOpReinitialized: false,
         openwikiScaffoldInitialization: false,
         openwikiHandoff: true,
       });
+      verifyNativeSoftwareEvidence(verified.native);
       const outcome = verified.native.daemonCleanup?.outcome;
       assert.ok(
         typeof outcome === 'string' && !['unverified', 'still-running'].includes(outcome),

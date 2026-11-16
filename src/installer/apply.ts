@@ -1,8 +1,10 @@
 import type {RunProgressEvent} from '../progress.js';
 import {prepareIntegrations} from '../integrations/registry.js';
-import {loadUpstreamLock} from '../integrations/upstream.js';
-import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js';
+import {assertToolOperationRecipe,toolOperationIdentity,toolOperationPrerequisites,verifiedToolOperationForResume,type NativeTool} from '../integrations/tools/recipes.js';
+import {readVerifiedToolInstall} from '../integrations/tools/installed-state.js';
 import {verifyToolInitializationReceipt} from '../integrations/tools/native-state.js';
+import {defaultNpmRegistry} from '../integrations/tools/npm-resolution.js';
+import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {PROMPT_VERSION} from '../analyzer/prompts.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
 import {TEMPLATE_VERSION} from '../generator/render.js';
@@ -13,9 +15,9 @@ import {randomUUID} from 'node:crypto';
 import {unlink} from 'node:fs/promises';
 import {readFileState,readFileStates,matchesFileState,platformFileMode} from './file-state.js';
 import type {CommandSpec,SetupOptions,SetupPlan} from '../types.js';
-import {loadPreview,readTarget,installationInput,unchangedInstallation,absentDigest,type PreviewData} from './preview.js';
+import {loadPreview,readTarget,installationInput,unchangedInstallation,absentDigest,assertPreviewIdentity,LegacyPreviewError,type PreviewData} from './preview.js';
 import {acquireLock,defaultStateRoot,type ProjectLock} from './lock.js';
-import {assertNoUnknownWriters,operationExecutor,queryOperation,type OperationDependencies,type OperationResult} from './operations.js';
+import {assertNoUnknownWriters,operationExecutor,pendingOperations,queryOperation,type OperationDependencies,type OperationResult} from './operations.js';
 import {privateDirectory,signature,saveCache} from '../generator/cache.js';
 import {digest} from '../analyzer/evidence.js';
 import {scanRepository} from '../analyzer/repository.js';
@@ -29,6 +31,7 @@ import {projectInput} from '../managed-input.js';
 import {applyRuntimeInputs,selectedNpmRegistry,type RuntimeSetupSummary} from '../runtime-inputs.js';
 import {assertSupportedFileModes} from './filesystem-modes.js';
 import {RIGUP_VERSION} from '../version.js';
+import {normalizeNpmIntegrity} from '../npm-integrity.mjs';
 export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;durationMs?:number;diagnostic?:{rule:string;path:string;relatedPath:string};environment?:{node:string;platform:string};exitCode?:number}
 export interface InstallReport {runtimeSetup?:RuntimeSetupSummary;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];sourceReview?:SourceReview;researchNextStep?:string;nextCommand?:string;status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
 export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies;fileModes?:typeof assertSupportedFileModes}
@@ -50,12 +53,24 @@ export async function interruptedSeedApplyId(root:string,stateRoot=defaultStateR
  const tx=await readApplyRecord(applyRecordPath(root,stateRoot));
  return tx?.status==='prepared'&&Object.keys(tx.seedProgress??{}).length?tx.previewId:undefined;
 }
+export async function interruptedInstallApplyId(root:string,stateRoot=defaultStateRoot()):Promise<string|undefined>{
+ const tx=await readApplyRecord(applyRecordPath(root,stateRoot));
+ const records=await pendingOperations(root,stateRoot);
+ let owner:string|undefined;
+ for(const record of records){
+  if(record.operation.kind!=='install'||record.stage==='prepared'&&!record.installStage)continue;
+  if(tx?.status==='prepared'&&record.authorizationRef===tx.previewId)owner=tx.previewId;
+  else if(record.result?.status!=='done')throw Error('Unreconciled '+record.operation.id+' staging has no matching apply transaction; reconcile the protected tool scope.');
+ }
+ return owner;
+}
 const upgradeReconciliation='Implementation version changed. Resume or reconcile the original approved installation with its Rigup version before upgrading.';
 const seedReconciliation='Customer document creation was interrupted. Resume the original approved preview or reconcile the customer document manually.';
 function approvedInterruptedPreview(root:string,tx:Transaction):NonNullable<Transaction['preview']>{
  const stored=tx.preview;
  if(!stored?.data?.plan||!isRecord(stored.data.plan.options)||!Array.isArray(stored.data.plan.options.agents)||!Array.isArray(stored.data.files)||
-  !stored.data.preview||stored.digest!==signature(stored.data)||stored.data.plan.root!==root||stored.data.preview.previewId!==tx.previewId||!stored.data.preview.executable)throw Error('Durable interrupted preview unavailable or corrupted; manual reconciliation required');
+  !stored.data.preview||stored.digest!==signature(stored.data)||stored.data.plan.root!==root||!stored.data.preview.executable)throw Error('Durable interrupted preview unavailable or corrupted; manual reconciliation required');
+ try{assertPreviewIdentity(stored.data,tx.previewId);}catch(error){if(error instanceof LegacyPreviewError)throw Error(upgradeReconciliation);throw error;}
  assertPreviewFileTransitions(tx,stored.data);
  return stored;
 }
@@ -83,16 +98,26 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   ...(data.plan.options.projectRules?{researchNextStep:'Reload the project in a selected agent and call rigup_begin with the project root, or configure a CLI provider and run the review command.'}:{})}:{};
  const report:InstallReport={...rules,...(data.preview.harness?{harness:data.preview.harness}:{}),status:'pending',exitCode:3,previewId,written:[],operations:[],checks:[],warnings:[...data.preview.warnings]};
  try {
-  await assertNoUnknownWriters(root,lock.stateRoot);
   const statePath=applyRecordPath(root,lock.stateRoot);let tx=await readApplyRecord(statePath);
-  const installs=data.plan.operations.filter(operation=>operation.kind==='install');
-  if(installs.length){const registry=await selectedNpmRegistry(root);if(installs.some(operation=>operation.registry!==registry))throw Error('Npm registry changed since approval; prepare a new review before installing.');}
+  const interruptedInstall=await interruptedInstallApplyId(root,lock.stateRoot);
+  if(interruptedInstall&&interruptedInstall!==previewId)throw Error('Resume the original tool approval with rigup update '+quoteShell(root)+' --resume --review');
+  await assertNoUnknownWriters(root,lock.stateRoot);
+  if(tx?.status==='prepared'&&tx.previewId===previewId)approvedInterruptedPreview(root,tx);
+  const restoringApproval=tx?.previewId===previewId&&tx.preview?.digest===signature(data);
+  const operations=data.plan.operations;
+  for(const operation of operations){
+   if(operation.kind==='initialize'&&operation.integrationId==='openwiki')throw Error(openwikiInitializationGuide);
+   const prerequisites=toolOperationPrerequisites(operations,operation);
+   if(restoringApproval)verifiedToolOperationForResume(root,operation,prerequisites);
+   else assertToolOperationRecipe(root,operation,prerequisites);
+  }
+  const installs=operations.filter(operation=>operation.kind==='install');
+  if(installs.length&&!restoringApproval){const registry=await selectedNpmRegistry(root)??defaultNpmRegistry;if(installs.some(operation=>(operation.registry??defaultNpmRegistry)!==registry))throw Error('Npm registry changed since approval; prepare a new review before installing.');}
   await (dependencies.fileModes??assertSupportedFileModes)(root,[...data.files.filter(file=>file.next!==undefined).map(file=>({target:file.target,mode:file.mode})),...data.plan.operations.flatMap(operation=>operation.declaredWrites.map(scope=>({target:scope+'/mode-probe',mode:0o644})))]);
   if(tx?.status==='prepared'&&tx.previewId!==previewId){
    if(Object.keys(tx.seedProgress??{}).length)throw Error(seedReconciliation);
-   if(tx.preview?.data&&tx.preview.data.inputSnapshotVersion!==3)throw Error(upgradeReconciliation);
+   if(tx.preview?.data&&(!tx.preview.data.approvalNonce||tx.preview.data.inputSnapshotVersion!==3))throw Error(upgradeReconciliation);
   }
-  const restoringApproval=tx?.previewId===previewId&&tx.preview?.digest===signature(data);
   const versions={rigup:RIGUP_VERSION,prompt:PROMPT_VERSION,read:READ_POLICY_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION};
   for(const [key,value] of Object.entries(versions)){
    const approved=data.plan.versions[key];
@@ -161,17 +186,34 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    await saveDurable(statePath,JSON.stringify(transaction));
    return result;
   };
+  const installOperation=(id:NativeTool)=>installs.find(operation=>operation.integrationId===id);
+  const installedIdentity=async(id:NativeTool)=>{
+   const approved=installOperation(id);
+   const receipt=approved?tx?.receipts[id]:data.oldManifest?.installedTools?.[id];
+   if(!approved&&tx&&signature(tx.receipts[id]??null)!==signature(receipt??null))throw Error('Durable tool receipt differs from the approved preview');
+   const identity=await readVerifiedToolInstall(root,id,receipt);
+   if(!identity||approved&&signature(identity)!==signature(toolOperationIdentity(approved)))throw Error('Selected installed tool changed since preview; manual reconciliation required');
+   return identity;
+  };
   const verifyInstalledTools=async(all=false)=>{
-   const selected=(data.plan.options.tools??[]).filter(t=>(t.install||t.initialize&&(t.id==='codegraph'||!!data.oldManifest?.installedTools?.[t.id]))&&(all||!data.plan.operations.some(o=>o.kind==='install'&&o.integrationId===t.id)))
-    .filter(t=>!data.plan.pendingRuntimeTools?.includes(t.id)||!!(tx?.receipts[t.id]??data.oldManifest?.installedTools?.[t.id]));
-   if(!selected.length)return;const recipes=await loadUpstreamLock();
-   for(const tool of selected){const receipt=tx?.receipts[tool.id]??data.oldManifest?.installedTools?.[tool.id];const recipe=recipes.find(r=>r.integrationId===tool.id);if(!receipt||!recipe||receipt.version!==recipe.version)throw new Error('selected installed tool lacks a compatible receipt; reconciliation required');if(!await verifyToolInstallReceipt(root,tool.id,recipe,receipt))throw new Error('selected installed tool changed since preview; manual reconciliation required');}
+   for(const tool of data.plan.options.tools??[]){
+    const id=tool.id;
+    if(!(tool.install||tool.initialize&&(id==='codegraph'||data.oldManifest?.installedTools?.[id])))continue;
+    if(!all&&installOperation(id)||data.plan.pendingRuntimeTools?.includes(id)&&!data.oldManifest?.installedTools?.[id])continue;
+    await installedIdentity(id);
+   }
   };
   const verifyInitializedTools=async(all=false)=>{
-   const selected=(data.plan.options.tools??[]).filter(t=>(t.id==='codegraph'&&t.initialize||t.id==='openwiki'&&!!(tx?.initialized?.[t.id]??data.oldManifest?.initializedTools?.[t.id]))&&(all||!data.plan.operations.some(o=>o.kind==='initialize'&&o.integrationId===t.id)))
-    .filter(t=>!data.plan.pendingRuntimeTools?.includes(t.id)||!!(tx?.initialized?.[t.id]??data.oldManifest?.initializedTools?.[t.id]));
-   if(!selected.length)return;const recipes=await loadUpstreamLock();
-   for(const tool of selected){const receipt=tx?.initialized?.[tool.id]??data.oldManifest?.initializedTools?.[tool.id];const recipe=recipes.find(r=>r.integrationId===tool.id)!;if(!await verifyToolInitializationReceipt(root,tool.id,recipe,receipt))throw Error('Selected native initialization changed; protected reconciliation required');}
+   for(const tool of data.plan.options.tools??[]){
+    const id=tool.id,approved=operations.find(operation=>operation.kind==='initialize'&&operation.integrationId===id);
+    const previous=data.oldManifest?.initializedTools?.[id];
+    if(!(id==='codegraph'&&tool.initialize||id==='openwiki'&&previous))continue;
+    if(!all&&approved||data.plan.pendingRuntimeTools?.includes(id)&&!previous)continue;
+    const receipt=approved?tx?.initialized?.[id]:previous;
+    if(!approved&&tx&&signature(tx.initialized?.[id]??null)!==signature(receipt??null))throw Error('Durable native receipt differs from the approved preview');
+    const identity=await installedIdentity(id);
+    if(!await verifyToolInitializationReceipt(root,id,identity,receipt))throw Error('Selected native initialization changed; protected reconciliation required');
+   }
   };
   await verifyInstalledTools();
   await verifyInitializedTools();
@@ -231,8 +273,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   }
   if(dependencies.signal?.aborted)return {...report,exitCode:130};
   const completedOperations=new Set<string>();
-  const execute=operationExecutor(root,{...dependencies.operation,authorizationRef:previewId,restoringApproval,stateRoot:lock.stateRoot,signal:dependencies.signal});
-  const operations=data.plan.operations;
+  const execute=operationExecutor(data,{...dependencies.operation,stateRoot:lock.stateRoot,signal:dependencies.signal},restoringApproval);
   for(let index=0;index<operations.length;){
    if(dependencies.signal?.aborted)return {...report,exitCode:130};
    const first=operations[index],next=operations[index+1];
@@ -244,8 +285,14 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     const receipt=operation.kind==='initialize'?tx.initialized?.[operation.integrationId]:tx.receipts[operation.integrationId];
     if(!receipt)continue;
     const result=await queryOperation(operation);
-    const actual=operation.kind==='initialize'?result.nativeReceipt:result.receipt;
-    if(result.status!=='done'||signature(actual)!==signature(receipt))throw new Error('receipted external state changed');
+    if(result.status!=='done')throw Error('receipted external state changed');
+    if(operation.kind==='initialize'){
+     if(signature(result.nativeReceipt)!==signature(receipt))throw Error('receipted external state changed');
+    }else{
+     const approved=tx.receipts[operation.integrationId],actual=result.receipt;
+     if(!actual||actual.version!==approved.version||actual.packageLockDigest!==approved.packageLockDigest||
+      approved.packageIntegrity!==undefined&&normalizeNpmIntegrity(approved.packageIntegrity)!==actual.packageIntegrity)throw Error('receipted external state changed');
+    }
     reused.set(operation.id,result);
    }
    // Wait for every operation in the batch before releasing the lock or starting initialization.
@@ -253,7 +300,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     const result=reused.get(operation.id);
     if(result)return result;
     step(operation.id);
-    return execute(operation);
+    return execute(operation.id);
    }));
    const results=outcomes.map(outcome=>{if(outcome.status==='rejected')throw outcome.reason;return outcome.value;});
    report.operations.push(...results);

@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile,readFile,readdir,rm,lstat,access} from 'node:fs/promises';
 import {delimiter,join} from 'node:path';
-import {writeNativeToolFixture} from './native-tool-fixture.js';
+import {prepareToolFixture,writeNativeToolFixture} from './native-tool-fixture.js';
 import {project} from './helpers.js';
 import {executeLifecycle} from '../src/lifecycle.js';
 import {runCli} from '../src/cli.js';
@@ -85,7 +85,7 @@ test('durable resume applies the same affected-session handoff as normal setup',
 test('interrupted native output cannot become research after source drift rejects resume',()=>fixture(async(root,cache,state)=>{
  await writeFile(root+'/source.js','export const value=1;\n');
  const options:SetupOptions={agents:['codex'],backend:'codex',tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}]};
- const profile=await scanRepository(root,options),prepared=await prepareIntegrations(profile,options);const p=await preview({root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[]},[],{cacheRoot:cache+'/previews'});
+ const profile=await scanRepository(root,options),prepared=await prepareToolFixture(profile,options);const p=await preview({root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[]},[],{cacheRoot:cache+'/previews'});
  let completed=0;
  // Double only upstream installation/state creation; execute actual verified
  // operation queries, journals, preview/apply and repository-reader boundaries.

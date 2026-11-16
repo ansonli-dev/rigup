@@ -6,18 +6,18 @@ import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {scanRepository} from '../src/analyzer/repository.js';
-import {prepareIntegrations} from '../src/integrations/registry.js';
 import {preview} from '../src/installer/preview.js';
 import {apply} from '../src/installer/apply.js';
 import {loadManifest} from '../src/installer/baseline.js';
 import {saveDurable} from '../src/private-record.js';
-import {pendingOperations,executeOperation,assertNoUnknownWriters} from '../src/installer/operations.js';
+import {pendingOperations,assertNoUnknownWriters} from '../src/installer/operations.js';
 import {initializationRecipe} from '../src/integrations/tools/initialization.js';
 import {loadUpstreamLock} from '../src/integrations/registry.js';
 import {doctor} from '../src/installer/doctor.js';
 import {codexNativeTools} from './native-tools-support.js';
 import {executeLifecycle} from '../src/lifecycle.js';
 import type {SetupPlan,SetupOptions} from '../src/types.js';
+import {prepareToolFixture,saveNativeOperations} from './native-tool-fixture.js';
 const exec=promisify(execFile);
 const enabled=process.env.RIGUP_LIVE_NATIVE==='1';
 test('live scaffold recovers CodeGraph initialization and hands OpenWiki to a separate Codex session',{skip:!enabled,timeout:240000},async()=>{
@@ -31,7 +31,7 @@ test('live scaffold recovers CodeGraph initialization and hands OpenWiki to a se
   await mkdir(root+'/src');await writeFile(root+'/src/order.js','export function createOrder(reference) { return {reference}; }\n');
   await writeFile(root+'/AGENTS.md','User agent instructions\n');await writeFile(root+'/CLAUDE.md','User Claude instructions\n');
   await mkdir(root+'/.github/workflows',{recursive:true});await writeFile(root+'/.github/workflows/openwiki-update.yml','User workflow\n');
-  const profile=await scanRepository(root,options),prepared=await prepareIntegrations(profile,options);
+  const profile=await scanRepository(root,options),prepared=await prepareToolFixture(profile,options,null);
   assert.deepEqual(prepared.operations.map(o=>o.id),['install:openwiki','install:codegraph','initialize:codegraph']);
   assert.ok(prepared.warnings.some(w=>/openwiki_begin/.test(w)));
   const plan:SetupPlan={root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[]};
@@ -65,20 +65,25 @@ test('live scaffold recovers CodeGraph initialization and hands OpenWiki to a se
   const wikiDiagnostic=diagnostic.diagnostics.find(d=>d.id==='openwiki:initialization');assert.equal(wikiDiagnostic?.state,'pending');assert.match(wikiDiagnostic?.reason??'',/openwiki_begin/);
   // An unchanged update reuses both kinds of receipt and never reinitializes.
   const current=await scanRepository(root,options);current.installedTools=manifest.installedTools;current.initializedTools=manifest.initializedTools;
-  const update=await prepareIntegrations(current,options);assert.deepEqual(update.operations,[]);assert.deepEqual(update.requirements,[]);
+  const update=await prepareToolFixture(current,options,null);assert.deepEqual(update.operations,[]);assert.deepEqual(update.requirements,[]);
   assert.equal(current.truncated,false);assert.ok(!current.files.some(p=>p.startsWith('.codegraph/')||p.startsWith('openwiki/')||p.startsWith('.rigup/native/')));
   // Kill the real CodeGraph writer after it creates a DB, then rebuild only its
   // unpublished staging directory. The existing initialized project is retained.
   const interruptedRoot=join(control,'interrupted-project');await mkdir(interruptedRoot);await mkdir(interruptedRoot+'/.rigup/tools',{recursive:true});
   await cp(root+'/.rigup/tools/codegraph',interruptedRoot+'/.rigup/tools/codegraph',{recursive:true,verbatimSymlinks:true,mode:constants.COPYFILE_FICLONE});
   await mkdir(interruptedRoot+'/src');for(let i=0;i<80;i++)await writeFile(interruptedRoot+'/src/file'+i+'.js','export function createOrder'+i+'(id) { return {id}; }\n');
-  const cgRecipe=(await loadUpstreamLock()).find(r=>r.integrationId==='codegraph')!;
-  const init=initializationRecipe(interruptedRoot,'codegraph',cgRecipe.version,cgRecipe.packageIntegrity);const abort=new AbortController();
+  const cgReceipt=manifest.installedTools!.codegraph;
+  await writeFile(join(interruptedRoot,'.rigup','manifest.json'),JSON.stringify({schemaVersion:1,installId:'copied-tool',assets:[],installedTools:{codegraph:cgReceipt}}));
+  const init=initializationRecipe(interruptedRoot,'codegraph',cgReceipt.version,cgReceipt.packageIntegrity);
+  const cacheRoot=join(cache,'interruption');
+  const approved=await saveNativeOperations(interruptedRoot,cacheRoot,[init]);
+  const abort=new AbortController();
   const poll=setInterval(()=>{void access(interruptedRoot+'/.codegraph-rigup-init/codegraph.db').then(()=>abort.abort()).catch(()=>{});},5);
-  let cancelled;try{cancelled=await executeOperation(init,{stateRoot:state,authorizationRef:'live-interruption',signal:abort.signal});}finally{clearInterval(poll);}
+  let cancelled;try{cancelled=(await apply(approved.preview.previewId,{cacheRoot,stateRoot:state,signal:abort.signal})).operations[0];}finally{clearInterval(poll);}
   evidence.cancellation=cancelled;assert.equal(abort.signal.aborted,true,JSON.stringify(cancelled));assert.equal(cancelled.status,'unknown');await assert.rejects(access(interruptedRoot+'/.codegraph'));
   await assertNoUnknownWriters(interruptedRoot,state);
-  const recovered=await executeOperation(init,{stateRoot:state,authorizationRef:'live-interruption'});assert.equal(recovered.status,'done',recovered.message);evidence.partialRecovery={first:cancelled,recovered};
+  const recovered=(await apply(approved.preview.previewId,{cacheRoot,stateRoot:state,recover:true})).operations[0];
+  assert.equal(recovered.status,'done',recovered.message);evidence.partialRecovery={first:cancelled,recovered};
   if(process.env.RIGUP_LIVE_CODEX==='1'){
    // This explicit post-setup native session represents the user's separate
    // initialization. It starts/resumes planning only, without a model call.

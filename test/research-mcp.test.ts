@@ -6,6 +6,7 @@ import {openspecFixturePath,project} from './helpers.js';
 import {runCli} from '../src/cli.js';
 import {openResearchMcp} from '../src/research/mcp-workflow.js';
 import {quoteShell} from '../src/shell-command.js';
+import {signature} from '../src/generator/cache.js';
 
 async function fixture(run:(root:string,cacheRoot:string,stateRoot:string)=>Promise<void>){
  await project(root=>project(cache=>project(state=>run(root,cache,state))));
@@ -55,6 +56,13 @@ test('provider-free MCP setup, job replay and finish require independent apply',
  const preview=await mcp.call('rigup_finish',{runId});
  assert.equal(preview.status,'preview');
  assert.equal((await mcp.call('rigup_finish',{runId})).previewId,preview.previewId);
+ const path=join(cacheRoot,'previews',preview.previewId+'.json');
+ const legacy=JSON.parse(await readFile(path,'utf8'));
+ delete legacy.data.approvalNonce;
+ await writeFile(path,JSON.stringify({...legacy,digest:signature(legacy.data)}));
+ const regenerated=await mcp.call('rigup_finish',{runId});
+ assert.notEqual(regenerated.previewId,preview.previewId);
+ assert.equal(regenerated.preview?.executable,true);
  await rm(join(cacheRoot,'previews'),{recursive:true});
  const restored=await mcp.call('rigup_finish',{runId});
  assert.equal(restored.status,'preview');
@@ -92,6 +100,37 @@ test('MCP rejects excluded citations, a different root, and source drift',()=>fi
  assert.notEqual(narrowed.runId,begin.runId);
  assert.deepEqual(narrowed.job?.seedPaths,['README.md']);
  assert.equal(narrowed.job?.options.documentLanguage,'zh-CN');
+}));
+
+test('rigup_finish retries blocked npm resolution and keeps an approved version across retagging',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ const run=cli(root,cacheRoot,stateRoot);
+ const foundation=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',foundation.previewId,'--sessions-ended'],0);
+ await writeFile(join(root,'.rigup','config.yaml'),JSON.stringify({agents:['claude'],backend:'host',projectRules:true,
+  tools:[{id:'openwiki',install:true,initialize:false,agents:['claude']}]}));
+ let calls=0,blocked=true,version='2.0.0';
+ const prior=process.env.RIGUP_NPM_REGISTRY;process.env.RIGUP_NPM_REGISTRY='https://first.example.test/npm/';
+ try{
+  const mcp=await openResearchMcp(root,'claude',{cacheRoot,stateRoot,npmView:async()=>{
+   calls++;if(blocked)throw Error('registry offline');
+   return JSON.stringify({name:'openwiki',version,'dist-tags.latest':version,'dist.integrity':'sha512-'+Buffer.alloc(64,5).toString('base64')});
+  }});
+  const begin=await mcp.call('rigup_begin',{root,mode:'update'}),runId=begin.runId;
+  const plan=await mcp.call('rigup_submit_plan',{runId,jobId:begin.job?.id,data:{...empty,guidance:[]}});
+  assert.equal(calls,0);
+  const ready=await mcp.call('rigup_submit_plan',{runId,jobId:plan.job?.id,data:{...empty,guidance:[],artifacts:[],dispositions:[]}});
+  assert.equal(ready.status,'ready');assert.equal(calls,1);
+  const pending=await mcp.call('rigup_finish',{runId});
+  assert.match(pending.preview!.blockers.join('\n'),/openwiki@latest.*first\.example\.test/);
+  assert.equal(calls,2);
+  blocked=false;
+  const resolved=await mcp.call('rigup_finish',{runId});assert.equal(resolved.preview?.operations[0].version,'2.0.0');assert.equal(calls,3);
+  version='2.1.0';
+  assert.equal((await mcp.call('rigup_finish',{runId})).previewId,resolved.previewId);assert.equal(calls,3);
+  process.env.RIGUP_NPM_REGISTRY='https://second.example.test/npm/';
+  const moved=await mcp.call('rigup_finish',{runId});
+  assert.notEqual(moved.previewId,resolved.previewId);assert.equal(moved.preview?.operations[0].version,'2.1.0');assert.equal(calls,4);
+ }finally{if(prior===undefined)delete process.env.RIGUP_NPM_REGISTRY;else process.env.RIGUP_NPM_REGISTRY=prior;}
 }));
 
 test('provider-free OpenSpec review resolves retained references after applying project rules',()=>fixture(async(root,cacheRoot,stateRoot)=>{

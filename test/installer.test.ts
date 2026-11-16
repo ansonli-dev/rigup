@@ -1,10 +1,11 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {project,setNativeEntries} from './helpers.js';import {mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
 import {writeNativeToolFixture} from './native-tool-fixture.js';
-import {scanRepository} from '../src/analyzer/repository.js';import {absentDigest,preview} from '../src/installer/preview.js';import {apply,restoreInterruptedPreview} from '../src/installer/apply.js';
+import {scanRepository} from '../src/analyzer/repository.js';import {absentDigest,loadPreview,preview,previewIdentity} from '../src/installer/preview.js';import {apply,restoreInterruptedPreview} from '../src/installer/apply.js';
 import {digest} from '../src/analyzer/evidence.js';
-import {signature} from '../src/generator/cache.js';import {loadManifest} from '../src/installer/baseline.js';
+import {saveCache,signature} from '../src/generator/cache.js';import {applyRecordPath,loadManifest} from '../src/installer/baseline.js';
 import {runCli} from '../src/cli.js';
+import {randomUUID} from 'node:crypto';
 import type {SetupPlan} from '../src/types.js';
 async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>fn(root,cache,state))));}
 async function plan(root:string,content='new'):Promise<SetupPlan>{const options={agents:[],backend:'host' as const};return {root,fingerprint:(await scanRepository(root,options)).fingerprint,options,assets:[{logicalId:'guide',target:'guide.md',content,ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],operations:[],dispositions:[],warnings:[],requirements:[],versions:{}};}
@@ -17,19 +18,103 @@ test('apply_saves_generated_baseline_and_second_apply_is_idempotent',()=>fixture
 test('stale_preview_is_rejected_before_any_writes',()=>fixture(async(root,cache,state)=>{
  const p=await preview(await plan(root),[],{cacheRoot:cache});await writeFile(root+'/guide.md','user new');await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache,stateRoot:state}),/stale|changed/);assert.equal(await readFile(root+'/guide.md','utf8'),'user new');
 }));
+test('preview ID binds both the cached and durable operation lists',()=>fixture(async(root,cache,state)=>{
+ const candidate=await plan(root);
+ const pin=(await loadUpstreamLock()).find(entry=>entry.integrationId==='openwiki')!;
+ const operation=await prepareSoftwareInstall(root,'openwiki',pin.version,pin.packageIntegrity);
+ if('pending' in operation||'reused' in operation)throw Error('fixture');
+ candidate.operations=[operation];
+ const approved=await preview(candidate,[],{cacheRoot:cache});
+ const path=cache+'/'+approved.previewId+'.json';
+ const original=await readFile(path,'utf8');
+ const alter=(stored:{data:Awaited<ReturnType<typeof loadPreview>>;digest:string})=>{
+  for(const [op] of [stored.data.plan.operations,stored.data.preview.operations]){
+   op.version=op.query.version='2.1.0';op.query.integrity='sha512-other';op.parameters.args.push('--force');
+  }
+  stored.digest=signature(stored.data);
+ };
+ const corrupted=JSON.parse(original);alter(corrupted);
+ await writeFile(path,JSON.stringify(corrupted));
+ await assert.rejects(()=>loadPreview(approved.previewId,cache),/preview identity/i);
+ const legacy=JSON.parse(original);delete legacy.data.approvalNonce;legacy.digest=signature(legacy.data);
+ await writeFile(path,JSON.stringify(legacy));
+ await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,stateRoot:state}),/implementation version changed/i);
+ await writeFile(path,original);
+ assert.equal((await apply(approved.previewId,{cacheRoot:cache,stateRoot:state,signal:AbortSignal.abort()})).exitCode,130);
+ const transactionPath=applyRecordPath(root,state);
+ const tx=JSON.parse(await readFile(transactionPath,'utf8'));alter(tx.preview);
+ await writeFile(transactionPath,JSON.stringify(tx));
+ await assert.rejects(()=>restoreInterruptedPreview(root,candidate.options,cache,state),/preview identity/i);
+ assert.deepEqual(await readdir(root),[]);
+}));
+
+test('a reserved install scope protects the original preview even before staging exists',()=>fixture(async(root,cache,state)=>{
+ const candidate=await plan(root);
+ const pin=(await loadUpstreamLock()).find(entry=>entry.integrationId==='openwiki')!;
+ const operation=await prepareSoftwareInstall(root,'openwiki',pin.version,pin.packageIntegrity);
+ if('pending' in operation||'reused' in operation)throw Error('fixture');
+ candidate.operations=[operation];
+ const cacheRoot=cache+'/previews';
+ const original=await preview(candidate,[],{cacheRoot});
+ const replacement=await preview(candidate,[],{cacheRoot});
+ assert.notEqual(original.previewId,replacement.previewId);
+ const abort={cacheRoot,stateRoot:state,signal:AbortSignal.abort()};
+ assert.equal((await apply(original.previewId,abort)).exitCode,130);
+ const operationPath=state+'/'+signature(root)+'.operations.json';
+ const record={root,operation,authorizationRef:original.previewId,parametersDigest:signature(operation),stage:'prepared'};
+ await writeFile(operationPath,JSON.stringify({operations:[record]}),{mode:0o600});
+ assert.equal((await apply(replacement.previewId,{...abort,recover:true})).exitCode,130,'undispatched intent can be reviewed again');
+ const reserved={...record,authorizationRef:replacement.previewId,installStage:{token:randomUUID()}};
+ const journal=JSON.stringify({operations:[reserved]});await writeFile(operationPath,journal);
+ const transaction=await readFile(applyRecordPath(root,state),'utf8');
+ await assert.rejects(()=>apply(original.previewId,{...abort,recover:true}),/--resume --review/);
+ let output='';
+ assert.equal(await runCli(['update','--review','--json'],{cwd:root,isTTY:false,services:{cacheRoot:cache,stateRoot:state},write:s=>output+=s}),3,output);
+ assert.equal(JSON.parse(output).interruptedPreviewId,replacement.previewId);
+ assert.equal(await readFile(operationPath,'utf8'),journal);
+ assert.equal(await readFile(applyRecordPath(root,state),'utf8'),transaction);
+ assert.equal((await apply(replacement.previewId,abort)).exitCode,130);
+}));
+
+test('an approved Node range is checked before npm and on recovery',()=>fixture(async(root,cache,state)=>{
+ const candidate=await plan(root);
+ const pin=(await loadUpstreamLock()).find(entry=>entry.integrationId==='openwiki')!;
+ const operation=await prepareSoftwareInstall(root,'openwiki',pin.version,pin.packageIntegrity);
+ if('pending' in operation||'reused' in operation)throw Error('fixture');
+ operation.query.enginesNode='>=24.2.0';candidate.operations=[operation];
+ const approved=await preview(candidate,[],{cacheRoot:cache});
+ assert.equal(approved.executable,true);
+ let launches=0;
+ const dependencies={cacheRoot:cache,stateRoot:state,operation:{launch:async(op:SetupPlan['operations'][number])=>{
+  launches++;const {name,version,integrity,packageLock}=op.query;
+  await writeNativeToolFixture(root,'openwiki',version,'commonjs',op.protection.target);
+  await writeFile(root+'/'+packageLock,JSON.stringify({packages:{'':{dependencies:{[name]:version}},['node_modules/'+name]:{version,integrity}}}));
+  return queryOperation(op);
+ }}};
+ const actual=process.versions.node;
+ try{
+  Object.defineProperty(process.versions,'node',{value:'22.19.0'});
+  const blocked=await apply(approved.previewId,dependencies);
+  assert.match(blocked.operations[0].message,/requires Node >=24\.2\.0/);
+  assert.equal(launches,0);
+  Object.defineProperty(process.versions,'node',{value:'24.2.0'});
+  assert.equal((await apply(approved.previewId,dependencies)).status,'complete');
+  assert.equal(launches,1);
+ }finally{Object.defineProperty(process.versions,'node',{value:actual});}
+}));
 test('apply refuses a preview without the current source snapshot version',()=>fixture(async(root,cache,state)=>{
  const approved=await preview(await plan(root),[],{cacheRoot:cache});
  const path=cache+'/'+approved.previewId+'.json';
  const record=JSON.parse(await readFile(path,'utf8'));
  delete record.data.inputSnapshotVersion;
+ const previewId=record.data.preview.previewId=previewIdentity(record.data);
  record.digest=signature(record.data);
- await writeFile(path,JSON.stringify(record));
- await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,stateRoot:state}),/source snapshot version changed/);
+ await saveCache(cache+'/'+previewId+'.json',JSON.stringify(record));
+ await assert.rejects(()=>apply(previewId,{cacheRoot:cache,stateRoot:state}),/source snapshot version changed/);
  assert.deepEqual(await readdir(root),[]);
 }));
 test('v0.4.0 prompt approvals require a fresh preview unless the same apply is durable',()=>fixture(async(root,cache,state)=>{
  const {PROMPT_VERSION}=await import('../src/analyzer/prompts.js');
- const {applyRecordPath}=await import('../src/installer/baseline.js');
  const lock={root,stateRoot:state,id:'fixture',release:async()=>{}};
  const old=await plan(root);
  old.versions={prompt:'12'};
@@ -43,11 +128,12 @@ test('v0.4.0 prompt approvals require a fresh preview unless the same apply is d
  const statePath=applyRecordPath(root,state);
  const journal=JSON.parse(await readFile(statePath,'utf8'));
  journal.preview.data.plan.versions.prompt='12';
+ const resumedId=journal.previewId=journal.preview.data.preview.previewId=previewIdentity(journal.preview.data);
  journal.preview.digest=signature(journal.preview.data);
  await writeFile(statePath,JSON.stringify(journal));
  await rm(cache+'/'+prepared.previewId+'.json');
- assert.equal(await restoreInterruptedPreview(root,current.options,cache,state),prepared.previewId);
- assert.equal((await apply(prepared.previewId,{cacheRoot:cache,lock,recover:true})).status,'complete');
+ assert.equal(await restoreInterruptedPreview(root,current.options,cache,state),resumedId);
+ assert.equal((await apply(resumedId,{cacheRoot:cache,lock,recover:true})).status,'complete');
  assert.equal(await readFile(root+'/guide.md','utf8'),'new');
 }));
 for(const [mode,projectRules,directory,file] of [
@@ -134,7 +220,7 @@ test('sigkill_plus_lost_cache_keeps_partial_unowned_files_protected',()=>fixture
  const p=await preview(await plan(root),[],{cacheRoot:cache});const script=`import {apply} from ${JSON.stringify(pathToFileURL(resolve('src/installer/apply.ts')).href)};await apply(${JSON.stringify(p.previewId)},{cacheRoot:${JSON.stringify(cache)},stateRoot:${JSON.stringify(state)},hook:async point=>{if(point==='after-file')process.kill(process.pid,'SIGKILL')}});`;
  await assert.rejects(()=>exec(process.execPath,['--import','tsx','--input-type=module','-e',script]));await rm(cache,{recursive:true,force:true});await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache,stateRoot:state,recover:true}),/missing|corrupt/);assert.equal(await readFile(root+'/guide.md','utf8'),'new');await mkdir(cache,{mode:0o700});const fresh=await preview(await plan(root,'different'),[],{cacheRoot:cache});assert.equal(fresh.executable,false);assert.ok((await readdir(state)).some(p=>p.endsWith('.apply.json')));
 }));
-import {prepareSoftwareInstall} from '../src/integrations/tools/software.js';import {loadUpstreamLock} from '../src/integrations/registry.js';
+import {prepareSoftwareInstall} from './native-tool-fixture.js';import {loadUpstreamLock} from '../src/integrations/registry.js';
 import {pendingOperations,queryOperation} from '../src/installer/operations.js';
 test('independent installs overlap, retain the lock on failure and reconcile both receipts',()=>fixture(async(root,cache,state)=>{
  const candidate=await plan(root);
@@ -170,6 +256,7 @@ test('independent installs overlap, retain the lock on failure and reconcile bot
   assert.equal(await loadManifest(root),undefined);
  }finally{resumeOther.resolve();await rejected;}
  assert.equal(await loadManifest(root),undefined);
+ await writeFile(root+'/.rigup/.env','RIGUP_NPM_REGISTRY=https://registry.example.test/\n',{mode:0o600});
  const result=await apply(approved.previewId,deps);
  assert.equal(result.status,'complete');
  assert.deepEqual(launches.sort(),['install:codegraph','install:openwiki']);
@@ -265,14 +352,15 @@ test('apply rejects changed optional OpenSpec entries even without a discovery m
   const cached=cache+'/'+approved.previewId+'.json';
   const markerless=JSON.parse(await readFile(cached,'utf8'));
   delete markerless.data.nativeDiscoveryVersion;
+  const markerlessId=markerless.data.preview.previewId=previewIdentity(markerless.data);
   markerless.digest=signature(markerless.data);
   const lock={root,stateRoot:state,id:'fixture',release:async()=>{}};
   const external=home+'/skills/openspec-update-change';
   await mkdir(external,{recursive:true});
   await writeFile(external+'/SKILL.md','---\nname: openspec-update-change\ndescription: Fixture revision\n---\n');
   await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,lock}),/source input changed/);
-  await writeFile(cached,JSON.stringify(markerless));
-  await assert.rejects(()=>apply(approved.previewId,{cacheRoot:cache,lock}),/source input changed/);
+  await saveCache(cache+'/'+markerlessId+'.json',JSON.stringify(markerless));
+  await assert.rejects(()=>apply(markerlessId,{cacheRoot:cache,lock}),/source input changed/);
   assert.deepEqual(await readdir(root),[]);
  }finally{
   if(previousHome===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previousHome;

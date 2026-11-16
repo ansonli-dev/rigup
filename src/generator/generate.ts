@@ -59,7 +59,6 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
  const notApplicable=profile.conventions?.flatMap(page=>page.status==='not-applicable'?
   [{path:page.path,topic:page.title,topicId:page.topicId,scope:[page.scope]}]:[])??[];
  return {root:profile.root,fingerprint:profile.fingerprint,options,assets,operations:integration.operations,dispositions,
-  ...(integration.pendingRuntimeTools?.length?{pendingRuntimeTools:integration.pendingRuntimeTools}:{}),
   harness:harness.summary,
   ...(navigation.targets.length||navigation.conventionPaths.length?{harnessNavigation:{targets:navigation.targets,conventionPaths:navigation.conventionPaths,...(notApplicable.length?{notApplicable}:{})}}:{}),
   ...(projectDocuments.length?{projectDocuments}:{}),

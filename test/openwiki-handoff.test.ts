@@ -1,14 +1,15 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {access,lstat,mkdir,readdir,readFile,writeFile} from 'node:fs/promises';
-import {writeNativeToolFixture} from './native-tool-fixture.js';
+import {prepareToolFixture,saveNativeOperations,writeNativeToolFixture} from './native-tool-fixture.js';
 import {project} from './helpers.js';
-import {prepareIntegrations,loadUpstreamLock} from '../src/integrations/registry.js';
+import {loadUpstreamLock} from '../src/integrations/registry.js';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {onboard} from '../src/onboarding.js';
 import {executeLifecycle} from '../src/lifecycle.js';
 import {doctor} from '../src/installer/doctor.js';
-import {executeOperation} from '../src/installer/operations.js';
+import {pendingOperations,queryOperation} from '../src/installer/operations.js';
+import {apply} from '../src/installer/apply.js';
 import {initializationRecipe} from '../src/integrations/tools/initialization.js';
 import type {SetupOptions} from '../src/types.js';
 import {signature} from '../src/generator/cache.js';
@@ -24,7 +25,7 @@ async function pinnedOpenWiki(root:string){
 test('OpenWiki setup installs and registers without taking ownership of a user wiki',()=>project(async root=>{
  await mkdir(root+'/openwiki');await writeFile(root+'/openwiki/guide.md','Existing user wiki\n');
  const options:SetupOptions={agents:['codex'],backend:'codex',tools:[{id:'openwiki',install:true,initialize:true,agents:['codex']}]};
- const result=await prepareIntegrations(await scanRepository(root,options),options);
+ const result=await prepareToolFixture(await scanRepository(root,options),options);
  assert.deepEqual(result.operations.map(o=>o.id),['install:openwiki']);
  assert.deepEqual(result.requirements,[],'separate wiki generation must not block scaffolding');
  assert.ok(result.assets.some(a=>a.target==='.codex/config.toml'));
@@ -48,10 +49,11 @@ test('onboarding does not restore automatic OpenWiki generation from saved selec
  assert.ok(selected);assert.equal(selected.options.tools?.[0].initialize,false);
 });
 
-test('legacy OpenWiki initialization cannot dispatch a new native write',()=>fixture(async(root,_cache,state)=>{
- const operation=await pinnedOpenWiki(root);let dispatched=0;
- const result=await executeOperation(operation,{stateRoot:state,authorizationRef:'legacy-preview',launch:async()=>{dispatched++;await writeFile(root+'/generated-by-openwiki','unexpected');return {status:'done',message:'Unexpected initialization'};}});
- assert.equal(dispatched,0);assert.equal(result.status,'pending');assert.match(result.message,/openwiki_begin/);
+test('legacy OpenWiki initialization cannot dispatch a new native write',()=>fixture(async(root,cache,state)=>{
+ const operation=await pinnedOpenWiki(root);
+ const {preview}=await saveNativeOperations(root,cache,[operation]);
+ assert.equal(preview.executable,false);assert.match(preview.blockers.join('\n'),/openwiki_begin/);
+ await assert.rejects(()=>apply(preview.previewId,{cacheRoot:cache,stateRoot:state}),/preview is blocked/);
  await assert.rejects(access(root+'/generated-by-openwiki'));assert.deepEqual(await readdir(state),[]);
 }));
 
@@ -63,9 +65,13 @@ test('already accepted legacy OpenWiki initialization is reconciled without anot
  const receipt={version:'0.7.3',target:'openwiki',identity:info.dev+':'+info.ino};
  await writeFile(root+'/.rigup/native/openwiki/promotion.json',JSON.stringify({root,id:'openwiki',...receipt}));
  const resultRecord={status:'done',message:'Recorded native acceptance',nativeReceipt:receipt};
- await writeFile(state+'/'+signature(root)+'.operations.json',JSON.stringify({operations:[{root,operation,authorizationRef:'legacy-preview',parametersDigest:signature(operation),stage:'terminal',result:resultRecord}]}),{mode:0o600});
- const result=await executeOperation(operation,{stateRoot:state,authorizationRef:'legacy-preview',launch:async()=>{throw Error('must not repeat accepted initialization');}});
+ const journal=state+'/'+signature(root)+'.operations.json';
+ const record=JSON.stringify({operations:[{root,operation,authorizationRef:'legacy-preview',parametersDigest:signature(operation),stage:'terminal',result:resultRecord}]});
+ await writeFile(journal,record,{mode:0o600});
+ const [accepted]=await pendingOperations(root,state);
+ const result=await queryOperation(accepted.operation);
  assert.equal(result.status,'done');assert.deepEqual(result.nativeReceipt,receipt);
+ assert.equal(await readFile(journal,'utf8'),record);
  assert.equal(JSON.parse(await readFile(root+'/openwiki/.run.json','utf8')).runId,'legacy-run');
 }));
 

@@ -33,7 +33,7 @@ Use `$env:TEMP` for Windows scratch paths. Git Bash's `/tmp` can resolve to a di
 
 - `src/cli.ts`, `src/onboarding.ts`, and `src/config.ts` handle the command, guide, and settings.
 - `src/analyzer/` filters and scopes evidence. `src/generator/` prepares validated candidate assets.
-- `src/installer/` handles preview, ownership, apply, and recovery. `src/integrations/` binds native entry points and pinned tools.
+- `src/installer/` handles preview, ownership, apply, and recovery. `src/integrations/` binds native entry points and resolves packages for new installations.
 - `templates/` contains installed skills and their references. `scripts/release/` builds and verifies portable distributions.
 
 ## Compatibility checks
@@ -90,7 +90,7 @@ npm run release:build -- --out-dir release-out
 npm run release:check -- "release-out/rigup-$version-darwin-arm64.tar.gz"
 ```
 
-`node scripts/release/check-native.mjs ARCHIVE` checks the pinned tool setup using the public npm registry. It makes zero model calls.
+`node scripts/release/check-native.mjs ARCHIVE` checks OpenWiki and CodeGraph using the public npm registry. It compares the preview's package identities with installed receipts, verifies the CodeGraph index and no-op update, and makes zero model calls. The local npm registry tests exercise retagging, same-version replacement, original approval recovery, and OpenSpec preparation in an isolated prefix.
 
 1. Update the version and lockfile with `npm version patch --no-git-tag-version` for a patch release. Update the changelog, run the default checks and secret scan, and inspect `npm pack --dry-run --json`.
 2. Verify CI on the release commit. A manual **Release** dispatch builds and smoke-tests all four targets without publishing.
