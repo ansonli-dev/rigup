@@ -50,6 +50,11 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
    }
    catch(error){
     const reason=(error as Error).message;
+    if(agent==='opencode'&&reason.startsWith('OPENCODE_DISABLE_PROJECT_CONFIG')){
+     requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason,
+      nextCommand:'Unset OPENCODE_DISABLE_PROJECT_CONFIG or set it to false before retrying Rigup'});
+     continue;
+    }
     const nextCommand=options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')
      ?openspecPreparationCommand(profile.root,options.agents):undefined;
     const initialized=options.sdd==='spec-kit'&&(await stat(resolve(profile.root,'.specify')).catch(()=>undefined))?.isDirectory();

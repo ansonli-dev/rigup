@@ -394,4 +394,5 @@ test('OpenCode explicit project disable blocks wrappers despite usable global pl
  const prepared=await prepareIntegrations(profile,nativeOptions('opencode'));
  assert.equal(prepared.bindings.length,0);
  assert.match(prepared.requirements[0].reason,/OPENCODE_DISABLE_PROJECT_CONFIG/);
+ assert.match(prepared.requirements[0].nextCommand??'',/Unset OPENCODE_DISABLE_PROJECT_CONFIG/);
 })));
