@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 · 2026-11-16 · Development preview
 
 - Accept user-installed plugins based on their actual sources and required entry points. Freeze the selected npm registry's stable `latest` version and integrity for new OpenWiki, CodeGraph, and OpenSpec installations. Reuse verified project installations offline. [Issue #66](https://github.com/ansonli-dev/rigup/issues/66)
 - Detect local agents and workflow sources in guided setup. Review the affected files before choosing Install, Save preview, or Cancel. Show what the run wrote and keep verbose preview details in private state. [Issue #67](https://github.com/ansonli-dev/rigup/issues/67)
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.6.0) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.6.0)
 
 ## 0.5.1 · 2026-11-14 · Development preview
 
