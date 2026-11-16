@@ -243,7 +243,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     }
     throw new Error('installed target content or mode changed; prepare a new update preview');
    }
-   const runtimeSetup=await applyRuntimeInputs(root,data.plan.options,{configured:['*']});
+   const runtimeSetup=report.runtimeSetup??await applyRuntimeInputs(root,data.plan.options,{configured:['*']});
    completed=total;step('verified completed installation','reused');return {...tx.report!,runtimeSetup,written:[]};
   }
   if((currentManifest?digest(currentManifest):absentDigest)!==data.manifestDigest)throw new Error('manifest changed since preview');

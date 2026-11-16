@@ -171,7 +171,7 @@ export function validateOptions(value: Record<string, unknown>): void {
 
 export type SetupOverrides=Partial<Omit<SetupOptions,'sdd'>>&{sdd?:SetupOptions['sdd']|'none'};
 
-export async function loadOptions(root: string, overrides: SetupOverrides, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions}={}): Promise<SetupOptions> {
+export async function loadOptions(root: string, overrides: SetupOverrides, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions;onSelections?:(selections:{agents:boolean;sdd:boolean})=>void}={}): Promise<SetupOptions> {
   const project = approvedOptions ? {...approvedOptions} : await readConfig(join(root,'.rigup','config.yaml'));
   validateOptions(project); validateOptions(overrides);
   const profilePath = approvedOptions ? undefined : overrides.profile ?? project.profile ?? defaults.fallback?.profile;
@@ -182,6 +182,7 @@ export async function loadOptions(root: string, overrides: SetupOverrides, appro
   const modern=defaults.projectRules&&!layers.some(layer=>layer.backend!==undefined||layer.model!==undefined);
   const merged={...{agents: ['codex'], backend:modern?'host':'codex',...(modern?{projectRules:true}:{})}, ...fallback, ...profile, ...project, ...overrides};
   const {sdd,...effective}=merged;
+  defaults.onSelections?.({agents:layers.some(layer=>layer.agents!==undefined),sdd:sdd!==undefined});
   const options={...effective,...(sdd===undefined||sdd==='none'?{}:{sdd})} as SetupOptions;
   if (options.documentLanguage !== undefined) options.documentLanguage = normalizeDocumentLanguage(options.documentLanguage);
   const backendLayer=layers.findLastIndex(layer=>layer.backend!==undefined),modelLayer=layers.findLastIndex(layer=>layer.model!==undefined);

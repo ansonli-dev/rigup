@@ -9,7 +9,7 @@ import {loadContinuation} from '../src/lifecycle.js';
 import {CodexTokenLimit} from '../src/analyzer/budget.js';
 import {parse,stringify} from 'smol-toml';
 async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>fn(root,cache,state))));}
-test('CLI budget handoff continues the same run with its saved selections and mode',()=>fixture(async(root,cache,state)=>{
+for(const interactive of [false,true])test('CLI budget handoff retains '+(interactive?'post-preview approval':'dry-run mode'),()=>fixture(async(root,cache,state)=>{
  for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
   const dir=root+'/.agents/skills/'+name;await mkdir(dir,{recursive:true});
   await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\n');
@@ -20,12 +20,17 @@ test('CLI budget handoff continues the same run with its saved selections and mo
   if(ids.length===1)throw new CodexTokenLimit(0,1000,5000);
   return {status:'complete' as const,value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};
  }}}};
- const first=await runCli(['init','--agents','codex','--sdd','openspec','--dry-run','--research-tokens','1000','--json'],io);
- assert.equal(first,3);const pending=JSON.parse(output);
+ const args=['init','--agents','codex','--sdd','openspec','--tools','none','--research-tokens','1000'];
+ let pending:any;
+ const first=interactive
+  ?await runCli(args,{...io,isTTY:true,read:async()=>assert.fail('no decision before the preview'),services:{...io.services,report:value=>{pending=value;}}})
+  :await runCli([...args,'--dry-run','--json'],io);
+ assert.equal(first,3);
+ if(!interactive)pending=JSON.parse(output);
  assert.equal(pending.reason,'research-token-budget');assert.equal(pending.researchBudget.estimatedNextTokens,5000);
  const id=pending.nextCommand.match(/--continue ([a-f0-9]{64}) --research-tokens 1200000$/)[1];
- output='';assert.equal(await runCli(['update','--continue',id,'--research-tokens','1200000','--json'],io),0);
- assert.equal(new Set(ids).size,1);assert.equal(ids.length,3);assert.equal(JSON.parse(output).phase,'preview');
+ output='';assert.equal(await runCli(['update','--continue',id,'--research-tokens','1200000','--json'],io),interactive?3:0);
+ assert.equal(new Set(ids).size,1);assert.equal(ids.length,3);assert.equal(JSON.parse(output).phase,interactive?'handoff':'preview');
  await assert.rejects(readFile(root+'/.rigup/manifest.json'),{code:'ENOENT'});
 }));
 test('research continuation keeps its explicit limit and stops at an unrelated interrupted apply',()=>fixture(async(root,cache,state)=>{
@@ -67,6 +72,20 @@ test('explicit_host_request_stays_private_and_response_may_be_an_explicit_extern
  const requestPath=join(cache,'host','custom.request.json');let out='';const io={cwd:root,isTTY:false,write:(s:string)=>out+=s,services:{cacheRoot:cache,stateRoot:state}};
  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--backend','host','--request',requestPath,'--json'],io),3);const report=JSON.parse(out);assert.equal(report.requestPath,requestPath);const exported=JSON.parse(await readFile(requestPath,'utf8'));const response=state+'/external.response.json';await writeFile(response,JSON.stringify({requestId:exported.requestId,requestDigest:exported.requestDigest,model:'fixture',data:{observations:[],unknowns:[],guidance:[]}}));const continuation=report.nextCommand.match(/--continue ([a-f0-9]{64})/)![1];out='';assert.equal(await runCli(['update','--continue',continuation,'--response',response,'--json'],io),3);assert.equal(JSON.parse(out).phase,'generation');assert.deepEqual(await readdir(root),[]);
 }));
+test('a direct TTY response still consumes a continuous host request',()=>fixture(async(root,cache,state)=>{
+ const requestPath=join(cache,'host','custom.request.json');
+ const selection=['--agents','codex','--sdd','openspec','--backend','host'];
+ let output='';const io={cwd:root,isTTY:false,write:(text:string)=>output+=text,services:{cacheRoot:cache,stateRoot:state}};
+ assert.equal(await runCli(['init',...selection,'--request',requestPath,'--json'],io),3,output);
+ const exported=JSON.parse(await readFile(requestPath,'utf8'));
+ const response=join(state,'response.json');
+ await writeFile(response,JSON.stringify({requestId:exported.requestId,requestDigest:exported.requestDigest,
+  model:'fixture',data:{observations:[],unknowns:[],guidance:[]}}));
+ const continuation=JSON.parse(output).nextCommand.match(/--continue ([a-f0-9]{64})/)![1];
+ output='';
+ assert.equal(await runCli(['update',...selection,'--response',response],{...io,isTTY:true,read:async()=>null}),3,output);
+ assert.match(output,new RegExp('--continue '+continuation));assert.deepEqual(await readdir(root),[]);
+}));
 test('configure_persists_only_explicit_settings_and_following_update_reuses_them',()=>fixture(async(root,cache,state)=>{
  let output='';const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend:{run:async()=>{throw Error('deterministic setup');}}}};
  assert.equal(await runCli(['init','--agents','codex','--backend','host','--configure','--json'],io),0);assert.match(await readFile(root+'/.rigup/config.yaml','utf8'),/codex/);output='';assert.equal(await runCli(['update','--json'],io),0);assert.equal(JSON.parse(output).written.length,0);
@@ -79,13 +98,14 @@ test('replaying_an_already_accepted_host_response_advances_the_same_run',()=>fix
  for(let i=0;i<2;i++){output='';assert.equal(await runCli(['update','--continue',id,'--response',response,'--json'],io),3);assert.equal(JSON.parse(output).phase,'generation');}
 }));
 test('onboarding_collects_all_choices_before_first_backend_request_and_masks_key',()=>fixture(async(root,cache,state)=>{
- const events:string[]=[];const answers=['2','1','3','2','zh-CN','1','1','fixture-model','','temporary-secret'];let secret=false;const native=['superpowers:brainstorming','superpowers:writing-plans','superpowers:executing-plans','superpowers:verification-before-completion'];for(const name of native){const dir=join(root,'.agents','skills',name.split(':').at(-1)!);await mkdir(dir,{recursive:true});await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: fixture\n---\nNative gates\n');}
+ const events:string[]=[];const answers=['2','1','3','1','','temporary-secret',''];let secret=false;const native=['superpowers:brainstorming','superpowers:writing-plans','superpowers:executing-plans','superpowers:verification-before-completion'];for(const name of native){const dir=join(root,'.agents','skills',name.split(':').at(-1)!);await mkdir(dir,{recursive:true});await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: fixture\n---\nNative gates\n');}
  const keys=['ANTHROPIC_API_KEY','OPENAI_API_KEY','RIGUP_PROVIDER','HOME','USERPROFILE'];
  const saved=keys.map(key=>process.env[key]);for(const key of keys)delete process.env[key];
  process.env.HOME=cache;process.env.USERPROFILE=cache;
  try{
-  let output='';const code=await runCli(['init'],{cwd:root,isTTY:true,write:s=>output+=s,read:async hidden=>{events.push('prompt');secret||=!!hidden;return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{events.push('backend');assert.equal(r.effectiveModel?.model,'fixture-model');return {status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture-model',unknowns:[],usage:{calls:1,tokens:1}}};}}}});
-  assert.equal(code,0,output);assert.equal(secret,true);assert.doesNotMatch(output,/temporary-secret/);const first=events.indexOf('backend');assert.ok(first>0);assert.ok(!events.slice(first).includes('prompt'));
+  let output='';const code=await runCli(['init','--model','fixture-model'],{cwd:root,isTTY:true,write:s=>output+=s,read:async hidden=>{events.push(hidden?'secret':'prompt');secret||=!!hidden;return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{events.push('backend');assert.equal(r.effectiveModel?.model,'fixture-model');return {status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture-model',unknowns:[],usage:{calls:1,tokens:1}}};}}}});
+  assert.equal(code,0,output);assert.equal(secret,true);assert.doesNotMatch(output,/temporary-secret/);
+  assert.ok(events.indexOf('secret')<events.indexOf('backend'));assert.equal(events.at(-1),'prompt');assert.equal(answers.length,0);
  }finally{keys.forEach((key,index)=>{if(saved[index]===undefined)delete process.env[key];else process.env[key]=saved[index];});}
 }));
 test('technical_continuation_cannot_silently_change_execution_mode',()=>fixture(async(root,cache,state)=>{

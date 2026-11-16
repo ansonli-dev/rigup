@@ -25,11 +25,14 @@ export async function scanInstallationSources(root:string,options:SetupOptions,g
  // Keep installation snapshot coverage stable when research evidence rules change.
  return (await inventory(root,options,{},generatedScopes,'installation')).profile;
 }
-async function inventory(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[],purpose:'research'|'installation'='research'){
+export async function scanNativeEntries(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={}):Promise<ProjectProfile>{
+ return (await inventory(root,options,discovery,[],'native')).profile;
+}
+async function inventory(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[],purpose:'research'|'installation'|'native'='research'){
  root=await realpath(root);
  if(options.scope?.some(s=>s.startsWith('/')||s.split('/').includes('..')||s.includes('\\'))) throw new Error('scope: invalid relative path');
  const profile:ProjectProfile={root,fingerprint:'',files:[],git:{available:false},commands:{build:[],lint:[],test:[],environment:[],eval:[]},specializedChecks:[],unknowns:[],truncated:false,readPolicyVersion:READ_POLICY_VERSION};
- try {
+ if(purpose!=='native')try {
   await exec('git',['-C',root,'rev-parse','--show-toplevel'],{env:{...process.env,GIT_OPTIONAL_LOCKS:'0'}});
   profile.git.available=true;
   try {profile.git.head=(await exec('git',['-C',root,'rev-parse','--verify','HEAD'],{env:{...process.env,GIT_OPTIONAL_LOCKS:'0'}})).stdout.trim();}catch{profile.unknowns.push('Git HEAD: unborn');}

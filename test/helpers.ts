@@ -2,7 +2,7 @@ import {mkdir,mkdtemp,realpath,rm,writeFile} from 'node:fs/promises';
 import {delimiter,join} from 'node:path';
 import {homedir,tmpdir} from 'node:os';
 import {mkdtempSync,rmSync,realpathSync} from 'node:fs';
-import {after} from 'node:test';
+import {after,type TestContext} from 'node:test';
 import type {ProjectProfile} from '../src/analyzer/repository.js';
 import type {Agent} from '../src/types.js';
 // Default tests provide their own model credentials and active-session markers.
@@ -12,6 +12,18 @@ const nativeTestHome=realpathSync(mkdtempSync(join(process.platform==='win32'?ho
 Object.assign(process.env,{HOME:nativeTestHome,CODEX_HOME:join(nativeTestHome,'.codex'),CLAUDE_CONFIG_DIR:join(nativeTestHome,'.claude'),XDG_CONFIG_HOME:join(nativeTestHome,'.config'),PI_CODING_AGENT_DIR:join(nativeTestHome,'.omp/agent')});
 if(process.platform==='win32')process.env.USERPROFILE=nativeTestHome;
 after(()=>rmSync(nativeTestHome,{recursive:true,force:true}));
+export function testEnvironment(t:TestContext,values:Record<string,string>){
+ const previous=Object.entries(values).map(([key,value])=>{
+  const original=process.env[key];process.env[key]=value;
+  return {key,original};
+ });
+ t.after(()=>{
+  for(const {key,original} of previous){
+   if(original===undefined)delete process.env[key];
+   else process.env[key]=original;
+  }
+ });
+}
 export function setNativeEntries(profile:ProjectProfile,entries:Partial<Record<Agent,string[]>>){profile.nativeEntries=entries;profile.skillSources={};for(const[key,names]of Object.entries(entries))profile.skillSources[key as Agent]=names.map(name=>({name,origin:'local',identity:'fixture/'+name+'/SKILL.md',digest:'fixture:'+name,satisfies:true}));}
 export async function writeOpenSpecFixture(bin:string,source:string,shebang='#!'+process.execPath){
  await mkdir(bin,{recursive:true});

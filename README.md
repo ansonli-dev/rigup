@@ -57,7 +57,7 @@ cd /path/to/project
 rigup init
 ```
 
-The guide asks for missing choices, including the language of generated project documents. The default first-run option installs the base setup and Rigup MCP without model calls. Open the configured agent and ask it to use Rigup MCP to prepare rules. To generate them from the terminal, configure an Anthropic or OpenAI-compatible provider and run `rigup update --review`. Use `--language zh-CN` for Simplified Chinese or `auto` to follow the project's guidance. [Research and budgets](docs/guides/usage.md#研究后端与预算)
+The guide preselects agents and workflow sources it detects. Review the affected paths, then choose Install, Save preview, or Cancel. First-time interactive setup installs the base workflow and Rigup MCP without model calls. Ask the configured agent to prepare rules, or configure a CLI provider and run `rigup update --review --model MODEL_ID`. Use `--language zh-CN` for Simplified Chinese. The default `auto` follows the project's guidance. [Research and budgets](docs/guides/usage.md#研究后端与预算)
 
 Selecting OpenSpec checks its CLI and project entry points right away. If the CLI is missing, automatic setup shows the registry's current stable `latest` version and installs that exact version into a writable npm prefix on PATH. Rigup uses a working CLI to add missing native files. After manual preparation, rerun `rigup init` to resume your host and OpenSpec selections.
 

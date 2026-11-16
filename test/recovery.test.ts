@@ -2,7 +2,8 @@ import {test} from 'node:test';import assert from 'node:assert/strict';
 import {loadUpstreamLock} from '../src/integrations/registry.js';
 import {project} from './helpers.js';import {acquireLock} from '../src/installer/lock.js';
 import {operationExecutor,pendingOperations,assertNoUnknownWriters,queryOperation,type OperationDependencies} from '../src/installer/operations.js';import {prepareSoftwareInstall} from './native-tool-fixture.js';
-import {mkdir,rename,writeFile,readFile,unlink,lstat} from 'node:fs/promises';
+import fs,{mkdir,rename,writeFile,readFile,unlink,lstat} from 'node:fs/promises';
+import {syncBuiltinESMExports} from 'node:module';
 import {join} from 'node:path';
 import {saveNativeOperations,writeNativeToolFixture} from './native-tool-fixture.js';
 import {apply} from '../src/installer/apply.js';
@@ -60,6 +61,28 @@ test('cancellation after reserving staging leaves an undispatched operation resu
  assert.equal(result.status,'pending');
  assert.equal((await pendingOperations(root,state))[0].stage,'prepared');
  await assertNoUnknownWriters(root,state);
+}));
+test('cancellation during the final registry read stops before dispatch',t=>fixture(async(root,state)=>{
+ const recipe=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!;
+ const op=await prepareSoftwareInstall(root,'openwiki',recipe.version,recipe.packageIntegrity);
+ if('pending' in op||'reused' in op)throw Error('fixture');
+ const approval=await saveNativeOperations(root,join(state,'previews'),[op]);
+ const controller=new AbortController();
+ let stagingSaved=false;
+ const original=fs.lstat;
+ const probe=t.mock.method(fs,'lstat',async (...args:Parameters<typeof fs.lstat>)=>{
+  try{return await original(...args);}
+  finally{if(stagingSaved&&args[0]===join(root,'.rigup','.env'))controller.abort();}
+ });
+ syncBuiltinESMExports();
+ try{
+  const result=await dispatch(approval,{stateRoot:state,signal:controller.signal,save:async(path,content)=>{
+   await saveDurable(path,content);
+   stagingSaved=!!JSON.parse(content).operations[0].installStage?.identity;
+  },launch:async()=>{throw Error('cancelled operation was dispatched');}});
+  assert.equal(result.message,'Cancelled before dispatch');
+  assert.equal((await pendingOperations(root,state))[0].stage,'prepared');
+ }finally{probe.mock.restore();syncBuiltinESMExports();}
 }));
 test('unsupported_remote_operation_is_not_dispatched_or_retried',()=>fixture(async(root,state)=>{
  const op=await prepareSoftwareInstall(root,'openwiki','0.7.3',(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!.packageIntegrity);if('pending' in op||'reused' in op)throw Error('fixture');

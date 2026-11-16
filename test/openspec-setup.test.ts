@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {access,mkdir,readFile,rename,symlink,writeFile} from 'node:fs/promises';
+import {access,copyFile,mkdir,readFile,realpath,rename,symlink,writeFile} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {writeFileSync} from 'node:fs';
@@ -12,6 +12,17 @@ import {promisify} from 'node:util';
 import {runCli,type CliIO} from '../src/cli.js';
 import {inspectOpenSpec,prepareOpenSpec} from '../src/integrations/sdd/openspec-setup.js';
 import {project,writeOpenSpecFixture} from './helpers.js';
+
+test('OpenSpec entry inspection does not run project PATH git', {skip:process.platform==='win32'},()=>fixture(async(root,control)=>{
+ const bin=join(root,'bin'),marker=join(control,'git-ran');
+ await mkdir(bin);await writeFile(join(bin,'git'),'#!/bin/sh\ntouch '+JSON.stringify(marker)+'\n',{mode:0o755});
+ const previous=process.env.PATH;
+ process.env.PATH=bin+delimiter+previous;
+ try{
+  await inspectOpenSpec(root,{agents:['codex'],backend:'host'});
+  await assert.rejects(access(marker),{code:'ENOENT'});
+ }finally{process.env.PATH=previous;}
+}));
 
 async function fixture(run:(root:string,control:string)=>Promise<void>){
  await project(async control=>{
@@ -68,7 +79,7 @@ test('guided first init prepares OpenSpec before tool choices and applies the re
  const path=process.env.PATH;
  process.env.PATH=bin+delimiter+path;
  try{
-  const answers=['','2','','','','',''];
+  const answers=['2','2','','',''];
   const first=terminal(root,control,answers);
   const code=await runCli(['init'],first.io);
   assert.equal(code,0,first.output());
@@ -78,6 +89,19 @@ test('guided first init prepares OpenSpec before tool choices and applies the re
   assert.match(await readFile(join(root,'.agents/skills/change-prepare/references/project.md'),'utf8'),/Native prepare: openspec-propose/);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/spec-driven/);
  }finally{process.env.PATH=path;}
+}));
+
+test('a broken OpenSpec launcher still shows the original retry command',()=>fixture(async(root,control)=>{
+ const bin=join(control,'bin');
+ await installFakeOpenSpec(bin,undefined,'');
+ const previous=process.env.PATH;process.env.PATH=bin+delimiter+previous;
+ try{
+  const cli=terminal(root,control,[]);
+  const args=['init','--agents','codex','--sdd','openspec','--defer-research','--review','--language','zh-CN'];
+  assert.equal(await runCli(args,cli.io),3,cli.output());
+  assert.match(cli.output(),/existing openspec command did not start successfully/);
+  assert.match(cli.output(),/^Next: rigup init .+ --agents codex --sdd openspec --defer-research --review --language 'zh-CN'$/m);
+ }finally{process.env.PATH=previous;}
 }));
 
 test('a separate init resumes the OpenSpec selection and preserves existing project configuration',()=>fixture(async(root,control)=>{
@@ -92,7 +116,7 @@ test('a separate init resumes the OpenSpec selection and preserves existing proj
   await mkdir(proposal,{recursive:true});
   const existing='---\nname: openspec-propose\ndescription: Existing project proposal.\n---\n';
   await writeFile(join(proposal,'SKILL.md'),existing);
-  const first=terminal(root,control,['','2','2']);
+  const first=terminal(root,control,['2','2','2']);
   assert.equal(await runCli(['init'],first.io),3,first.output());
   assert.match(first.output(),/--agents codex --sdd openspec --prepare-openspec/);
   assert.doesNotMatch(first.output(),/openspec init --tools/);
@@ -100,11 +124,24 @@ test('a separate init resumes the OpenSpec selection and preserves existing proj
   assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--prepare-openspec','--json'],prep.io),0,prep.output());
   assert.equal(JSON.parse(prep.output()).nativeWorkflow,'ready');
   await assert.rejects(access(join(root,'.rigup/manifest.json')),{code:'ENOENT'});
-  const resumed=terminal(root,control,['','','','','']);
+  const resumed=terminal(root,control,['','']);
   assert.equal(await runCli(['init'],resumed.io),0,resumed.output());
   assert.doesNotMatch(resumed.output(),/目标 agents|原生 SDD；/);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/# original project config/);
   assert.equal(await readFile(join(proposal,'SKILL.md'),'utf8'),existing);
+ }finally{process.env.PATH=path;}
+}));
+
+for(const decision of ['2','3'])test('OpenSpec writes remain visible after '+(decision==='2'?'saving':'cancelling')+' the Rigup preview',()=>fixture(async(root,control)=>{
+ const bin=join(control,'bin');await installFakeOpenSpec(bin);
+ const path=process.env.PATH;process.env.PATH=bin+delimiter+path;
+ try{
+  const cli=terminal(root,control,['',decision]);
+  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--tools','none'],cli.io),decision==='2'?3:130,cli.output());
+  assert.match(cli.output(),/OpenSpec 1\.16\.0 and selected project entries are ready/);
+  assert.doesNotMatch(cli.output(),/Nothing was written/);
+  await access(join(root,'openspec/config.yaml'));
+  await assert.rejects(access(join(root,'.rigup/manifest.json')),{code:'ENOENT'});
  }finally{process.env.PATH=path;}
 }));
 
@@ -354,6 +391,22 @@ test('OpenSpec installs the approved version into an isolated prefix with real n
  await access(join(root,'openspec/config.yaml'));
 })));
 
+test('OpenSpec reports the verified global CLI if project preparation fails',()=>fixture((root,control)=>openSpecRegistry(control,async(registry,paths)=>{
+ await publishOpenSpec(registry,'2.0.0',{
+  'bin/openspec.js':nativeProgram.replace("else if(process.argv[2]==='init'){","else if(process.argv[2]==='init'){process.exit(7);"),
+ });
+ const cli=terminal(root,control,[]);
+ let status:unknown;
+ cli.io.services!.report=report=>{status=report.installStatus;};
+ assert.equal(await runCli(prepareFlags,cli.io),1,cli.output());
+ assert.equal(status,'partial',cli.output());
+ assert.match(cli.output(),/Result: OpenSpec partially prepared/);
+ assert.ok(cli.output().includes('OpenSpec CLI 2.0.0 installed and verified in '+paths.prefix+'.'));
+ assert.match(cli.output(),/^Next: rigup init .+ --sdd openspec --prepare-openspec$/m);
+ assert.equal(JSON.parse(await readFile(paths.receipt,'utf8')).version,'2.0.0');
+ await assert.rejects(access(join(root,'openspec')),{code:'ENOENT'});
+})));
+
 test('OpenSpec rejects a weaker matching digest after npm successfully packs the replacement',()=>fixture((root,control)=>openSpecRegistry(control,async(registry,paths)=>{
  const approved=await publishOpenSpec(registry);
  const replacement=await publishOpenSpec(registry,'2.0.0',{'replacement.txt':'Different package bytes'});
@@ -385,7 +438,7 @@ for(const interactive of [false,true])test('OpenSpec receipt failure remains a p
  await publishOpenSpec(registry);
  await privateDirectory(join(control,'state'),root);
  await mkdir(paths.receipt);
- const cli=terminal(root,control,interactive?['','2','']:[]);
+ const cli=terminal(root,control,interactive?['2','2','']:[]);
  assert.equal(await runCli(interactive?['init']:[...prepareFlags,'--json'],cli.io),1,cli.output());
  assert.match(cli.output(),/receipt could not be saved/);
  if(!interactive)assert.equal(JSON.parse(cli.output()).installStatus,'partial');
@@ -430,12 +483,17 @@ test('Windows npm preflight uses the global prefix on PATH and refuses to overwr
  await writeFile(join(npmPackage,'package.json'),JSON.stringify({name:'npm',bin:{npm:'bin/npm-cli.js'}}));
  await writeFile(join(npmPackage,'bin','npm-cli.js'),"if(process.argv.slice(2).join(' ')==='prefix -g') console.log("+JSON.stringify(prefix)+");");
  await writeFile(join(prefix,'npm.cmd'),'@echo off\r\nnode "%~dp0node_modules\\npm\\bin\\npm-cli.js" %*\r\n');
+ const prefixNode=join(prefix,'node.exe');
+ const earlier=join(control,'earlier bin');
+ await mkdir(earlier);
+ await Promise.all([copyFile(process.execPath,prefixNode),copyFile(process.execPath,join(earlier,'node.exe'))]);
  const path=process.env.RIGUP_CONSUMER_PATH;
- process.env.RIGUP_CONSUMER_PATH=[prefix,dirname(process.execPath)].join(delimiter);
+ process.env.RIGUP_CONSUMER_PATH=[earlier,prefix].join(delimiter);
  try{
   const options={agents:['codex' as const],backend:'host' as const};
   const setup=await inspectOpenSpec(root,options);
   assert.equal(setup.prefix,prefix);
+  assert.equal(setup.node?.file,await realpath(prefixNode));
   assert.equal(setup.canPrepare,true);
   await mkdir(join(prefix,'node_modules','@fission-ai','openspec'),{recursive:true});
   assert.equal((await inspectOpenSpec(root,options)).canPrepare,false);

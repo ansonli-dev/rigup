@@ -190,8 +190,7 @@ test('review reports a locally edited owned entry block before pending research'
  assert.equal(conflict.installStatus,'conflict');
  assert.equal(conflict.nextCommand,'rigup update '+quoteShell(root)+' --review');
  assert.match(conflict.conflicts.find((item:{logicalId:string})=>item.logicalId==='entry:CLAUDE.md')?.reason,/outside the managed block/);
- assert.ok(stderr.includes('After resolving the conflicts, run:\n'+conflict.nextCommand));
- assert.doesNotMatch(stderr,/next apply/);
+ assert.doesNotMatch(stderr,/owned after|next apply/);
  const blocked=await run(['update','--apply',conflict.previewId,'--sessions-ended'],1);
  assert.match(blocked.error,/preview is blocked; prepare a new preview/);
  assert.equal(await readFile(entry,'utf8'),local);

@@ -35,9 +35,9 @@ test('OpenWiki setup installs and registers without taking ownership of a user w
 }));
 
 test('onboarding separates OpenWiki generation while retaining protected CodeGraph indexing',async()=>{
- const answers=['2','4','1,2','1','1'];
- const selected=await onboard({agents:[],backend:'codex'},{write:()=>{},read:async()=>answers.shift()??null},{configure:true,knownBackend:true});
- assert.ok(selected);assert.deepEqual(selected.options.tools,[
+ const answers=['2','4','1,2'];
+ const selected=await onboard({agents:[],backend:'codex'},{write:()=>{},read:async()=>answers.shift()??null},{configure:true});
+ assert.ok(selected);assert.deepEqual(selected.tools,[
   {id:'openwiki',install:true,initialize:false,agents:['codex']},
   {id:'codegraph',install:true,initialize:true,agents:['codex']},
  ]);
@@ -45,8 +45,8 @@ test('onboarding separates OpenWiki generation while retaining protected CodeGra
 
 test('onboarding does not restore automatic OpenWiki generation from saved selections',async()=>{
  const answers=['','',''];
- const selected=await onboard({agents:['codex'],backend:'codex',tools:[{id:'openwiki',install:true,initialize:true,agents:['codex']}]},{write:()=>{},read:async()=>answers.shift()??null},{configure:true,knownBackend:true});
- assert.ok(selected);assert.equal(selected.options.tools?.[0].initialize,false);
+ const selected=await onboard({agents:['codex'],backend:'codex',tools:[{id:'openwiki',install:true,initialize:true,agents:['codex']}]},{write:()=>{},read:async()=>answers.shift()??null},{configure:true});
+ assert.ok(selected);assert.equal(selected.tools?.[0].initialize,false);
 });
 
 test('legacy OpenWiki initialization cannot dispatch a new native write',()=>fixture(async(root,cache,state)=>{

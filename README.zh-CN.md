@@ -57,7 +57,7 @@ cd /path/to/project
 rigup init
 ```
 
-引导会补问缺少的设置，包括生成项目文档的语言。可以传 `--language zh-CN` 选简体中文，默认 `auto` 沿用项目指引的语言。首次设置默认安装基础接线和 Rigup MCP，再从已配置的 agent 生成项目规则。也可以配置 Anthropic 或 OpenAI 兼容服务，从终端执行 `rigup update --review`。下例用 `--defer-research` 做零模型调用的非交互预览。[研究入口与预算](docs/guides/usage.md#研究后端与预算)
+引导会预选探测到的宿主和工作流来源。核对预览中的路径后，可选择安装、保存预览或取消。首次交互默认安装基础接线和 Rigup MCP，生成项目规则可在已配置的 agent 中完成，也可配置 CLI provider 后执行 `rigup update --review --model MODEL_ID`。用 `--language zh-CN` 选简体中文，默认 `auto` 沿用项目指引的语言。 [研究入口与预算](docs/guides/usage.md#研究后端与预算)
 
 ```sh
 rigup init --agents codex --sdd none --tools none --defer-research --dry-run --json

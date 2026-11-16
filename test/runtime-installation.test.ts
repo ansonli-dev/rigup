@@ -55,8 +55,13 @@ for(const interruption of [undefined,'after-checks','after-manifest'])test('repl
    assert.equal(first.runtimeSetup?.capabilities.find(item=>item.capability==='customer:environment')?.verification,'passed');
   }
   assert.equal(await readFile(marker,'utf8'),'run\n');
-  const path=join(root,'.rigup/.env');await writeFile(path,(await readFile(path,'utf8')).replace('synthetic-first-private-input','synthetic-second-private-input'));
+  const path=join(root,'.rigup/.env');await writeFile(path,(await readFile(path,'utf8')).replace('synthetic-first-private-input',interruption==='after-manifest'?'':'synthetic-second-private-input'));
+  if(interruption==='after-manifest')process.env[name]='synthetic-second-private-input';
   const replay=await apply(reviewed.previewId,{cacheRoot,stateRoot,recover:true});
+  if(interruption==='after-manifest'){
+   assert.match(await readFile(path,'utf8'),/synthetic-second-private-input/);
+   assert.equal(replay.runtimeSetup?.template.state,'written');
+  }
   assert.equal(replay.runtimeSetup?.capabilities.find(item=>item.capability==='customer:environment')?.verification,'not-run');
   assert.equal(await readFile(marker,'utf8'),'run\n','recovery must not silently rerun a completed check');
   assert.doesNotMatch(JSON.stringify(replay),/synthetic-(?:first|second)-private-input/);

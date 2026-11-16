@@ -2,6 +2,8 @@ import {test} from 'node:test';import assert from 'node:assert/strict';
 import {project} from './helpers.js';import {mkdir,writeFile,readFile,symlink} from 'node:fs/promises';
 import {preview} from '../src/installer/preview.js';import {ownedContent,replaceOwned,targetPath} from '../src/installer/ownership.js';
 import {doctor} from '../src/installer/doctor.js';
+import {createCliOutput} from '../src/cli-output.js';
+import {join} from 'node:path';
 import type {SetupPlan,ManagedAsset} from '../src/types.js';import {digest} from '../src/analyzer/evidence.js';
 function plan(root:string,target='owned.md',content='next'):SetupPlan{return {root,fingerprint:'source',options:{agents:[],backend:'host'},assets:[{logicalId:'a',target,content,ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],dispositions:[],operations:[],warnings:[],requirements:[],versions:{}};}
 async function fixture(fn:(root:string,cache:string)=>Promise<void>){await project(async root=>project(async cache=>fn(root,cache)));}
@@ -11,6 +13,23 @@ async function manifest(root:string,asset:Partial<ManagedAsset>={},base='base'){
 }
 test('preview_is_read_only_and_existing_unowned_target_conflicts',()=>fixture(async(root,cache)=>{
  await writeFile(root+'/owned.md','user');const p=await preview(plan(root),[],{cacheRoot:cache});assert.equal(p.executable,false);assert.equal(p.items[0].action,'conflict');assert.equal(await readFile(root+'/owned.md','utf8'),'user');
+}));
+test('preview shows every changed path when the private details cannot be saved',()=>fixture(async(root,cache)=>{
+ await manifest(root);
+ await writeFile(join(root,'owned.md'),'base');
+ const candidate=plan(root);
+ const asset=candidate.assets[0];
+ candidate.assets=Array.from({length:15},(_,index)=>({...asset,logicalId:'new-'+index,target:'guide-'+index+'.md'}));
+ candidate.dispositions=[{logicalId:'a',action:'retire',reason:'retire old guide'}];
+ const review=await preview(candidate,[],{cacheRoot:cache});
+ assert.equal(review.executable,true);
+ await writeFile(join(cache,'details'),'unavailable');
+ let output='';
+ const display=createCliOutput({write:text=>output+=text,verbose:false,json:false,stateRoot:cache});
+ await display.presentation.preview(await loadPreview(review.previewId,cache));
+ assert.match(output,/  Delete owned\.md\n/);
+ assert.doesNotMatch(output,/owned after/);
+ assert.equal(await readFile(join(root,'owned.md'),'utf8'),'base');
 }));
 test('jsonc_comments_and_unknown_fields_survive',()=>{
  const text='{\n // Keep this comment\n "secret":"CUSTOMER_SECRET", "mcp":{"old":{"x":1}}\n}';const o={kind:'json-key' as const,path:['mcp','new']};const next=replaceOwned(text,o,'{"command":"tool"}')!;assert.match(next,/Keep this comment/);assert.match(next,/CUSTOMER_SECRET/);assert.match(next,/"old"/);assert.equal(JSON.parse(ownedContent(next,o)!).command,'tool');
@@ -280,6 +299,11 @@ test('harness seeds customer pages without exposing draft evidence',()=>fixture(
  const document=review.projectDocuments?.[0];
  assert.equal(document?.action,'create');
  assert.match(document!.target,/^docs\/rigup\/conventions\/api-errors--[a-f0-9]{64}\.md$/);
+ const display=createCliOutput({write:()=>{},verbose:false,json:false,stateRoot:state});
+ await display.presentation.preview(await loadPreview(review.previewId,cache));
+ const details=await readFile(display.state.details!,'utf8');
+ assert.ok(details.includes('create '+document!.target));
+ assert.doesNotMatch(details,/status: draft/);
  const installed=await apply(review.previewId,{cacheRoot:cache,stateRoot:state});
  assert.ok(installed.written.includes(document!.target));
  const manifest=(await loadManifest(root))!;

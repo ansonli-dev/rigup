@@ -196,8 +196,9 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  const restoreUndispatched=async()=>{Object.assign(record,previous);await persist();return cancelledBeforeDispatch;};
  if(dependencies.launch){
   // The injected test adapter completes its writes within this process.
+  const changed=await registryPending();
   if(dependencies.signal?.aborted)return cancelledBeforeDispatch;
-  const changed=await registryPending();if(changed)return changed;
+  if(changed)return changed;
   const result=await dependencies.launch(dispatched);
   return terminal(stage&&result.status==='done'?await acceptInstall(dispatched,stage,await queryOperation(dispatched)):result);
  }
@@ -215,8 +216,9 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   try{
    if(!child.pid)throw Error('Cannot start protected operation process');
    await markDispatching({...await processIdentity(child.pid),windowsJob:child.job});
+   const changed=await registryPending();
    if(dependencies.signal?.aborted){child.stop();await child.completed;return restoreUndispatched();}
-   const changed=await registryPending();if(changed){child.stop();await child.completed;await restoreUndispatched();return changed;}
+   if(changed){child.stop();await child.completed;await restoreUndispatched();return changed;}
    timeout=setTimeout(child.stop,operation.timeoutMs);
    dependencies.signal?.addEventListener('abort',child.stop,{once:true});
    child.start();
@@ -233,8 +235,9 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  if(!child.pid)throw new Error('Cannot start protected operation process');
  const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>(resolve=>{child.once('error',()=>resolve({code:1,signal:null}));child.once('exit',(code,signal)=>resolve({code,signal}));});
  try{await markDispatching(await processIdentity(child.pid));}catch(e){child.stdin.end();await completed;throw e;}
+ const changedBeforeDispatch=await registryPending();
  if(dependencies.signal?.aborted){child.stdin.end();await completed;return restoreUndispatched();}
- const changedBeforeDispatch=await registryPending();if(changedBeforeDispatch){child.stdin.end();await completed;await restoreUndispatched();return changedBeforeDispatch;}
+ if(changedBeforeDispatch){child.stdin.end();await completed;await restoreUndispatched();return changedBeforeDispatch;}
  let cancelled=false,timedOut=false;let forceTimer:ReturnType<typeof setTimeout>|undefined;
  const terminate=()=>{cancelled=true;try{process.kill(-child.pid!,'SIGTERM');}catch{};forceTimer??=setTimeout(()=>{try{process.kill(-child.pid!,'SIGKILL');}catch{}},3000);};
  const timeout=setTimeout(()=>{timedOut=true;terminate();},operation.timeoutMs);

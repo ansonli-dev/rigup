@@ -13,7 +13,9 @@ rigup update --configure
 rigup doctor
 ```
 
-省略路径时使用当前目录。交互终端保留已给的选项并补问缺少的设置，按 `b` 返回。`update --configure` 重新打开设置引导。`--json` 使用非交互模式，stdout 输出一个最终 JSON 对象，英文进度走 stderr。文档语言只控制生成内容。
+省略路径时使用当前目录。交互向导固定显式参数，按项目配置和探测结果预选其余选项。`update --configure` 重新打开向导。可绘制的终端用 Space 多选，行式模式接受 `1,2`、`1，2`、`1、2`、`1 2`，按 `b` 回到上一可编辑项。可选工具允许空选。遇到错误输入会重问当前项。
+
+可执行预览列出受影响路径，接着选择安装、保存预览或取消。保存后用显示的 `--apply` 命令应用同一预览。默认输出报告本轮写入与下一步，完整差异存入私有状态目录，也可加 `--verbose` 查看。`--json` 使用非交互模式，stdout 输出一个对象，文本诊断走 stderr。
 
 `--dry-run` 保存私有候选和预览。已配置 provider 时，生成完整规则的 dry-run 仍会请求模型。首次设置可用 `--defer-research` 明确只准备基础接线。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Superpowers 和 Spec Kit 使用项目已有的官方入口并核对来源和依赖。 [验证范围](../compatibility/status.md) · [最近验证的上游组合](../compatibility/upstream-lock.json)
 
@@ -91,7 +93,7 @@ projectConventions:
 
 ## 先安装工作流，再生成规则
 
-首次交互按 Enter 默认先安装基础接线、稍后生成规则。也可以同时准备两部分。基础安装支持 `--sdd none`，也可以在项目设置中保存 `sdd: none`。配置 `projectRules: false` 时可只安装所选工作流和工具。
+首次交互安装和重配默认把规则生成延期。基础安装支持 `--sdd none`，也可以在项目设置中保存 `sdd: none`。配置 `projectRules: false` 时可只安装所选工作流和工具。启用规则生成后，可用 `--model` 显式请求 CLI provider。
 
 ```sh
 rigup init --defer-research --review
