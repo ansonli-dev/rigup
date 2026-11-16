@@ -20,6 +20,7 @@ import {probeClaudeProjectMcp} from '../integrations/agents/claude-health.js';
 import {runtimeSetupSummary} from '../runtime-inputs.js';
 import {probeRigupProjectMcp} from '../integrations/agents/rigup-health.js';
 import {RIGUP_VERSION} from '../version.js';
+import {checkHostNode,consumerPath,resolveExternalTool} from '../npm-command.mjs';
 export interface DoctorOptions {checkHost?:'claude';runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
 export interface Diagnostic {category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
 
@@ -118,9 +119,18 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   }
   add('host',agent+':load',state,reason);
  }
+ const toolPath=consumerPath();
+ if(selected.tools?.length){
+  const nodeIssue=await checkHostNode(root,toolPath);
+  add('tools','tools:host-node',nodeIssue?'pending':'available',nodeIssue??'Node.js found on the filtered terminal PATH. Reload the host with a trusted Node.js PATH.');
+ }
  for(const tool of selected.tools??[]){
-  const verified=await readVerifiedToolInstall(root,tool.id,manifest.installedTools?.[tool.id]);
-  add('tools',tool.id+':binary',verified?'available':'pending',verified?'Installed '+verified.version+' verified by package, dependency tree, launcher and receipt':'Project installation unavailable or needs receipt reconciliation');
+  const installed=manifest.installedTools?.[tool.id];
+  const useProject=tool.install||tool.initialize&&!!installed;
+  const verified=useProject?await readVerifiedToolInstall(root,tool.id,installed):undefined;
+  const external=useProject?undefined:await resolveExternalTool(root,tool.id,toolPath);
+  const repair='Fix the host PATH or run rigup update '+quoteShell(root)+' --configure --tools '+selected.tools!.map(tool=>tool.id).join(',');
+  add('tools',tool.id+':binary',verified||external?.state==='available'?'available':'pending',verified?'Installed '+verified.version+' verified by package, dependency tree, launcher and receipt':external?.state==='available'?'Existing external installation located on the filtered PATH':external?.state==='repair'?external.reason:external?'Command unavailable on PATH. '+repair:'Project installation unavailable or needs receipt reconciliation');
   const nativeReceipt=manifest.initializedTools?.[tool.id];
   const native=verified&&await verifyToolInitializationReceipt(root,tool.id,verified,nativeReceipt);
   const externalWiki=!native&&tool.id==='openwiki'&&await completedOpenWikiBaseline(root);

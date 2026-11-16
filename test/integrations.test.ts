@@ -115,12 +115,12 @@ test('prepare_plans_protected_tool_initialization_and_rejects_unknown_adapter',(
 test('multi_agent_openwiki_uses_separate_host_arguments_without_collision',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const prepared=await prepareIntegrations(profile,{agents:['claude','codex'],backend:'host',tools:[{id:'openwiki',install:false,initialize:false,agents:['claude','codex']}]});
- assert.equal(prepared.assets.length,2);
+ assert.equal(prepared.assets.filter(a=>a.target==='.rigup/tool-mcp.mjs').length,1);
  const {parse}=await import('smol-toml');
  const claude=prepared.assets.find(a=>a.target==='.mcp.json')!;
  const codex=prepared.assets.find(a=>a.target==='.codex/config.toml')!;
- assert.deepEqual(JSON.parse(claude.content).args,['mcp','--host','claude']);
- assert.deepEqual((parse(codex.content) as any).mcp_servers.openwiki.args,['mcp','--host','codex']);
+ assert.deepEqual(JSON.parse(claude.content).args.slice(-5),['openwiki','path','mcp','--host','claude']);
+ assert.deepEqual((parse(codex.content) as any).mcp_servers.openwiki.args.slice(-5),['openwiki','path','mcp','--host','codex']);
 }));
 test('software_install_requires_new_empty_owned_scope',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
@@ -142,7 +142,9 @@ test('selected_project_install_is_the_executable_used_by_mcp after relocation',(
  const root=join(workspace,'project with spaces');await mkdir(root);
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const prepared=await prepareToolFixture(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:false,agents:['codex']}]});
- const entry=(parse(prepared.assets[0].content) as any).mcp_servers.codegraph;
+ const mcp=prepared.assets.find(asset=>asset.target==='.codex/config.toml')!;
+ const launcher=prepared.assets.find(asset=>asset.target==='.rigup/tool-mcp.mjs')!;
+ const entry=(parse(mcp.content) as any).mcp_servers.codegraph;
  const local=join(workspace,'package with spaces');await mkdir(local);
  await writeFile(join(local,'package.json'),JSON.stringify({name:'@colbymchenry/codegraph',version:'1.6.2',bin:{codegraph:'npm-shim.js'}}));
  await writeFile(join(local,'npm-shim.js'),'#!/usr/bin/env node\nrequire("node:fs").writeFileSync("used-project-tool",JSON.stringify({args:process.argv.slice(2),addedEnvironment:Object.keys(process.env).filter(key=>!globalThis.initialEnvKeys.has(key))}));\n');
@@ -151,8 +153,8 @@ test('selected_project_install_is_the_executable_used_by_mcp after relocation',(
  await exec(npm.executable,npm.args,{cwd:root});
  assert.equal(entry.command,'node');
  assert.equal(entry.cwd,'.');
- assert.deepEqual(entry.args.slice(2),['--','.codex/config.toml','.rigup/tools/codegraph/node_modules/@colbymchenry/codegraph/npm-shim.js','serve','--mcp']);
- await mkdir(join(root,'.codex'));await writeFile(join(root,'.codex/config.toml'),prepared.assets[0].content);
+ assert.deepEqual(entry.args.slice(2),['--','.codex/config.toml','.rigup/tool-mcp.mjs','codegraph','project','serve','--mcp']);
+ await mkdir(join(root,'.codex'));await writeFile(join(root,mcp.target),mcp.content);await writeFile(join(root,launcher.target),launcher.content);
  await mkdir(join(root,'nested'));
  const moved=join(workspace,'迁移 project');await rename(root,moved);
  const preload=join(workspace,'windows-branch.cjs');

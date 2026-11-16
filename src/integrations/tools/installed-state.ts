@@ -4,6 +4,7 @@ import {targetPath} from '../../installer/ownership.js';
 import {digest} from '../../analyzer/evidence.js';
 import {isNativeTool,toolPackage,type NativeTool} from './recipes.js';
 import {normalizeNpmIntegrity} from '../../npm-integrity.mjs';
+import {verifyCodeGraphPayload} from '../../npm-command.mjs';
 import {isStableNpmVersion,type NpmPackageIdentity} from './npm-resolution.js';
 export interface ToolInstallReceipt {version:string;packageLockDigest:string;packageIntegrity?:string}
 export interface InstalledToolState {status:'done'|'unknown';message:string;receipt?:ToolInstallReceipt}
@@ -43,6 +44,8 @@ export async function queryInstalledTool(root:string,input:{prefix:string;id:str
    const launcher=await realpath(join(directory,binaryName));
    if(launcher!==await realpath(binary))return {status:'unknown',message:'Native binary launcher does not match installed package'};
   }
+  if(binaryName==='codegraph')try{await verifyCodeGraphPayload(await targetPath(root,input.prefix+'/node_modules/'+input.name),pkg);}
+  catch(error){return {status:'unknown',message:(error as Error).message};}
   return {status:'done',message:'Installation verified',receipt:{version:q.version,packageLockDigest,packageIntegrity}};
  }catch{return {status:'unknown',message:'Cannot prove external operation result; query or manual reconciliation required'};}
 }

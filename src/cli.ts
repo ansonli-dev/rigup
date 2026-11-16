@@ -4,7 +4,7 @@ import {resolve,join,relative,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {onboard,promptNativeCredentials,restrictBindings} from './onboarding.js';
-import {detectCommands,detectSdd} from './setup-detection.js';
+import {detectCommands,detectSdd,detectToolInstallation} from './setup-detection.js';
 import {askLine,terminalReader,type Ask} from './prompt.js';
 import {loadOptions,validateOptions,type SetupOverrides} from './config.js';
 import type {SetupOptions} from './types.js';
@@ -184,11 +184,15 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
   options=await loadOptions(root,overrides,approvedOptions,{projectRules:newSetup||manifest?.options?.backend==='host'&&manifest.options.projectRules!==undefined,fallback,onSelections:value=>{configured=value;}});
   if(manifest&&flags.configure&&!legacyResearch&&!savedApplyOptions&&options.projectRules===undefined)options.projectRules=true;
   const modernResearch=options.projectRules===true&&!legacyResearch&&!savedApplyOptions;
+  const configuredTools=new Map(options.tools?.map(tool=>[tool.id,tool]));
   if(values['--tools']){
    const ids=values['--tools'].split(',');
    if(ids.includes('none')&&ids.length!==1)throw Error('tools: none cannot be combined with a tool');
    if(ids[0]==='none'){if(flags.configure||options.tools)options.tools=[];}
-   else options.tools=ids.map(id=>({id:id as 'openwiki'|'codegraph',install:true,initialize:id==='codegraph',agents:[...options.agents]}));
+   else options.tools=ids.map(raw=>{
+    const id=raw as 'openwiki'|'codegraph';
+    return configuredTools.get(id)??{id,install:true,initialize:id==='codegraph',agents:[...options.agents]};
+   });
   }
   if(values['--continue']){if(Object.keys(overrides).length||['--tools','--model','--api-key-env','--review','--dry-run','--configure','--retire','--run-checks'].some(k=>values[k]))throw new Error('continuation cannot change explicit selections or execution mode');const continuation=await loadContinuation(root,values['--continue'],io.services);options=continuation.options;Object.assign(flags,{...continuation.flags,response:flags.response,sessionsEnded:flags.sessionsEnded,resume:flags.resume});}
   if(!modernResearch&&(values['--model']||values['--api-key-env'])){if(values['--backend']==='codex')throw Error('model/API-key flags select the native backend; Codex model overrides are not supported');if(!values['--backend'])options.backend='native';const model=values['--model']??options.model?.model??process.env.ANTHROPIC_MODEL;const apiKeyEnv=values['--api-key-env']??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';if(!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))throw new Error('model.apiKeyEnv: environment reference required');if(!model&&!(io.isTTY&&io.read))throw new Error('model.model: required when changing the API-key reference');if(model)options.model={provider:options.model?.provider??'anthropic',model,apiKeyEnv};}
@@ -314,12 +318,29 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    if(!provided.agents&&detected.agents.length)io.write('Detected agents on PATH: '+detected.agents.join(', ')+'\n');
    if(!provided.agents&&!configured.agents&&detected.agents.length)options.agents=detected.agents;
    const setup=await onboard(options,promptIO,{configure:!!flags.configure,provided,ask,checkWorkflow:firstWorkflow?checkWorkflow:undefined,
-    registerableTools:detected.tools,recommendSdd:configured.sdd?undefined:selected=>detectSdd(root,selected,io.write)});
+    recommendSdd:configured.sdd?undefined:selected=>detectSdd(root,selected,io.write)});
    if(!setup)return setupExit;
    options=setup;
   }else{
    if(flags.configure||values['--agents']||values['--tools'])restrictBindings(options,!!values['--tools']);
    if(firstWorkflow&&(modernResearch||flags.deferResearch||options.backend!=='host')&&await checkWorkflow(options)==='stop')return setupExit;
+  }
+  if(options.tools&&!savedApplyOptions&&!flags.continuation){
+   const choices:NonNullable<SetupOptions['tools']>=[];
+   for(const tool of options.tools){
+    const prior=configuredTools.get(tool.id);
+    if(prior){
+     const agents=values['--agents']&&values['--tools']?tool.agents:prior.agents.filter(agent=>options.agents.includes(agent));
+     if(agents.length)choices.push({...tool,agents});
+     continue;
+    }
+    const detected=await detectToolInstallation(root,tool.id,manifest?.installedTools?.[tool.id]);
+    if(detected.state==='project')io.write(tool.id+': reuse project installation '+detected.version+'\n');
+    if(detected.state==='available')io.write(tool.id+': reuse existing PATH installation\n');
+    if(detected.state==='repair')io.write(tool.id+': '+detected.reason+'\n');
+    choices.push(detected.state==='available'||detected.state==='repair'?{...tool,install:false,initialize:false}:tool);
+   }
+   options.tools=choices;
   }
   if(flags.deferResearch&&!options.sdd&&options.projectRules===undefined)options.projectRules=true;
   const wantsRules=options.projectRules??!!options.sdd;

@@ -207,7 +207,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    for(const tool of data.plan.options.tools??[]){
     const id=tool.id,approved=operations.find(operation=>operation.kind==='initialize'&&operation.integrationId===id);
     const previous=data.oldManifest?.initializedTools?.[id];
-    if(!(id==='codegraph'&&tool.initialize||id==='openwiki'&&previous))continue;
+    if(!(id==='codegraph'&&tool.initialize&&(approved||previous)||id==='openwiki'&&previous))continue;
     if(!all&&approved||data.plan.pendingRuntimeTools?.includes(id)&&!previous)continue;
     const receipt=approved?tx?.initialized?.[id]:previous;
     if(!approved&&tx&&signature(tx.initialized?.[id]??null)!==signature(receipt??null))throw Error('Durable native receipt differs from the approved preview');

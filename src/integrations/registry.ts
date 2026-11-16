@@ -7,7 +7,7 @@ import {scopesOverlap,type SetupOperation,type SetupOptions,type SetupPlan,type 
 import type {ProjectProfile} from '../analyzer/repository.js';
 import {resolveNpmLatest,type NpmView} from './tools/npm-resolution.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
-import {readFile,stat} from 'node:fs/promises';
+import {lstat,readFile,readdir,stat} from 'node:fs/promises';
 import {quoteShell} from '../shell-command.js';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
 import {projectMcpArgs} from './tools/project-mcp-entry.js';
@@ -21,6 +21,8 @@ import {digest} from '../analyzer/evidence.js';
 import {openspecPreparationCommand} from './sdd/openspec.js';
 import {RIGUP_VERSION} from '../version.js';
 import {runtimeSetupSummary,selectedNpmRegistry} from '../runtime-inputs.js';
+import {consumerPath,resolveExternalTool} from '../npm-command.mjs';
+import {targetPath} from '../installer/ownership.js';
 export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVersion,type Recipe} from './upstream.js';
 export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
@@ -70,17 +72,19 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
    push(prepared.assets);requirements.push(...prepared.requirements);
   }
  }
+ const toolLauncher='.rigup/tool-mcp.mjs';
+ if(options.tools?.length){
+  const content=await readFile(new URL('../npm-command.mjs',import.meta.url),'utf8');
+  push([{logicalId:'rigup:tool-launcher',target:toolLauncher,content,ownership:{kind:'file'},source:{kind:'fixed-template',ref:'tool-mcp',digest:digest(content)}}]);
+ }
  for(const selection of options.tools ?? []) {
   const tool=selection.id === 'openwiki' ? openwiki : selection.id === 'codegraph' ? codegraph : undefined;
   if(!tool) throw new Error('unsupported executable adapter');
   if(selection.agents.some(a=>!options.agents.includes(a))) throw new Error('tool MCP target agent not selected');
   const useProjectTool=selection.install||selection.initialize&&!!profile.installedTools?.[tool.id];
-  const {prefix,name,entry}=toolPackage(selection.id);
   for(const agent of selection.agents) {
-   const executable=useProjectTool?'node':tool.software;
-   const nativeArgs=tool.mcpArgs(agent);
-   const args=useProjectTool?projectMcpArgs(agents[agent].mcpTarget,[prefix,'node_modules',name,entry].join('/'),nativeArgs):nativeArgs;
-   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable,args,cwd:'.',envRefs:[]}},true);push(prepared.assets);requirements.push(...prepared.requirements);
+   const args=projectMcpArgs(agents[agent].mcpTarget,toolLauncher,[tool.id,useProjectTool?'project':'path',...tool.mcpArgs(agent)]);
+   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable:'node',args,cwd:'.',envRefs:[]}},true);push(prepared.assets);requirements.push(...prepared.requirements);
   }
   warnings.push(tool.id+': binary availability and native connection pending');
   if(selection.id==='openwiki')warnings.push(openwikiInitializationGuide);
@@ -132,15 +136,27 @@ export async function prepareProjectToolOperations(plan:SetupPlan,profile:Projec
   const id=selection.id;
   if(!isNativeTool(id))throw Error('Unsupported executable adapter');
   const receipt=profile.installedTools?.[id];
-  const initialize=id==='codegraph'&&selection.initialize;
+  let initialize=id==='codegraph'&&selection.initialize;
   if(!selection.install&&(!selection.initialize||receipt===undefined)){
    if(initialize)pending(id,'Initialization requires a verified project installation; enable project installation first');
+   const external=await resolveExternalTool(root,id,consumerPath());
+   if(external.state==='repair')pending(id,external.reason);
+   if(external.state==='missing')warnings.push(id+': command unavailable on the terminal PATH. Fix the agent PATH or run rigup update --configure --tools '+options.tools.map(tool=>tool.id).join(','));
+   if(id==='codegraph')warnings.push('codegraph: run codegraph status in the project, then codegraph init if no index exists. Existing indexes are kept.');
    continue;
   }
   const local=await inspectProjectToolInstall(root,id,receipt);
   if('pending' in local){pending(id,local.pending);continue;}
   const {prefix,name}=toolPackage(id);
   const nativeReceipt=profile.initializedTools?.[id];
+  if(initialize&&!nativeReceipt){
+   const index=await targetPath(root,'.codegraph').catch(()=>undefined);
+   const info=index?await lstat(index).catch(()=>undefined):undefined;
+   if(index&&info?.isDirectory()&&(await readdir(index)).length){
+    initialize=false;
+    warnings.push('codegraph: existing index kept. Run codegraph status in the project to inspect it.');
+   }
+  }
   const nativeScopes=initialize&&!nativeReceipt?nativeInitializationPaths(id).declaredWrites:[];
   const writes=[...('root' in local?[prefix]:[]),...nativeScopes];
   if(scopesOverlap(writes,[...targets,...operations.flatMap(op=>op.declaredWrites)])){

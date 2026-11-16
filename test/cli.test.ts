@@ -99,7 +99,7 @@ test('read-only command detection skips project binaries and links back into the
  await symlink(join(bin,'codex'),join(userBin,'codex'));
  testEnvironment(t,{RIGUP_CONSUMER_PATH:['', 'bin',bin,userBin].join(delimiter)});
  const found=await detectCommands(root);
- assert.deepEqual(found.agents,['claude']);assert.equal(found.tools.size,0);
+ assert.deepEqual(found.agents,['claude']);
  await assert.rejects(access(called),{code:'ENOENT'});
 })));
 
@@ -224,7 +224,8 @@ test('init_existing_manifest_uses_update_rules_and_doctor_is_read_only', async (
 });
 import {confirmedHarnessSource,project,testEnvironment,writeOpenSpecFixture} from './helpers.js';
 import {fixedNpmView} from './native-tool-fixture.js';
-test('tools flag keeps OpenWiki generation separate from protected CodeGraph initialization',()=>project(async root=>project(async cache=>project(async state=>{
+test('tools flag keeps OpenWiki generation separate from protected CodeGraph initialization',t=>project(async root=>project(async cache=>project(async state=>{
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:''});
  const calls:string[]=[];
  let output='';const code=await runCli(['init','--tools','openwiki,codegraph','--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,npmView:async(args,cwd)=>{
   calls.push(args[1]);return JSON.stringify({...JSON.parse(await fixedNpmView(args,cwd)),version:'2.0.0','dist-tags.latest':'2.0.0'});
@@ -314,7 +315,8 @@ test('OpenSpec preparation reports the required session acknowledgement in JSON'
  assert.deepEqual(await readdir(root),[]);
 })));
 
-test('CLI list options accept PowerShell array strings, split args and repeated flags',()=>project(root=>project(cache=>project(async state=>{
+test('CLI list options accept PowerShell array strings, split args and repeated flags',t=>project(root=>project(cache=>project(async state=>{
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:''});
  for(const args of [
   ['--agents','claude codex','--tools','openwiki codegraph'],
   ['--agents','claude','codex','--tools','openwiki','codegraph'],

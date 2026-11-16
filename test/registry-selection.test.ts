@@ -14,9 +14,11 @@ import {createHash} from 'node:crypto';
 import {npmRegistry} from './npm-registry-fixture.js';
 import {saveNativeOperations} from './native-tool-fixture.js';
 import {runCli} from '../src/cli.js';
+import {testEnvironment} from './helpers.js';
 import {applyRecordPath,loadManifest} from '../src/installer/baseline.js';
 
-test('real npm keeps the original approval across retag, a same-version replacement and recovery',()=>project(root=>project(cache=>project(state=>npmRegistry(async registry=>{
+test('real npm keeps the original approval across retag, a same-version replacement and recovery',t=>project(root=>project(cache=>project(state=>npmRegistry(async registry=>{
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:''});
  const wiki=await registry.publish('openwiki','2.0.0',{bin:{openwiki:'dist/cli/cli.js'}},{'dist/cli/cli.js':'#!/usr/bin/env node\n'});
  const codegraph='@colbymchenry/codegraph',packageManifest={bin:{codegraph:'npm-shim.js'},engines:{node:'>=22.19.0'}};
  const files={'npm-shim.js':'#!/usr/bin/env node\n','index.js':`

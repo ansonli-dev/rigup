@@ -20,7 +20,6 @@ export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{
  configure:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools',boolean>>;ask?:Ask;
  checkWorkflow?:(options:SetupOptions,back:boolean)=>Promise<'ready'|'back'|'stop'>;
  recommendSdd?:(options:SetupOptions)=>Promise<SetupOptions['sdd']>;
- registerableTools?:ReadonlySet<string>;
 }):Promise<SetupOptions|null>{
  const options=structuredClone(initial);
  const ask=settings.ask??(question=>askLine(io,question));
@@ -58,16 +57,8 @@ export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{
   for(const id of answer){
    const old=options.tools?.find(tool=>tool.id===id);
    if(old){selected.push(id==='openwiki'?{...old,initialize:false}:old);continue;}
-   let install=true;
-   if(settings.registerableTools?.has(id)){
-    const mode=await ask({message:id+' 安装方式',choices:['project-install','register-existing-binary'],defaults:['project-install'],back:true});
-    if(mode===null)return null;
-    if(mode==='back')break;
-    install=mode[0]==='project-install';
-   }
-   selected.push({id:id as 'openwiki'|'codegraph',install,initialize:install&&id==='codegraph',agents:[...options.agents]});
+   selected.push({id:id as 'openwiki'|'codegraph',install:true,initialize:id==='codegraph',agents:[...options.agents]});
   }
-  if(selected.length!==answer.length){index--;continue;}
   if(selected.length||settings.configure||options.tools)options.tools=selected;
  }
  restrictBindings(options,settings.provided?.tools);

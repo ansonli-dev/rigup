@@ -1,13 +1,14 @@
 import {scanNativeEntries} from './analyzer/repository.js';
 import {agents,projectCommandRoots} from './integrations/agents/index.js';
 import {resolveSddBinding,sddDiscoveryNames,unqualifiedSkillName} from './integrations/sdd/binding.js';
-import {codegraph} from './integrations/tools/codegraph.js';
-import {openwiki} from './integrations/tools/openwiki.js';
-import {externalExecutable,npmPathDirectories} from './npm-command.mjs';
+import {consumerPath,externalExecutable,npmPathDirectories,resolveExternalTool} from './npm-command.mjs';
+import {inspectProjectToolInstall} from './integrations/tools/software.js';
+import type {ToolInstallReceipt} from './integrations/tools/installed-state.js';
+import type {NativeTool} from './integrations/tools/recipes.js';
 import type {Agent,SetupOptions} from './types.js';
 
 export async function detectCommands(root:string){
- const path=process.env.RIGUP_CONSUMER_PATH??process.env.PATH??process.env.Path??'';
+ const path=consumerPath();
  const dirs=await npmPathDirectories(root,process.platform==='win32'?path.replace(/(^|;)"([^"]+)"(?=;|$)/g,'$1$2'):path);
  const found=async(name:string)=>{
   const suffixes=process.platform==='win32'?['.exe','.cmd']:[''];
@@ -15,11 +16,16 @@ export async function detectCommands(root:string){
   return false;
  };
  const hosts=Object.keys(agents) as Agent[];
- const tools=[openwiki,codegraph];
- const [installed,registerable]=await Promise.all([
-  Promise.all(hosts.map(found)),Promise.all(tools.map(tool=>found(tool.software))),
- ]);
- return {agents:hosts.filter((_,index)=>installed[index]),tools:new Set(tools.filter((_,index)=>registerable[index]).map(tool=>tool.id))};
+ const installed=await Promise.all(hosts.map(found));
+ return {agents:hosts.filter((_,index)=>installed[index])};
+}
+
+export async function detectToolInstallation(root:string,id:NativeTool,receipt?:ToolInstallReceipt){
+ const local=await inspectProjectToolInstall(root,id,receipt);
+ if('identity' in local)return {state:'project' as const,version:local.identity.version};
+ const external=await resolveExternalTool(root,id,consumerPath());
+ if(external.state!=='missing')return external;
+ return 'pending' in local?{state:'blocked-project' as const,reason:local.pending}:external;
 }
 
 export async function detectSdd(root:string,options:SetupOptions,write:(text:string)=>void):Promise<SetupOptions['sdd']>{
