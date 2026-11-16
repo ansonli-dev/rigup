@@ -107,7 +107,7 @@ test('OMP Marketplace override, provider opt-in and project-disabled fallback ma
  await nativeSkills(join(base,'skills'));await nativePut(join(base,'.claude-plugin/plugin.json'),'{"name":"superpowers"}');
  const record={scope:'user',installPath:base};
  await nativePut(join(claude,'plugins/installed_plugins.json'),JSON.stringify({plugins:{'superpowers@official':[record]}}));
- await nativePut(join(home,'.omp/agent/settings.json'),'{"skills":{"enableClaudeUser":true}}');
+ await nativePut(join(home,'.omp/agent/settings.json'),'{"enabledProviders":["claude-plugins"]}');
  assert.equal((await scanRepository(root,nativeOptions('omp'),{home})).skillSources?.omp?.length,4);
  await nativePut(join(omp,'installed_plugins.json'),JSON.stringify({plugins:{'superpowers@official':[{...record,enabled:false}]}}));
  assert.ok(!(await scanRepository(root,nativeOptions('omp'),{home})).nativeEntries?.omp?.length);
@@ -344,4 +344,54 @@ test('native manager metadata shares a bounded read budget and cannot authorize 
  dependencies['omp-superpowers']='0.1.0';await nativePut(join(plugins,'package.json'),JSON.stringify({dependencies}));
  await nativePut(join(plugins,'node_modules/omp-superpowers/package.json'),'{"name":"omp-superpowers","omp":{}}');await nativeSkills(join(plugins,'node_modules/omp-superpowers/skills'));
  const prepared=await prepareIntegrations(await scanRepository(root,nativeOptions('omp'),{home}),nativeOptions('omp'));assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements[0].reason,/budget/);
+})));
+
+for(const version of [1,2])test(`OpenCode V${version} selects its effective plugin versus project collision`,()=>project(root=>project(async home=>{
+ const spec='superpowers@git+https://github.com/obra/superpowers.git#v7.0.2';
+ const base=version===1?join(home,'.cache/opencode/packages',spec,'node_modules/superpowers'):join(home,'.cache/opencode/npm','git-superpowers-'+createHash('sha256').update(spec).digest('hex').slice(0,12),'20/node_modules/superpowers');
+ await nativeSkills(join(base,'skills'),'plugin');
+ await nativePut(join(base,'package.json'),JSON.stringify({name:'superpowers',main:'.opencode/plugins/superpowers.js'}));
+ await nativePut(join(base,'.opencode/plugins/superpowers.js'),officialOpenCodePlugin);
+ await nativePut(join(home,'.config/opencode/opencode.json'),JSON.stringify(version===1?{plugin:[spec]}:{plugins:[spec]}));
+ await nativeSkills(join(home,'.config/opencode/skills'),'personal');
+ await nativeSkills(join(root,'.opencode/skills'),'project');
+ const profile=await scanRepository(root,nativeOptions('opencode'),{home});
+ assert.equal((await prepareIntegrations(profile,nativeOptions('opencode'))).bindings.length,1);
+ assert.equal(profile.skillSources?.opencode?.length,4);
+ assert.ok(profile.skillSources?.opencode?.every(source=>version===1?source.identity.startsWith(base):source.identity.startsWith('.opencode/skills/')));
+})));
+for(const settings of [{skills:{enableClaudeUser:true},discovery:{providers:{'claude-plugins':true}}},{enabledProviders:['claude-plugins'],disabledProviders:['claude-plugins'],skills:{enableClaudeUser:true}}])test('OMP foreign user Marketplace follows top-level provider switches '+JSON.stringify(settings),()=>project(root=>project(async home=>{
+ const base=join(home,'.claude/plugins/cache/official/superpowers/7');
+ await nativeSkills(join(base,'skills'));await nativePut(join(base,'.claude-plugin/plugin.json'),'\{"name":"superpowers"\}');
+ await nativePut(join(home,'.claude/plugins/installed_plugins.json'),JSON.stringify({plugins:{'superpowers@official':[{scope:'user',installPath:base}]}}));
+ await nativePut(join(home,'.omp/agent/settings.json'),JSON.stringify(settings));
+ assert.equal((await prepareIntegrations(await scanRepository(root,nativeOptions('omp'),{home}),nativeOptions('omp'))).bindings.length,0);
+})));
+
+test('Claude local Marketplace selects the verified catalog source and freezes catalog bytes',()=>project(root=>project(async home=>{
+ const base=join(home,'marketplace'),cached=join(home,'.claude/plugins/cache/dev/superpowers/7');
+ for(const path of [base,cached]){await nativeSkills(join(path,'skills'),path);await nativePut(join(path,'.claude-plugin/plugin.json'),'{"name":"superpowers"}');}
+ await nativePut(join(home,'.claude/settings.json'),'{"enabledPlugins":{"superpowers@dev":true}}');
+ await nativePut(join(home,'.claude/plugins/installed_plugins.json'),JSON.stringify({plugins:{'superpowers@dev':[{scope:'user',installPath:cached}]}}));
+ await nativePut(join(home,'.claude/plugins/known_marketplaces.json'),JSON.stringify({dev:{source:{source:'directory',path:base},installLocation:base}}));
+ const catalog=join(base,'.claude-plugin/marketplace.json');
+ await nativePut(catalog,JSON.stringify({name:'dev',plugins:[{name:'superpowers',source:'./'}]}));
+ const before=await scanRepository(root,nativeOptions('claude'),{home});
+ assert.equal((await prepareIntegrations(before,nativeOptions('claude'))).bindings.length,1);
+ assert.ok(before.skillSources?.claude?.every(source=>source.identity.startsWith(base+'/')));
+ await nativePut(catalog,JSON.stringify({name:'dev',description:'catalog changed',plugins:[{name:'superpowers',source:'./'}]}));
+ assert.notEqual((await scanRepository(root,nativeOptions('claude'),{home})).fingerprint,before.fingerprint);
+ await nativePut(catalog,JSON.stringify({name:'dev',plugins:[{name:'superpowers',source:'../escape'}]}));
+ assert.equal((await prepareIntegrations(await scanRepository(root,nativeOptions('claude'),{home}),nativeOptions('claude'))).bindings.length,0);
+})));
+
+test('OpenCode explicit project disable blocks wrappers despite usable global plugin',()=>project(root=>project(async home=>{
+ const base=join(home,'superpowers');await nativeSkills(join(base,'skills'));
+ await nativePut(join(base,'package.json'),'{"name":"superpowers","main":".opencode/plugins/superpowers.js"}');
+ await nativePut(join(base,'.opencode/plugins/superpowers.js'),officialOpenCodePlugin);
+ await nativePut(join(home,'.config/opencode/opencode.json'),JSON.stringify({plugin:[base]}));
+ const profile=await scanRepository(root,nativeOptions('opencode'),{home,env:{OPENCODE_DISABLE_PROJECT_CONFIG:'true'}});
+ const prepared=await prepareIntegrations(profile,nativeOptions('opencode'));
+ assert.equal(prepared.bindings.length,0);
+ assert.match(prepared.requirements[0].reason,/OPENCODE_DISABLE_PROJECT_CONFIG/);
 })));

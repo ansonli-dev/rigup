@@ -77,12 +77,12 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    for(const name of (await list(dir)).sort())if(!name.startsWith('.')){const path=join(dir,name);if((await stat(path).catch(()=>undefined))?.isDirectory())await walk(path,ctx,depth+1);else if(ctx.pathNames&&name.endsWith('.md'))try{await add(path,ctx);}catch(error){warn(agent,error);}}
   };
   const commands=async(dir:string,ctx:Context)=>{for(const file of await list(dir))if(file.endsWith('.md')){try{await add(join(dir,file),ctx,file.slice(0,-3));}catch(error){warn(agent,error);}}};
-  const plugin=async(path:string,manifestFile:string,name:string,namespace?:string,skillDirs?:string[],scope:'user'|'project'='user',entries:string[]=[])=>{
+  const plugin=async(path:string,manifestFile:string,name:string,namespace?:string,skillDirs?:string[],scope:'user'|'project'='user',entries:string[]=[],selection?:string)=>{
    const canonical=await realpath(path);if(scope==='project'&&!inside(root,canonical))throw Error('project plugin escapes project');
    const manifestPath=join(path,manifestFile),text=await metadataText(manifestPath,canonical),manifest=JSON.parse(text);
    if(manifest.name!==name)throw Error('Invalid plugin manifest');
    const entryDigests=[];for(const entry of entries){const target=resolve(path,entry);entryDigests.push({path:await realpath(target),digest:digest(await metadataText(target,canonical))});}
-   const sourceFingerprint=digest(JSON.stringify({root:canonical,manifest:await realpath(manifestPath),digest:digest(text),entries:entryDigests}));
+   const sourceFingerprint=digest(JSON.stringify({root:canonical,manifest:await realpath(manifestPath),digest:digest(text),entries:entryDigests,selection}));
    const ctx:Context={origin:'plugin',namespace,bound:canonical,packageName:name,sourceFingerprint};
    for(const dir of skillDirs??array(manifest.skills).concat('skills'))await walk(resolve(path,dir),ctx);
   };
@@ -154,10 +154,14 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
      loaded.set(target,{id,items:sources.splice(before)});
     }catch(error){warn('superpowers',error);}
    }
-   for(const item of loaded.values())sources.push(...item.items);
+   const pluginSources=[...loaded.values()].flatMap(item=>item.items);
+   const localNames=new Set(sources.map(source=>source.name)),pluginNames=new Set(pluginSources.map(source=>source.name));
+   if(!v2)for(let i=sources.length-1;i>=0;i--)if(pluginNames.has(sources[i].name))sources.splice(i,1);
+   sources.push(...pluginSources.filter(source=>!v2||!localNames.has(source.name)));
    const permission=config.permission?.skill;
    const denied=(name:string)=>typeof permission==='string'?permission==='deny':Object.entries(permission??{}).findLast(([pattern])=>matches(pattern,name))?.[1]==='deny';
    for(const source of sources)if(denied(source.name)){source.satisfies=false;source.problem='OpenCode skill permission denies '+source.name+'; allow the native skill in effective permission.skill';}
+   if(disabled)unavailable('OPENCODE_DISABLE_PROJECT_CONFIG prevents Rigup project entries; unset it or set it to false before preparing this project');
    if(['change-prepare','change-ready','change-deliver'].some(denied))unavailable('OpenCode permission.skill denies a Rigup project entry; allow change-prepare, change-ready and change-deliver');
   }
   if(agent==='codex'){
@@ -175,6 +179,7 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   }
   if(agent==='claude'||agent==='omp'){
    const installed=(await json(join(claude,'plugins/installed_plugins.json'))).plugins??{};
+   const marketplaces=agent==='claude'?await json(join(claude,'plugins/known_marketplaces.json')):{};
    const records=new Map<string,{record:any;origin:'claude'|'omp';project:boolean}[]>();
    for(const [id,items] of Object.entries(installed)){
     if(!Array.isArray(items)){warn(id,undefined);continue;}
@@ -195,16 +200,27 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
       if(!isProject||active.length)records.set(id,active);
      }
     }
-    const userClaude=settings.skills?.enableClaudeUser===true||settings.discovery?.providers?.claude===true||settings.discovery?.providers?.['claude-plugins']===true;
+    const userClaude=!array(settings.disabledProviders).includes('claude-plugins')&&array(settings.enabledProviders).some(id=>['claude-plugins','claude','*','all'].includes(id));
     for(const [id,items] of records)records.set(id,items.filter(item=>item.origin==='omp'||item.project||userClaude));
    }
    for(const [id,items] of records){
     const name=id.split('@')[0];
     for(const {record,origin,project} of items){try{
      if(typeof record.installPath!=='string'||!isAbsolute(record.installPath))throw Error('Invalid plugin location');
-     // Claude records must stay in its manager root. OMP explicitly supports user links.
-     if(agent==='claude'&&!inside(await realpath(claude),await realpath(record.installPath)))throw Error('Invalid plugin location');
-     await plugin(record.installPath,'.claude-plugin/plugin.json',name,agent==='claude'?name:undefined,undefined,origin==='omp'&&project?'project':'user');
+     let path=record.installPath,selection:string|undefined;
+     const marketplace=marketplaces[id.slice(id.indexOf('@')+1)];
+     if(agent==='claude'&&marketplace?.source?.source==='directory'){
+      if(typeof marketplace.source.path!=='string'||!isAbsolute(marketplace.source.path)||typeof marketplace.installLocation!=='string')throw Error('Invalid local marketplace location');
+      const base=await realpath(marketplace.source.path);
+      if(await realpath(marketplace.installLocation)!==base)throw Error('Local marketplace location mismatch');
+      const catalogPath=join(base,'.claude-plugin/marketplace.json'),text=await metadataText(catalogPath,base),catalog=JSON.parse(text);
+      const entries=Array.isArray(catalog?.plugins)?catalog.plugins.filter((entry:any)=>entry?.name===name):[];
+      if(catalog?.name!==id.slice(id.indexOf('@')+1)||entries.length!==1||typeof entries[0].source!=='string'||!entries[0].source.startsWith('./'))throw Error('Invalid local marketplace plugin source');
+      path=await realpath(resolve(base,entries[0].source));
+      if(!inside(base,path))throw Error('Local marketplace plugin escapes its root');
+      selection=digest(JSON.stringify({base,catalog:await realpath(catalogPath),digest:digest(text),source:marketplace.source,installLocation:marketplace.installLocation}));
+     }else if(agent==='claude'&&!inside(await realpath(claude),await realpath(path)))throw Error('Invalid plugin location');
+     await plugin(path,'.claude-plugin/plugin.json',name,agent==='claude'?name:undefined,undefined,origin==='omp'&&project?'project':'user',[],selection);
     }catch(error){warn(id,error);}}
    }
    if(agent==='omp'){

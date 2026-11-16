@@ -464,3 +464,25 @@ for(const dependency of ['scripts/bash/setup-plan.sh','templates/plan-template.m
  await assert.rejects(()=>apply(review.previewId,{...dependencies,recover:true}),/source.*changed|input/i);
  assert.deepEqual(await readdir(root,{recursive:true}),paths);assert.deepEqual(await Promise.all(paths.map(async path=>[path,await readFile(join(root,path),'base64').catch(()=>null)])),before);
 }))));
+
+for(const mutation of ['skill','catalog'] as const)test(`Claude local Marketplace ${mutation} mutation rejects saved approval`,t=>project(root=>project(cache=>project(state=>project(async home=>{
+ const {mkdir,writeFile}=await import('node:fs/promises');const {apply}=await import('../src/installer/apply.js');
+ const put=async(path:string,text:string)=>{const {dirname}=await import('node:path');await mkdir(dirname(path),{recursive:true});await writeFile(path,text);};
+ const base=join(home,'marketplace'),cached=join(home,'.claude/plugins/cache/dev/superpowers/7');
+ testEnvironment(t,{HOME:home,CLAUDE_CONFIG_DIR:join(home,'.claude')});
+ for(const path of [base,cached]){
+  await put(join(path,'.claude-plugin/plugin.json'),'{"name":"superpowers"}');
+  for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion'])await put(join(path,'skills',name,'SKILL.md'),`---\nname: ${name}\ndescription: Native\n---\nNative gates\n`);
+ }
+ await put(join(home,'.claude/settings.json'),'{"enabledPlugins":{"superpowers@dev":true}}');
+ await put(join(home,'.claude/plugins/installed_plugins.json'),JSON.stringify({plugins:{'superpowers@dev':[{scope:'user',installPath:cached}]}}));
+ await put(join(home,'.claude/plugins/known_marketplaces.json'),JSON.stringify({dev:{source:{source:'directory',path:base},installLocation:base}}));
+ const catalog=join(base,'.claude-plugin/marketplace.json');await put(catalog,JSON.stringify({name:'dev',plugins:[{name:'superpowers',source:'./'}]}));
+ let output='';
+ assert.equal(await runCli(['init','--agents','claude','--sdd','superpowers','--defer-research','--review','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}}),3,output);
+ const review=JSON.parse(output);assert.equal(review.executable,true,output);
+ if(mutation==='skill')await put(join(base,'skills/brainstorming/SKILL.md'),'---\nname: brainstorming\ndescription: Changed source\n---\n');
+ else await put(catalog,JSON.stringify({name:'dev',description:'changed',plugins:[{name:'superpowers',source:'./'}]}));
+ await assert.rejects(()=>apply(review.previewId,{cacheRoot:join(cache,'previews'),stateRoot:state}),/source.*changed|snapshot|input/i);
+ assert.deepEqual(await readdir(root),[]);
+})))));
