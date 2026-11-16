@@ -41,15 +41,15 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
   for(const agent of options.agents) {
    try {
     const {binding,warnings:bindingWarnings}=resolveSddBinding(options.sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
-    if(binding.status==='pending') requirements.push({integrationId:options.sdd,reason:binding.reason});
-    else bindings.push(binding);
+    bindings.push(binding);
     warnings.push(...bindingWarnings);
    }
    catch(error){
     const reason=(error as Error).message;
     const nextCommand=options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')
      ?openspecPreparationCommand(profile.root,options.agents):undefined;
-    requirements.push({integrationId:options.sdd,reason,...(nextCommand?{nextCommand}:{})});
+    const repair=options.sdd==='superpowers'?{claude:'/plugin install superpowers@claude-plugins-official',codex:'Open /plugins and install or enable Superpowers',opencode:'Configure the official Superpowers plugin and restart OpenCode',omp:'Install or enable Superpowers in the OMP Marketplace or with omp plugin install omp-superpowers'}[agent]:'Run specify init --here --integration '+agent;
+    requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason+'; '+(nextCommand??repair),nextCommand:nextCommand??repair});
    }
   }
  }

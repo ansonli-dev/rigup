@@ -36,8 +36,8 @@ export async function detectSdd(root:string,options:SetupOptions,write:(text:str
    sources.some(source=>projectFiles.has(source.identity));
   const missing=options.agents.flatMap(agent=>{
    try{
-    const {binding}=resolveSddBinding(sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
-    return binding.status==='pending'?[agent+': '+binding.reason]:[];
+    resolveSddBinding(sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
+    return [];
    }catch(error){return [agent+': '+(error as Error).message];}
   });
   return {sdd,hasProject,hasSources:sources.length>0,missing};

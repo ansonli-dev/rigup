@@ -26,12 +26,6 @@ export interface SddBinding {
  projectSources?:string[];
 }
 
-interface PendingBinding {
- status:'pending';
- id:string;
- reason:string;
-}
-
 export interface SkillSource {
  name:string;
  origin:'plugin'|'local'|'managed'|'unknown';
@@ -67,9 +61,8 @@ function availableEntry(name:string,id:string,available:string[]):string|undefin
  return [name,base,id+':'+base].find(candidate=>available.includes(candidate));
 }
 
-export function bindSdd(id:string,agent:string,available:string[]):SddBinding|PendingBinding {
+export function bindSdd(id:string,agent:string,available:string[]):SddBinding {
  if(!['claude','codex','opencode','omp'].includes(agent)) throw new Error('unsupported host');
- if(id===superpowers.id && agent==='omp') return {status:'pending',id,reason:'OMP-specific Superpowers binding not verified; Pi support is not evidence for OMP'};
  const descriptor=descriptors.find(candidate=>candidate.id===id);
  if(!descriptor) throw new Error('unsupported SDD');
  const nativeName=(name:string)=>{
@@ -93,10 +86,9 @@ export function resolveSkillSource(name:string,sources:SkillSource[],selectedIde
  return matches.find(source=>source.origin==='plugin') ?? matches[0];
 }
 
-export function resolveSddBinding(id:string,agent:string,available:string[],sources:SkillSource[],files:string[]):{binding:SddBinding|PendingBinding;warnings:string[]} {
+export function resolveSddBinding(id:string,agent:string,available:string[],sources:SkillSource[],files:string[]):{binding:SddBinding;warnings:string[]} {
  const binding=bindSdd(id,agent,available);
  const warnings:string[]=[];
- if(binding.status==='pending') return {binding,warnings};
  const descriptor=descriptors.find(candidate=>candidate.id===id)!;
  const resolveEntry=(name:string)=>{
   const base=unqualifiedSkillName(name);

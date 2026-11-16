@@ -228,3 +228,43 @@ test('mcp_environment_references_use_native_host_expansion_or_require_setup',()=
  assert.match(prepared.requirements[0].reason,/reads environment variables directly/);
  await assert.rejects(prepareCustomerMcp(root,{id:'environment-fixture',agents:['claude'],command:{...command,envRefs:[]}}),/declare each environment reference/);
 }));
+
+const nativeMatrix={
+ superpowers:{claude:['superpowers:brainstorming','superpowers:writing-plans','superpowers:executing-plans','superpowers:verification-before-completion'],codex:['brainstorming','writing-plans','executing-plans','verification-before-completion'],opencode:['brainstorming','writing-plans','executing-plans','verification-before-completion'],omp:['brainstorming','writing-plans','executing-plans','verification-before-completion']},
+ openspec:{claude:['openspec-propose','openspec-apply-change','openspec-archive-change'],codex:['openspec-propose','openspec-apply-change','openspec-archive-change'],opencode:['openspec-propose','openspec-apply-change','openspec-archive-change'],omp:['openspec-propose','openspec-apply-change','openspec-archive-change']},
+ 'spec-kit':{claude:['speckit-constitution','speckit-specify','speckit-plan','speckit-tasks','speckit-implement','speckit-converge'],codex:['speckit-constitution','speckit-specify','speckit-plan','speckit-tasks','speckit-implement','speckit-converge'],opencode:['speckit.constitution','speckit.specify','speckit.plan','speckit.tasks','speckit.implement','speckit.converge'],omp:['speckit.constitution','speckit.specify','speckit.plan','speckit.tasks','speckit.implement','speckit.converge']},
+} as const;
+for(const [sdd,hosts] of Object.entries(nativeMatrix))for(const [agent,entries] of Object.entries(hosts)){
+ test(`${agent} × ${sdd} binds all native stages and renders three host references`,()=>project(async root=>{
+  const {renderFixed}=await import('../src/generator/render.js');
+  const {setNativeEntries}=await import('./helpers.js');
+  const options={agents:[agent as import('../src/types.js').Agent],backend:'host' as const,sdd:sdd as import('../src/types.js').SetupOptions['sdd']};
+  const profile=await scanRepository(root,{agents:[],backend:'host'});
+  setNativeEntries(profile,{[agent]:[...entries]});
+  const binding=bindSdd(sdd,agent,[...entries]);
+  assert.equal(binding.status,'source-bound');
+  assert.deepEqual([...binding.prepare,...binding.deliver],entries);
+  const prepared=await prepareIntegrations(profile,options);
+  assert.deepEqual(prepared.requirements,[]);
+  const assets=await renderFixed(profile,options,prepared,[],[]);
+  const refs=assets.filter(asset=>/change-(prepare|ready|deliver)\/references\/project.md$/.test(asset.target));
+  assert.equal(refs.length,3);
+  for(const reference of refs)for(const entry of entries)assert.ok(reference.content.includes(entry),`${reference.target}: ${entry}`);
+ }));
+ test(`${agent} × ${sdd} reports missing native entry for an empty installation`,()=>{
+  assert.throws(()=>bindSdd(sdd,agent,[]),/missing native entry:/);
+ });
+}
+test('multi-host binding requirements identify the failing host and a repair action',()=>project(async root=>{
+ const {setNativeEntries}=await import('./helpers.js');
+ const options={agents:['claude','omp'] as const,backend:'host' as const,sdd:'superpowers' as const};
+ const profile=await scanRepository(root,{agents:[],backend:'host'});
+ setNativeEntries(profile,{claude:[...nativeMatrix.superpowers.claude]});
+ const prepared=await prepareIntegrations(profile,{...options,agents:[...options.agents]});
+ assert.equal(prepared.bindings.length,1);
+ assert.equal(prepared.requirements.length,1);
+ assert.equal(prepared.requirements[0].kind,'sdd-binding');
+ assert.equal(prepared.requirements[0].agent,'omp');
+ assert.match(prepared.requirements[0].reason,/omp.*missing native entry:/);
+ assert.ok(prepared.requirements[0].nextCommand);
+}));
