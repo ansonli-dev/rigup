@@ -107,7 +107,7 @@ export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal
  }
  let needsRoot=!await exists(join(root,'openspec/config.yaml'))&&!await exists(join(root,'openspec/config.yml'));
  let verifiedRoot:string|undefined;
- const cliIdentity=cli&&await cliProgramIdentity(cli,root,path,stateRoot).catch(()=>undefined);
+ const cliIdentity=project&&'identity' in project?project.identity:cli&&await programIdentity(cli,root,path).catch(()=>undefined);
  if(expectedCliIdentity&&cliIdentity!==expectedCliIdentity)throw Error('OpenSpec CLI changed after approval; prepare it again');
  if(cli&&!cliIdentity)problems.push('The existing OpenSpec launcher identity could not be verified');
  let cliVersion:string|undefined;
@@ -169,17 +169,33 @@ export async function assertOpenSpecRuntime(root:string,options:OpenSpecOptions,
 
 export type OpenSpecInspection=Awaited<ReturnType<typeof inspectOpenSpec>>;
 type OpenSpecScope={root:string;agents:Agent[];needsRoot:boolean;needsEntries:Agent[]};
-export type OpenSpecPreparation=OpenSpecScope&({kind:'existing';cliIdentity:string;cliVersion:string}|{kind:'install';prefix:string;prefixIdentity:string;npmIdentity:string;install:ResolvedNpmPackage}|{kind:'project-install';prefix:string;install:ResolvedNpmPackage});
+export type OpenSpecPreparation=OpenSpecScope&({kind:'existing';scope:OpenSpecInstallScope;cliIdentity:string;cliVersion:string}|{kind:'install';prefix:string;prefixIdentity:string;npmIdentity:string;install:ResolvedNpmPackage}|{kind:'project-install';prefix:string;install:ResolvedNpmPackage});
+export const preparationScope=(approval:OpenSpecPreparation):OpenSpecInstallScope=>
+ approval.kind==='existing'?approval.scope:approval.kind==='install'?'global':'project';
+
+export async function interruptedOpenSpecPreparation(root:string,stateRoot?:string){
+ const record=await readOpenSpecPreparation(root,stateRoot);
+ if(!record||record.complete)return;
+ return {requirements:['Resume the original OpenSpec preparation.'],
+  nextCommand:openspecPreparationCommand(root,record.approval.agents,preparationScope(record.approval))+' --resume'};
+}
+
+export async function inspectOpenSpecForSetup(root:string,options:OpenSpecOptions,stateRoot?:string,signal?:AbortSignal){
+ const project=await inspectOpenSpec(root,options,signal,undefined,{scope:'project',stateRoot});
+ return !project.cli&&!project.projectAvailable&&project.globalAvailable
+  ?inspectOpenSpec(root,options,signal,undefined,{scope:'global',stateRoot}):project;
+}
+
 export function openSpecProjectScopes(scope:Pick<OpenSpecScope,'needsRoot'|'needsEntries'>):string[]{
  return [...(scope.needsRoot?['openspec']:[]),...scope.needsEntries.flatMap(hostScopes)].map(path=>path+'/');
 }
 
 export async function planOpenSpecPreparation(root:string,options:OpenSpecOptions,input:{stateRoot?:string;signal?:AbortSignal;view?:NpmView},inspection?:OpenSpecInspection):Promise<{inspection:OpenSpecInspection;approval?:OpenSpecPreparation}>{
- const setup=inspection??await inspectOpenSpec(root,options,input.signal);
+ const setup=inspection??await inspectOpenSpec(root,options,input.signal,undefined,{stateRoot:input.stateRoot});
  input.signal?.throwIfAborted();
  if(!setup.canPrepare||!setup.requirements.length)return {inspection:setup};
  const scope:OpenSpecScope={root:setup.root,agents:[...options.agents],needsRoot:setup.needsRoot,needsEntries:[...setup.needsEntries]};
- if(setup.cli&&setup.cliIdentity&&setup.cliVersion)return {inspection:setup,approval:{...scope,kind:'existing',cliIdentity:setup.cliIdentity,cliVersion:setup.cliVersion}};
+ if(setup.cli&&setup.cliIdentity&&setup.cliVersion)return {inspection:setup,approval:{...scope,kind:'existing',scope:setup.scope,cliIdentity:setup.cliIdentity,cliVersion:setup.cliVersion}};
  if(setup.scope==='project')try{
   const install=await resolveNpmLatest(openspecPackage,{root:setup.root,stateRoot:input.stateRoot??defaultStateRoot(),signal:input.signal,registry:await selectedNpmRegistry(setup.root),nodeVersion:process.versions.node,view:input.view});
   return {inspection:setup,approval:{...scope,kind:'project-install',prefix:join(setup.root,projectPrefix),install}};
@@ -288,8 +304,8 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   if(prior&&!prior.complete&&(!recover||prior.approvalDigest!==approvalDigest))
    throw Error('Resume the original OpenSpec preparation with --prepare-openspec --resume');
   const record:OpenSpecPreparationRecord=prior&&!prior.complete?prior:
-   {version:1,root,approval,approvalDigest,complete:false,projectReceipt:prior?.projectReceipt};
-  const scope=approval.kind==='install'?'global':'project';
+   {version:1,root,approval,approvalDigest,complete:false,projectReceipt:prior?.projectReceipt,projectPayloadDigest:prior?.projectPayloadDigest};
+  const scope=preparationScope(approval);
   const inspect=(identity?:string)=>inspectOpenSpec(root,options,signal,identity,{scope,stateRoot:lock.stateRoot});
   const finish=async(setup:OpenSpecInspection)=>{
    if(!setup.requirements.length){record.complete=true;await saveOpenSpecPreparation(record,lock.stateRoot);}

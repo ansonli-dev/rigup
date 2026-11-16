@@ -11,7 +11,8 @@ import {fileURLToPath} from "node:url";
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {runCli,type CliIO} from '../src/cli.js';
-import {inspectOpenSpec,prepareOpenSpec} from '../src/integrations/sdd/openspec-setup.js';
+import {inspectOpenSpec,planOpenSpecPreparation,prepareOpenSpec} from '../src/integrations/sdd/openspec-setup.js';
+import {forwardProjectOpenSpec,saveOpenSpecPreparation} from '../src/integrations/sdd/openspec-project.js';
 import {project,writeOpenSpecFixture} from './helpers.js';
 const exec=promisify(execFile);
 
@@ -599,8 +600,11 @@ test('the executable forwards project OpenSpec argv, stderr and exit status from
  await assert.rejects(access(paths.packageJson),{code:'ENOENT'});
 })));
 
-test('prepared project OpenSpec is advertised and changing its CLI invalidates apply and update',()=>fixture((root,control)=>openSpecRegistry(control,async(registry)=>{
- await publishOpenSpec(registry);
+test('prepared project OpenSpec is advertised and changing its imported payload invalidates apply, update and passthrough',()=>fixture((root,control)=>openSpecRegistry(control,async(registry)=>{
+ await publishOpenSpec(registry,'2.0.0',{
+  'bin/openspec.js':"#!/usr/bin/env node\nrequire('../dist/cli/index.js');\n",
+  'dist/cli/index.js':nativeProgram.replace("require('../package.json')","require('../../package.json')"),
+ });
  const native=terminal(root,control,[]);
  assert.equal(await runCli([...prepareFlags,'--install-scope','project','--json'],native.io),0,native.output());
  const profile=join(control,'profile.yaml');
@@ -619,14 +623,37 @@ test('prepared project OpenSpec is advertised and changing its CLI invalidates a
  const next=terminal(root,control,[]);
  assert.equal(await runCli(['update',...base,'--dry-run','--json'],next.io),0,next.output());
  const savedUpdate=JSON.parse(next.output());
- const binary=join(root,'.rigup/tools/openspec/node_modules',openspecPackage,'bin/openspec.js');
- const original=await readFile(binary,'utf8');
- await writeFile(binary,original+'\n// changed after approval\n');
+ const payload=join(root,'.rigup/tools/openspec/node_modules',openspecPackage,'dist/cli/index.js');
+ const original=await readFile(payload,'utf8');
+ const marker=join(control,'changed-payload-was-invoked');
+ await writeFile(payload,original+'\nfs.writeFileSync('+JSON.stringify(marker)+',"unexpected");\n');
  const stale=terminal(root,control,[]);
  assert.notEqual(await runCli(['update','--apply',savedUpdate.previewId,'--sessions-ended','--json'],stale.io),0,stale.output());
  assert.match(stale.output(),/source input changed|OpenSpec CLI changed/i);
- await rm(binary);
  const unavailable=terminal(root,control,[]);
  assert.equal(await runCli(['update',...base,'--dry-run','--json'],unavailable.io),3,unavailable.output());
- assert.match(unavailable.output(),/OpenSpec/);
+ assert.match(unavailable.output(),/payload.*receipt/i);
+ await assert.rejects(forwardProjectOpenSpec(root,['--version'],join(control,'state')),/payload.*receipt/i);
+ await assert.rejects(access(marker),{code:'ENOENT'});
 })));
+
+test('OpenSpec resumes existing CLI preparation with the originally requested global scope',()=>fixture(async(root,control)=>{
+ const bin=join(control,'bin'),stateRoot=join(control,'state');
+ await installFakeOpenSpec(bin);
+ await privateDirectory(stateRoot,root);
+ const previous=process.env.RIGUP_CONSUMER_PATH;
+ process.env.RIGUP_CONSUMER_PATH=bin+delimiter+process.env.PATH;
+ try{
+  const options={agents:['codex' as const],backend:'host' as const};
+  const inspection=await inspectOpenSpec(root,options,undefined,undefined,{scope:'global',stateRoot});
+  const {approval}=await planOpenSpecPreparation(root,options,{stateRoot},inspection);
+  assert.ok(approval&&approval.kind==='existing');
+  await saveOpenSpecPreparation({version:1,root,approval,approvalDigest:signature(approval),complete:false},stateRoot);
+  const projectScope=terminal(root,control,[]);
+  assert.equal(await runCli([...prepareFlags,'--install-scope','project','--resume','--json'],projectScope.io),3,projectScope.output());
+  assert.match(JSON.parse(projectScope.output()).nextCommand,/--install-scope global --resume/);
+  const globalScope=terminal(root,control,[]);
+  assert.equal(await runCli([...prepareFlags,'--install-scope','global','--resume','--json'],globalScope.io),0,globalScope.output());
+  await access(join(root,'openspec/config.yaml'));
+ }finally{if(previous===undefined)delete process.env.RIGUP_CONSUMER_PATH;else process.env.RIGUP_CONSUMER_PATH=previous;}
+}));

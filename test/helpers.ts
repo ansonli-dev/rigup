@@ -40,7 +40,7 @@ export async function openspecFixturePath(root:string,control:string){
  await mkdir(join(root,'openspec'));
  await writeFile(join(root,'openspec/config.yaml'),'schema: spec-driven\n');
  const bin=join(control,'bin');
- await writeOpenSpecFixture(bin,'console.log(process.argv.includes("--version")?"1.16.0":JSON.stringify({root:{path:process.cwd(),source:"nearest"}}));\n');
+ await writeOpenSpecFixture(bin,'console.log(process.argv.includes("--version")?"1.16.0":JSON.stringify({root:require("node:fs").existsSync("openspec/config.yaml")?{path:process.cwd(),source:"nearest"}:null}));\n');
  return bin+delimiter+process.env.PATH;
 }
 export async function project(fn:(root:string)=>Promise<void>) {

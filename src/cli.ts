@@ -16,7 +16,7 @@ import {doctor} from './installer/doctor.js';
 import {sessionHandoffRequired} from './installer/session.js';
 import {defaultStateRoot} from './installer/lock.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
-import {inspectOpenSpec,openSpecProjectScopes,OpenSpecReceiptError,planOpenSpecPreparation,prepareOpenSpec,reportOpenSpecPending,type OpenSpecPreparation} from './integrations/sdd/openspec-setup.js';
+import {inspectOpenSpec,openSpecProjectScopes,OpenSpecReceiptError,planOpenSpecPreparation,preparationScope,prepareOpenSpec,reportOpenSpecPending,type OpenSpecPreparation} from './integrations/sdd/openspec-setup.js';
 import {openspecPackage,openspecPreparationCommand,type OpenSpecInstallScope} from './integrations/sdd/openspec.js';
 import {forwardProjectOpenSpec,readOpenSpecPreparation} from './integrations/sdd/openspec-project.js';
 import {privateDirectory,signature} from './generator/cache.js';
@@ -244,14 +244,14 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    if(options.sdd!=='openspec'||!options.agents.length)throw Error('--prepare-openspec requires --sdd openspec and at least one agent');
    const saved=await readOpenSpecPreparation(root,nativeDeps.stateRoot);
    const ongoing=saved&&!saved.complete?saved:undefined;
-   const originalScope=ongoing?.approval.kind==='install'?'global':'project';
+   const originalScope=ongoing?preparationScope(ongoing.approval):undefined;
    const requested=values['--install-scope'] as OpenSpecInstallScope|undefined;
-   if(ongoing&&(!flags.resume||requested&&requested!==originalScope)){
+   if(ongoing&&originalScope&&(!flags.resume||requested&&requested!==originalScope)){
     const nextCommand=openspecPreparationCommand(root,ongoing.approval.agents,originalScope)+' --resume'+(flags.sessionsEnded?' --sessions-ended':'');
     const message='Resume the original OpenSpec preparation with its approved scope.';
     services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[message],nextCommand});io.write(message+'\n'+nextCommand+'\n');return 3;
    }
-   const scope=ongoing?originalScope:requested??'global';
+   const scope=originalScope??requested??'global';
    let setup=await inspectOpenSpec(root,options,services.signal,undefined,{scope,stateRoot:nativeDeps.stateRoot});
    if(ongoing||setup.requirements.length&&setup.canPrepare){
     if(await sessionHandoffRequired(root,flags.sessionsEnded)){
@@ -294,7 +294,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    if(selected.sdd!=='openspec'||!selected.agents.length)return 'ready';
    const nativeState=await readOpenSpecPreparation(root,nativeDeps.stateRoot);
    if(nativeState&&!nativeState.complete){
-    const scope=nativeState.approval.kind==='install'?'global':'project';
+    const scope=preparationScope(nativeState.approval);
     const nextCommand=openspecPreparationCommand(root,nativeState.approval.agents,scope)+' --resume';
     const message='Resume the original OpenSpec preparation.';
     services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[message],nextCommand});

@@ -1,5 +1,6 @@
 import {execFile,spawn} from 'node:child_process';
-import {lstat,readFile,realpath} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {constants,lstat,open,readdir,readFile,realpath} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
 import {promisify} from 'node:util';
 import ignore from 'ignore';
@@ -31,6 +32,7 @@ export interface OpenSpecPreparationRecord {
  approvalDigest:string;
  complete:boolean;
  projectReceipt?:ToolInstallReceipt;
+ projectPayloadDigest?:string;
  installedCliIdentity?:string;
 }
 const preparationPath=(root:string,stateRoot:string)=>join(stateRoot,'openspec-preparation-'+signature(root)+'.json');
@@ -42,20 +44,51 @@ export function saveOpenSpecPreparation(record:OpenSpecPreparationRecord,stateRo
  return saveDurable(preparationPath(record.root,stateRoot),JSON.stringify(record));
 }
 
+async function projectPayloadDigest(packageRoot:string){
+ // The launcher imports the package payload. Verify its bytes before invoking it.
+ const hash=createHash('sha256');
+ let entries=0,bytes=0;
+ async function visit(directory:string){
+  const children=await readdir(join(packageRoot,directory),{withFileTypes:true});
+  children.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
+  for(const child of children){
+   const target=directory+child.name;
+   if(++entries>4096)throw Error('OpenSpec package exceeds verification budget');
+   if(child.isDirectory()){await visit(target+'/');continue;}
+   if(!child.isFile())throw Error('OpenSpec package contains an unexpected file type');
+   const handle=await open(await targetPath(packageRoot,target),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+   try{
+    const {size}=await handle.stat();
+    bytes+=size;
+    if(bytes>32_000_000)throw Error('OpenSpec package exceeds verification budget');
+    const data=Buffer.alloc(size);
+    if((await handle.read(data)).bytesRead!==size||(await handle.stat()).size!==size)throw Error('OpenSpec package changed during verification');
+    hash.update(JSON.stringify([target,digest(data)]));
+   }finally{await handle.close();}
+  }
+ }
+ await visit('');
+ return hash.digest('hex');
+}
+
+function openSpecPackageRoot(root:string,prefix=projectTool.prefix){
+ return targetPath(root,prefix+'/node_modules/'+projectTool.name);
+}
+
 export async function verifiedProjectOpenSpec(root:string,stateRoot?:string){
  const record=await readOpenSpecPreparation(root,stateRoot);
  if(!record?.projectReceipt)return;
  const identity=await readVerifiedToolInstall(root,'openspec',record.projectReceipt);
  if(!identity)throw Error('Project OpenSpec installation differs from its receipt. Reconcile .rigup/tools/openspec before continuing.');
- const packageRoot=await targetPath(root,projectTool.prefix+'/node_modules/'+projectTool.name);
+ const packageRoot=await openSpecPackageRoot(root);
+ const payload=await projectPayloadDigest(packageRoot);
+ if(payload!==record.projectPayloadDigest)throw Error('Project OpenSpec payload differs from its receipt. Reconcile .rigup/tools/openspec before continuing.');
  const metadata=JSON.parse(await readFile(await targetPath(packageRoot,'package.json'),'utf8'));
  const relative=typeof metadata.bin==='string'?metadata.bin:metadata.bin?.openspec;
  if(typeof relative!=='string'||!/^[\w./-]+\.(?:c|m)?js$/i.test(relative))throw Error('Invalid OpenSpec CLI entry');
  const entry=await targetPath(packageRoot,relative.replace(/^\.\//,''));
- const {size}=await lstat(entry);
- if(size>2_000_000)throw Error('OpenSpec CLI entry exceeds verification budget');
  return {file:process.execPath,args:[entry],source:'project' as const,version:identity.version,
-  identity:signature({root,entry,entryDigest:digest(await readFile(entry)),receipt:record.projectReceipt})};
+  identity:signature({root,entry,payload,receipt:record.projectReceipt})};
 }
 
 async function gitIgnoreCheck(root:string,target:string,proposed:string,writeIgnore?:()=>Promise<void>){
@@ -101,9 +134,18 @@ export async function installProjectOpenSpec(root:string,record:OpenSpecPreparat
    const rules=await readTarget(root,ignoreTarget);
    if(!rules)throw Error('OpenSpec tool ignore file disappeared');
    await gitIgnoreCheck(root,target,rules.toString('utf8'));
+  },verifyInstallPayload:async target=>{
+   const payload=await projectPayloadDigest(await openSpecPackageRoot(root,target));
+   if(record.projectPayloadDigest&&record.projectPayloadDigest!==payload)throw Error('Staged OpenSpec payload changed after verification');
+   if(!record.projectPayloadDigest){
+    record.projectPayloadDigest=payload;
+    await saveOpenSpecPreparation(record,stateRoot);
+   }
   },
  },recover);
  if(result.status!=='done'||!result.receipt)throw Error(result.message);
+ if(!record.projectPayloadDigest||await projectPayloadDigest(await openSpecPackageRoot(root))!==record.projectPayloadDigest)
+  throw Error('Project OpenSpec payload differs from the verified staging');
  record.projectReceipt=result.receipt;
  await saveOpenSpecPreparation(record,stateRoot);
 }

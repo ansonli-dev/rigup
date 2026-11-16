@@ -35,9 +35,8 @@ import {digest} from './analyzer/evidence.js';
 import {apply,interruptedApplyId,interruptedInstallApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
 import {essentialEnvironment,runtimeEnvironment,runtimeSetupSummary} from './runtime-inputs.js';
 import {prepareProjectToolOperations} from './integrations/registry.js';
-import {inspectOpenSpec,type OpenSpecRuntimeIdentity} from './integrations/sdd/openspec-setup.js';
+import {inspectOpenSpecForSetup,interruptedOpenSpecPreparation,type OpenSpecRuntimeIdentity} from './integrations/sdd/openspec-setup.js';
 import {openspecPreparationCommand} from './integrations/sdd/openspec.js';
-import {readOpenSpecPreparation} from './integrations/sdd/openspec-project.js';
 import type {NpmView} from './integrations/tools/npm-resolution.js';
 import type {LifecyclePresentation} from './cli-output.js';
 export interface LifecycleFlags {globalTools?:('openwiki'|'codegraph')[];deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
@@ -86,13 +85,10 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
 
  try {
   if(options.sdd==='openspec'){
-   const native=await readOpenSpecPreparation(root,lock.stateRoot);
-   if(native&&!native.complete){
-    const scope=native.approval.kind==='install'?'global':'project';
-    const nextCommand=openspecPreparationCommand(root,native.approval.agents,scope)+' --resume';
-    const message='Resume the original OpenSpec preparation.';
-    services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[message],nextCommand});
-    notice(message+'\n'+nextCommand+'\n');return 3;
+   const pending=await interruptedOpenSpecPreparation(root,lock.stateRoot);
+   if(pending){
+    services.report?.({phase:'preflight',installStatus:'pending',reason:'openspec-preparation',executable:false,pending:pending.requirements,nextCommand:pending.nextCommand});
+    notice(pending.requirements.join('\n')+'\n'+pending.nextCommand+'\n');return 3;
    }
   }
   await assertNoUnknownWriters(root,lock.stateRoot);
@@ -137,18 +133,16 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    return installed.exitCode;
   }}
   let openSpecRuntime:OpenSpecRuntimeIdentity|undefined;
-  let openSpecPending:Awaited<ReturnType<typeof inspectOpenSpec>>|undefined;
+  let openSpecPending:Awaited<ReturnType<typeof inspectOpenSpecForSetup>>|undefined;
   if(options.sdd==='openspec'&&options.agents.length){
-   let native=await inspectOpenSpec(root,options,services.signal,undefined,{scope:'project',stateRoot:lock.stateRoot});
-   if(!native.cli&&!native.projectAvailable&&native.globalAvailable)
-    native=await inspectOpenSpec(root,options,services.signal,undefined,{scope:'global',stateRoot:lock.stateRoot});
+   const native=await inspectOpenSpecForSetup(root,options,lock.stateRoot,services.signal);
    if(native.requirements.length){
     if(!needsResearch||backendKind!=='host'||await loadManifest(root)){
      const nextCommand=native.steps.length?native.steps.join(' && '):null;
      const reason='Prepare the selected OpenSpec integration, then repeat your setup command.';
      for(const problem of native.requirements)notice('OpenSpec: '+problem+'\n');
      notice(reason+'\n'+(nextCommand?nextCommand+'\n':''));
-     services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:native.requirements,requiredInput:native.requirements,nextCommand});return 3;
+     services.report?.({phase:'preflight',installStatus:'pending',reason:'openspec-preparation',executable:false,pending:native.requirements,requiredInput:native.requirements,nextCommand});return 3;
     }
     openSpecPending=native;
    }
