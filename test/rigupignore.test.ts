@@ -118,3 +118,12 @@ test('a symlinked research ignore file is rejected',()=>project(async root=>{
  await symlink('local-ignore',join(root,'.rigupignore'));
  await assert.rejects(()=>repositoryReader(root,{agents:['claude'],backend:'host'}),/symlink denied/);
 }));
+
+test('OMP manager records are never exposed through research inventory or reader',()=>project(async root=>{
+ await put(root,'.omp/plugins/installed_plugins.json','{"arbitrary-private-field":"manager-secret"}');
+ await put(root,'.omp/plugins/package.json','{"arbitrary-private-field":"manager-secret"}');
+ await put(root,'.omp/plugins/omp-plugins.lock.json','{"arbitrary-private-field":"manager-secret"}');
+ const options:SetupOptions={agents:['omp'],backend:'host',sdd:'superpowers'};
+ const reader=await repositoryReader(root,options);
+ assert.deepEqual(await reader.list(),[]);assert.deepEqual(await reader.search('manager-secret'),[]);
+}));

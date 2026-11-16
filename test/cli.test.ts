@@ -409,3 +409,28 @@ test('claude,omp Superpowers actual project sources produce an executable previe
  }
  assert.equal(await readFile(join(root,'user.txt'),'utf8'),'preserve');
 }))));
+
+for(const mutation of ['skill','manifest','entry','path','disable'] as const)for(const interrupted of [false,true])test(`native ${mutation} replacement rejects ${interrupted?'interrupted recovery':'saved apply'} before further project writes`,t=>project(root=>project(cache=>project(state=>project(async home=>{
+ const {mkdir,writeFile,readFile,rename}=await import('node:fs/promises');const {apply}=await import('../src/installer/apply.js');
+ const omp=join(home,'agent'),plugin=join(omp,'plugins/node_modules/omp-superpowers');
+ testEnvironment(t,{PI_CODING_AGENT_DIR:omp});
+ await mkdir(join(plugin,'extensions'),{recursive:true});await writeFile(join(plugin,'extensions/superpowers.ts'),'export default function() {}');
+ await writeFile(join(plugin,'package.json'),'{"name":"omp-superpowers","version":"0.1.0","omp":{"extensions":["./extensions/superpowers.ts"]}}');
+ await writeFile(join(omp,'plugins/package.json'),'{"dependencies":{"omp-superpowers":"0.1.0"}}');
+ for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion']){const path=join(plugin,'skills',name);await mkdir(path,{recursive:true});await writeFile(join(path,'SKILL.md'),`---\nname: ${name}\ndescription: Native\n---\nNative gates\n`);}
+ await writeFile(join(root,'user.txt'),'preserve');
+ let output='';const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
+ assert.equal(await runCli(['init','--agents','omp','--sdd','superpowers','--defer-research','--review','--json'],io),3,output);
+ const review=JSON.parse(output);assert.equal(review.executable,true,output);
+ const dependencies={cacheRoot:join(cache,'previews'),stateRoot:state};
+ if(interrupted)await assert.rejects(()=>apply(review.previewId,{...dependencies,hook:async point=>{if(point==='after-file')throw Error('test interrupted after one write');}}),/test interrupted/);
+ const snapshot=async()=>{const paths=await readdir(root,{recursive:true});return Promise.all(paths.sort().map(async path=>[path,await readFile(join(root,path),'base64').catch(()=>null)]));};
+ const before=await snapshot();
+ if(mutation==='skill')await writeFile(join(plugin,'skills/brainstorming/SKILL.md'),'---\nname: brainstorming\ndescription: Changed\n---\n');
+ if(mutation==='manifest')await writeFile(join(plugin,'package.json'),'{"name":"omp-superpowers","version":"0.1.1","omp":{"extensions":["./extensions/superpowers.ts"]}}');
+ if(mutation==='entry')await writeFile(join(plugin,'extensions/superpowers.ts'),'export default function(){return 1;}');
+ if(mutation==='path')await rename(join(plugin,'skills/brainstorming'),join(plugin,'skills/moved'));
+ if(mutation==='disable')await writeFile(join(omp,'plugins/omp-plugins.lock.json'),'{"plugins":{"omp-superpowers":{"enabled":false}}}');
+ await assert.rejects(()=>apply(review.previewId,{...dependencies,recover:interrupted}),/source.*changed|snapshot|input/i);
+ assert.deepEqual(await snapshot(),before);
+})))));

@@ -38,3 +38,208 @@ test('ordinary_guidance_about_credentials_remains_readable',()=>project(async ro
  await writeFile(join(root,'TEAM.md'),'Keep API tokens in environment variables. Never log passwords.\n');
  assert.match((await readEvidence(root,'TEAM.md',1,1)).content,/environment variables/);
 }));
+
+import {mkdir,symlink,rm} from 'node:fs/promises';
+import {dirname} from 'node:path';
+import {scanRepository} from '../src/analyzer/repository.js';
+import {prepareIntegrations} from '../src/integrations/registry.js';
+const powers=['brainstorming','writing-plans','executing-plans','verification-before-completion'];
+async function nativePut(path:string,text:string){await mkdir(dirname(path),{recursive:true});await writeFile(path,text);}
+async function nativeSkills(path:string,body='Preserve native gates.'){
+ for(const name of powers)await nativePut(join(path,name,'SKILL.md'),`---\nname: ${name}\ndescription: Native workflow\n---\n${body}\n`);
+}
+const nativeOptions=(agent:import('../src/types.js').Agent)=>({agents:[agent],backend:'host' as const,sdd:'superpowers' as const});
+test('Claude local scope uses canonical project and freezes selected manifest identity',()=>project(root=>project(async home=>{
+ const base=join(home,'.claude/plugins/cache/official/superpowers/7.0.2');
+ await nativeSkills(join(base,'skills'));await nativePut(join(base,'.claude-plugin/plugin.json'),'{"name":"superpowers","version":"7.0.2"}');
+ await nativePut(join(home,'.claude/settings.json'),'{"enabledPlugins":{"superpowers@official":true}}');
+ await symlink(root,join(home,'project-alias'),'dir');
+ await nativePut(join(home,'.claude/plugins/installed_plugins.json'),JSON.stringify({plugins:{'superpowers@official':[{scope:'local',projectPath:join(home,'project-alias'),installPath:base}]}}));
+ const before=await scanRepository(root,nativeOptions('claude'),{home});
+ assert.equal((await prepareIntegrations(before,nativeOptions('claude'))).bindings.length,1);
+ await nativePut(join(base,'.claude-plugin/plugin.json'),'{"name":"superpowers","version":"7.0.3"}');
+ assert.notEqual((await scanRepository(root,nativeOptions('claude'),{home})).fingerprint,before.fingerprint);
+ await rm(join(base,'skills/brainstorming'),{recursive:true});
+ await symlink(join(home,'external'),join(base,'skills/brainstorming'),'dir');
+ await nativeSkills(join(home,'external'));
+ assert.ok(!(await scanRepository(root,nativeOptions('claude'),{home})).nativeEntries?.claude?.includes('superpowers:brainstorming'));
+})));
+test('Codex chooses local before versions and never falls back from its invalid active directory',()=>project(root=>project(async home=>{
+ const cache=join(home,'.codex/plugins/cache/official/superpowers');
+ for(const version of ['7.0.2','7.0.10']){await nativeSkills(join(cache,version,'skills'),version);await nativePut(join(cache,version,'.claude-plugin/plugin.json'),'{"name":"superpowers"}');}
+ await nativePut(join(home,'.codex/config.toml'),'[plugins."superpowers@official"]\nenabled=true\n');
+ let profile=await scanRepository(root,nativeOptions('codex'),{home});
+ assert.equal(profile.skillSources?.codex?.length,4);
+ assert.ok(profile.skillSources?.codex?.every(source=>source.identity.includes('/7.0.10/')));
+ await mkdir(join(cache,'local'),{recursive:true});
+ profile=await scanRepository(root,nativeOptions('codex'),{home});
+ assert.ok(!profile.nativeEntries?.codex?.length);
+})));
+for(const mode of ['npm','link'] as const)test(`OMP enabled ${mode} package is source-bound and freezes its manifest`,()=>project(root=>project(async home=>{
+ const plugins=join(home,'.omp/agent/plugins'),name='@loneexile/omp-superpowers';
+ const base=mode==='link'?join(home,'linked-superpowers'):join(plugins,'node_modules',name);
+ await nativeSkills(join(base,'skills'));await nativePut(join(base,'package.json'),JSON.stringify({name,version:'1.0.0',omp:{skills:['skills']}}));
+ await nativePut(join(plugins,'package.json'),JSON.stringify({dependencies:mode==='npm'?{[name]:'1.0.0'}:{}}));
+ await nativePut(join(plugins,'omp-plugins.lock.json'),JSON.stringify({plugins:{[name]:{enabled:true}}}));
+ if(mode==='link'){await mkdir(dirname(join(plugins,'node_modules',name)),{recursive:true});await symlink(base,join(plugins,'node_modules',name),'dir');}
+ const before=await scanRepository(root,nativeOptions('omp'),{home});
+ const prepared=await prepareIntegrations(before,nativeOptions('omp'));assert.equal(prepared.bindings.length,1);
+ assert.deepEqual(prepared.bindings[0].artifacts,['docs/specs','docs/plans']);
+ assert.ok(before.skillSources?.omp?.every(source=>source.packageName===name));
+ await nativePut(join(base,'package.json'),JSON.stringify({name,version:'1.0.1',omp:{skills:['skills']}}));
+ assert.notEqual((await scanRepository(root,nativeOptions('omp'),{home})).fingerprint,before.fingerprint);
+ await nativePut(join(root,'.omp/plugin-overrides.json'),JSON.stringify({disabled:[name]}));
+ assert.ok(!(await scanRepository(root,nativeOptions('omp'),{home})).nativeEntries?.omp?.length);
+})));
+test('OMP project npm package shadows user package and stale undeclared cache is ignored',()=>project(root=>project(async home=>{
+ for(const [base,body] of [[join(home,'.omp/agent/plugins'),'user'],[join(root,'.omp/plugins'),'project']]){
+  await nativePut(join(base,'package.json'),'{"dependencies":{"omp-superpowers":"1.0.0"}}');
+  await nativePut(join(base,'node_modules/omp-superpowers/package.json'),'{"name":"omp-superpowers","omp":{"skills":["skills"]}}');await nativeSkills(join(base,'node_modules/omp-superpowers/skills'),body);
+ }
+ let profile=await scanRepository(root,nativeOptions('omp'),{home});assert.equal(profile.skillSources?.omp?.length,4);
+ assert.ok(profile.skillSources?.omp?.every(source=>source.identity.startsWith(join(root,'.omp/plugins'))));
+ await nativePut(join(root,'.omp/plugins/package.json'),'{"dependencies":{}}');
+ profile=await scanRepository(root,nativeOptions('omp'),{home});assert.ok(profile.skillSources?.omp?.every(source=>source.identity.startsWith(home)));
+})));
+test('OMP Marketplace override, provider opt-in and project-disabled fallback match host scopes',()=>project(root=>project(async home=>{
+ const claude=join(home,'.claude'),omp=join(home,'.omp/agent/plugins'),base=join(claude,'plugins/cache/official/superpowers/7');
+ await nativeSkills(join(base,'skills'));await nativePut(join(base,'.claude-plugin/plugin.json'),'{"name":"superpowers"}');
+ const record={scope:'user',installPath:base};
+ await nativePut(join(claude,'plugins/installed_plugins.json'),JSON.stringify({plugins:{'superpowers@official':[record]}}));
+ await nativePut(join(home,'.omp/agent/settings.json'),'{"skills":{"enableClaudeUser":true}}');
+ assert.equal((await scanRepository(root,nativeOptions('omp'),{home})).skillSources?.omp?.length,4);
+ await nativePut(join(omp,'installed_plugins.json'),JSON.stringify({plugins:{'superpowers@official':[{...record,enabled:false}]}}));
+ assert.ok(!(await scanRepository(root,nativeOptions('omp'),{home})).nativeEntries?.omp?.length);
+ await nativePut(join(omp,'installed_plugins.json'),JSON.stringify({plugins:{'superpowers@official':[record]}}));
+ await nativePut(join(home,'.omp/agent/settings.json'),'{"skills":{"enableClaudeUser":false}}');
+ await nativePut(join(root,'.omp/plugins/installed_plugins.json'),JSON.stringify({plugins:{'superpowers@official':[{...record,enabled:false}]}}));
+ assert.equal((await scanRepository(root,nativeOptions('omp'),{home})).skillSources?.omp?.length,4);
+ await nativePut(join(home,'.omp/agent/settings.json'),'{"skills":{"enabled":false}}');
+ const disabled=await prepareIntegrations(await scanRepository(root,nativeOptions('omp'),{home}),nativeOptions('omp'));
+ assert.match(disabled.requirements[0].reason,/skills.enabled/);
+})));
+
+for(const version of [1,2])test(`OpenCode V${version} only binds enabled current official plugin and freezes its entry`,()=>project(root=>project(async home=>{
+ const spec='git+https://github.com/obra/superpowers.git#v7.0.2';
+ const cache=join(home,'.cache/opencode');
+ const packageRoot=version===1?join(cache,'packages',spec,'node_modules/superpowers'):join(cache,'npm','git-superpowers-'+createHash('sha256').update(spec).digest('hex').slice(0,12),'20/node_modules/superpowers');
+ await nativeSkills(join(packageRoot,'skills'));
+ await nativePut(join(packageRoot,'package.json'),JSON.stringify({name:'superpowers',version:'7.0.2',opencode:version===2?{server:'.opencode/plugins/superpowers.js'}:undefined}));
+ await nativePut(join(packageRoot,'.opencode/plugins/superpowers.js'),version===2?'export default {id:"superpowers",setup(){}};':'export const SuperpowersPlugin = async () => ({});');
+ const config=join(home,'.config/opencode/opencode.json');
+ await nativePut(config,JSON.stringify(version===1?{plugin:[spec]}:{plugins:[spec]}));
+ const options=nativeOptions('opencode');
+ const first=await scanRepository(root,options,{home});assert.equal((await prepareIntegrations(first,options)).bindings.length,1);
+ assert.deepEqual(first.nativeEntries?.opencode?.sort(),[...powers].sort());
+ await nativePut(join(packageRoot,'.opencode/plugins/superpowers.js'),'// changed loader\n'+(version===2?'export default {id:"superpowers",setup(){}};':'export const SuperpowersPlugin = async () => ({});'));
+ assert.notEqual((await scanRepository(root,options,{home})).fingerprint,first.fingerprint);
+ if(version===2){
+  await nativePut(join(root,'opencode.jsonc'),'{"plugins":["-superpowers"]}');
+  assert.ok(!(await scanRepository(root,options,{home})).nativeEntries?.opencode?.length);
+  await nativePut(join(root,'opencode.jsonc'),'{"plugins":[]}');
+  await mkdir(join(dirname(dirname(packageRoot)),'21'),{recursive:true});
+  // A new incomplete generation wins over the older complete installation.
+  await mkdir(join(cache,'npm','git-superpowers-'+createHash('sha256').update(spec).digest('hex').slice(0,12),'21'),{recursive:true});
+ }else await nativePut(config,'{"plugin":[]}');
+ assert.ok(!(await scanRepository(root,options,{home})).nativeEntries?.opencode?.length);
+})));
+test('OpenCode V2 skill IDs use paths, flat files and effective permissions',()=>project(root=>project(async home=>{
+ await nativePut(join(home,'.config/opencode/opencode.json'),'{"plugins":[]}');
+ await nativePut(join(home,'.agents/skills/brainstorming/SKILL.md'),'---\nname: Old display\ndescription: Shared\n---\nold');
+ await nativePut(join(root,'.opencode/skills/brainstorming.md'),'---\nname: Display only\ndescription: Project\n---\nselected');
+ await nativeSkills(join(root,'.opencode/skills'));
+ await rm(join(root,'.opencode/skills/brainstorming'),{recursive:true});
+ let profile=await scanRepository(root,nativeOptions('opencode'),{home});
+ assert.equal(profile.skillSources?.opencode?.filter(source=>source.name==='brainstorming').length,1);
+ assert.equal(profile.skillSources?.opencode?.find(source=>source.name==='brainstorming')?.identity,'.opencode/skills/brainstorming.md');
+ await nativePut(join(root,'opencode.jsonc'),'{"permission":{"skill":{"brainstorming":"deny"}}}');
+ profile=await scanRepository(root,nativeOptions('opencode'),{home});
+ assert.equal((await prepareIntegrations(profile,nativeOptions('opencode'))).bindings.length,0);
+})));
+for(const version of [1,2])test(`OpenCode V${version} custom config directory follows append versus replacement precedence`,()=>project(root=>project(async home=>{
+ const defaultDir=join(home,'.config/opencode'),custom=join(home,'custom');
+ await nativeSkills(join(defaultDir,'skills'));await nativePut(join(defaultDir,'opencode.json'),JSON.stringify(version===1?{plugin:[]}:{plugins:[]}));
+ await nativePut(join(custom,'opencode.json'),JSON.stringify(version===1?{plugin:[]}:{plugins:[]}));
+ const profile=await scanRepository(root,nativeOptions('opencode'),{home,env:{OPENCODE_CONFIG_DIR:custom}});
+ assert.equal(profile.skillSources?.opencode?.length??0,version===1?4:0);
+})));
+test('OpenCode native singular commands are discovered and JSONC command override is selected',()=>project(root=>project(async home=>{
+ const options={agents:['opencode' as const],backend:'host' as const,sdd:'spec-kit' as const};
+ for(const name of ['constitution','specify','plan','tasks','implement','converge'])await nativePut(join(root,'.opencode/command',`speckit.${name}.md`),'Native command');
+ const first=await scanRepository(root,options,{home});assert.equal(first.nativeEntries?.opencode?.length,6);
+ await nativePut(join(root,'opencode.jsonc'),'{"command":{"speckit.plan":{"template":"Project override"}}}');
+ const overridden=await scanRepository(root,options,{home});
+ const source=overridden.skillSources?.opencode?.find(source=>source.name==='speckit.plan');
+ assert.ok(source?.identity.includes('opencode.jsonc'));assert.notEqual(source?.digest,first.skillSources?.opencode?.find(source=>source.name==='speckit.plan')?.digest);
+})));
+
+test('OMP YAML settings disable native calls even while Spec Kit file commands remain visible',()=>project(root=>project(async home=>{
+ for(const name of ['constitution','specify','plan','tasks','implement','converge'])await nativePut(join(root,'.omp/commands',`speckit.${name}.md`),'Native command');
+ await nativePut(join(home,'.omp/agent/config.yml'),'skills:\n  enabled: false\nenableSkillCommands: false\n');
+ const options={agents:['omp' as const],backend:'host' as const,sdd:'spec-kit' as const};
+ const prepared=await prepareIntegrations(await scanRepository(root,options,{home}),options);
+ assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements[0].reason,/skills.enabled/);
+})));
+test('OMP npm plugin conventional skills load without skills manifest and entry replacement invalidates',()=>project(root=>project(async home=>{
+ const plugins=join(home,'.omp/agent/plugins'),base=join(plugins,'node_modules/omp-superpowers');
+ await nativePut(join(plugins,'package.json'),'{"dependencies":{"omp-superpowers":"0.1.0"}}');
+ await nativePut(join(base,'package.json'),'{"name":"omp-superpowers","omp":{"extensions":["./extensions/superpowers.ts"]}}');
+ await nativePut(join(base,'extensions/superpowers.ts'),'export default function() {}');await nativeSkills(join(base,'skills'));
+ const before=await scanRepository(root,nativeOptions('omp'),{home});assert.equal(before.skillSources?.omp?.length,4);
+ await nativePut(join(base,'extensions/superpowers.ts'),'export default function() { return 1; }');
+ assert.notEqual((await scanRepository(root,nativeOptions('omp'),{home})).fingerprint,before.fingerprint);
+ await rm(join(base,'extensions/superpowers.ts'));assert.ok(!(await scanRepository(root,nativeOptions('omp'),{home})).nativeEntries?.omp?.length);
+})));
+for(const script of ['bash/setup-plan.sh','powershell/setup-plan.ps1','python/setup-plan.py'])test(`Spec Kit validates ${script} and templates read-only and freezes dependency bytes`,()=>project(root=>project(async home=>{
+ const options={agents:['codex' as const],backend:'host' as const,sdd:'spec-kit' as const};
+ for(const name of ['constitution','specify','plan','tasks','implement','converge'])await nativePut(join(home,'.agents/skills','speckit-'+name,'SKILL.md'),`---\nname: speckit-${name}\ndescription: Native workflow\n---\nRead .specify/scripts/${script} and .specify/templates/plan-template.md.\n`);
+ let prepared=await prepareIntegrations(await scanRepository(root,options,{home}),options);
+ assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements[0].reason,/constitution/);
+ await nativePut(join(root,'.specify/memory/constitution.md'),'Keep approved governance.');
+ await nativePut(join(root,'.specify/scripts',script),'touch must-not-exist');
+ prepared=await prepareIntegrations(await scanRepository(root,options,{home}),options);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements[0].reason,/plan-template/);
+ await nativePut(join(root,'.specify/templates/plan-template.md'),'Native plan template');
+ const before=await scanRepository(root,options,{home});assert.equal((await prepareIntegrations(before,options)).bindings.length,1);
+ await nativePut(join(root,'.specify/scripts',script),'touch still-must-not-exist');
+ assert.notEqual((await scanRepository(root,options,{home})).fingerprint,before.fingerprint);
+ await assert.rejects(import('node:fs/promises').then(fs=>fs.access(join(root,'must-not-exist'))));
+ await nativePut(join(root,'.specify/extensions.yml'),'hooks:\n  before_plan:\n    - extension: checks\n      command: speckit.checks.verify\n      optional: false\n');
+ prepared=await prepareIntegrations(await scanRepository(root,options,{home}),options);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements[0].reason,/speckit.checks.verify/);
+ await nativePut(join(root,'.specify/extensions.yml'),'hooks:\n  before_plan:\n    - extension: checks\n      command: speckit.checks.verify\n      condition: dynamic_native_condition\n      optional: false\n');
+ assert.equal((await prepareIntegrations(await scanRepository(root,options,{home}),options)).bindings.length,1);
+})));
+
+test('Spec Kit current template resolver permits absent override and hashes only selected template layers',()=>project(root=>project(async home=>{
+ const options={agents:['omp' as const],backend:'host' as const,sdd:'spec-kit' as const};
+ for(const name of ['constitution','specify','plan','tasks','implement','converge'])await nativePut(join(root,'.omp/commands',`speckit.${name}.md`),'Run .specify/scripts/bash/setup-tasks.sh');
+ await nativePut(join(root,'.specify/memory/constitution.md'),'Governance');
+ await nativePut(join(root,'.specify/scripts/bash/setup-tasks.sh'),'source "$SCRIPT_DIR/common.sh"\nTASKS_TEMPLATE=$(resolve_template "tasks-template" "$REPO_ROOT")\necho "Add .specify/templates/overrides/tasks-template.md or restore .specify/templates/tasks-template.md"');
+ await nativePut(join(root,'.specify/scripts/bash/common.sh'),'# common functions');
+ await nativePut(join(root,'.specify/templates/tasks-template.md'),'Core tasks template');
+ const first=await scanRepository(root,options,{home});assert.equal((await prepareIntegrations(first,options)).bindings.length,1);
+ await nativePut(join(root,'.specify/templates/overrides/tasks-template.md'),'Project override');
+ const changed=await scanRepository(root,options,{home});assert.notEqual(changed.fingerprint,first.fingerprint);assert.equal((await prepareIntegrations(changed,options)).bindings.length,1);
+ await rm(join(root,'.specify/templates/tasks-template.md'));
+ assert.equal((await prepareIntegrations(await scanRepository(root,options,{home}),options)).bindings.length,1);
+})));
+test('Claude personal skills shadow project bare names without conflicting with distinct plugin namespace',()=>project(root=>project(async home=>{
+ await nativeSkills(join(root,'.claude/skills'),'project');await nativeSkills(join(home,'.claude/skills'),'personal');
+ const profile=await scanRepository(root,nativeOptions('claude'),{home});
+ assert.equal(profile.skillSources?.claude?.length,4);assert.ok(profile.skillSources?.claude?.every(source=>source.identity.startsWith(home)));
+ const {resolveSddBinding}=await import('../src/integrations/sdd/binding.js');
+ const plugin=profile.skillSources!.claude!.map(source=>({...source,name:'superpowers:'+source.name,digest:'different'}));
+ const all=[...profile.skillSources!.claude!,...plugin];
+ assert.equal(resolveSddBinding('superpowers','claude',all.map(source=>source.name),all,[]).binding.status,'source-bound');
+})));
+
+test('OpenCode V2 removes the registered plugin ID rather than an incidental skill ID',()=>project(root=>project(async home=>{
+ const base=join(home,'superpowers');await nativeSkills(join(base,'skills'));
+ await nativePut(join(base,'package.json'),'{"name":"superpowers","main":".opencode/plugins/superpowers.js"}');
+ await nativePut(join(base,'.opencode/plugins/superpowers.js'),'// example id: "brainstorming"\nexport default {id:"registered-superpowers",setup(){}}');
+ await nativePut(join(home,'.config/opencode/opencode.json'),JSON.stringify({plugins:[{package:base}]}));
+ const enabled=await scanRepository(root,nativeOptions('opencode'),{home});assert.equal(enabled.skillSources?.opencode?.length,4);
+ await nativePut(join(root,'opencode.jsonc'),'{"plugins":["-registered-superpowers"]}');
+ assert.ok(!(await scanRepository(root,nativeOptions('opencode'),{home})).nativeEntries?.opencode?.length);
+ await nativePut(join(root,'opencode.jsonc'),JSON.stringify({policies:[{action:'integration.use',resource:'plugin:'+base,effect:'deny'}]}));
+ assert.ok(!(await scanRepository(root,nativeOptions('opencode'),{home})).nativeEntries?.opencode?.length);
+})));

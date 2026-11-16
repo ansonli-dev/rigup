@@ -268,3 +268,16 @@ test('multi-host binding requirements identify the failing host and a repair act
  assert.match(prepared.requirements[0].reason,/omp.*missing native entry:/);
  assert.ok(prepared.requirements[0].nextCommand);
 }));
+
+test('Spec Kit repair distinguishes first initialization, host addition and broken native project files',()=>project(async root=>{
+ const options={agents:['omp' as const],backend:'host' as const,sdd:'spec-kit' as const};
+ let prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ assert.match(prepared.requirements[0].nextCommand!,/specify init --here --integration omp/);
+ assert.match(prepared.requirements[0].reason,/uvx|uv tool install/);
+ await mkdir(join(root,'.specify/memory'),{recursive:true});await writeFile(join(root,'.specify/memory/constitution.md'),'User governance');
+ prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ assert.match(prepared.requirements[0].nextCommand!,/specify integration install omp/);
+ for(const name of ['constitution','specify','plan','tasks','implement','converge']){await mkdir(join(root,'.omp/commands'),{recursive:true});await writeFile(join(root,'.omp/commands','speckit.'+name+'.md'),'Read .specify/scripts/bash/setup-plan.sh');}
+ prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ assert.match(prepared.requirements[0].reason,/restore|repair/i);assert.match(prepared.requirements[0].reason,/setup-plan.sh/);
+}));

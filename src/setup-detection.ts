@@ -1,5 +1,5 @@
 import {scanNativeEntries} from './analyzer/repository.js';
-import {agents} from './integrations/agents/index.js';
+import {agents,projectCommandRoots} from './integrations/agents/index.js';
 import {resolveSddBinding,sddDiscoveryNames,unqualifiedSkillName} from './integrations/sdd/binding.js';
 import {codegraph} from './integrations/tools/codegraph.js';
 import {openwiki} from './integrations/tools/openwiki.js';
@@ -25,7 +25,7 @@ export async function detectCommands(root:string){
 export async function detectSdd(root:string,options:SetupOptions,write:(text:string)=>void):Promise<SetupOptions['sdd']>{
  const markers={superpowers:['docs/superpowers'],openspec:['openspec/config.yaml','openspec/config.yml'],'spec-kit':['.specify']};
  const ids=['superpowers','openspec','spec-kit'] as const;
- const hostScopes=options.agents.flatMap(agent=>[agents[agent].skillDirectory,agents[agent].skillDirectory.replace(/\/skills$/,'/commands')]);
+ const hostScopes=options.agents.flatMap(agent=>[agents[agent].skillDirectory,...projectCommandRoots[agent]]);
  const candidates=await Promise.all(ids.map(async sdd=>{
   const profile=await scanNativeEntries(root,{agents:options.agents,backend:options.backend,sdd,
    scope:[...hostScopes,...markers[sdd]],readBudget:options.readBudget});

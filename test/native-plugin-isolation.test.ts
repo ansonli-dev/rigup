@@ -47,7 +47,8 @@ test('Codex ignores disabled records and accepts a usable older enabled plugin',
  assert.equal(prepared.bindings.length,1);assert.deepEqual(prepared.requirements,[]);
  assert.doesNotMatch(profile.unknowns.join('\n'),/disabled/);
  await plugin(home,'good','7.0.2','7.0.2');
- const ambiguous=await prepareIntegrations(await scanRepository(root,options,{home}),options);
- assert.equal(ambiguous.bindings.length,0);
- assert.match(ambiguous.requirements.map(item=>item.reason).join('\n'),/source unknown/);
+ const current=await prepareIntegrations(await scanRepository(root,options,{home}),options);
+ assert.equal(current.bindings.length,1);
+ assert.deepEqual(current.requirements,[]);
+ assert.ok((await scanRepository(root,options,{home})).skillSources?.codex?.every(source=>source.identity.includes('/7.0.2/')));
 })));

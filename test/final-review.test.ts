@@ -24,7 +24,7 @@ test('review_superpowers_local_unprefixed_native_names_satisfy_binding',()=>proj
 test('review_enabled_global_plugin_sources_are_discovered_with_native_identity',()=>project(async root=>project(async home=>{
  const base=home+'/.codex/plugins/cache/fixture-market/superpowers/7.0.1';await mkdir(base+'/.claude-plugin',{recursive:true});await writeFile(base+'/.claude-plugin/plugin.json',JSON.stringify({name:'superpowers',version:'7.0.1'}));for(const name of powers)await skill(base+'/skills',name);await writeFile(home+'/.codex/config.toml','[plugins."superpowers@fixture-market"]\nenabled = true\n');const selected={...opts,sdd:'superpowers' as const};const profile=await scanRepository(root,selected,{home});const prepared=await prepareIntegrations(profile,selected);assert.deepEqual(prepared.requirements,[]);assert.ok(profile.skillSources?.codex?.some(s=>s.origin==='plugin'));
 })));
-test('Claude Superpowers 7.0.2 previews OpenWiki and changing only plugin version metadata preserves approval',()=>project(async root=>project(async home=>project(async cache=>project(async state=>{
+test('Claude Superpowers 7.0.2 previews OpenWiki and changing plugin manifest metadata invalidates approval',()=>project(async root=>project(async home=>project(async cache=>project(async state=>{
   const version='7.0.2';
   const pluginId='superpowers@fixture-market';
   const claude=join(home,'.claude');
@@ -49,15 +49,9 @@ test('Claude Superpowers 7.0.2 previews OpenWiki and changing only plugin versio
    assert.deepEqual(result.operations.map(operation=>operation.id),['install:openwiki']);
    assert.doesNotMatch(result.warnings.join('\n'),/version.*verified/);
    await writeFile(pluginManifest,JSON.stringify({name:'superpowers'}));
-   assert.deepEqual((await scanRepository(root,options)).skillSources,profile.skillSources);
+   assert.notDeepEqual((await scanRepository(root,options)).skillSources,profile.skillSources);
    const {apply}=await import('../src/installer/apply.js');
-   const applied=await apply(result.previewId,{cacheRoot:cache,stateRoot:state,operation:{launch:async op=>{
-    const {name,version,integrity,packageLock}=op.query;
-    await writeNativeToolFixture(root,'openwiki',version,'commonjs',op.protection.target);
-    await writeFile(join(root,packageLock),JSON.stringify({packages:{'':{dependencies:{[name]:version}},['node_modules/'+name]:{version,integrity}}}));
-    return queryOperation(op);
-   }}});
-   assert.equal(applied.status,'complete');
+   await assert.rejects(()=>apply(result.previewId,{cacheRoot:cache,stateRoot:state}),/source input changed/);
   }finally{if(previous===undefined)delete process.env.CLAUDE_CONFIG_DIR;else process.env.CLAUDE_CONFIG_DIR=previous;}
  })))));
 test('review_sdd_dependencies_and_conflicting_identities_are_not_name_only_bindings',()=>project(async root=>{
