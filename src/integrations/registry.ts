@@ -1,3 +1,4 @@
+import {planGlobalNpmInstall,globalNpmInstallOperation} from './tools/global-npm.js';
 import {prepareQuality} from './tools/quality.js';
 import {prepareCustomer} from './gitlab/customer.js';
 import {inspectProjectToolInstall} from './tools/software.js';
@@ -118,7 +119,7 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
  return {assets,operations:[],warnings,requirements,bindings,skillBindings};
 }
 
-export async function prepareProjectToolOperations(plan:SetupPlan,profile:ProjectProfile,input:{stateRoot:string;signal?:AbortSignal;view?:NpmView}):Promise<SetupPlan>{
+export async function prepareProjectToolOperations(plan:SetupPlan,profile:ProjectProfile,input:{stateRoot:string;signal?:AbortSignal;view?:NpmView;globalTools?:('openwiki'|'codegraph')[]}):Promise<SetupPlan>{
  const {root,options}=plan;
  if(!options.tools?.length)return plan;
  const operations=[...plan.operations],requirements=[...plan.requirements],warnings=[...plan.warnings];
@@ -136,11 +137,16 @@ export async function prepareProjectToolOperations(plan:SetupPlan,profile:Projec
   input.signal?.throwIfAborted();
   const id=selection.id;
   if(!isNativeTool(id))throw Error('Unsupported executable adapter');
+  if(input.globalTools?.includes(id)){
+   try{operations.push(globalNpmInstallOperation(await planGlobalNpmInstall(root,id,input)));}
+   catch(error){input.signal?.throwIfAborted();pending(id,(error as Error).message,'npm-resolution');}
+   continue;
+  }
   const receipt=profile.installedTools?.[id];
   let initialize=id==='codegraph'&&selection.initialize;
   if(!selection.install&&(!selection.initialize||receipt===undefined)){
-   if(initialize)pending(id,'Initialization requires a verified project installation; enable project installation first');
    const external=await resolveExternalTool(root,id,consumerPath());
+   if(initialize&&external.state!=='available')pending(id,'Initialization requires a verified project installation; enable project installation first');
    if(external.state==='repair')pending(id,external.reason);
    if(external.state==='missing')warnings.push(id+': command unavailable on the terminal PATH. Fix the agent PATH or run rigup update --configure --tools '+options.tools.map(tool=>tool.id).join(','));
    if(id==='codegraph')warnings.push('codegraph: run codegraph status in the project, then codegraph init if no index exists. Existing indexes are kept.');

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {inspectGlobalNpm} from './integrations/tools/global-npm.js';
 import {readFile,realpath,rm} from 'node:fs/promises';
 import {resolve,join,relative,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
@@ -329,7 +330,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    const choices:NonNullable<SetupOptions['tools']>=[];
    for(const tool of options.tools){
     const prior=configuredTools.get(tool.id);
-    if(prior){
+    if(prior&&!(flags.configure&&values['--tools']&&!prior.install)){
      const agents=values['--agents']&&values['--tools']?tool.agents:prior.agents.filter(agent=>options.agents.includes(agent));
      if(agents.length)choices.push({...tool,agents});
      continue;
@@ -338,7 +339,15 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
     if(detected.state==='project')io.write(tool.id+': reuse project installation '+detected.version+'\n');
     if(detected.state==='available')io.write(tool.id+': reuse existing PATH installation\n');
     if(detected.state==='repair')io.write(tool.id+': '+detected.reason+'\n');
-    choices.push(detected.state==='available'||detected.state==='repair'?{...tool,install:false,initialize:false}:tool);
+    if(detected.state==='missing'&&io.isTTY&&!values['--json']){
+     const global=await inspectGlobalNpm(root,tool.id).then(()=>true,()=>false);
+     if(global){
+      const scope=await ask({message:tool.id+' 安装范围',choices:['project','global'],defaults:['project']});
+      if(!Array.isArray(scope))return 130;
+      if(scope[0]==='global'){(flags.globalTools??=[]).push(tool.id);choices.push({...tool,install:false,initialize:prior?.initialize??false});continue;}
+     }
+    }
+    choices.push(detected.state==='available'||detected.state==='repair'?{...tool,install:false,initialize:prior?.initialize??false}:detected.state==='missing'?{...tool,install:true}:tool);
    }
    options.tools=choices;
   }

@@ -55,6 +55,7 @@ export async function interruptedSeedApplyId(root:string,stateRoot=defaultStateR
 }
 export async function interruptedInstallApplyId(root:string,stateRoot=defaultStateRoot()):Promise<string|undefined>{
  const tx=await readApplyRecord(applyRecordPath(root,stateRoot));
+ if(tx?.status==='prepared'&&tx.preview?.data.plan.operations.some(operation=>operation.global))return tx.previewId;
  const records=await pendingOperations(root,stateRoot);
  let owner:string|undefined;
  for(const record of records){
@@ -111,7 +112,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    if(restoringApproval)verifiedToolOperationForResume(root,operation,prerequisites);
    else assertToolOperationRecipe(root,operation,prerequisites);
   }
-  const installs=operations.filter(operation=>operation.kind==='install');
+  const installs=operations.filter(operation=>operation.kind==='install'&&!operation.global);
   if(installs.length&&!restoringApproval){const registry=await selectedNpmRegistry(root)??defaultNpmRegistry;if(installs.some(operation=>(operation.registry??defaultNpmRegistry)!==registry))throw Error('Npm registry changed since approval; prepare a new review before installing.');}
   await (dependencies.fileModes??assertSupportedFileModes)(root,[...data.files.filter(file=>file.next!==undefined).map(file=>({target:file.target,mode:file.mode})),...data.plan.operations.flatMap(operation=>operation.declaredWrites.map(scope=>({target:scope+'/mode-probe',mode:0o644})))]);
   if(tx?.status==='prepared'&&tx.previewId!==previewId){
@@ -198,7 +199,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   const verifyInstalledTools=async(all=false)=>{
    for(const tool of data.plan.options.tools??[]){
     const id=tool.id;
-    if(!(tool.install||tool.initialize&&(id==='codegraph'||data.oldManifest?.installedTools?.[id])))continue;
+    if(!(tool.install||tool.initialize&&data.oldManifest?.installedTools?.[id]))continue;
     if(!all&&installOperation(id)||data.plan.pendingRuntimeTools?.includes(id)&&!data.oldManifest?.installedTools?.[id])continue;
     await installedIdentity(id);
    }
@@ -271,17 +272,18 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     ...(data.sourceReview&&priorReport?{report:priorReport}:{})};
    await saveDurable(statePath,JSON.stringify(tx));
   }
-  if(dependencies.signal?.aborted)return {...report,exitCode:130};
+  if(dependencies.signal?.aborted)return {...report,exitCode:130,...(report.operations.some(result=>result.globalReceipt)?{nextCommand:'rigup update '+quoteShell(root)+' --apply '+previewId+' --resume --sessions-ended'}:{})};
   const completedOperations=new Set<string>();
   const execute=operationExecutor(data,{...dependencies.operation,stateRoot:lock.stateRoot,signal:dependencies.signal},restoringApproval);
   for(let index=0;index<operations.length;){
-   if(dependencies.signal?.aborted)return {...report,exitCode:130};
+   if(dependencies.signal?.aborted)return {...report,exitCode:130,...(report.operations.some(result=>result.globalReceipt)?{nextCommand:'rigup update '+quoteShell(root)+' --apply '+previewId+' --resume --sessions-ended'}:{})};
    const first=operations[index],next=operations[index+1];
-   const batch=first.kind==='install'&&next?.kind==='install'&&first.integrationId!==next.integrationId?[first,next]:[first];
+   const batch=!first.global&&!next?.global&&first.kind==='install'&&next?.kind==='install'&&first.integrationId!==next.integrationId?[first,next]:[first];
    index+=batch.length;
    const reused=new Map<string,OperationResult>();
    for(const operation of batch){
     if(operation.prerequisiteIds.some(id=>!completedOperations.has(id)))throw Error('Operation prerequisite not completed');
+    if(operation.global)continue;
     const receipt=operation.kind==='initialize'?tx.initialized?.[operation.integrationId]:tx.receipts[operation.integrationId];
     if(!receipt)continue;
     const result=await queryOperation(operation);
@@ -302,23 +304,27 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     step(operation.id);
     return execute(operation.id);
    }));
-   const results=outcomes.map(outcome=>{if(outcome.status==='rejected')throw outcome.reason;return outcome.value;});
+   const rejection=outcomes.find(outcome=>outcome.status==='rejected');
+   if(rejection?.status==='rejected'&&!operations.some(operation=>operation.global))throw rejection.reason;
+   const results:OperationResult[]=outcomes.map(outcome=>outcome.status==='rejected'?{status:'failed',message:(outcome.reason as Error).message}:outcome.value);
    report.operations.push(...results);
    for(const [i,operation] of batch.entries()){
     const result=results[i];
     if(result.status!=='done')continue;
     completedOperations.add(operation.id);completed++;
     if(reused.has(operation.id)){step(operation.id,'reused');continue;}
-    if(operation.kind==='initialize'){if(!result.nativeReceipt)throw Error('native initialization lacks verifiable receipt');tx.initialized![operation.integrationId]=result.nativeReceipt;}
+    if(operation.global){if(!result.globalReceipt)throw Error('Global installation lacks receipt');}
+    else if(operation.kind==='initialize'){if(!result.nativeReceipt)throw Error('native initialization lacks verifiable receipt');tx.initialized![operation.integrationId]=result.nativeReceipt;}
     else {if(!result.receipt)throw Error('external operation lacks verifiable receipt');tx.receipts[operation.integrationId]=result.receipt;}
+    if(operation.global)tx.report={...report};
     step(operation.id);await saveDurable(statePath,JSON.stringify(tx));await dependencies.hook?.('after-operation');
    }
    const incomplete=results.find(result=>result.status!=='done');
-   if(incomplete)return {...report,exitCode:dependencies.signal?.aborted?130:incomplete.status==='failed'?1:3,status:incomplete.status==='failed'?'failed':'pending'};
+   if(incomplete)return {...report,nextCommand:'rigup update '+quoteShell(root)+' --apply '+previewId+' --resume --sessions-ended',exitCode:dependencies.signal?.aborted?130:incomplete.status==='failed'?1:3,status:incomplete.status==='failed'?'failed':'pending'};
   }
   if(operations.length)await assertSources();
   for(const f of data.files){
-   if(dependencies.signal?.aborted)return {...report,exitCode:130};
+   if(dependencies.signal?.aborted)return {...report,exitCode:130,...(report.operations.some(result=>result.globalReceipt)?{nextCommand:'rigup update '+quoteShell(root)+' --apply '+previewId+' --resume --sessions-ended'}:{})};
    const actual=await readFileState(root,f.target);const expected=tx.files[f.target];
    if(f.seed){
     const progress=tx.seedProgress??={};
@@ -346,12 +352,12 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    else {await atomicProjectWrite(root,f.target,f.encoding==='base64'?Buffer.from(f.next,'base64'):Buffer.from(f.next),expected.afterMode,false,verifyCurrent);}
    completed++;step(f.target);report.written.push(f.target);await dependencies.hook?.('after-file');
   }
-  if(dependencies.signal?.aborted)return {...report,exitCode:130};
+  if(dependencies.signal?.aborted)return {...report,exitCode:130,...(report.operations.some(result=>result.globalReceipt)?{nextCommand:'rigup update '+quoteShell(root)+' --apply '+previewId+' --resume --sessions-ended'}:{})};
   const verifyFiles=async()=>{for await(const {target,state} of readFileStates(root,data.files.map(f=>f.target))){const expected=tx!.files[target];if(!matchesFileState(state,expected.after,expected.afterMode))throw new Error('written configuration differs from preview (content or mode); baseline not committed');}};
   await verifyFiles();
   report.runtimeSetup=await applyRuntimeInputs(root,data.plan.options,{configured:['*']});
   if(!tx.checks){tx.checks=dependencies.runChecks?await dependencies.runChecks():data.plan.runChecks?.length?await runProjectChecks(await scanRepository(root,data.plan.options),data.plan.runChecks,dependencies.signal,data.plan.options):[];checksRunThisApply=true;await saveDurable(statePath,JSON.stringify(tx));}
-  report.checks=tx.checks;await dependencies.hook?.('after-checks');await verifyFiles();await assertSources();await verifyInstalledTools(true);await verifyInitializedTools(true);if(dependencies.signal?.aborted)return {...report,exitCode:130};
+  report.checks=tx.checks;await dependencies.hook?.('after-checks');await verifyFiles();await assertSources();await verifyInstalledTools(true);await verifyInitializedTools(true);if(dependencies.signal?.aborted)return {...report,exitCode:130,...(report.operations.some(result=>result.globalReceipt)?{nextCommand:'rigup update '+quoteShell(root)+' --apply '+previewId+' --resume --sessions-ended'}:{})};
   const assets=[];
   for(const asset of data.assets){const b=data.baselines.find(b=>b.logicalId===asset.logicalId);if(!b)throw new Error('required baseline unavailable');const baseline='.rigup/baseline/'+tx.installId+'/'+signature(asset.logicalId);await atomicProjectWrite(root,baseline,b.encoding==='base64'?Buffer.from(b.content,'base64'):Buffer.from(b.content),0o600);assets.push({...asset,baseline});}
   const manifest:Manifest={...rules,...seedHistory,schemaVersion:1,installId:tx.installId,assets,options:data.plan.options,versions:data.plan.versions,installedTools:tx.receipts,...(Object.keys(tx.initialized!).length?{initializedTools:tx.initialized}:{})};
@@ -365,5 +371,5 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   const installed=await finishCommitted(tx);
   completed=total;step('manifest committed',installed.exitCode===1?'failed':'complete');
   return installed;
- }finally{await release();}
+ }catch(error){if(!report.operations.some(result=>result.status==='done'&&result.globalReceipt))throw error;return {...report,status:'failed',exitCode:1,warnings:[...report.warnings,(error as Error).message],nextCommand:'rigup update '+quoteShell(root)+' --apply '+previewId+' --resume --sessions-ended'};}finally{await release();}
 }

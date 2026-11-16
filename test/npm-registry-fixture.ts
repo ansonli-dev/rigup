@@ -18,6 +18,7 @@ type Registry={
  responseStatus:number;
  onRequest?:()=>void;
  onTarball?:()=>void;
+ tarballGate?:Promise<void>;
 };
 
 export async function npmRegistry(run:(registry:Registry)=>Promise<void>):Promise<void>{
@@ -56,7 +57,8 @@ export async function npmRegistry(run:(registry:Registry)=>Promise<void>):Promis
     response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({name,'dist-tags':tags.get(name),versions:entries}));return;
    }
    for(const [version,pkg] of versions)if(path===tarball(version)){
-    registry.onTarball?.();response.writeHead(200,{'content-type':'application/octet-stream'}).end(pkg.bytes);return;
+    registry.onTarball?.();const send=()=>response.writeHead(200,{'content-type':'application/octet-stream'}).end(pkg.bytes);
+    if(registry.tarballGate)void registry.tarballGate.then(send);else send();return;
    }
   }
   response.writeHead(404).end();

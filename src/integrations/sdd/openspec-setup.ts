@@ -1,10 +1,8 @@
-import {execFile} from 'node:child_process';
-import {createHash} from 'node:crypto';
-import {constants,createReadStream} from 'node:fs';
-import {access,lstat,mkdir,mkdtemp,open,readdir,readFile,realpath,rm} from 'node:fs/promises';
+import {globalNpmInstallOperation,runGlobalNpmInstall,type GlobalNpmApproval} from '../tools/global-npm.js';
+import {packageDirectory,exists,consumerPath,findProgram,commandEnvironment,command,npmPrefix,userNode,programIdentity,prefixIdentity,type Program} from '../tools/global-npm-runtime.js';
+import {mkdir,mkdtemp,readdir,readFile,realpath,rm} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {basename,delimiter,dirname,isAbsolute,join} from 'node:path';
-import {promisify} from 'node:util';
+import {isAbsolute,join} from 'node:path';
 import {scanNativeEntries} from '../../analyzer/repository.js';
 import {acquireLock,defaultStateRoot} from '../../installer/lock.js';
 import {interruptedInstallApplyId,interruptedSeedApplyId} from '../../installer/apply.js';
@@ -12,77 +10,21 @@ import {atomicProjectWrite} from '../../installer/manifest.js';
 import {assertNoUnknownWriters} from '../../installer/operations.js';
 import {targetPath} from '../../installer/ownership.js';
 import {assertSupportedFileModes} from '../../installer/filesystem-modes.js';
-import {essentialEnvironment,selectedNpmRegistry} from '../../runtime-inputs.js';
+import {selectedNpmRegistry} from '../../runtime-inputs.js';
 import {quoteShell} from '../../shell-command.js';
 import {signature} from '../../generator/cache.js';
 import {saveDurable} from '../../private-record.js';
-import {normalizeNpmIntegrity} from '../../npm-integrity.mjs';
-import {externalExecutable as executable,npmPathDirectories,withinPath as within} from '../../npm-command.mjs';
+import {withinPath as within} from '../../npm-command.mjs';
 import type {Agent,SetupOptions} from '../../types.js';
 import {agents} from '../agents/index.js';
-import {assertNpmNode,boundedCommandOutput,defaultNpmRegistry,isStableNpmVersion,resolveNpmLatest,type NpmView,type ResolvedNpmPackage} from '../tools/npm-resolution.js';
+import {assertNpmNode,boundedCommandOutput,resolveNpmLatest,type NpmView,type ResolvedNpmPackage} from '../tools/npm-resolution.js';
 import {startWindowsProcess} from '../tools/windows-process.mjs';
 import {resolveSddBinding,unqualifiedSkillName} from './binding.js';
 import {openspecInitArgs,openspecPackage,openspecPreparationCommand} from './openspec.js';
 
-const exec=promisify(execFile);
 const windows=process.platform==='win32';
-const nodeName=windows?'node.exe':'node';
-const packageDirectory=(name:string)=> (windows?'node_modules/':'lib/node_modules/')+name;
-type Program={file:string;args?:string[];launcher?:string};
 type OpenSpecOptions=Pick<SetupOptions,'agents'|'backend'>;
-const npmFlags=['--ignore-scripts','--no-audit','--no-fund','--prefer-offline'];
 const hostScopes=(agent:Agent)=>[agents[agent].skillDirectory,agents[agent].skillDirectory.replace(/\/skills$/,'/commands')];
-const available=(path:string,mode:number)=>access(path,mode).then(()=>true,()=>false);
-const exists=(path:string)=>lstat(path).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
-// The portable launcher keeps its bundled Node available for Rigup operations.
-function consumerPath(root:string){
- return npmPathDirectories(root,process.env.RIGUP_CONSUMER_PATH??process.env.PATH??process.env.Path??'');
-}
-
-async function windowsNpmCommand(name:'openspec'|'npm',directory:string,root:string,pathDirs:string[]):Promise<Program>{
- const packageName=name==='npm'?'npm':openspecPackage;
- const modules=dirname(directory);
- const prefix=basename(directory).toLowerCase()==='.bin'&&basename(modules).toLowerCase()==='node_modules'?dirname(modules):directory;
- const packageRoot=await targetPath(prefix,packageDirectory(packageName));
- const manifest=await targetPath(packageRoot,'package.json');
- const stat=await lstat(manifest);
- if(!stat.isFile()||stat.size>64_000)throw Error('Invalid npm package manifest');
- const metadata=JSON.parse(await readFile(manifest,'utf8'));
- const bin=typeof metadata.bin==='string'?metadata.bin:metadata.bin?.[name];
- if(metadata.name!==packageName||typeof bin!=='string'||!/^[\w./-]+\.(?:c|m)?js$/i.test(bin))throw Error('Invalid npm package entry');
- const entry=await targetPath(packageRoot,bin.replace(/^\.\//,''));
- const node=await executable(nodeName,root,[directory,...pathDirs]);
- const canonical=await realpath(entry);
- if(!node||!within(packageRoot,canonical)||within(root,canonical)||!(await lstat(entry)).isFile())throw Error('Unsafe npm package entry');
- return {file:node,args:[canonical],launcher:join(directory,name+'.cmd')};
-}
-
-async function findProgram(name:'openspec'|'npm',root:string,pathDirs:string[]):Promise<Program|undefined>{
- if(!windows){
-  const file=await executable(name,root,pathDirs);
-  if(file)return {file};
-  return;
- }
- for(const directory of pathDirs){
-  const file=await executable(name+'.exe',root,[directory]);
-  if(file)return {file};
-  // npm installs a .cmd shim beside its package. Launch the declared Node
-  // entry directly so project paths and arguments never enter cmd.exe.
-  if(await executable(name+'.cmd',root,[directory]))return windowsNpmCommand(name,directory,root,pathDirs);
- }
-}
-
-function commandEnvironment(path:string[],extraEnv?:NodeJS.ProcessEnv,inheritPrefix=false):NodeJS.ProcessEnv{
- const prefix=inheritPrefix?Object.fromEntries(Object.entries(process.env).filter(([name])=>/^npm_config_prefix$/i.test(name))):{};
- const env=essentialEnvironment();delete env.Path;
- return {...env,...prefix,PATH:path.join(delimiter),DO_NOT_TRACK:'1',OPENSPEC_TELEMETRY:'0',OPENSPEC_NO_UPDATE_CHECK:'1',...extraEnv};
-}
-
-async function command(program:Program,args:string[],cwd:string,path:string[],signal?:AbortSignal,env?:NodeJS.ProcessEnv){
- return exec(program.file,[...(program.args??[]),...args],{cwd,signal,timeout:20_000,maxBuffer:256_000,env:commandEnvironment(path,env,true)});
-}
-
 async function writingCommand(program:Program,args:string[],cwd:string,path:string[],signal?:AbortSignal,extraEnv?:NodeJS.ProcessEnv,timeout=20_000){
  const argv=[...(program.args??[]),...args];
  const env=commandEnvironment(path,extraEnv);
@@ -103,51 +45,6 @@ async function writingCommand(program:Program,args:string[],cwd:string,path:stri
   clearTimeout(timer);signal?.removeEventListener('abort',child.stop);
   child.stop();await child.completed;
  }
-}
-
-async function npmPrefix(npm:Program,root:string,path:string[],signal?:AbortSignal){
- const preferred=(await command(npm,['prefix','-g'],homedir(),path,signal).catch(()=>undefined))?.stdout.trim();
- if(!preferred)return;
- for(const prefix of windows?[preferred]:[preferred,join(homedir(),'.local')]){
-  if(!prefix||!isAbsolute(prefix))continue;
-  const canonical=await realpath(prefix).catch(()=>undefined);
-  const bin=windows?canonical:await realpath(join(prefix,'bin')).catch(()=>undefined);
-  if(!canonical||within(root,canonical)||!bin||!within(canonical,bin)||!path.includes(bin)||!await available(bin,constants.W_OK))continue;
-  if(await targetPath(canonical,packageDirectory(openspecPackage)).catch(()=>undefined))return canonical;
- }
-}
-
-async function userNode(root:string,path:string[],signal?:AbortSignal){
- const node=await executable(nodeName,root,path);
- if(!node)return;
- const version=(await command({file:node},['--version'],homedir(),path,signal).catch(()=>undefined))?.stdout.trim();
- if(version&&/^v\d+\.\d+\.\d+$/.test(version))return {file:node,version:version.slice(1)};
-}
-
-async function programIdentity(program:Program,root:string,path:string[]):Promise<string>{
- const files=new Set([program.file,...(program.args??[]),...(program.launcher?[program.launcher]:[])]);
- if(!windows){
-  const file=await open(program.file,constants.O_RDONLY|constants.O_NONBLOCK);
-  try{
-   if(!(await file.stat()).isFile())throw Error('OpenSpec launcher is not a regular file');
-   const header=Buffer.alloc(256);await file.read(header);
-   const shebang=/^#![ \t]*(\S+)(?:[ \t]+([^\r\n]+))?/.exec(header.toString('utf8'));
-   if(shebang&&isAbsolute(shebang[1])){
-    files.add(shebang[1]);
-    if(basename(shebang[1])==='env'&&/^(?:-S\s+)?node(?:\s|$)/.test(shebang[2]??'')){
-     const interpreter=await executable(nodeName,root,path);
-     if(!interpreter)throw Error('OpenSpec Node interpreter is unavailable');
-     files.add(interpreter);
-    }
-   }
-  }finally{await file.close();}
- }
- const identities=await Promise.all([...files].map(async file=>{
-  const canonical=await realpath(file),stat=await lstat(canonical,{bigint:true});
-  if(within(root,file)||within(root,canonical)||!stat.isFile())throw Error('OpenSpec launcher is outside its approved path');
-  return {file,canonical,identity:[stat.dev,stat.ino,stat.size,stat.mtimeNs,stat.ctimeNs].join(':')};
- }));
- return signature({program,identities});
 }
 
 async function assertCliIdentity(program:Program,root:string,path:string[],expected:string){
@@ -231,12 +128,6 @@ export function openSpecProjectScopes(scope:Pick<OpenSpecScope,'needsRoot'|'need
  return [...(scope.needsRoot?['openspec']:[]),...scope.needsEntries.flatMap(hostScopes)].map(path=>path+'/');
 }
 
-async function prefixIdentity(prefix:string){
- const stat=await lstat(prefix,{bigint:true});
- if(!stat.isDirectory()||await realpath(prefix)!==prefix)throw Error('OpenSpec npm prefix changed after approval');
- return stat.dev+':'+stat.ino;
-}
-
 export async function planOpenSpecPreparation(root:string,options:OpenSpecOptions,input:{stateRoot?:string;signal?:AbortSignal;view?:NpmView},inspection?:OpenSpecInspection):Promise<{inspection:OpenSpecInspection;approval?:OpenSpecPreparation}>{
  const setup=inspection??await inspectOpenSpec(root,options,input.signal);
  input.signal?.throwIfAborted();
@@ -267,10 +158,6 @@ export function reportOpenSpecPending(setup:OpenSpecInspection,resumeCommand:str
 type InstallApproval=Extract<OpenSpecPreparation,{kind:'install'}>;
 const scopeCovered=(prior:Pick<OpenSpecScope,'needsRoot'|'needsEntries'>,setup:OpenSpecInspection)=>(!setup.needsRoot||prior.needsRoot)&&setup.needsEntries.every(agent=>prior.needsEntries.includes(agent));
 
-async function assertRegistry(root:string,approval:InstallApproval){
- if((await selectedNpmRegistry(root)??defaultNpmRegistry)!==approval.install.registry)throw Error('Npm registry selection changed after review; review OpenSpec preparation again.');
-}
-
 async function approvedNpm(setup:OpenSpecInspection,approval:InstallApproval){
  if(!setup.npm||!setup.node||!setup.canPrepare||setup.prefix!==approval.prefix||
   await prefixIdentity(setup.prefix)!==approval.prefixIdentity||
@@ -280,52 +167,18 @@ async function approvedNpm(setup:OpenSpecInspection,approval:InstallApproval){
  return setup.npm;
 }
 
-async function verifyArchive(path:string,integrity:string,signal?:AbortSignal){
- const normalized=normalizeNpmIntegrity(integrity);
- if(!normalized)throw Error('Approved OpenSpec integrity is invalid');
- const digests=normalized.split(' '),algorithm=digests[0].split('-')[0],hash=createHash(algorithm);
- for await(const chunk of createReadStream(path,{signal}))hash.update(chunk);
- if(!digests.includes(algorithm+'-'+hash.digest('base64')))throw Error('OpenSpec package integrity mismatch');
-}
-
-async function installedLauncher(root:string,approval:InstallApproval,path:string[]){
- const prefix=approval.prefix;
- if(await prefixIdentity(prefix)!==approval.prefixIdentity)throw Error('OpenSpec npm prefix changed during installation');
- const packageRoot=await targetPath(prefix,packageDirectory(openspecPackage));
- const manifest=JSON.parse(await readFile(await targetPath(packageRoot,'package.json'),'utf8'));
- if(manifest.name!==openspecPackage||manifest.version!==approval.install.version)throw Error('Installed OpenSpec package differs from its approval');
- const bin=typeof manifest.bin==='string'?manifest.bin:manifest.bin?.openspec;
- if(typeof bin!=='string'||!bin)throw Error('Installed OpenSpec entry is missing');
- const entry=await targetPath(packageRoot,bin.replace(/^\.\//,''));
- const launcher=join(prefix,windows?'openspec.cmd':'bin/openspec');
- if(!await available(launcher,constants.X_OK)||!(await lstat(entry)).isFile())throw Error('Installed OpenSpec launcher is missing or unusable');
- const program=windows?await windowsNpmCommand('openspec',prefix,root,path):{file:launcher};
- if(windows?program.args?.[0]!==await realpath(entry):await realpath(launcher)!==await realpath(entry))throw Error('Installed OpenSpec launcher differs from the approved package');
- return programIdentity(program,root,path);
-}
-
 export class OpenSpecReceiptError extends Error {}
 
-async function installOpenSpec(root:string,options:OpenSpecOptions,approval:InstallApproval,setup:OpenSpecInspection,stage:string,stateRoot:string,signal?:AbortSignal){
+async function installOpenSpec(root:string,options:OpenSpecOptions,approval:InstallApproval,stateRoot:string,signal?:AbortSignal,recover?:boolean){
+ const global:GlobalNpmApproval={root,id:'openspec',name:openspecPackage,bin:'openspec',prefix:approval.prefix,prefixIdentity:approval.prefixIdentity,npmIdentity:approval.npmIdentity,install:approval.install};
+ const outcome=await runGlobalNpmInstall(globalNpmInstallOperation(global),{stateRoot,signal,recover,authorizationRef:signature(approval),beforeInstall:async()=>{
+  const current=await inspectOpenSpec(root,options,signal);
+  if(!scopeCovered(approval,current))throw Error('OpenSpec preparation scope changed after approval; prepare it again');
+  await approvedNpm(current,approval);
+ }});
+ if(outcome.status!=='done')throw Error(outcome.message);
+ const installed=await inspectOpenSpec(root,options,signal,outcome.globalReceipt!.launcherIdentity);
  const {version,registry,packageIntegrity}=approval.install;
- if(!isStableNpmVersion(version)||!registry)throw Error('OpenSpec approval must contain an exact version and registry');
- const npm=await approvedNpm(setup,approval);
- const archive='fission-ai-openspec-'+version+'.tgz';
- const registryFlags=['--registry',registry,'--userconfig',join(stage,'.npmrc.user'),'--globalconfig',join(stage,'.npmrc.global'),'--cache',join(stage,'.npm-cache')];
- await assertRegistry(root,approval);
- await writingCommand(npm,['pack','--ignore-scripts','--prefer-offline',...registryFlags,'--pack-destination',stage,openspecPackage+'@'+version],stage,setup.path,signal,undefined,120_000);
- const tarball=await targetPath(stage,archive);
- await verifyArchive(tarball,packageIntegrity,signal);
-
- const current=await inspectOpenSpec(root,options,signal);
- if(!current.requirements.length)return {inspection:current,installed:false};
- if(!scopeCovered(approval,current))throw Error('OpenSpec preparation scope changed after approval; prepare it again');
- const installNpm=await approvedNpm(current,approval);
- await assertRegistry(root,approval);
- signal?.throwIfAborted();
- await writingCommand(installNpm,['install','--global','--prefix',approval.prefix,...npmFlags,...registryFlags,tarball],stage,current.path,signal,undefined,120_000);
- const identity=await installedLauncher(root,approval,current.path);
- const installed=await inspectOpenSpec(root,options,signal,identity);
  if(installed.cliVersion!==version)throw Error('Installed OpenSpec CLI does not report the approved version');
  try{
   await saveDurable(join(stateRoot,'openspec-'+signature({prefix:approval.prefix,name:openspecPackage})+'.json'),
@@ -385,8 +238,6 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
    await assertSupportedFileModes(root,targets.map(target=>({target,mode:0o644})));
   }
   if(approval.kind==='install'){
-   const installLock=await acquireLock(root,{stateRoot:lock.stateRoot,recover,resource:'openspec:'+approval.prefix});
-   try{
     setup=await inspectOpenSpec(root,options,signal);
     if(!setup.requirements.length)return setup;
     if(!scopeCovered(approval,setup))throw Error('OpenSpec preparation scope changed after approval; prepare it again');
@@ -394,10 +245,9 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
     await assertSupportedFileModes(approval.prefix,[{target:packageDirectory(openspecPackage)+'/package.json',mode:0o644},{target:windows?'openspec.cmd':'bin/openspec',mode:0o755}]);
     stage=await mkdtemp(join(lock.stateRoot,'openspec-'));
     write('正在安装 OpenSpec CLI '+approval.install.version+' 到 '+approval.prefix+'\n');
-    const outcome=await installOpenSpec(root,options,approval,setup,stage,lock.stateRoot,signal);
+    const outcome=await installOpenSpec(root,options,approval,lock.stateRoot,signal,recover);
     setup=outcome.inspection;
     if(outcome.installed)onInstalled?.();
-   }finally{await installLock.release();}
   }
   if(!setup.requirements.length)return setup;
   if(!setup.cli||!setup.cliIdentity||!setup.canPrepare||!scopeCovered(approval,setup))throw Error('OpenSpec preparation scope changed after approval; prepare it again');

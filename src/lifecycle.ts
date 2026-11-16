@@ -37,7 +37,7 @@ import {essentialEnvironment,runtimeEnvironment,runtimeSetupSummary} from './run
 import {prepareProjectToolOperations} from './integrations/registry.js';
 import type {NpmView} from './integrations/tools/npm-resolution.js';
 import type {LifecyclePresentation} from './cli-output.js';
-export interface LifecycleFlags {deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
+export interface LifecycleFlags {globalTools?:('openwiki'|'codegraph')[];deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
 export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:(preview:Preview)=>Promise<'install'|'save'|'cancel'>;report?:(value:Record<string,unknown>)=>void;researchSessionId?:string;expectedFingerprint?:string;npmView?:NpmView;presentation?:LifecyclePresentation}
 interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string;versions?:SetupPlan['versions']}
 async function readRun(path:string,root:string,consent:string):Promise<Run|undefined>{
@@ -178,7 +178,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const authority=sourceGuidance(profile,options);
    const scopedAuthority=authority.length?{sourceGuidance:authority}:{};
    const reviewRun=review||!!services.confirmPreview;
-   const input={root,options,...scopedAuthority,effectiveModel,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,executionMode:flags.dryRun?'dry-run':reviewRun?'review':'continuous',fingerprint:profile.fingerprint,researchSessionId};
+   const input={root,options,...(flags.globalTools?.length?{globalTools:flags.globalTools}:{}),...scopedAuthority,effectiveModel,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,executionMode:flags.dryRun?'dry-run':reviewRun?'review':'continuous',fingerprint:profile.fingerprint,researchSessionId};
    const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
    let consent=signature({...input,versions});
    if(flags.continuation&&flags.continuation!==consent)throw new Error('continuation input/configuration changed; restart preparation');
@@ -220,7 +220,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
      }
     }
    }
-   if(!run)run={root,options,effectiveModel,mode:{dryRun:flags.dryRun,yes:!reviewRun&&flags.yes,review:reviewRun,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent,versions};
+   if(!run)run={root,options,effectiveModel,mode:{globalTools:flags.globalTools,dryRun:flags.dryRun,yes:!reviewRun&&flags.yes,review:reviewRun,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent,versions};
    if(signature(run.options)!==signature(options))throw Error('durable research options changed; reconciliation required');
    if(flags.researchTokens!==undefined)run.researchTokens=flags.researchTokens;
    await saveDurable(runPath,JSON.stringify(run));researchResumeId=consent;let responseConsumed=false;
@@ -273,7 +273,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,waiting:'ownership and virtual-tree checks'});
   plan.runChecks=flags.runChecks??[];
   if(authorityReview&&profile.truncated)plan.projectRules='pending';
-  plan=await prepareProjectToolOperations(plan,profile,{stateRoot:lock.stateRoot,signal:services.signal,view:services.npmView});
+  plan=await prepareProjectToolOperations(plan,profile,{stateRoot:lock.stateRoot,signal:services.signal,view:services.npmView,globalTools:flags.globalTools});
   const result=await preview(plan,resolutions,{cacheRoot:previews,stateRoot:lock.stateRoot,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!runtimeSetup.template.needsUpdate&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review,restoredReview});
   if(plan.gitlabReviewRequired)for(const warning of result.warnings)if(warning.startsWith('GitLab wiring'))notice(warning+'\n');
   if(result.noChanges){

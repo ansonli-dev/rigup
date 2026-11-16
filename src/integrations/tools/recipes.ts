@@ -1,3 +1,4 @@
+import {assertGlobalOperation} from './global-npm.js';
 import {basename,isAbsolute,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {lstatSync,readFileSync} from 'node:fs';
@@ -73,6 +74,7 @@ function expectedToolOperation(root:string,operation:SetupOperation,prerequisite
 }
 
 export function assertToolOperationRecipe(root:string,operation:SetupOperation,prerequisites:string[]):void {
+ if(operation.global){assertGlobalOperation(root,operation);return;}
  const expected=expectedToolOperation(root,operation,prerequisites);
  if(signature(expected)!==signature(operation))throw Error('Operation differs from verified recipe');
 }
@@ -80,6 +82,7 @@ export function assertToolOperationRecipe(root:string,operation:SetupOperation,p
 // Reconcile an exact prior recipe with the current adapter.
 // Dispatchers must separately prove this operation was previously approved.
 export function verifiedToolOperationForResume(root:string,operation:SetupOperation,prerequisites:string[]):SetupOperation {
+ if(operation.global){assertGlobalOperation(root,operation);return operation;}
  const expected=expectedToolOperation(root,operation,prerequisites);
  const actual=signature(operation);
  if(signature(expected)===actual)return expected;

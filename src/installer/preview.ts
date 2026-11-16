@@ -209,10 +209,10 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   }
   try{
    const id=op.integrationId;
-   if(!isNativeTool(id))throw Error('External operation has no verified adapter');
+   if(!isNativeTool(id)&&!op.global)throw Error('External operation has no verified adapter');
    const prerequisites=toolOperationPrerequisites(plan.operations,op);
    assertToolOperationRecipe(root,op,prerequisites);
-   if(op.kind==='initialize'&&!prerequisites.length){
+   if(op.kind==='initialize'&&isNativeTool(id)&&!prerequisites.length){
     const installed=await readVerifiedToolInstall(root,id,oldManifest?.installedTools?.[id]);
     if(!installed||signature(installed)!==signature(toolOperationIdentity(op)))throw Error('Initialization requires matching receipted software');
    }

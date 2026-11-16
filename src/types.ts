@@ -46,9 +46,10 @@ export interface HarnessSummary {
 }
 
 export interface SetupOperation {
+ global?:import('./integrations/tools/global-npm.js').GlobalNpmApproval;
  registry?:string;
  id:string;integrationId:string;kind:'install'|'initialize'|'check';parameters:CommandSpec;prerequisiteIds:string[];declaredWrites:string[];version:string;timeoutMs:number;
- protection:{kind:'new-empty-scope';target:string}|{kind:'native-staging';target:string;staging:string;control:string};
+ protection:{kind:'global-npm';target:string}|{kind:'new-empty-scope';target:string}|{kind:'native-staging';target:string;staging:string;control:string};
  query:{kind:'npm-package'|'native-initialization';packageJson:string;packageLock:string;name:string;version:string;integrity?:string;enginesNode?:string};
 }
 export interface NativeInitializationReceipt {version:string;target:string;identity:string}
