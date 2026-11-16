@@ -13,6 +13,7 @@ export interface RuntimeSetupSummary {
  inputs:RuntimeInput[];
  template:{path:string;state:'not-needed'|'available'|'pending'|'written';needsUpdate:boolean;imported:{name:string;source:Source}[];reason?:string};
  capabilities:{capability:string;configuration:'configured'|'pending';verification:'passed'|'not-run';reason:string}[];
+ providerDiagnostic?:string;
 }
 interface Declaration {name:string;capability:string;destination:string;required:boolean;reason:string;consumer?:Consumer;seed?:string;seedSource?:Source}
 const exec=promisify(execFile);
@@ -52,7 +53,7 @@ async function remoteTarget(root:string,options:SetupOptions):Promise<{value?:st
  return targets.size===1?{value:[...targets][0],source:'repository-remote'}:{};
 }
 
-async function declarations(root:string,options:SetupOptions,file:RuntimeFile,modelOverride?:string):Promise<Declaration[]>{
+async function declarations(root:string,options:SetupOptions,file:RuntimeFile,modelOverride?:string,onProviderError?:(reason:string)=>void):Promise<Declaration[]>{
  const inputs:Declaration[]=[];
  const add=(name:string,capability:string,required:boolean,reason:string,consumer?:Consumer,destination=local,seed?:string,seedSource?:Source)=>{
   if(!inputs.some(input=>input.name===name&&input.capability===capability&&input.destination===destination))inputs.push({name,capability,required,reason,consumer,destination,seed,seedSource});
@@ -74,7 +75,10 @@ async function declarations(root:string,options:SetupOptions,file:RuntimeFile,mo
   const environment={...process.env};
   for(const name of providerVariables){const value=file.entries.get(name)?.value;if(value)environment[name]=value;}
   // Only provider selection metadata is read here; values remain in this module.
-  const metadata=await researchProviderMetadata(root,modelOverride,options.model,environment);
+  const metadata=await researchProviderMetadata(root,modelOverride,options.model,environment).catch(error=>{
+   if(!onProviderError)throw error;
+   onProviderError(error instanceof Error?error.message:'Invalid research provider configuration');
+  });
   if(metadata){
    const provider=metadata.identity.provider,prefix=provider==='anthropic'?'ANTHROPIC':'OPENAI';
    const key=metadata.identity.apiKeyEnv;
@@ -91,7 +95,8 @@ async function declarations(root:string,options:SetupOptions,file:RuntimeFile,mo
 }
 
 async function state(root:string,options:SetupOptions,evidence:Evidence={}){
- const file=await readRuntimeFile(root),declared=await declarations(root,options,file);
+ let providerDiagnostic:string|undefined;
+ const file=await readRuntimeFile(root),declared=await declarations(root,options,file,undefined,reason=>{providerDiagnostic=reason;});
  const inputs:RuntimeInput[]=declared.map(input=>{
   const {name,capability,destination,required,reason}=input;
   if(destination!==local)return {name,capability,destination,required,reason,state:'unverified'};
@@ -108,7 +113,7 @@ async function state(root:string,options:SetupOptions,evidence:Evidence={}){
   return {capability,configuration:configured?'configured' as const:'pending' as const,verification:verified?'passed' as const:'not-run' as const,
    reason:verified?'Explicit verification completed':capability.startsWith('host:')?'Approve or reload the selected host and run its explicit host check':capability.startsWith('gitlab')?'Run the configured jobs in the target CI runner':'Configuration and input presence do not verify a connection or successful execution'};
  });
- const summary:RuntimeSetupSummary={inputs,template:{path:local,state:file.problem?'pending':localInputs.length?'available':'not-needed',needsUpdate:!file.problem&&text!==file.text,imported:[],...(file.problem?{reason:file.problem}:{})},capabilities};
+ const summary:RuntimeSetupSummary={inputs,template:{path:local,state:file.problem?'pending':localInputs.length?'available':'not-needed',needsUpdate:!file.problem&&text!==file.text,imported:[],...(file.problem?{reason:file.problem}:{})},capabilities,...(providerDiagnostic?{providerDiagnostic}:{})};
  return {file,values,text,summary};
 }
 
@@ -129,7 +134,7 @@ export async function applyRuntimeInputs(root:string,options:SetupOptions,eviden
 export async function runtimeEnvironment(root:string,options:SetupOptions,consumer:Consumer,modelOverride?:string):Promise<NodeJS.ProcessEnv>{
  const file=await readRuntimeFile(root);
  if(file.problem)throw Error(file.problem);
- const inputs=await declarations(root,options,file,consumer==='provider'?modelOverride:undefined),environment=essentialEnvironment();
+ const inputs=await declarations(root,options,file,consumer==='provider'?modelOverride:undefined,consumer==='provider'?undefined:()=>{}),environment=essentialEnvironment();
  for(const input of inputs.filter(input=>input.consumer===consumer)){
   const {value}=effective(file,input.name,input.seed,input.seedSource);
   if(value!==undefined)environment[input.name]=value;
@@ -149,6 +154,7 @@ export async function selectedNpmRegistry(root:string):Promise<string|undefined>
 }
 
 export function writeRuntimeSummary(summary:RuntimeSetupSummary,write:(text:string)=>void):void{
+ if(summary.providerDiagnostic)write('provider: '+summary.providerDiagnostic+'\n');
  write('Runtime inputs: '+summary.template.state+' ('+summary.template.path+')\n');
  if(summary.template.reason)write('Pending: '+summary.template.reason+'\n');
  for(const input of summary.template.imported)write('Imported '+input.name+' from '+input.source+'\n');

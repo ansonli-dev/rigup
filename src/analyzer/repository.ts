@@ -17,7 +17,7 @@ import {loadResearchIgnore,workflowEvidenceKind} from './research-ignore.js';
 import {checkPrerequisites,hasTestDatabaseGuard,jestSetupPath,linkDatabaseGuards,type SpecializedCheck} from './check-prerequisites.js';
 const exec=promisify(execFile);
 const specializedScripts=['test:e2e','test-e2e','check-types','typecheck','deps:validate','test'];
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,{version:string;packageLockDigest:string}>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;conventions?:ConventionPage[];conventionPaths?:string[];extraSourcePaths?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,import('../integrations/tools/installed-state.js').ToolInstallReceipt>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;conventions?:ConventionPage[];conventionPaths?:string[];extraSourcePaths?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
@@ -25,11 +25,14 @@ export async function scanInstallationSources(root:string,options:SetupOptions,g
  // Keep installation snapshot coverage stable when research evidence rules change.
  return (await inventory(root,options,{},generatedScopes,'installation')).profile;
 }
-async function inventory(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[],purpose:'research'|'installation'='research'){
+export async function scanNativeEntries(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={}):Promise<ProjectProfile>{
+ return (await inventory(root,options,discovery,[],'native')).profile;
+}
+async function inventory(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[],purpose:'research'|'installation'|'native'='research'){
  root=await realpath(root);
  if(options.scope?.some(s=>s.startsWith('/')||s.split('/').includes('..')||s.includes('\\'))) throw new Error('scope: invalid relative path');
  const profile:ProjectProfile={root,fingerprint:'',files:[],git:{available:false},commands:{build:[],lint:[],test:[],environment:[],eval:[]},specializedChecks:[],unknowns:[],truncated:false,readPolicyVersion:READ_POLICY_VERSION};
- try {
+ if(purpose!=='native')try {
   await exec('git',['-C',root,'rev-parse','--show-toplevel'],{env:{...process.env,GIT_OPTIONAL_LOCKS:'0'}});
   profile.git.available=true;
   try {profile.git.head=(await exec('git',['-C',root,'rev-parse','--verify','HEAD'],{env:{...process.env,GIT_OPTIONAL_LOCKS:'0'}})).stdout.trim();}catch{profile.unknowns.push('Git HEAD: unborn');}

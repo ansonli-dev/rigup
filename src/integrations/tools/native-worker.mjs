@@ -1,5 +1,5 @@
 // Runs only behind the durable operation dispatcher. Tool-owned state is written
-// by the pinned upstream APIs; Rigup owns only staging and promotion metadata.
+// by the approved upstream APIs; Rigup owns only staging and promotion metadata.
 import {lstat,readdir,readFile,mkdir,rename,realpath,open,rmdir,writeFile} from 'node:fs/promises';
 import {resolve,dirname,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -9,8 +9,7 @@ import {promisify} from 'node:util';
 import {randomUUID,createHash} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 const exec=promisify(execFile);
-const [action,root,id,staging,control,adapterDigest]=process.argv.slice(2);
-const version=id==='openwiki'?'0.7.3':'1.6.2';
+const [action,root,id,staging,control,adapterDigest,version]=process.argv.slice(2);
 const target=id==='openwiki'?'openwiki':'.codegraph';
 const require=createRequire(import.meta.url);
 let rootInfo;
@@ -94,7 +93,9 @@ function identity(info){
  // Preserve the receipt format emitted by previous workers using number stats.
  return String(Number(info.dev))+':'+String(Number(info.ino));
 }
-const packagePath=resolve(root,'.rigup/tools',id,'node_modules',id==='openwiki'?'openwiki':'@colbymchenry/codegraph');
+const packageName=id==='openwiki'?'openwiki':'@colbymchenry/codegraph';
+const packageDirectory='.rigup/tools/'+id+'/node_modules/'+packageName;
+const packagePath=resolve(root,packageDirectory);
 async function openwikiState(path){
  const native=await import(pathToFileURL(resolve(packagePath,'dist/generation/run-state.js')).href);
  const run=await native.readRepositoryRunState(path);
@@ -178,9 +179,11 @@ async function initialize(){
  return query();
 }
 try{
- if(adapterDigest!==createHash('sha256').update(await readFile(new URL(import.meta.url))).digest('hex')||!['initialize','query'].includes(action)||!['openwiki','codegraph'].includes(id)||await realpath(root)!==root||control!=='.rigup/native/'+id||staging!==(id==='openwiki'?control+'/repository':'.codegraph-rigup-init'))throw Error('Invalid native adapter parameters');
+ if(!version||adapterDigest!==createHash('sha256').update(await readFile(new URL(import.meta.url))).digest('hex')||!['initialize','query'].includes(action)||!['openwiki','codegraph'].includes(id)||await realpath(root)!==root||control!=='.rigup/native/'+id||staging!==(id==='openwiki'?control+'/repository':'.codegraph-rigup-init'))throw Error('Invalid native adapter parameters');
  rootInfo=await nativeTarget(root);
  if(!rootInfo?.isDirectory())throw Error('Native project root is not a directory');
+ const pkg=JSON.parse(await readFile(await safe(packageDirectory+'/package.json'),'utf8'));
+ if(pkg.name!==packageName||pkg.version!==version)throw Error('Installed tool differs from the approved package version');
  const result=action==='query'?await query():await initialize();process.stdout.write(JSON.stringify(result)+'\n');
 }catch(error){
  if(action==='initialize'&&rootInfo){try{await writeFile(await safe(control+'/failure.json'),JSON.stringify({message:String(error.message),at:new Date().toISOString()})+'\n',{mode:0o600});}catch{}}

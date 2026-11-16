@@ -39,11 +39,15 @@ test('Codex ignores incomplete cached versions when one verified plugin remains'
  assert.equal(prepared.bindings.length,1);assert.equal(prepared.requirements.length,0,JSON.stringify(prepared.requirements));
  assert.match(profile.unknowns.join('\n'),/superpowers@good.*skipped/);
 })));
-test('Codex ignores disabled records while a real required version mismatch stays blocked',()=>project(root=>project(async home=>{
+test('Codex ignores disabled records and accepts a usable older enabled plugin',()=>project(root=>project(async home=>{
  await config(home,'[plugins."superpowers@disabled"]\nenabled=false\n[plugins."superpowers@good"]\nenabled=true\n');
  await plugin(home,'good','7.0.0','7.0.0');
  const profile=await scanRepository(root,options,{home});
  const prepared=await prepareIntegrations(profile,options);
- assert.equal(prepared.bindings.length,0);assert.ok(prepared.requirements.some(item=>/version|verified/.test(item.reason)));
+ assert.equal(prepared.bindings.length,1);assert.deepEqual(prepared.requirements,[]);
  assert.doesNotMatch(profile.unknowns.join('\n'),/disabled/);
+ await plugin(home,'good','7.0.2','7.0.2');
+ const ambiguous=await prepareIntegrations(await scanRepository(root,options,{home}),options);
+ assert.equal(ambiguous.bindings.length,0);
+ assert.match(ambiguous.requirements.map(item=>item.reason).join('\n'),/source unknown/);
 })));

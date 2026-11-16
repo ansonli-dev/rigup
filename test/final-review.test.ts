@@ -1,9 +1,11 @@
 import{test}from'node:test';import assert from'node:assert/strict';import{mkdir,writeFile,readFile,readdir,rm,rename}from'node:fs/promises';import{join}from'node:path';import{execFile}from'node:child_process';import{promisify}from'node:util';import{project}from'./helpers.js';
-import{scanRepository,repositoryReader}from'../src/analyzer/repository.js';import{hostBackend}from'../src/analyzer/host.js';import{validateOptions}from'../src/config.js';import{prepareIntegrations}from'../src/integrations/registry.js';import{runCli}from'../src/cli.js';import{digest}from'../src/analyzer/evidence.js';import{prepareSoftwareInstall}from'../src/integrations/tools/software.js';
+import{scanRepository,repositoryReader}from'../src/analyzer/repository.js';import{hostBackend}from'../src/analyzer/host.js';import{validateOptions}from'../src/config.js';import{prepareIntegrations,prepareProjectToolOperations}from'../src/integrations/registry.js';import{runCli}from'../src/cli.js';import{digest}from'../src/analyzer/evidence.js';
 import{generate,generateFoundation,prepareGeneration}from'../src/generator/generate.js';
 import{preview}from'../src/installer/preview.js';
-import {writeNativeToolFixture} from './native-tool-fixture.js';
+import {fixedNpmView,prepareSoftwareInstall,writeNativeToolFixture} from './native-tool-fixture.js';
+import {queryOperation} from '../src/installer/operations.js';
 const exec=promisify(execFile);const opts={agents:['codex' as const],backend:'host' as const};
+const fixtureIntegrity='sha512-'+Buffer.alloc(64,1).toString('base64');
 const openspec=['openspec-propose','openspec-apply-change','openspec-archive-change'];const powers=['brainstorming','writing-plans','executing-plans','verification-before-completion'];
 async function skill(root:string,name:string,dependencies=false){await mkdir(root+'/'+name,{recursive:true});await writeFile(root+'/'+name+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture '+name+'\n'+(dependencies?'dependencies: [missing-plugin]\n':'')+'---\nPreserve native gates.\n');}
 const backend={run:async()=>({status:'complete' as const,value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[],guidance:[]},model:'controlled',unknowns:[],usage:{calls:1,tokens:1}}})};
@@ -22,27 +24,42 @@ test('review_superpowers_local_unprefixed_native_names_satisfy_binding',()=>proj
 test('review_enabled_global_plugin_sources_are_discovered_with_native_identity',()=>project(async root=>project(async home=>{
  const base=home+'/.codex/plugins/cache/fixture-market/superpowers/7.0.1';await mkdir(base+'/.claude-plugin',{recursive:true});await writeFile(base+'/.claude-plugin/plugin.json',JSON.stringify({name:'superpowers',version:'7.0.1'}));for(const name of powers)await skill(base+'/skills',name);await writeFile(home+'/.codex/config.toml','[plugins."superpowers@fixture-market"]\nenabled = true\n');const selected={...opts,sdd:'superpowers' as const};const profile=await scanRepository(root,selected,{home});const prepared=await prepareIntegrations(profile,selected);assert.deepEqual(prepared.requirements,[]);assert.ok(profile.skillSources?.codex?.some(s=>s.origin==='plugin'));
 })));
-for(const [version,accepted] of [['7.0.1',true],['7.0.2',false]] as const){
- test('Claude Superpowers '+version+(accepted?' matches the verified lock':' blocks preview because it differs from the verified lock'),()=>project(async root=>project(async home=>project(async cache=>{
+test('Claude Superpowers 7.0.2 previews OpenWiki and changing only plugin version metadata preserves approval',()=>project(async root=>project(async home=>project(async cache=>project(async state=>{
+  const version='7.0.2';
   const pluginId='superpowers@fixture-market';
-  const plugin=join(home,'.claude','plugins','cache','fixture-market','superpowers',version);
+  const claude=join(home,'.claude');
+  const plugin=join(claude,'plugins','cache','fixture-market','superpowers',version);
+  const pluginManifest=join(plugin,'.claude-plugin','plugin.json');
   await mkdir(join(plugin,'.claude-plugin'),{recursive:true});
-  await writeFile(join(plugin,'.claude-plugin','plugin.json'),JSON.stringify({name:'superpowers',version}));
+  await writeFile(pluginManifest,JSON.stringify({name:'superpowers',version}));
   for(const name of powers)await skill(join(plugin,'skills'),name);
   await writeFile(join(home,'.claude','settings.json'),JSON.stringify({enabledPlugins:{[pluginId]:true}}));
   await writeFile(join(home,'.claude','plugins','installed_plugins.json'),JSON.stringify({version:2,plugins:{[pluginId]:[{scope:'user',installPath:plugin,version}]}}));
 
-  const options={agents:['claude' as const],backend:'host' as const,sdd:'superpowers' as const};
-  const profile=await scanRepository(root,options,{home});
-  const prepared=await prepareGeneration(profile,options);
-  const plan=await generateFoundation(profile,options,prepared);
-  const result=await preview(plan,[],{cacheRoot:cache});
-  assert.equal(result.executable,accepted);
-  assert.equal(prepared.integration.bindings.length,accepted?1:0);
-  if(accepted)assert.deepEqual(result.blockers,[]);
-  else assert.match(result.blockers.join('\n'),/Native superpowers version 7\.0\.2 differs from verified 7\.0\.1/);
- }))));
-}
+  const options={agents:['claude' as const],backend:'host' as const,sdd:'superpowers' as const,
+   tools:[{id:'openwiki' as const,install:true,initialize:false,agents:['claude' as const]}]};
+  const previous=process.env.CLAUDE_CONFIG_DIR;process.env.CLAUDE_CONFIG_DIR=claude;
+  try{
+   const profile=await scanRepository(root,options);
+   const prepared=await prepareGeneration(profile,options);
+   const plan=await prepareProjectToolOperations(await generateFoundation(profile,options,prepared),profile,{stateRoot:state,view:fixedNpmView});
+   const result=await preview(plan,[],{cacheRoot:cache,stateRoot:state});
+   assert.equal(result.executable,true,JSON.stringify(result.blockers));
+   assert.equal(prepared.integration.bindings.length,1);
+   assert.deepEqual(result.operations.map(operation=>operation.id),['install:openwiki']);
+   assert.doesNotMatch(result.warnings.join('\n'),/version.*verified/);
+   await writeFile(pluginManifest,JSON.stringify({name:'superpowers'}));
+   assert.deepEqual((await scanRepository(root,options)).skillSources,profile.skillSources);
+   const {apply}=await import('../src/installer/apply.js');
+   const applied=await apply(result.previewId,{cacheRoot:cache,stateRoot:state,operation:{launch:async op=>{
+    const {name,version,integrity,packageLock}=op.query;
+    await writeNativeToolFixture(root,'openwiki',version,'commonjs',op.protection.target);
+    await writeFile(join(root,packageLock),JSON.stringify({packages:{'':{dependencies:{[name]:version}},['node_modules/'+name]:{version,integrity}}}));
+    return queryOperation(op);
+   }}});
+   assert.equal(applied.status,'complete');
+  }finally{if(previous===undefined)delete process.env.CLAUDE_CONFIG_DIR;else process.env.CLAUDE_CONFIG_DIR=previous;}
+ })))));
 test('review_sdd_dependencies_and_conflicting_identities_are_not_name_only_bindings',()=>project(async root=>{
  for(const name of openspec)await skill(root+'/.agents/skills',name,true);const selected={...opts,sdd:'openspec' as const};let prepared=await prepareIntegrations(await scanRepository(root,selected),selected);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements.map(r=>r.reason).join(' '),/dependency|verification/);
  for(const name of openspec)await skill(root+'/.agents/skills',name);await skill(root+'/.agents/skills/duplicate','openspec-propose');await writeFile(root+'/.agents/skills/duplicate/openspec-propose/SKILL.md','---\nname: openspec-propose\ndescription: Different native implementation\n---\nDifferent behavior.\n');prepared=await prepareIntegrations(await scanRepository(root,selected),selected);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements.map(r=>r.reason).join(' '),/conflict/);
@@ -59,13 +76,13 @@ async function installedTool(root:string){
  const required=join(fixture.prefix,'node_modules','required','package.json');
  await mkdir(join(fixture.prefix,'node_modules','required'));
  await writeFile(required,JSON.stringify({name:'required',version:'1.0.0'}));
- const lock=JSON.stringify({lockfileVersion:3,packages:{'':{dependencies:{openwiki:'0.7.3'}},'node_modules/openwiki':{version:'0.7.3',integrity:'fixture-integrity'},'node_modules/required':{version:'1.0.0'}}});
+ const lock=JSON.stringify({lockfileVersion:3,packages:{'':{dependencies:{openwiki:'0.7.3'}},'node_modules/openwiki':{version:'0.7.3',integrity:fixtureIntegrity},'node_modules/required':{version:'1.0.0'}}});
  await writeFile(join(fixture.prefix,'package-lock.json'),lock);
  return {...fixture,required,receipt:{version:'0.7.3',packageLockDigest:digest(lock)}};
 }
 test('review_tool_reuse_reconciles_launcher_executable_and_dependency_tree',()=>project(async root=>{
  const {launcher,binary,required,receipt}=await installedTool(root);
- const check=()=>prepareSoftwareInstall(root,'openwiki','0.7.3','fixture-integrity',receipt);
+ const check=()=>prepareSoftwareInstall(root,'openwiki','0.7.3',fixtureIntegrity,receipt);
  assert.ok('reused' in await check());
  for(const path of new Set([launcher,binary,required])){
   const hidden=path+'.hold';
@@ -87,5 +104,5 @@ test('review_unrelated_multiversion_plugin_does_not_invent_skill_conflicts',()=>
  await skill(root,'selected-review');const cache=home+'/.codex/plugins/cache/fixture/other-plugin';for(const version of['1.0.0','2.0.0']){await mkdir(cache+'/'+version+'/.claude-plugin',{recursive:true});await writeFile(cache+'/'+version+'/.claude-plugin/plugin.json',JSON.stringify({name:'other-plugin',version}));await skill(cache+'/'+version+'/skills','unrelated-native');}await writeFile(home+'/.codex/config.toml','[plugins."other-plugin@fixture"]\nenabled = true\n');const selected={...opts,customSkills:[{source:'selected-review'}]};const prepared=await prepareIntegrations(await scanRepository(root,selected,{home}),selected);assert.ok(prepared.assets.some(a=>a.target.endsWith('/selected-review/SKILL.md')));
 })));
 test('review_reused_tool_changed_after_preview_is_rejected_before_apply_writes',()=>project(async root=>project(async cache=>project(async state=>{
- const{loadUpstreamLock}=await import('../src/integrations/registry.js');const{prefix,launcher,receipt}=await installedTool(root);const integrity=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!.packageIntegrity!;const lock=(await readFile(prefix+'/package-lock.json','utf8')).replace('fixture-integrity',integrity);await writeFile(prefix+'/package-lock.json',lock);receipt.packageLockDigest=digest(lock);const selected={...opts,tools:[{id:'openwiki',install:true,initialize:false,agents:['codex']}]};await writeFile(root+'/.rigup/config.yaml',JSON.stringify(selected));await writeFile(root+'/.rigup/manifest.json',JSON.stringify({schemaVersion:1,installId:'previous',assets:[],installedTools:{openwiki:receipt}}));let output='';const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};assert.equal(await runCli(['update','--review','--json'],io),3,output);const p=JSON.parse(output);await rm(launcher);output='';assert.equal(await runCli(['update','--apply',p.previewId,'--sessions-ended','--json'],io),1);assert.match(JSON.parse(output).error,/installed tool|reconcil/);await assert.rejects(readFile(root+'/.codex/config.toml'));
+ const{loadUpstreamLock}=await import('../src/integrations/registry.js');const{prefix,launcher,receipt}=await installedTool(root);const integrity=(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!.packageIntegrity!;const lock=(await readFile(prefix+'/package-lock.json','utf8')).replace(fixtureIntegrity,integrity);await writeFile(prefix+'/package-lock.json',lock);receipt.packageLockDigest=digest(lock);const selected={...opts,tools:[{id:'openwiki',install:true,initialize:false,agents:['codex']}]};await writeFile(root+'/.rigup/config.yaml',JSON.stringify(selected));await writeFile(root+'/.rigup/manifest.json',JSON.stringify({schemaVersion:1,installId:'previous',assets:[],installedTools:{openwiki:receipt}}));let output='';const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};assert.equal(await runCli(['update','--review','--json'],io),3,output);const p=JSON.parse(output);await rm(launcher);output='';assert.equal(await runCli(['update','--apply',p.previewId,'--sessions-ended','--json'],io),1);assert.match(JSON.parse(output).error,/installed tool|reconcil/);await assert.rejects(readFile(root+'/.codex/config.toml'));
 }))));

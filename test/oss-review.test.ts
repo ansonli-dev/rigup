@@ -11,7 +11,7 @@ import {filterContent, READ_POLICY_VERSION} from '../src/analyzer/read-policy.js
 import {loadManifest} from '../src/installer/baseline.js';
 import {doctor} from '../src/installer/doctor.js';
 import {apply, restoreInterruptedPreview} from '../src/installer/apply.js';
-import {preview, loadPreview} from '../src/installer/preview.js';
+import {preview, loadPreview, previewIdentity} from '../src/installer/preview.js';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {generate} from '../src/generator/generate.js';
 import {signature, saveCache} from '../src/generator/cache.js';
@@ -172,8 +172,9 @@ test('review final verification and completed replay check actual modes',posixMo
 test('review legacy previews without mode preconditions require regeneration',posixModes,()=>skillFixture(async({source,target,cache,state,install,prepare})=>{
   await install();await chmod(source,0o755);const view=await prepare();const data:any=await loadPreview(view.previewId,cache);
   delete data.modePolicyVersion;for(const file of data.files)delete file.observedMode;
-  await saveCache(join(cache,view.previewId+'.json'),JSON.stringify({digest:signature(data),data}));
-  await assert.rejects(apply(view.previewId,{cacheRoot:cache,stateRoot:state}),/mode|permission|regenerate/);assert.equal(await mode(target),0o644);
+  const previewId=data.preview.previewId=previewIdentity(data);
+  await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
+  await assert.rejects(apply(previewId,{cacheRoot:cache,stateRoot:state}),/permission preview version changed/);assert.equal(await mode(target),0o644);
 }));
 
 test('review profiles accept both absolute and project-relative explicit paths',()=>project(async control=>{

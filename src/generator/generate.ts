@@ -9,6 +9,7 @@ import {validateResearch,type AnalysisBackend,type ResearchResult} from '../anal
 import type {ManagedAsset,SetupOptions,SetupPlan,StepResult,AssetDisposition} from '../types.js';
 import {scopeContains,scopesOverlap,validateInventory} from '../types.js';
 import {prepareIntegrations,type IntegrationPreparation,type PreparedAsset} from '../integrations/registry.js';
+import {agents} from '../integrations/agents/index.js';
 import {digest} from '../analyzer/evidence.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
 import {filterContent} from '../analyzer/read-policy.js';
@@ -24,7 +25,7 @@ import {isGitlabWiring} from '../integrations/gitlab/ci.js';
 import {planHarness,sourceGuidance} from './harness.js';
 import {renderConventionSeed} from '../project-conventions.js';
 import {RIGUP_VERSION} from '../version.js';
-export interface GenerationDependencies {prepared?:GenerationPreparation;effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number}}
+export interface GenerationDependencies {prepared?:GenerationPreparation;effectiveModel?:SetupOptions['model'];reader?:import('../analyzer/backend.js').RepositoryReader;cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;runId?:string;spent?:{calls:number;tokens:number|'unknown'};save?:(path:string,content:string)=>Promise<void>;budget?:{maxCalls:number;maxTokens:number};retireIds?:string[]}
 interface Candidate extends ArtifactContent {job:ArtifactJob;digest:string;accepted:boolean}
 interface State extends RuleEvidenceState {version:1;artifactContextVersion?:string;artifactRefreshInventory?:string;inputInventory:string;resultInventory?:string;runId:string;plan?:{jobs:ArtifactJob[];referenceIndex?:ArtifactPage;dispositions:AssetDisposition[];guidance:GuidanceBinding[];research:unknown};candidates:Record<string,Candidate>;attempts?:Record<string,number>;repairReasons?:Record<string,string>;ruleRepairs?:Record<string,RuleRepair>;spent:{calls:number;tokens:number|'unknown'}}
 const candidateDigest=(content:string,pages?:ArtifactPage[])=>pages?signature({content,pages}):digest(content);
@@ -59,7 +60,6 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
  const notApplicable=profile.conventions?.flatMap(page=>page.status==='not-applicable'?
   [{path:page.path,topic:page.title,topicId:page.topicId,scope:[page.scope]}]:[])??[];
  return {root:profile.root,fingerprint:profile.fingerprint,options,assets,operations:integration.operations,dispositions,
-  ...(integration.pendingRuntimeTools?.length?{pendingRuntimeTools:integration.pendingRuntimeTools}:{}),
   harness:harness.summary,
   ...(navigation.targets.length||navigation.conventionPaths.length?{harnessNavigation:{targets:navigation.targets,conventionPaths:navigation.conventionPaths,...(notApplicable.length?{notApplicable}:{})}}:{}),
   ...(projectDocuments.length?{projectDocuments}:{}),
@@ -69,13 +69,28 @@ function setupPlan(profile:ProjectProfile,options:SetupOptions,integration:Integ
   ...(projectRules?{projectRules}:{})};
 }
 
-export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false,previousGuidance:GuidanceBinding[]=[]):Promise<SetupPlan>{
+function activeAssets(options:SetupOptions,candidates:PreparedAsset[],navigation:HarnessNavigation,integration:IntegrationPreparation){
+ return new Set([...candidates.map(asset=>asset.logicalId),...navigation.retainIds,
+  ...options.agents.map(agent=>'entry:'+agents[agent].entry),...integration.requirements.map(requirement=>requirement.integrationId)]);
+}
+
+export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false,previousGuidance:GuidanceBinding[]=[],selection?:{configure?:boolean;retireIds?:string[]}):Promise<SetupPlan>{
  const {integration,fixedTemplates}=prepared;
  const harness=planHarness(profile,options,previousGuidance);
  const candidates=await renderFixed(profile,options,integration,[],harness.summary.guidance,fixedTemplates,!preserveWorkflowContext);
  const navigation=await reconcileHarnessNavigation(profile,options,candidates,previousAssets,harness.summary.guidance,preserveWorkflowContext);
  const assets=navigation.assets;
- const dispositions:AssetDisposition[]=previousAssets.map(asset=>({logicalId:asset.logicalId,action:assets.some(candidate=>candidate.logicalId===asset.logicalId)?'update':'retain',reason:'Refresh fixed configuration while preserving existing project guidance'}));
+ const active=activeAssets(options,candidates,navigation,integration);
+ if(selection?.retireIds?.some(id=>active.has(id)||previousAssets.some(asset=>asset.logicalId===id&&isProjectRulesId(asset.logicalId))))throw Error('retirement contradicts selected capability or protected project guidance');
+ const withdrawnHosts=Object.keys(agents).filter(agent=>!options.agents.includes(agent as keyof typeof agents));
+ const dispositions:AssetDisposition[]=previousAssets.map(asset=>{
+  const id=asset.logicalId;
+  const withdrawn=selection?.configure&&!active.has(id)&&
+   (id.startsWith('mcp:')||Object.hasOwn(agents,id.split(':')[0])&&withdrawnHosts.includes(id.split(':')[0])||
+    id.startsWith('entry:')&&withdrawnHosts.some(agent=>'entry:'+agents[agent as keyof typeof agents].entry===id));
+  return {logicalId:id,action:assets.some(candidate=>candidate.logicalId===id)?'update':withdrawn?'retire':'retain',
+   reason:withdrawn?'Managed connection no longer selected; explicit retirement consent required':'Refresh fixed configuration while preserving existing project guidance'};
+ });
  return setupPlan(profile,options,integration,assets,dispositions,previousAssets,harness,navigation,preserveWorkflowContext&&!navigation.pending?'ready':'pending');
 }
 
@@ -233,6 +248,8 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  await stageEvidence(reader,guidanceRefs);
  const rendered=await renderFixed(profile,options,integration,semantic,summary.guidance,fixedTemplates);
  const navigation=await reconcileHarnessNavigation(profile,options,rendered,previousAssets,summary.guidance);
+ const active=activeAssets(options,rendered,navigation,integration);
+ if(dependencies.retireIds?.some(id=>active.has(id)))throw Error('retirement contradicts selected capability or protected project guidance');
  const {assets}=navigation;
  const effectiveDispositions=state.resultInventory===inv||state.artifactRefreshInventory===inv ? previousAssets.map(a=>{
   const current=assets.find(asset=>asset.logicalId===a.logicalId);

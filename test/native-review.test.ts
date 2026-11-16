@@ -2,8 +2,8 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile,readFile,readdir,rm,lstat,access} from 'node:fs/promises';
 import {delimiter,join} from 'node:path';
-import {writeNativeToolFixture} from './native-tool-fixture.js';
-import {project} from './helpers.js';
+import {prepareToolFixture,writeNativeToolFixture} from './native-tool-fixture.js';
+import {project,testEnvironment} from './helpers.js';
 import {executeLifecycle} from '../src/lifecycle.js';
 import {runCli} from '../src/cli.js';
 import {scanRepository,repositoryReader} from '../src/analyzer/repository.js';
@@ -85,7 +85,7 @@ test('durable resume applies the same affected-session handoff as normal setup',
 test('interrupted native output cannot become research after source drift rejects resume',()=>fixture(async(root,cache,state)=>{
  await writeFile(root+'/source.js','export const value=1;\n');
  const options:SetupOptions={agents:['codex'],backend:'codex',tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}]};
- const profile=await scanRepository(root,options),prepared=await prepareIntegrations(profile,options);const p=await preview({root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[]},[],{cacheRoot:cache+'/previews'});
+ const profile=await scanRepository(root,options),prepared=await prepareToolFixture(profile,options);const p=await preview({root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[]},[],{cacheRoot:cache+'/previews'});
  let completed=0;
  // Double only upstream installation/state creation; execute actual verified
  // operation queries, journals, preview/apply and repository-reader boundaries.
@@ -104,6 +104,22 @@ test('interrupted native output cannot become research after source drift reject
  await assert.rejects(()=>executeLifecycle(root,options,{resume:true,sessionsEnded:true},()=>{},{cacheRoot:cache,stateRoot:state}),/source input changed/);
  const after=await scanRepository(root,options);assert.ok(!after.files.some(p=>p.startsWith('.codegraph/')||p.startsWith('.rigup/native/')));assert.match(after.researchBlocked??'',/native|ownership|reconcile/i);
  await assert.rejects(()=>repositoryReader(root,options),/native|ownership|reconcile/i);
+}));
+test('resuming approved files does not consume a now invalid research provider',t=>fixture(async(root,cache,state)=>{
+ const options:SetupOptions={agents:['codex'],backend:'native',projectRules:true};
+ const profile=await scanRepository(root,options),prepared=await prepareIntegrations(profile,options);
+ const p=await preview({root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[],projectRules:'ready'},[],{cacheRoot:cache+'/previews'});
+ await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache+'/previews',stateRoot:state,hook:async point=>{
+  if(point==='before-manifest')throw Error('interrupted before manifest');
+ }}),/interrupted before manifest/);
+ testEnvironment(t,{RIGUP_PROVIDER:'invalid-provider'});
+ let output='';
+ const io={cwd:root,isTTY:false,write:(text:string)=>output+=text,services:{cacheRoot:cache,stateRoot:state}};
+ assert.equal(await runCli(['update','--resume','--review','--json'],io),3,output);
+ assert.equal(JSON.parse(output).previewId,p.previewId);
+ output='';
+ assert.equal(await runCli(['update','--apply',p.previewId,'--resume','--sessions-ended','--json'],io),0,output);
+ assert.equal(JSON.parse(output).installStatus,'complete');
 }));
 test('native intent quarantines unpublished staging but similar user directories stay visible',()=>fixture(async(root)=>{
  await mkdir(root+'/.rigup/native/openwiki/repository',{recursive:true});await writeFile(root+'/.rigup/native/openwiki/repository/AGENTS.md','User-authored notes\n');

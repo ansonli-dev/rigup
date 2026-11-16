@@ -4,11 +4,11 @@ import {lstatSync,readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {signature} from '../../generator/cache.js';
 import type {SetupOperation} from '../../types.js';
-import type {Recipe} from '../upstream.js';
 import {validateProviderBaseURL} from '../../analyzer/provider-url.js';
+import {defaultNpmRegistry,isStableNpmVersion,type NpmPackageIdentity} from './npm-resolution.js';
+import {normalizeNpmIntegrity} from '../../npm-integrity.mjs';
 
 export type NativeTool='openwiki'|'codegraph';
-export type ToolPin=Pick<Recipe,'version'|'packageIntegrity'>;
 
 // Exact bytes of the v0.2.4 adapter (cf7cd0a) in source and tsc output,
 // including CRLF variants for Windows checkouts and builds.
@@ -24,46 +24,68 @@ export function isNativeTool(id:string):id is NativeTool {
 }
 
 export function toolPackage(id:NativeTool) {
- return {id,prefix:'.rigup/tools/'+id,name:id==='openwiki'?'openwiki':'@colbymchenry/codegraph',entry:id==='openwiki'?'dist/cli/cli.js':'npm-shim.js'};
+ return {id,prefix:'.rigup/tools/'+id,name:id==='openwiki'?'openwiki':'@colbymchenry/codegraph',entry:id==='openwiki'?'dist/cli/cli.js':'npm-shim.js'} as const;
 }
 
-export function softwareInstallRecipe(root:string,id:NativeTool,version:string,integrity?:string,prefix=toolPackage(id).prefix,registry?:string):SetupOperation {
+export function softwareInstallRecipe(root:string,id:NativeTool,version:string,integrity?:string,prefix=toolPackage(id).prefix,registry?:string,enginesNode?:string):SetupOperation {
  const {name}=toolPackage(id);
  if(registry!==undefined&&validateProviderBaseURL(registry).href.replace(/\/?$/,'/')!==registry)throw Error('Operation registry must use its normalized credential-free identity');
- return {id:'install:'+id,integrationId:id,kind:'install',...(registry?{registry}:{}),parameters:{executable:'npm',args:['install','--prefix',resolve(root,prefix),'--cache',resolve(root,prefix,'.npm-cache'),'--ignore-scripts','--save-exact','--no-audit','--no-fund','--userconfig',resolve(root,prefix,'.npmrc.user'),'--globalconfig',resolve(root,prefix,'.npmrc.global'),'--registry',registry??'https://registry.npmjs.org/',name+'@'+version],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],version,timeoutMs:300000,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity}};
+ return {id:'install:'+id,integrationId:id,kind:'install',...(registry?{registry}:{}),parameters:{executable:'npm',args:['install','--prefix',resolve(root,prefix),'--cache',resolve(root,prefix,'.npm-cache'),'--ignore-scripts','--save-exact','--no-audit','--no-fund','--userconfig',resolve(root,prefix,'.npmrc.user'),'--globalconfig',resolve(root,prefix,'.npmrc.global'),'--registry',registry??defaultNpmRegistry,name+'@'+version],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],version,timeoutMs:300000,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity,enginesNode}};
 }
 
-export function initializationRecipe(root:string,id:NativeTool,version:string,integrity?:string,prerequisiteIds:string[]=[]):SetupOperation {
+export function nativeInitializationPaths(id:NativeTool){
  const target=id==='openwiki'?'openwiki':'.codegraph';
  const control='.rigup/native/'+id;
  const staging=id==='openwiki'?control+'/repository':'.codegraph-rigup-init';
+ return {target,control,staging,declaredWrites:[target,control,...(id==='codegraph'?[staging]:[])]};
+}
+
+export function initializationRecipe(root:string,id:NativeTool,version:string,integrity?:string,prerequisiteIds:string[]=[]):SetupOperation {
+ const {target,control,staging,declaredWrites}=nativeInitializationPaths(id);
  const {prefix,name}=toolPackage(id);
  const worker=new URL('./native-worker.mjs',import.meta.url),workerDigest=createHash('sha256').update(readFileSync(worker)).digest('hex');
- return {id:'initialize:'+id,integrationId:id,kind:'initialize',parameters:{executable:process.execPath,args:['--liftoff-only','--disable-warning=ExperimentalWarning',fileURLToPath(worker),'initialize',root,id,staging,control,workerDigest],cwd:root,envRefs:[]},prerequisiteIds,declaredWrites:[target,control,...(id==='codegraph'?[staging]:[])],version,timeoutMs:300000,protection:{kind:'native-staging',target,staging,control},query:{kind:'native-initialization',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity}};
+ return {id:'initialize:'+id,integrationId:id,kind:'initialize',parameters:{executable:process.execPath,args:['--liftoff-only','--disable-warning=ExperimentalWarning',fileURLToPath(worker),'initialize',root,id,staging,control,workerDigest,version],cwd:root,envRefs:[]},prerequisiteIds,declaredWrites,version,timeoutMs:300000,protection:{kind:'native-staging',target,staging,control},query:{kind:'native-initialization',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity}};
 }
 
-function expectedToolOperation(root:string,operation:SetupOperation,pin:ToolPin,prerequisites:string[]):SetupOperation {
+export function toolOperationPrerequisites(operations:SetupOperation[],operation:SetupOperation):string[]{
+ const previous=operations.slice(0,operations.indexOf(operation));
+ if(operations.filter(op=>op.id===operation.id).length!==1||operation.prerequisiteIds.some(id=>!previous.some(op=>op.id===id)))
+  throw Error('Missing, duplicate or reordered operation prerequisite');
+ if(operation.kind!=='initialize')return [];
+ const installs=operations.filter(op=>op.kind==='install'&&op.integrationId===operation.integrationId);
+ if(installs.some(op=>op.version!==operation.version||op.query.integrity!==operation.query.integrity))throw Error('Initialization differs from its approved install');
+ return installs.map(op=>op.id);
+}
+
+export function toolOperationIdentity(operation:SetupOperation):NpmPackageIdentity{
+ const version=operation.version,packageIntegrity=normalizeNpmIntegrity(operation.query?.integrity);
+ if(!isStableNpmVersion(version)||version!==operation.query?.version||!packageIntegrity)throw Error('Operation version/integrity is not verified');
+ return {version,packageIntegrity};
+}
+
+function expectedToolOperation(root:string,operation:SetupOperation,prerequisites:string[]):SetupOperation {
  const id=operation.integrationId;
  if(!isNativeTool(id)||!['install','initialize'].includes(operation.kind))throw Error('External operation has no verified adapter');
- if(operation.version!==pin.version||operation.query.integrity!==pin.packageIntegrity)throw Error('Operation version/integrity is not verified');
+ const {version,packageIntegrity}=toolOperationIdentity(operation);
  return operation.kind==='install'
-  ?softwareInstallRecipe(root,id,pin.version,pin.packageIntegrity,undefined,operation.registry)
-  :initializationRecipe(root,id,pin.version,pin.packageIntegrity,prerequisites);
+  ?softwareInstallRecipe(root,id,version,packageIntegrity,undefined,operation.registry,operation.query.enginesNode)
+  :initializationRecipe(root,id,version,packageIntegrity,prerequisites);
 }
 
-export function assertToolOperationRecipe(root:string,operation:SetupOperation,pin:ToolPin,prerequisites:string[]):void {
- const expected=expectedToolOperation(root,operation,pin,prerequisites);
+export function assertToolOperationRecipe(root:string,operation:SetupOperation,prerequisites:string[]):void {
+ const expected=expectedToolOperation(root,operation,prerequisites);
  if(signature(expected)!==signature(operation))throw Error('Operation differs from verified recipe');
 }
 
 // Reconcile an exact prior recipe with the current adapter.
 // Dispatchers must separately prove this operation was previously approved.
-export function verifiedToolOperationForResume(root:string,operation:SetupOperation,pin:ToolPin,prerequisites:string[]):SetupOperation {
- const expected=expectedToolOperation(root,operation,pin,prerequisites);
+export function verifiedToolOperationForResume(root:string,operation:SetupOperation,prerequisites:string[]):SetupOperation {
+ const expected=expectedToolOperation(root,operation,prerequisites);
  const actual=signature(operation);
  if(signature(expected)===actual)return expected;
  const digest=operation.parameters?.args?.[8];
- if(expected.kind==='initialize'&&(digest===expected.parameters.args[8]||v024WorkerDigests.has(digest))){
+ const legacy=v024WorkerDigests.has(digest)&&expected.version===(operation.integrationId==='openwiki'?'0.7.3':'1.6.2');
+ if(expected.kind==='initialize'&&(digest===expected.parameters.args[8]||legacy)){
   const executable=operation.parameters.executable,worker=operation.parameters.args[2];
   if(!isAbsolute(executable)||!/^node(?:\.exe)?$/i.test(basename(executable)))throw Error('Prior native operation executable is unverified');
   if(worker!==expected.parameters.args[2]){
@@ -74,6 +96,7 @@ export function verifiedToolOperationForResume(root:string,operation:SetupOperat
    }catch{throw Error('Prior native adapter is unavailable. Resume from the Rigup installation that prepared the operation.');}
   }
   const args=[...expected.parameters.args];args[2]=worker;args[8]=digest;
+  if(legacy)args.pop();
   if(signature({...expected,parameters:{...expected.parameters,executable,args}})===actual)return expected;
  }
  throw Error('Operation differs from verified recipe');

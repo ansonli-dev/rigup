@@ -7,7 +7,9 @@ import {delimiter, join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {extractRelease, isolatedEnvironment} from './check.mjs';
 import {sha256} from './build.mjs';
+import {verifyNativeSoftwareEvidence} from './native-software.mjs';
 const exec = promisify(execFile);
+
 export async function checkNativeRelease({archive}) {
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'rigup-portable-native-')));
   let complete = false;
@@ -49,9 +51,15 @@ export async function checkNativeRelease({archive}) {
     const installed = await run(['update', '--apply', preview.previewId, '--sessions-ended', '--json'], 0);
     assert.equal(installed.installStatus, 'complete');
     const manifest = JSON.parse(await readFile(join(project, '.rigup/manifest.json'), 'utf8'));
-    assert.equal(manifest.installedTools.openwiki.version, '0.7.3');
-    assert.equal(manifest.installedTools.codegraph.version, '1.6.2');
-    assert.ok(manifest.initializedTools.codegraph);
+    const softwareApproved = preview.operations.filter((operation) => operation.kind === 'install').map((operation) => ({
+      id: operation.integrationId, version: operation.version, packageIntegrity: operation.query.integrity,
+    }));
+    const softwareInstalled = Object.entries(manifest.installedTools).map(([id, receipt]) => ({
+      id, version: receipt.version, packageIntegrity: receipt.packageIntegrity,
+    }));
+    const software = {previewId: preview.previewId, softwareApproved, softwareInstalled};
+    verifyNativeSoftwareEvidence(software);
+    assert.equal(manifest.initializedTools.codegraph.version, manifest.installedTools.codegraph.version);
     assert.equal(manifest.initializedTools.openwiki, undefined);
     await assert.rejects(access(join(project, 'openwiki')));
     const queryBin = await realpath(join(project, '.rigup/tools/codegraph/node_modules/.bin/codegraph'));
@@ -120,7 +128,7 @@ export async function checkNativeRelease({archive}) {
       runtime: info.runtime,
       archiveSha256: sha256(await readFile(archive)),
       systemNodeOrNpmOnCliPath: false,
-      pinnedSoftwareInstalled: ['openwiki@0.7.3', 'codegraph@1.6.2'],
+      ...software,
       codegraphInitialized: true,
       businessQuery: true,
       noOpReinitialized: false,

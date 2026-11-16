@@ -1,9 +1,11 @@
 import {prepareQuality} from './tools/quality.js';
 import {prepareCustomer} from './gitlab/customer.js';
-import {prepareSoftwareInstall} from './tools/software.js';
-import {prepareNativeInitialization} from './tools/initialization.js';
-import {toolPackage} from './tools/recipes.js';
-import type {SetupOperation,SetupRequirement} from '../types.js';
+import {inspectProjectToolInstall} from './tools/software.js';
+import {assertEmptyToolScopes,prepareNativeInitialization} from './tools/initialization.js';
+import {isNativeTool,nativeInitializationPaths,softwareInstallRecipe,toolPackage} from './tools/recipes.js';
+import {scopesOverlap,type SetupOperation,type SetupOptions,type SetupPlan,type SetupRequirement} from '../types.js';
+import type {ProjectProfile} from '../analyzer/repository.js';
+import {resolveNpmLatest,type NpmView} from './tools/npm-resolution.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
 import {readFile} from 'node:fs/promises';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
@@ -15,7 +17,6 @@ import {codegraph} from './tools/codegraph.js';
 import type {Ownership} from '../managed-input.js';
 import {resolveSddBinding,resolveSkillSource,type SddBinding} from './sdd/binding.js';
 import {digest} from '../analyzer/evidence.js';
-import {loadUpstreamLock,requireRecipeEvidence} from './upstream.js';
 import {openspecPreparationCommand} from './sdd/openspec.js';
 import {RIGUP_VERSION} from '../version.js';
 import {runtimeSetupSummary,selectedNpmRegistry} from '../runtime-inputs.js';
@@ -23,18 +24,11 @@ export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVer
 export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
-export interface IntegrationPreparation {pendingRuntimeTools?:('openwiki'|'codegraph')[];assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
-export async function prepareIntegrations(profile:import('../analyzer/repository.js').ProjectProfile,options:import('../types.js').SetupOptions):Promise<IntegrationPreparation>{
- const [lock,quality]=await Promise.all([loadUpstreamLock(),prepareQuality(profile,options)]);const assets:PreparedAsset[]=[];const operations:SetupOperation[]=[];const warnings:string[]=[];const requirements:IntegrationPreparation['requirements']=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
- const runtime=await runtimeSetupSummary(profile.root,options),pendingRuntimeTools:('openwiki'|'codegraph')[]=[];
- let registry:string|undefined,registryUnavailable=false;
- if(options.tools?.some(tool=>tool.install))try{registry=await selectedNpmRegistry(profile.root);}catch(error){
-  if(runtime.template.state!=='pending')throw error;
-  registryUnavailable=true;
-  warnings.push('Automatic tool installation is pending: preserve .rigup/.env and correct its private access and ignore state, then prepare a new review.');
- }
- const requireKnown=(id:string)=>{const recipe=lock.find(r=>r.integrationId === id);if(!recipe) throw new Error('unsupported integration: '+id);requireRecipeEvidence(recipe);return recipe;};
- for(const agent of options.agents) {if(!Object.hasOwn(agents,agent)) throw new Error('unknown agent');requireKnown(agent);}
+export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
+export async function prepareIntegrations(profile:ProjectProfile,options:SetupOptions):Promise<IntegrationPreparation>{
+ const [quality,runtime]=await Promise.all([prepareQuality(profile,options),runtimeSetupSummary(profile.root,options)]);
+ const assets:PreparedAsset[]=[];const warnings:string[]=[];const requirements:SetupRequirement[]=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
+ for(const agent of options.agents)if(!Object.hasOwn(agents,agent))throw Error('unknown agent');
  const push=(added:PreparedAsset[])=>{
   for(const asset of added) {
    const same=assets.find(a=>a.target === asset.target && JSON.stringify(a.ownership) === JSON.stringify(asset.ownership));
@@ -44,7 +38,6 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   }
  };
  if(options.sdd) {
-  requireKnown(options.sdd);
   for(const agent of options.agents) {
    try {
     const {binding,warnings:bindingWarnings}=resolveSddBinding(options.sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
@@ -75,7 +68,7 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   }
  }
  for(const selection of options.tools ?? []) {
-  const recipe=requireKnown(selection.id);const tool=selection.id === 'openwiki' ? openwiki : selection.id === 'codegraph' ? codegraph : undefined;
+  const tool=selection.id === 'openwiki' ? openwiki : selection.id === 'codegraph' ? codegraph : undefined;
   if(!tool) throw new Error('unsupported executable adapter');
   if(selection.agents.some(a=>!options.agents.includes(a))) throw new Error('tool MCP target agent not selected');
   const useProjectTool=selection.install||selection.initialize&&!!profile.installedTools?.[tool.id];
@@ -86,21 +79,8 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
    const args=useProjectTool?projectMcpArgs(agents[agent].mcpTarget,[prefix,'node_modules',name,entry].join('/'),nativeArgs):nativeArgs;
    const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable,args,cwd:'.',envRefs:[]}},true);push(prepared.assets);requirements.push(...prepared.requirements);
   }
-  warnings.push(tool.id+': binary '+recipe.version+' availability and native connection pending');
-  const deferred=registryUnavailable&&useProjectTool&&!profile.installedTools?.[tool.id];
-  if(deferred)pendingRuntimeTools.push(selection.id);
-  let installed=false;
-  if(useProjectTool&&!deferred) {
-   const prepared=await prepareSoftwareInstall(profile.root,selection.id,recipe.version,recipe.packageIntegrity,profile.installedTools?.[tool.id],registry);
-   if('pending' in prepared) {warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}
-   else if('reused' in prepared) {installed=true;warnings.push(tool.id+': reuse receipted project installation '+prepared.version);}
-   else if(selection.install) operations.push(prepared);
-  }
+  warnings.push(tool.id+': binary availability and native connection pending');
   if(selection.id==='openwiki')warnings.push(openwikiInitializationGuide);
-  else if(selection.initialize&&!deferred) {
-   const prepared=await prepareNativeInitialization(profile.root,selection.id,recipe.version,recipe.packageIntegrity,{installed,prerequisiteIds:operations.filter(o=>o.id==='install:'+selection.id).map(o=>o.id),receipt:profile.initializedTools?.[tool.id]});
-   if('pending' in prepared){warnings.push(tool.id+': '+prepared.pending);requirements.push({integrationId:tool.id,reason:prepared.pending});}else if('reused' in prepared)warnings.push(tool.id+': verified native initialization reused');else operations.push(prepared);
-  }
  }
  for(const skill of options.customSkills ?? []) for(const agent of options.agents) {
   const copies=await collectCustomSkill(resolve(profile.root,skill.source),agents[agent].skillDirectory);
@@ -127,14 +107,67 @@ export async function prepareIntegrations(profile:import('../analyzer/repository
   const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/','/check-results/','/.env','/.env.rigup-*.tmp',ownership.end,''].join('\n');
   push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
  }
- for(let i=operations.length-1;i>=0;i--) {
-  const operation=operations[i];
-  if(operation.declaredWrites.some(scope=>assets.some(asset=>scope === '.' || asset.target === scope || asset.target.startsWith(scope+'/')))) {
-   operations.splice(i,1);const reason='external write scope overlaps a text candidate; manual preparation required';
-   warnings.push(operation.integrationId+': '+reason);requirements.push({integrationId:operation.integrationId,reason});
+ return {assets,operations:[],warnings,requirements,bindings,skillBindings};
+}
+
+export async function prepareProjectToolOperations(plan:SetupPlan,profile:ProjectProfile,input:{stateRoot:string;signal?:AbortSignal;view?:NpmView}):Promise<SetupPlan>{
+ const {root,options}=plan;
+ if(!options.tools?.length)return plan;
+ const operations=[...plan.operations],requirements=[...plan.requirements],warnings=[...plan.warnings];
+ const pendingRuntimeTools:NonNullable<SetupPlan['pendingRuntimeTools']>=[];
+ let registry:Promise<string|undefined>|undefined,registryUnavailable=false;
+ const registryForInstall=()=>registry??=selectedNpmRegistry(root).catch(async error=>{
+  registryUnavailable=(await runtimeSetupSummary(root,options)).template.state==='pending';
+  throw error;
+ });
+ const targets=[...plan.assets.map(asset=>asset.target),...(plan.projectDocuments??[]).map(document=>document.target)];
+ const pending=(id:string,reason:string,kind?:SetupRequirement['kind'])=>{requirements.push({integrationId:id,reason,...(kind?{kind}:{})});warnings.push(id+': '+reason);};
+ const duplicate=options.tools.find((selection,index)=>options.tools!.findIndex(tool=>tool.id===selection.id)!==index||operations.some(operation=>operation.integrationId===selection.id));
+ if(duplicate){pending(duplicate.id,'Duplicate operation for the same project tool');return {...plan,requirements,warnings};}
+ for(const selection of options.tools){
+  input.signal?.throwIfAborted();
+  const id=selection.id;
+  if(!isNativeTool(id))throw Error('Unsupported executable adapter');
+  const receipt=profile.installedTools?.[id];
+  const initialize=id==='codegraph'&&selection.initialize;
+  if(!selection.install&&(!selection.initialize||receipt===undefined)){
+   if(initialize)pending(id,'Initialization requires a verified project installation; enable project installation first');
+   continue;
+  }
+  const local=await inspectProjectToolInstall(root,id,receipt);
+  if('pending' in local){pending(id,local.pending);continue;}
+  const {prefix,name}=toolPackage(id);
+  const nativeReceipt=profile.initializedTools?.[id];
+  const nativeScopes=initialize&&!nativeReceipt?nativeInitializationPaths(id).declaredWrites:[];
+  const writes=[...('root' in local?[prefix]:[]),...nativeScopes];
+  if(scopesOverlap(writes,[...targets,...operations.flatMap(op=>op.declaredWrites)])){
+   pending(id,'external write scope overlaps a text candidate or operation; manual preparation required');continue;
+  }
+  if(nativeScopes.length)try{await assertEmptyToolScopes(root,{declaredWrites:nativeScopes});}
+  catch{pending(id,'Existing or unsafe native state/staging scope requires reconciliation; user content preserved');continue;}
+  let identity,install:SetupOperation|undefined;
+  if('identity' in local){identity=local.identity;warnings.push(id+': reuse receipted project installation '+identity.version);}
+  else try{
+   const resolved=await resolveNpmLatest(name,{...input,root,registry:await registryForInstall(),nodeVersion:process.versions.node});
+   identity=resolved;
+   install=softwareInstallRecipe(root,id,resolved.version,resolved.packageIntegrity,undefined,resolved.registry,resolved.enginesNode);
+   operations.push(install);
+  }catch(error){
+   input.signal?.throwIfAborted();
+   if(registryUnavailable){
+    if(!pendingRuntimeTools.length)warnings.push('Automatic tool installation is pending: preserve .rigup/.env and correct its private access and ignore state, then prepare a new review.');
+    pendingRuntimeTools.push(id);
+   }else pending(id,(error as Error).message,'npm-resolution');
+   continue;
+  }
+  if(initialize){
+   const prepared=await prepareNativeInitialization(root,id,identity.version,identity.packageIntegrity,{installed:!install,prerequisiteIds:install?[install.id]:[],receipt:nativeReceipt});
+   if('pending' in prepared)pending(id,prepared.pending);
+   else if('reused' in prepared)warnings.push(id+': verified native initialization reused');
+   else operations.push(prepared);
   }
  }
  // Software installations have no prerequisites. Put them together before native initialization.
  operations.sort((a,b)=>Number(a.kind!=='install')-Number(b.kind!=='install'));
- return {assets,operations,warnings,requirements,bindings,skillBindings,...(pendingRuntimeTools.length?{pendingRuntimeTools}:{})};
+ return {...plan,operations,warnings,requirements,...(pendingRuntimeTools.length?{pendingRuntimeTools}:{})};
 }

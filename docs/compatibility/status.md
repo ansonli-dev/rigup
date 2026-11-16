@@ -22,4 +22,4 @@
 - Live Claude MCP rule generation and an unchanged review after apply still need a recorded model run. The macOS probe had no working Claude authentication. The paid matrix is deferred until session and batch spend caps and partial-cost accounting are in place, authentication works, and a total budget is agreed. The controlled CodeGraph probes used a shortened daemon idle window. [Claude validation and budget gate](https://github.com/ansonli-dev/rigup/issues/29)
 - Target GitLab execution needs its own project, runner, permissions and model-backed OpenWiki update. Customer deployment needs a real authorized adapter and rollback procedure. Human review of generated guidance is a separate acceptance step.
 
-[Reproduce local checks](../guides/development.md) · [Pinned integration versions](upstream-lock.json)
+[Reproduce local checks](../guides/development.md) · [Last verified integration combinations](upstream-lock.json)

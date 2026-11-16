@@ -10,11 +10,10 @@ import {readFileState,platformFileMode} from './file-state.js';
 import {scanRepository} from '../analyzer/repository.js';
 import {runProjectChecks} from '../integrations/tools/quality.js';
 import {planHarness} from '../generator/harness.js';
-import {loadUpstreamLock} from '../integrations/upstream.js';
 import {assertNoUnknownWriters} from './operations.js';
 import {acquireLock,defaultStateRoot} from './lock.js';
 import {agents} from '../integrations/agents/index.js';
-import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js';
+import {readVerifiedToolInstall} from '../integrations/tools/installed-state.js';
 import {verifyToolInitializationReceipt} from '../integrations/tools/native-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {probeClaudeProjectMcp} from '../integrations/agents/claude-health.js';
@@ -119,12 +118,11 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   }
   add('host',agent+':load',state,reason);
  }
- const recipes=await loadUpstreamLock();for(const tool of selected.tools??[]){
-  const recipe=recipes.find(r=>r.integrationId===tool.id)!;
-  const verified=await verifyToolInstallReceipt(root,tool.id,recipe,manifest.installedTools?.[tool.id]);
-  add('tools',tool.id+':binary',verified?'available':'pending',verified?'Pinned package, dependency tree, launcher and receipt verified':'Project installation unavailable/unreceipted; no install or global change performed');
+ for(const tool of selected.tools??[]){
+  const verified=await readVerifiedToolInstall(root,tool.id,manifest.installedTools?.[tool.id]);
+  add('tools',tool.id+':binary',verified?'available':'pending',verified?'Installed '+verified.version+' verified by package, dependency tree, launcher and receipt':'Project installation unavailable or needs receipt reconciliation');
   const nativeReceipt=manifest.initializedTools?.[tool.id];
-  const native=await verifyToolInitializationReceipt(root,tool.id,recipe,nativeReceipt);
+  const native=verified&&await verifyToolInitializationReceipt(root,tool.id,verified,nativeReceipt);
   const externalWiki=!native&&tool.id==='openwiki'&&await completedOpenWikiBaseline(root);
   const initializationReason=native?native.message:externalWiki?'Completed native OpenWiki baseline observed outside Rigup ownership':tool.id==='openwiki'?(nativeReceipt?'Existing native ownership/state needs reconciliation. ':'')+openwikiInitializationGuide:'Native initialization unavailable or ownership/state changed; no initialization or repair executed';
   add('tools',tool.id+':initialization',native||externalWiki?'initialized':'pending',initializationReason);

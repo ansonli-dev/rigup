@@ -8,10 +8,9 @@ import {randomUUID} from 'node:crypto';
 import type {SetupPlan,ManagedAsset} from '../types.js';
 import type {Ownership} from '../managed-input.js';
 import type {PreparedAsset} from '../integrations/registry.js';
-import {loadUpstreamLock} from '../integrations/upstream.js';
 import {assertEmptyToolScopes} from '../integrations/tools/initialization.js';
-import {assertToolOperationRecipe,isNativeTool} from '../integrations/tools/recipes.js';
-import {verifyToolInstallReceipt} from '../integrations/tools/installed-state.js';
+import {assertToolOperationRecipe,isNativeTool,toolOperationIdentity,toolOperationPrerequisites} from '../integrations/tools/recipes.js';
+import {readVerifiedToolInstall} from '../integrations/tools/installed-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {digest} from '../analyzer/evidence.js';
 import {readFileState,readFileStates,absentDigest,matchesFileState,platformFileMode} from './file-state.js';
@@ -30,14 +29,25 @@ export interface PreviewResolution {target:string;selector:Ownership;observedDig
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
 export interface Preview {noChanges?:true;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];projectDocuments?:{target:string;action:'create'|'preserve';reason:string}[];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number;seed?:ConventionReceipt}
-export interface PreviewData {schemaVersion:1;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2|3;sourceReview?:SourceReview;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
+export interface PreviewData {schemaVersion:1;approvalNonce?:string;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2|3;sourceReview?:SourceReview;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
 const targetKey=(target:string)=>process.platform==='win32'?target.toLowerCase():target;
 export async function readTarget(root:string,target:string):Promise<Buffer|undefined>{return (await readFileState(root,target)).bytes;}
+export class LegacyPreviewError extends Error {}
+export function previewIdentity(data:PreviewData):string{
+ return signature({...data,preview:{...data.preview,previewId:''}});
+}
+export function assertPreviewIdentity(data:PreviewData,previewId:string):void{
+ if(data.approvalNonce===undefined)throw new LegacyPreviewError('Implementation version changed; regenerate preview without discarding durable state');
+ if(data.schemaVersion!==1||typeof data.approvalNonce!=='string'||!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(data.approvalNonce)||
+  data.preview?.previewId!==previewId||data.preview.root!==data.plan?.root||!Array.isArray(data.preview.operations)||!Array.isArray(data.plan.operations)||
+  signature(data.preview.operations)!==signature(data.plan.operations)||previewIdentity(data)!==previewId)throw Error('Private preview identity differs from the approved preview ID');
+}
 export async function loadPreview(previewId:string,cacheRoot=defaultPreviewCache()):Promise<PreviewData>{
  if(!/^[a-f0-9]{64}$/.test(previewId))throw new Error('preview id invalid');
  const value=await readCache<{digest:string;data:PreviewData}>(join(cacheRoot,previewId+'.json'));
- if(!value||value.digest!==signature(value.data)||value.data.preview.previewId!==previewId)throw new Error('private preview missing or corrupted');return value.data;
+ if(!value?.data||value.digest!==signature(value.data))throw new Error('private preview missing or corrupted');
+ assertPreviewIdentity(value.data,previewId);return value.data;
 }
 export function unchangedInstallation(data:PreviewData):boolean{
  const {oldManifest:old,plan}=data;
@@ -192,7 +202,6 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   items.push({logicalId:asset.logicalId,target:asset.target,ownership:asset.ownership,action:result.action,reason:result.reason,observedDigest,beforeMode:file.observedMode,afterMode:file.mode,...(!['noop','keep'].includes(result.action)?{before:display(local),after:display(result.action==='remove'?undefined:result.content??entry.candidate?.content)}:{})});
  }
  if(usedResolutions.size!==resolutions.length)throw new Error('resolution target/selector does not match planned item');
- const lock=await loadUpstreamLock();
  for(const op of plan.operations){
   if(op.kind==='initialize'&&op.integrationId==='openwiki'){
    blockers.push(op.id+': '+openwikiInitializationGuide);
@@ -200,12 +209,13 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   }
   try{
    const id=op.integrationId;
-   const recipe=lock.find(r=>r.integrationId===id);
-   if(!recipe||!isNativeTool(id))throw Error('External operation has no verified adapter');
-   if(plan.operations.filter(o=>o.id===op.id).length!==1||op.prerequisiteIds.some(id=>!plan.operations.slice(0,plan.operations.indexOf(op)).some(o=>o.id===id)))throw Error('Missing or reordered operation prerequisite');
-   const prerequisites=op.kind==='initialize'?plan.operations.filter(o=>o.kind==='install'&&o.integrationId===id).map(o=>o.id):[];
-   assertToolOperationRecipe(root,op,recipe,prerequisites);
-   if(op.kind==='initialize'&&!prerequisites.length&&!await verifyToolInstallReceipt(root,id,recipe,oldManifest?.installedTools?.[id]))throw Error('Initialization requires receipted software');
+   if(!isNativeTool(id))throw Error('External operation has no verified adapter');
+   const prerequisites=toolOperationPrerequisites(plan.operations,op);
+   assertToolOperationRecipe(root,op,prerequisites);
+   if(op.kind==='initialize'&&!prerequisites.length){
+    const installed=await readVerifiedToolInstall(root,id,oldManifest?.installedTools?.[id]);
+    if(!installed||signature(installed)!==signature(toolOperationIdentity(op)))throw Error('Initialization requires matching receipted software');
+   }
    if(op.declaredWrites.some(scope=>[...allTargets,...prospective,...history.map(item=>item.target)].some(target=>overlaps(scope,target))))throw Error('External operation overlaps candidate');
    await assertEmptyToolScopes(root,op);
   }catch{blockers.push(op.id+': external operation protection or recipe validation failed');}
@@ -264,8 +274,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    for(const [name,job] of Object.entries(expected??{}))for(const [key,value] of Object.entries(job as object))if(signature(actual?.[name]?.[key])!==signature(value))throw new Error('required CI job binding changed');
   }catch{blockers.push('.gitlab-ci.yml: required CI include/job binding invalid or unavailable; preserve local content and re-prepare');}
  }
- const previewId=digest(randomUUID()+signature({plan,items,resolutions,pendingReview}));
- const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId,root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
+ const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId:'',root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644,...(creates.has(target)?{seed:creates.get(target)}:{})}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
  const inputSnapshot=await installationInput(root,plan,allTargets);
@@ -274,9 +283,10 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
   throw Error('Previously approved inputs changed during source reconciliation; prepare a new review');
  }
  // Older CLI readers use the discovery marker to verify the full approved scope.
- const data:PreviewData={schemaVersion:1,modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:3,...(pendingReview?{sourceReview:pendingReview}:{}),preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot,files,assets:nextAssets,baselines:baselineRecords};
+ const data:PreviewData={schemaVersion:1,approvalNonce:randomUUID(),modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:3,...(pendingReview?{sourceReview:pendingReview}:{}),preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot,files,assets:nextAssets,baselines:baselineRecords};
  if(dependencies.skipUnchanged&&publicPreview.executable&&unchangedInstallation(data))return {...publicPreview,previewId:'',noChanges:true};
- const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,previewId+'.json'),JSON.stringify({digest:signature(data),data}));
+ publicPreview.previewId=previewIdentity(data);
+ const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,publicPreview.previewId+'.json'),JSON.stringify({digest:signature(data),data}));
  return publicPreview;
 }
 

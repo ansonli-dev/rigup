@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {project} from './helpers.js';
 import {scanRepository} from '../src/analyzer/repository.js';
-import {writeNativeToolFixture} from './native-tool-fixture.js';
+import {fixedNpmView,prepareToolFixture,writeNativeToolFixture} from './native-tool-fixture.js';
 import {npmCommand} from '../src/npm-command.mjs';
 import {renderCustomerTemplate} from '../src/integrations/custom-templates.js';
 test('customer_template_renders_declared_scalars_and_keeps_consumer',()=>project(async root=>{
@@ -106,7 +106,9 @@ test('skill_source_conflicts_require_choice_and_satisfied_source_is_reused',()=>
 });
 test('prepare_plans_protected_tool_initialization_and_rejects_unknown_adapter',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
- const prepared=await prepareIntegrations(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}]});
+ const options={agents:['codex' as const],backend:'host' as const,tools:[{id:'codegraph' as const,install:true,initialize:true,agents:['codex' as const]}]};
+ assert.deepEqual((await prepareIntegrations(profile,options)).operations,[],'asset assembly does not prepare npm operations');
+ const prepared=await prepareToolFixture(profile,options);
  assert.equal(prepared.operations.filter(op=>op.kind === 'initialize').length,1);assert.equal(prepared.requirements.length,0);
  await assert.rejects(prepareIntegrations(profile,{agents:[],backend:'host',tools:[{id:'model-generated-adapter' as any,install:true,initialize:true,agents:[]}]}),/unsupported|unknown/);
 }));
@@ -123,11 +125,15 @@ test('multi_agent_openwiki_uses_separate_host_arguments_without_collision',()=>p
 test('software_install_requires_new_empty_owned_scope',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const options={agents:['codex' as const],backend:'host' as const,tools:[{id:'codegraph' as const,install:true,initialize:false,agents:['codex' as const]}]};
- const fresh=await prepareIntegrations(profile,options);
+ let calls=0;const view:typeof fixedNpmView=(...args)=>{calls++;return fixedNpmView(...args);};
+ const fresh=await prepareToolFixture(profile,options,view);
  assert.equal(fresh.operations.length,1);assert.equal(fresh.operations[0].kind,'install');
  assert.ok(fresh.operations[0].parameters.args.includes('--ignore-scripts'));
  await mkdir(join(root,'.rigup/tools/codegraph'),{recursive:true});await writeFile(join(root,'.rigup/tools/codegraph/user.txt'),'preserve');
- const blocked=await prepareIntegrations(profile,options);assert.equal(blocked.operations.length,0);assert.match(blocked.warnings.join(' '),/existing|nonempty|non-empty/);
+ const blocked=await prepareToolFixture(profile,options,view);assert.equal(blocked.operations.length,0);assert.match(blocked.warnings.join(' '),/existing|nonempty|non-empty/);
+ const duplicate=await prepareToolFixture(profile,{...options,tools:[...options.tools,...options.tools]},view);
+ assert.match(duplicate.requirements[0].reason,/Duplicate operation/);
+ assert.equal(calls,1);
 }));
 test('selected_project_install_is_the_executable_used_by_mcp after relocation',()=>project(async workspace=>{
  const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile,rename}=await import('node:fs/promises');
@@ -135,7 +141,7 @@ test('selected_project_install_is_the_executable_used_by_mcp after relocation',(
  const {parse}=await import('smol-toml');
  const root=join(workspace,'project with spaces');await mkdir(root);
  const profile=await scanRepository(root,{agents:[],backend:'host'});
- const prepared=await prepareIntegrations(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:false,agents:['codex']}]});
+ const prepared=await prepareToolFixture(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:false,agents:['codex']}]});
  const entry=(parse(prepared.assets[0].content) as any).mcp_servers.codegraph;
  const local=join(workspace,'package with spaces');await mkdir(local);
  await writeFile(join(local,'package.json'),JSON.stringify({name:'@colbymchenry/codegraph',version:'1.6.2',bin:{codegraph:'npm-shim.js'}}));
@@ -158,7 +164,7 @@ test('selected_project_install_is_the_executable_used_by_mcp after relocation',(
  });
 }));
 test('npm_software_recipe_installs_local_fixture_offline_without_lifecycle',()=>project(async root=>{
- const {prepareSoftwareInstall}=await import('../src/integrations/tools/software.js');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile,access}=await import('node:fs/promises');
+ const {prepareSoftwareInstall}=await import('./native-tool-fixture.js');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {readFile,access}=await import('node:fs/promises');
  const op=await prepareSoftwareInstall(root,'openwiki','0.7.3');if('pending' in op) throw new Error(op.pending);
  const local=join(root,'local-fixture');await mkdir(local);
  await writeFile(join(local,'package.json'),JSON.stringify({name:'rigup-local-fixture',version:'1.0.0',scripts:{install:'node lifecycle.cjs'}}));
@@ -170,26 +176,39 @@ test('npm_software_recipe_installs_local_fixture_offline_without_lifecycle',()=>
  await assert.rejects(access(join(installed,'lifecycle-ran')));
 }));
 test('software_install_canonicalizes_project_alias_before_npm',()=>project(async root=>{
- const {symlink}=await import('node:fs/promises');const {prepareSoftwareInstall}=await import('../src/integrations/tools/software.js');
+ const {symlink}=await import('node:fs/promises');const {prepareSoftwareInstall}=await import('./native-tool-fixture.js');
  await symlink(root,join(root,'alias'),process.platform==='win32'?'junction':'dir');
  const op=await prepareSoftwareInstall(join(root,'alias'),'openwiki','0.7.3');if('pending' in op) throw new Error(op.pending);
  assert.equal(op.parameters.args[op.parameters.args.indexOf('--prefix')+1],join(root,'.rigup/tools/openwiki'));
 }));
 test('unchanged_receipted_software_is_reused_without_reinstall',()=>project(async root=>{
- const {prepareSoftwareInstall}=await import('../src/integrations/tools/software.js');const {createHash}=await import('node:crypto');
+ const {prepareSoftwareInstall}=await import('./native-tool-fixture.js');const {createHash}=await import('node:crypto');
+ const {readVerifiedToolInstall}=await import('../src/integrations/tools/installed-state.js');
  const {prefix}=await writeNativeToolFixture(root,'openwiki','0.7.3');
- const lock=JSON.stringify({lockfileVersion:3,packages:{'':{dependencies:{openwiki:'0.7.3'}},'node_modules/openwiki':{version:'0.7.3',integrity:'fixture-integrity'}}});await writeFile(join(prefix,'package-lock.json'),lock);
- const receipt={version:'0.7.3',packageLockDigest:createHash('sha256').update(lock).digest('hex')};
- const without=await prepareSoftwareInstall(root,'openwiki','0.7.3','fixture-integrity');assert.ok('pending' in without);
- const reused=await prepareSoftwareInstall(root,'openwiki','0.7.3','fixture-integrity',receipt);assert.equal('reused' in reused && reused.reused,true);
+ const sri=(content:string)=>'sha512-'+createHash('sha512').update(content).digest('base64');
+ const integrity=sri('fixture'),different=sri('different');
+ const lock=JSON.stringify({lockfileVersion:3,packages:{'':{dependencies:{openwiki:'0.7.3'}},'node_modules/openwiki':{version:'0.7.3',integrity}}});await writeFile(join(prefix,'package-lock.json'),lock);
+ const oldReceipt=(text:string)=>({version:'0.7.3',packageLockDigest:createHash('sha256').update(text).digest('hex')});
+ const receipt=oldReceipt(lock);
+ const without=await prepareSoftwareInstall(root,'openwiki','0.7.3',integrity);assert.ok('pending' in without);
+ const reused=await prepareSoftwareInstall(root,'openwiki','0.7.3',integrity,receipt);assert.equal('reused' in reused && reused.reused,true);
+ const identity={version:'0.7.3',packageIntegrity:integrity};
+ assert.deepEqual(await readVerifiedToolInstall(root,'openwiki',receipt),identity);
+ assert.deepEqual(await readVerifiedToolInstall(root,'openwiki',{...receipt,packageIntegrity:integrity+'?fixture'}),identity);
+ for(const packageIntegrity of [different,'','sha512-invalid'])assert.equal(await readVerifiedToolInstall(root,'openwiki',{...receipt,packageIntegrity}),undefined);
  await writeFile(join(prefix,'package-lock.json'),lock+' ');
- const changed=await prepareSoftwareInstall(root,'openwiki','0.7.3','fixture-integrity',receipt);assert.ok('pending' in changed);
+ const changed=await prepareSoftwareInstall(root,'openwiki','0.7.3',integrity,receipt);assert.ok('pending' in changed);
+ const invalid=lock.replace(integrity,'sha512-invalid');await writeFile(join(prefix,'package-lock.json'),invalid);
+ assert.equal(await readVerifiedToolInstall(root,'openwiki',oldReceipt(invalid)),undefined);
+ assert.equal(await readVerifiedToolInstall(root,'openwiki',{...oldReceipt(invalid),packageIntegrity:'sha512-invalid'}),undefined);
 }));
 test('external_install_overlap_is_reported_as_manual_not_executable',()=>project(async root=>{
  await writeFile(join(root,'guide.tmpl'),'Customer review guide');
  const profile=await scanRepository(root,{agents:[],backend:'host'});
- const prepared=await prepareIntegrations(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:false,agents:['codex']}],projectConventions:{documentRoutes:{context:'.rigup/tools/codegraph'}},templates:[{source:'guide.tmpl',target:'.rigup/tools/codegraph/customer.md'}]});
+ let calls=0;
+ const prepared=await prepareToolFixture(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:false,agents:['codex']}],projectConventions:{documentRoutes:{context:'.rigup/tools/codegraph'}},templates:[{source:'guide.tmpl',target:'.rigup/tools/codegraph/customer.md'}]},(...args)=>{calls++;return fixedNpmView(...args);});
  assert.equal(prepared.operations.length,0);assert.match(prepared.requirements.map(r=>r.reason).join(' '),/overlap/);
+ assert.equal(calls,0);
 }));
 test('four_host_mcp_fragments_parse_in_their_declared_formats',()=>project(async root=>{
  const {parse}=await import('smol-toml');

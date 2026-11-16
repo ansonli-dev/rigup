@@ -4,18 +4,16 @@ import {lstat,readdir} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import type {NativeInitializationReceipt,SetupOperation} from '../../types.js';
 import {targetPath} from '../../installer/ownership.js';
-import {queryPinnedTool} from './installed-state.js';
-import {loadUpstreamLock} from '../upstream.js';
+import {queryToolPackage} from './installed-state.js';
 import {signature} from '../../generator/cache.js';
 import type {OperationResult} from '../../installer/operations.js';
 import {assertEmptyNativeScope} from './initialization.js';
-import {initializationRecipe,isNativeTool,verifiedToolOperationForResume,type NativeTool,type ToolPin} from './recipes.js';
+import {initializationRecipe,isNativeTool,toolOperationIdentity,verifiedToolOperationForResume,type NativeTool} from './recipes.js';
+import type {NpmPackageIdentity} from './npm-resolution.js';
 const exec=promisify(execFile);
 async function verifiedNativeOperation(operation:SetupOperation):Promise<SetupOperation|undefined>{
  if(operation.kind!=='initialize'||operation.protection.kind!=='native-staging')return;
- const recipe=(await loadUpstreamLock()).find(r=>r.integrationId===operation.integrationId);
- if(!recipe)return;
- try{return verifiedToolOperationForResume(operation.parameters.cwd,operation,recipe,operation.prerequisiteIds);}
+ try{return verifiedToolOperationForResume(operation.parameters.cwd,operation,operation.prerequisiteIds);}
  catch{return;}
 }
 export function nativeEnvironment(operation:SetupOperation):NodeJS.ProcessEnv {
@@ -28,9 +26,9 @@ export function nativeEnvironment(operation:SetupOperation):NodeJS.ProcessEnv {
 }
 export async function queryNativeInitialization(operation:SetupOperation):Promise<OperationResult>{
  const verified=await verifiedNativeOperation(operation);
- if(!verified||!isNativeTool(verified.integrationId))return {status:'unknown',message:'Native query differs from the pinned adapter'};
+ if(!verified||!isNativeTool(verified.integrationId))return {status:'unknown',message:'Native query differs from the verified adapter'};
  const root=verified.parameters.cwd;
- const installed=await queryPinnedTool(root,verified.integrationId,{version:verified.version,packageIntegrity:verified.query.integrity});
+ const installed=await queryToolPackage(root,verified.integrationId,toolOperationIdentity(verified));
  if(installed.status!=='done')return installed;
  try {
   for(const target of verified.declaredWrites)await targetPath(root,target);
@@ -40,9 +38,9 @@ export async function queryNativeInitialization(operation:SetupOperation):Promis
   if(parsed.status!=='done'||!parsed.nativeReceipt)throw Error('Invalid native query response');return parsed;
  }catch{return {status:'unknown',message:'Native initialization is absent, incomplete, or changed; reconcile protected staging before retry'};}
 }
-export async function verifyToolInitializationReceipt(root:string,id:NativeTool,pin:ToolPin,receipt?:NativeInitializationReceipt):Promise<OperationResult|undefined> {
- if(!receipt||receipt.version!==pin.version)return;
- const state=await queryNativeInitialization(initializationRecipe(root,id,pin.version,pin.packageIntegrity));
+export async function verifyToolInitializationReceipt(root:string,id:NativeTool,identity:NpmPackageIdentity,receipt?:NativeInitializationReceipt):Promise<OperationResult|undefined> {
+ if(!receipt||receipt.version!==identity.version)return;
+ const state=await queryNativeInitialization(initializationRecipe(root,id,identity.version,identity.packageIntegrity));
  if(state.status==='done'&&signature(state.nativeReceipt)===signature(receipt))return state;
 }
 

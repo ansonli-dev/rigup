@@ -86,7 +86,7 @@ JS
 
 原生 Windows 使用 `rigup init --agents claude --sdd openspec --defer-research --prepare-openspec` 准备 OpenSpec。下面的 `npm install --prefix` 示例适用于 macOS 和 Linux。
 
-验证 Spec Kit 时，用 `specify init --here --integration claude` 准备原生技能，核对 `speckit-constitution` 和 `speckit-specify` 等入口。验证 Superpowers 时，记录插件版本。插件版本和 `upstream-lock.json` 的锁定版本不一致时，Rigup 会阻止绑定和应用，预览显示 `Native superpowers version X differs from verified Y`。切换到锁定版本后重新预览。 [上游锁](../compatibility/upstream-lock.json)
+验证 Spec Kit 时，用 `specify init --here --integration claude` 准备原生技能，核对 `speckit-constitution` 和 `speckit-specify` 等入口。验证 Superpowers 时，记录实际插件版本，并确认宿主已启用插件、必需技能可绑定。`upstream-lock.json` 记录最近一次验证的组合。 [上游验证记录](../compatibility/upstream-lock.json)
 
 ```sh
 cd "$RIGUP_SOURCE"

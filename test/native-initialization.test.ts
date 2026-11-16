@@ -8,16 +8,19 @@ import {DatabaseSync} from 'node:sqlite';
 import {copyFile,mkdir,writeFile,readFile,readdir,symlink,lstat,rename} from 'node:fs/promises';
 import {project} from './helpers.js';
 import {scanRepository} from '../src/analyzer/repository.js';
-import {prepareIntegrations} from '../src/integrations/registry.js';
 import type {SetupOptions} from '../src/types.js';
-import {preview} from '../src/installer/preview.js';
+import {preview,previewIdentity} from '../src/installer/preview.js';
 import type {SetupPlan} from '../src/types.js';
 import {initializationRecipe} from '../src/integrations/tools/initialization.js';
 import {loadUpstreamLock} from '../src/integrations/registry.js';
-import {executeOperation,queryOperation} from '../src/installer/operations.js';
+import {queryOperation} from '../src/installer/operations.js';
 import {nativeEnvironment,resumableNativeOperation} from '../src/integrations/tools/native-state.js';
 import {assertToolOperationRecipe} from '../src/integrations/tools/recipes.js';
-import {writeNativeToolFixture} from './native-tool-fixture.js';
+import {prepareToolFixture,saveNativeOperations,writeNativeToolFixture} from './native-tool-fixture.js';
+import {saveCache,signature} from '../src/generator/cache.js';
+import {applyRecordPath} from '../src/installer/baseline.js';
+import {saveDurable} from '../src/private-record.js';
+import {digest} from '../src/analyzer/evidence.js';
 import {apply} from '../src/installer/apply.js';
 import {executeLifecycle} from '../src/lifecycle.js';
 import {rm} from 'node:fs/promises';
@@ -28,13 +31,13 @@ const options:SetupOptions={agents:['codex'],backend:'host',tools:[
 ]};
 test('scaffolding installs OpenWiki and stages only CodeGraph initialization',()=>project(async root=>{
  await writeFile(root+'/AGENTS.md','User instructions stay here.\n');
- const prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ const prepared=await prepareToolFixture(await scanRepository(root,options),options);
  assert.deepEqual(prepared.operations.map(o=>[o.id,o.prerequisiteIds]),[
   ['install:openwiki',[]],
   ['install:codegraph',[]],['initialize:codegraph',['install:codegraph']],
  ]);
  const reversed={...options,tools:[...options.tools!].reverse()};
- const otherOrder=await prepareIntegrations(await scanRepository(root,reversed),reversed);
+ const otherOrder=await prepareToolFixture(await scanRepository(root,reversed),reversed);
  assert.deepEqual(otherOrder.operations.map(o=>o.id),['install:codegraph','install:openwiki','initialize:codegraph']);
  assert.deepEqual(prepared.requirements,[]);
  for(const op of prepared.operations.filter(o=>o.kind==='initialize')){
@@ -47,7 +50,7 @@ test('scaffolding installs OpenWiki and stages only CodeGraph initialization',()
 test('unowned wiki and index remain untouched and are never implicitly adopted',()=>project(async root=>{
  await mkdir(root+'/openwiki');await writeFile(root+'/openwiki/quickstart.md','Customer wiki');
  await mkdir(root+'/.codegraph');await writeFile(root+'/.codegraph/config.json','Customer index configuration');
- const prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ const prepared=await prepareToolFixture(await scanRepository(root,options),options);
  assert.equal(prepared.operations.filter(o=>o.kind==='initialize').length,0);
  assert.equal(prepared.requirements.length,1);
  assert.equal(await readFile(root+'/openwiki/quickstart.md','utf8'),'Customer wiki');
@@ -56,17 +59,17 @@ test('unowned wiki and index remain untouched and are never implicitly adopted',
 test('native initialization rejects unsafe target and staging ancestors',()=>project(async root=>project(async outside=>{
  await symlink(outside,root+'/openwiki',process.platform==='win32'?'junction':'dir');
  await mkdir(root+'/.rigup',{recursive:true});await symlink(outside,root+'/.rigup/native',process.platform==='win32'?'junction':'dir');
- const prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ const prepared=await prepareToolFixture(await scanRepository(root,options),options);
  assert.equal(prepared.operations.filter(o=>o.kind==='initialize').length,0);
  assert.equal(prepared.requirements.length,1);
 })));
 test('registering an unverified external binary does not authorize initialization',()=>project(async root=>{
  const opts:SetupOptions={...options,tools:[{id:'codegraph',install:false,initialize:true,agents:['codex']}]};
- const prepared=await prepareIntegrations(await scanRepository(root,opts),opts);
+ const prepared=await prepareToolFixture(await scanRepository(root,opts),opts);
  assert.equal(prepared.operations.length,0);
- assert.match(prepared.requirements[0]?.reason??'',/pinned project installation/);
+ assert.match(prepared.requirements[0]?.reason??'',/verified project installation/);
 }));
-async function nativePlan(root:string):Promise<SetupPlan>{const profile=await scanRepository(root,options);const prepared=await prepareIntegrations(profile,options);return {root,fingerprint:profile.fingerprint,options,assets:prepared.assets,operations:prepared.operations,requirements:prepared.requirements,warnings:prepared.warnings,versions:{},dispositions:[]};}
+async function nativePlan(root:string):Promise<SetupPlan>{const profile=await scanRepository(root,options);const prepared=await prepareToolFixture(profile,options);return {root,fingerprint:profile.fingerprint,options,assets:prepared.assets,operations:prepared.operations,requirements:prepared.requirements,warnings:prepared.warnings,versions:{},dispositions:[]};}
 test('preview authorizes staged CodeGraph initialization without OpenWiki generation',()=>project(async root=>project(async cache=>{
  const plan=await nativePlan(root);const p=await preview(plan,[],{cacheRoot:cache});
  assert.equal(p.executable,true,p.blockers.join('\n'));
@@ -113,8 +116,9 @@ test('native state query never executes substituted adapter commands',()=>projec
  await queryOperation(op);
  await assert.rejects(()=>readFile(root+'/substituted-command-ran'),{code:'ENOENT'});
 }));
-async function codeGraphWorker(root:string){
- const pin=(await loadUpstreamLock()).find(r=>r.integrationId==='codegraph')!;
+async function codeGraphWorker(root:string,version?:string,indexedVersion=version){
+ const baseline=(await loadUpstreamLock()).find(r=>r.integrationId==='codegraph')!;
+ const pin={...baseline,version:version??baseline.version};
  const {packageRoot,prefix}=await writeNativeToolFixture(root,'codegraph',pin.version);
  const name='@colbymchenry/codegraph';
  await writeFile(join(prefix,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{[name]:pin.version}},['node_modules/'+name]:{version:pin.version,integrity:pin.packageIntegrity}}}));
@@ -131,7 +135,7 @@ async function codeGraphWorker(root:string){
     if(existsSync(join(root,'create-destination-during-index')))mkdirSync(join(root,'.codegraph'));
     const db=new DatabaseSync(join(index,'codegraph.db'));
     try{
-     db.exec("CREATE TABLE project_metadata(key TEXT PRIMARY KEY,value TEXT); INSERT INTO project_metadata VALUES ('index_state','complete'),('indexed_with_version','1.6.2'); CREATE TABLE files(id TEXT); CREATE TABLE nodes(id TEXT);");
+     db.exec("CREATE TABLE project_metadata(key TEXT PRIMARY KEY,value TEXT); INSERT INTO project_metadata VALUES ('index_state','complete'),('indexed_with_version','${indexedVersion??pin.version}'); CREATE TABLE files(id TEXT); CREATE TABLE nodes(id TEXT);");
     }finally{db.close();}
     return new CodeGraph();
    }
@@ -143,6 +147,28 @@ async function codeGraphWorker(root:string){
  const operation=initializationRecipe(root,'codegraph',pin.version,pin.packageIntegrity);
  return {pin,operation,runWorker:(preload?:string)=>runNativeWorker(operation,preload)};
 }
+
+test('native worker consumes the approved package version when initializing and querying',()=>project(async root=>{
+ const {operation,runWorker}=await codeGraphWorker(root,'2.0.0');
+ assert.equal(operation.parameters.args[9],'2.0.0');
+ const query=()=>{
+  const args=[...operation.parameters.args];args[3]='query';
+  return JSON.parse(execFileSync(operation.parameters.executable,args,{cwd:root,env:nativeEnvironment(operation),encoding:'utf8'}));
+ };
+ const {nativeReceipt}=runWorker();
+ assert.equal(nativeReceipt.version,'2.0.0');
+ assert.deepEqual(query().nativeReceipt,nativeReceipt);
+ const path=join(root,operation.query.packageJson);
+ const edited={...JSON.parse(await readFile(path,'utf8')),version:'2.0.1'};
+ await writeFile(path,JSON.stringify(edited));
+ assert.throws(query,/approved package version/);
+}));
+
+test('native worker rejects a CodeGraph index from a different package version',()=>project(async root=>{
+ const {runWorker}=await codeGraphWorker(root,'2.0.0','2.0.1');
+ assert.throws(()=>runWorker(),/index is incomplete or incompatible/);
+ await assert.rejects(lstat(root+'/.codegraph'),{code:'ENOENT'});
+}));
 
 function runNativeWorker(operation:SetupOperation,preload?:string){
  const {executable,args}=operation.parameters;
@@ -270,7 +296,7 @@ test('the Windows native worker stops after five blocked rename attempts',()=>pr
 test('a recognized v0.2.4 native recipe can reconcile staging and completed output',()=>project(async root=>{
  const {operation,pin,runWorker}=await codeGraphWorker(root);
  const prior=(digest:string)=>{
-  const legacy=structuredClone(operation);legacy.parameters.args[8]=digest;return legacy;
+  const legacy=structuredClone(operation);legacy.parameters.args[8]=digest;legacy.parameters.args.pop();return legacy;
  };
  const legacy=[
   prior('6cf421b0ba225d9f371a7dd67b083475fed40bacd30aee838a7d4bfb18cbf5b8'), // source checkout
@@ -283,11 +309,16 @@ test('a recognized v0.2.4 native recipe can reconcile staging and completed outp
  for(const candidate of legacy)assert.deepEqual((await queryOperation(candidate)).nativeReceipt,nativeReceipt);
  const arbitrary=prior('0'.repeat(64));
  const substituted=structuredClone(legacy[0]);substituted.parameters.args[2]=join(root,'untrusted.mjs');
- for(const rejected of [...legacy,arbitrary,substituted])assert.throws(()=>assertToolOperationRecipe(root,rejected,pin,[]),/verified recipe/);
+ for(const rejected of [...legacy,arbitrary,substituted])assert.throws(()=>assertToolOperationRecipe(root,rejected,[]),/verified recipe/);
  for(const rejected of [arbitrary,substituted])assert.equal((await queryOperation(rejected)).status,'unknown');
 }));
 test('a relocated native recipe resumes only with the same verified adapter',()=>project(async root=>project(async stateRoot=>{
  const {operation}=await codeGraphWorker(root);
+ const receipt={version:operation.version,packageLockDigest:digest(await readFile(join(root,operation.query.packageLock)))};
+ await writeFile(join(root,'.rigup','manifest.json'),JSON.stringify({schemaVersion:1,installId:'fixture',assets:[],installedTools:{codegraph:receipt}}));
+ const cacheRoot=join(stateRoot,'previews'),dependencies={stateRoot,cacheRoot};
+ const approved=await saveNativeOperations(root,cacheRoot,[operation]);
+ assert.equal(approved.preview.executable,true);
  const previous=structuredClone(operation);
  const priorRelease=join(stateRoot,'versions','v0.4.0','lib');
  const worker=join(priorRelease,'app','dist','integrations','tools','native-worker.mjs');
@@ -295,21 +326,26 @@ test('a relocated native recipe resumes only with the same verified adapter',()=
  await copyFile(operation.parameters.args[2],worker);
  previous.parameters.args[2]=worker;
  previous.parameters.executable=join(priorRelease,'node','bin',basename(process.execPath));
- const approval={stateRoot,authorizationRef:'fixture-approved'};
- const fresh=await executeOperation(previous,approval);
- assert.equal(fresh.status,'pending');
- assert.match(fresh.message??'',/verified recipe/);
+ const priorApproval=structuredClone(approved);
+ priorApproval.plan.operations=priorApproval.preview.operations=[previous];
+ const priorId=priorApproval.preview.previewId=previewIdentity(priorApproval);
+ const stored={data:priorApproval,digest:signature(priorApproval)};
+ await saveCache(join(cacheRoot,priorId+'.json'),JSON.stringify(stored));
+ await assert.rejects(()=>apply(priorId,dependencies),/verified recipe/);
  assert.equal(await resumableNativeOperation(previous),true);
- const resumed=await executeOperation(previous,{...approval,restoringApproval:true});
- assert.equal(resumed.status,'done',resumed.message);
- assert.deepEqual((await queryOperation(previous)).nativeReceipt,resumed.nativeReceipt);
+ assert.equal((await apply(approved.preview.previewId,{...dependencies,signal:AbortSignal.abort()})).exitCode,130);
+ const path=applyRecordPath(root,stateRoot);
+ const transaction=JSON.parse(await readFile(path,'utf8'));
+ await saveDurable(path,JSON.stringify({...transaction,previewId:priorId,preview:stored}));
+ const resumed=await apply(priorId,{...dependencies,recover:true});
+ assert.equal(resumed.status,'complete',JSON.stringify(resumed.operations));
+ assert.deepEqual((await queryOperation(previous)).nativeReceipt,resumed.operations[0].nativeReceipt);
 
  await writeFile(worker,'// Modified prior adapter');
- const changed=await executeOperation(previous,{...approval,restoringApproval:true});
- assert.equal(changed.status,'pending');
- assert.match(changed.message??'',/Prior native adapter is unavailable/);
+ await assert.rejects(()=>apply(priorId,{...dependencies,recover:true}),/Prior native adapter is unavailable/);
 })));
 test('a live CodeGraph daemon socket preserves verified initialization', {skip:process.platform==='win32'},()=>project(async root=>{
+ await writeNativeToolFixture(root,'codegraph','1.6.2');
  const index=root+'/.codegraph',control=root+'/.rigup/native/codegraph',socket=index+'/daemon.sock';
  await mkdir(index);await mkdir(control,{recursive:true});
  const info=await lstat(index),receipt={target:'.codegraph',version:'1.6.2',identity:info.dev+':'+info.ino};

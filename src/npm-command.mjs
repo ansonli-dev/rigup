@@ -1,5 +1,6 @@
-import {statSync} from 'node:fs';
-import {dirname,join} from 'node:path';
+import {constants,statSync} from 'node:fs';
+import {access,lstat,realpath} from 'node:fs/promises';
+import {delimiter,dirname,isAbsolute,join,relative,sep} from 'node:path';
 
 /** @param {string[]} args */
 export function npmCommand(args) {
@@ -9,4 +10,35 @@ export function npmCommand(args) {
  const cli=join(dirname(process.execPath),'node_modules','npm','bin','npm-cli.js');
  if(!statSync(cli,{throwIfNoEntry:false})?.isFile())throw Error('Native npm CLI unavailable beside Node.js');
  return {executable:process.execPath,args:[cli,...args]};
+}
+
+/** @param {string} root @param {string} path */
+export function withinPath(root,path){
+ const rel=relative(root,path);
+ return rel===''||rel!=='..'&&!rel.startsWith('..'+sep)&&!isAbsolute(rel);
+}
+
+/** @param {string} root @param {string} path */
+export async function npmPathDirectories(root,path){
+ const node=process.platform==='win32'?'node.exe':'node';
+ const directories=await Promise.all(path.split(delimiter).filter(dir=>isAbsolute(dir)&&!withinPath(root,dir)).map(async dir=>{
+  const canonical=await realpath(dir).catch(()=>undefined);
+  if(!canonical||withinPath(root,canonical))return;
+  const interpreter=await realpath(join(canonical,node)).catch(()=>undefined);
+  if(!interpreter||!withinPath(root,interpreter))return canonical;
+ }));
+ return [...new Set(directories.filter(dir=>dir!==undefined))];
+}
+
+/** @param {string} name @param {string} root @param {string[]} directories */
+export async function externalExecutable(name,root,directories){
+ for(const directory of directories){
+  const path=join(directory,name);
+  try{
+   if(withinPath(root,path))continue;
+   const canonical=await realpath(path);
+   if(withinPath(root,canonical)||!(await lstat(canonical)).isFile())continue;
+   await access(path,constants.X_OK);return path;
+  }catch{/* Try the next path entry. */}
+ }
 }

@@ -1,24 +1,26 @@
-import {queryInstalledTool,queryPinnedTool} from '../integrations/tools/installed-state.js';
+import {queryInstalledTool,queryToolPackage,type ToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import {isRecord,readDurableRecord,saveDurable} from '../private-record.js';
 import {join,resolve,isAbsolute} from 'node:path';
+import {readFile} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import type {SetupOperation} from '../types.js';
 import {privateDirectory,signature} from '../generator/cache.js';
 import {defaultStateRoot,processIdentity,isAlive,type ProcessIdentity} from './lock.js';
-import {loadUpstreamLock} from '../integrations/upstream.js';
 import {assertEmptyToolScopes} from '../integrations/tools/initialization.js';
-import {assertToolOperationRecipe,isNativeTool,verifiedToolOperationForResume} from '../integrations/tools/recipes.js';
+import {assertToolOperationRecipe,isNativeTool,toolOperationIdentity,verifiedToolOperationForResume} from '../integrations/tools/recipes.js';
 import {queryNativeInitialization,resumableNativeOperation,nativeEnvironment} from '../integrations/tools/native-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {startWindowsProcess,windowsJobActive} from '../integrations/tools/windows-process.mjs';
-import {npmCommand} from '../npm-command.mjs';
+import {assertNpmNode,defaultNpmRegistry,resolveProjectNpm} from '../integrations/tools/npm-resolution.js';
 import {assertInstallDestination,clearInstallStage,createInstallStage,installDirectoryIdentity,ownedInstallStage,publishInstallStage,stagedInstall,validInstallStage,type InstallStage} from './install-staging.js';
 import {essentialEnvironment,selectedNpmRegistry} from '../runtime-inputs.js';
-export interface OperationResult {status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:{version:string;packageLockDigest:string};nativeReceipt?:import('../types.js').NativeInitializationReceipt}
+import {targetPath} from './ownership.js';
+import type {PreviewData} from './preview.js';
+export interface OperationResult {status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 type WriterIdentity=ProcessIdentity&{windowsJob?:string};
 interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult;installStage?:InstallStage}
-export interface OperationDependencies {stateRoot?:string;authorizationRef?:string;restoringApproval?:boolean;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
+export interface OperationDependencies {stateRoot?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
 export function operationRoot(operation:SetupOperation):string {if(operation.kind==='initialize'&&isAbsolute(operation.parameters.cwd))return operation.parameters.cwd;const i=operation.parameters.args.indexOf('--prefix');const prefix=operation.parameters.args[i+1];if(i<0||!prefix||!isAbsolute(prefix))throw new Error('operation project root unavailable');return resolve(prefix,'../../..');}
 export async function queryOperation(operation:SetupOperation):Promise<OperationResult>{
  try{if(operation.kind==='initialize')return await queryNativeInitialization(operation);return await queryInstalledTool(operationRoot(operation),{prefix:operation.protection.target,id:operation.integrationId,name:operation.query.name,version:operation.query.version,integrity:operation.query.integrity});}catch{return {status:'unknown',message:'Cannot prove external operation result; manual reconciliation required'};}
@@ -68,9 +70,7 @@ export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateR
   const operation=item.operation;
   if(operation.kind==='install'){
    if(operationRoot(operation)!==root)throw Error('Interrupted installation project root changed');
-   const pin=(await loadUpstreamLock()).find(entry=>entry.integrationId===operation.integrationId);
-   if(!pin)throw Error('Interrupted installation recipe is unavailable for '+operation.integrationId);
-   assertToolOperationRecipe(root,operation,pin,[]);
+   assertToolOperationRecipe(root,operation,[]);
    if((await queryPublishedInstall(root,operation,item.installStage)).status==='done')continue;
    await assertInstallDestination(root,operation);
    if(item.installStage)await ownedInstallStage(root,stagedInstall(root,operation,item.installStage).protection.target,item.installStage);
@@ -92,35 +92,41 @@ async function openOperationJournal(root:string,dependencies:OperationDependenci
  }};
 }
 type OperationJournal=Awaited<ReturnType<typeof openOperationJournal>>;
-export function operationExecutor(root:string,dependencies:OperationDependencies){
+export function operationExecutor(approved:PreviewData,dependencies:OperationDependencies,restoringApproval=false){
+ if(!approved.preview.executable)throw Error('Preview is blocked; prepare a new preview');
+ const {root,operations}=approved.plan;
+ const authorizationRef=approved.preview.previewId;
  let journal:Promise<OperationJournal>|undefined;
- return (operation:SetupOperation)=>runOperation(operation,dependencies,actualRoot=>{
-  if(actualRoot!==root)throw Error('operation project root differs from approved preview');
-  return journal??=openOperationJournal(root,dependencies);
- });
+ return async(operationId:string):Promise<OperationResult>=>{
+  const matches=operations.filter(operation=>operation.id===operationId);
+  if(matches.length!==1)return {status:'pending',message:'Operation ID must identify exactly one approved operation'};
+  return runOperation(matches[0],{...dependencies,authorizationRef,restoringApproval},actualRoot=>{
+   if(actualRoot!==root)throw Error('operation project root differs from approved preview');
+   return journal??=openOperationJournal(root,dependencies);
+  });
+ };
 }
-export function executeOperation(operation:SetupOperation,dependencies:OperationDependencies={}):Promise<OperationResult>{
- return runOperation(operation,dependencies,root=>openOperationJournal(root,dependencies));
+async function assertInstalledNode(root:string,operation:SetupOperation):Promise<void>{
+ const {name,version,packageJson}=operation.query;
+ const pkg=await readFile(await targetPath(root,packageJson),'utf8').then(text=>JSON.parse(text)).catch(()=>undefined);
+ if(pkg?.name!==name||pkg.version!==version)throw Error('Cannot confirm Node requirements for '+name+'@'+version);
+ assertNpmNode(name,version,pkg.engines?.node,process.versions.node);
 }
-async function runOperation(operation:SetupOperation,dependencies:OperationDependencies,getJournal:(root:string)=>Promise<OperationJournal>):Promise<OperationResult>{
+async function runOperation(operation:SetupOperation,dependencies:OperationDependencies&{authorizationRef:string;restoringApproval:boolean},getJournal:(root:string)=>Promise<OperationJournal>):Promise<OperationResult>{
  if(!['install','initialize'].includes(operation.kind)||!isNativeTool(operation.integrationId))return {status:'pending',message:'No verified executable adapter; manual operation required'};
- if(!dependencies.authorizationRef)return {status:'pending',message:'Explicit preview authorization reference required before dispatch'};
  const root=operationRoot(operation);
- const recipe=(await loadUpstreamLock()).find(r=>r.integrationId===operation.integrationId);
- if(!recipe)return {status:'pending',message:'No verified executable adapter; manual operation required'};
  let dispatched=operation;
  try{
-  if(dependencies.restoringApproval)dispatched=verifiedToolOperationForResume(root,operation,recipe,operation.prerequisiteIds);
-  else assertToolOperationRecipe(root,operation,recipe,operation.prerequisiteIds);
+  if(dependencies.restoringApproval)dispatched=verifiedToolOperationForResume(root,operation,operation.prerequisiteIds);
+  else assertToolOperationRecipe(root,operation,operation.prerequisiteIds);
  }
  catch(error){return {status:'pending',message:(error as Error).message};}
  const registryPending=async():Promise<OperationResult|undefined>=>{
   if(operation.kind!=='install')return;
-  try{if(await selectedNpmRegistry(root)===operation.registry)return;}
-  catch{return {status:'pending',message:'Correct the private npm registry input and prepare a new preview before installation'};}
-  return {status:'pending',message:'Npm registry selection changed after review; prepare a new preview before installation'};
+  try{if((await selectedNpmRegistry(root)??defaultNpmRegistry)===(operation.registry??defaultNpmRegistry))return;}
+  catch{return {status:'pending',message:'Correct the private npm registry input before installing'};}
+  return {status:'pending',message:'Npm registry selection changed after review; restore the approved registry before resuming installation'};
  };
- const changed=await registryPending();if(changed)return changed;
  const {records,persist}=await getJournal(root);
  const key=signature(operation);let record=records.find(r=>r.parametersDigest===key);
  if(record){
@@ -134,10 +140,17 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  // Previously accepted OpenWiki effects can still be queried above. Starting
  // or repeating its generation belongs to the user's separate native session.
  if(operation.kind==='initialize'&&operation.integrationId==='openwiki')return {status:'pending',message:openwikiInitializationGuide};
- if(operation.kind==='initialize'){
-  const installed=await queryPinnedTool(root,operation.integrationId,recipe);
-  if(installed.status!=='done')return {status:'pending',message:'Pinned installation must be verified before native initialization'};
- }
+ try{
+  if(operation.kind==='initialize'){
+   const installed=await queryToolPackage(root,operation.integrationId,toolOperationIdentity(operation));
+   if(installed.status!=='done')return {status:'pending',message:'Installation must be verified before native initialization'};
+   await assertInstalledNode(root,operation);
+  }else assertNpmNode(operation.query.name,operation.version,operation.query.enginesNode,process.versions.node);
+ }catch(error){return {status:'pending',message:(error as Error).message+'; resume the original approval with a compatible Node'};}
+ const staged=record?.installStage?stagedInstall(root,operation,record.installStage):undefined;
+ const ownedStage=staged&&record?.installStage&&await ownedInstallStage(root,staged.protection.target,record.installStage);
+ const stagedResult=ownedStage&&staged?await queryOperation(staged):undefined;
+ if(stagedResult?.status!=='done'){const changed=await registryPending();if(changed)return changed;}
  if(operation.kind==='install'){
   try{await assertInstallDestination(root,operation);}
   catch(error){return {status:'pending',message:(error as Error).message};}
@@ -155,6 +168,8 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  };
  const acceptInstall=async(staged:SetupOperation,stage:InstallStage,verified:OperationResult):Promise<OperationResult>=>{
   if(verified.status!=='done')return verified;
+  try{await assertInstalledNode(root,staged);}
+  catch(error){return {status:'pending',message:(error as Error).message+'; resume the original approval with a compatible Node'};}
   await publishInstallStage(root,operation,staged,stage);
   const published=await queryPublishedInstall(root,operation,stage);
   if(published.status!=='done'||published.receipt?.packageLockDigest!==verified.receipt?.packageLockDigest)throw Error('Published installation differs from verified staging');
@@ -162,13 +177,10 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  };
  let stage=record.installStage;
  if(operation.kind==='install'){
-  if(stage){
-   const staged=stagedInstall(root,operation,stage);
-   if(await ownedInstallStage(root,staged.protection.target,stage)){
-    const verified=await queryOperation(staged);
-    if(verified.status==='done')return terminal(await acceptInstall(staged,stage,verified));
-    await clearInstallStage(root,staged.protection.target,stage);
-   }
+  if(stage&&staged&&ownedStage){
+   if(stagedResult?.status==='done')return terminal(await acceptInstall(staged,stage,stagedResult));
+   const changed=await registryPending();if(changed)return changed;
+   await clearInstallStage(root,staged.protection.target,stage);
   }
   stage={token:randomUUID()};
   dispatched=stagedInstall(root,operation,stage);
@@ -184,8 +196,9 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  const restoreUndispatched=async()=>{Object.assign(record,previous);await persist();return cancelledBeforeDispatch;};
  if(dependencies.launch){
   // The injected test adapter completes its writes within this process.
+  const changed=await registryPending();
   if(dependencies.signal?.aborted)return cancelledBeforeDispatch;
-  const changed=await registryPending();if(changed)return changed;
+  if(changed)return changed;
   const result=await dependencies.launch(dispatched);
   return terminal(stage&&result.status==='done'?await acceptInstall(dispatched,stage,await queryOperation(dispatched)):result);
  }
@@ -195,16 +208,17 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   const verified=await queryOperation(dispatched);
   return terminal(stage?await acceptInstall(dispatched,stage,verified):verified);
  };
- const env=operation.kind==='initialize'?nativeEnvironment(dispatched):essentialEnvironment();
+ const command=dispatched.parameters.executable==='npm'?await resolveProjectNpm(root,dispatched.parameters.args):
+  {...dispatched.parameters,env:operation.kind==='initialize'?nativeEnvironment(dispatched):essentialEnvironment()};
  if(process.platform==='win32'){
-  const command=dispatched.parameters.executable==='npm'?npmCommand(dispatched.parameters.args):dispatched.parameters;
-  const child=startWindowsProcess({...command,cwd:root,env,captureOutput:false});
+  const child=startWindowsProcess({...command,cwd:root,captureOutput:false});
   let timeout:ReturnType<typeof setTimeout>|undefined;
   try{
    if(!child.pid)throw Error('Cannot start protected operation process');
    await markDispatching({...await processIdentity(child.pid),windowsJob:child.job});
+   const changed=await registryPending();
    if(dependencies.signal?.aborted){child.stop();await child.completed;return restoreUndispatched();}
-   const changed=await registryPending();if(changed){child.stop();await child.completed;await restoreUndispatched();return changed;}
+   if(changed){child.stop();await child.completed;await restoreUndispatched();return changed;}
    timeout=setTimeout(child.stop,operation.timeoutMs);
    dependencies.signal?.addEventListener('abort',child.stop,{once:true});
    child.start();
@@ -217,12 +231,13 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
    child.stop();await child.completed;
   }
  }
- const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...dispatched.parameters,cwd:root,env})],{detached:true,stdio:['pipe','ignore','ignore']});
+ const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...command,cwd:root})],{detached:true,stdio:['pipe','ignore','ignore']});
  if(!child.pid)throw new Error('Cannot start protected operation process');
  const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>(resolve=>{child.once('error',()=>resolve({code:1,signal:null}));child.once('exit',(code,signal)=>resolve({code,signal}));});
  try{await markDispatching(await processIdentity(child.pid));}catch(e){child.stdin.end();await completed;throw e;}
+ const changedBeforeDispatch=await registryPending();
  if(dependencies.signal?.aborted){child.stdin.end();await completed;return restoreUndispatched();}
- const changedBeforeDispatch=await registryPending();if(changedBeforeDispatch){child.stdin.end();await completed;await restoreUndispatched();return changedBeforeDispatch;}
+ if(changedBeforeDispatch){child.stdin.end();await completed;await restoreUndispatched();return changedBeforeDispatch;}
  let cancelled=false,timedOut=false;let forceTimer:ReturnType<typeof setTimeout>|undefined;
  const terminate=()=>{cancelled=true;try{process.kill(-child.pid!,'SIGTERM');}catch{};forceTimer??=setTimeout(()=>{try{process.kill(-child.pid!,'SIGKILL');}catch{}},3000);};
  const timeout=setTimeout(()=>{timedOut=true;terminate();},operation.timeoutMs);

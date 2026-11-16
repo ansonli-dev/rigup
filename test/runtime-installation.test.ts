@@ -11,15 +11,17 @@ import {preview} from '../src/installer/preview.js';
 import {apply} from '../src/installer/apply.js';
 import {applyRecordPath,loadManifest} from '../src/installer/baseline.js';
 import type {SetupOptions} from '../src/types.js';
+import {prepareProjectToolOperations} from '../src/integrations/registry.js';
+import {fixedNpmView} from './native-tool-fixture.js';
 
 const exec=promisify(execFile);
 const options={agents:['codex' as const],backend:'host' as const,tools:[{id:'codegraph' as const,install:true,initialize:true,agents:['codex' as const]}]};
-async function plan(root:string){const profile=await scanRepository(root,options);return generateFoundation(profile,options,await prepareGeneration(profile,options));}
+async function plan(root:string,stateRoot:string){const profile=await scanRepository(root,options);const generated=await generateFoundation(profile,options,await prepareGeneration(profile,options));return prepareProjectToolOperations(generated,profile,{stateRoot,view:fixedNpmView});}
 test('unsafe runtime input defers automatic tooling while installing independent configuration',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
  await exec('git',['init','--quiet',root]);await mkdir(join(root,'.rigup'));
  const bytes='RIGUP_NPM_REGISTRY="https://private.example.test/registry"\n';
  await writeFile(join(root,'.rigup/.env'),bytes,{mode:0o600});await exec('git',['-C',root,'add','--force','.rigup/.env']);
- const generated=await plan(root);assert.deepEqual(generated.pendingRuntimeTools,['codegraph']);assert.deepEqual(generated.operations,[]);
+ const generated=await plan(root,stateRoot);assert.deepEqual(generated.pendingRuntimeTools,['codegraph']);assert.deepEqual(generated.operations,[]);
  const reviewed=await preview(generated,[],{cacheRoot});assert.equal(reviewed.executable,true,reviewed.blockers.join('\n'));
  const report=await apply(reviewed.previewId,{cacheRoot,stateRoot});assert.equal(report.exitCode,3);
  assert.ok(await readFile(join(root,'.codex/config.toml')));assert.ok(await loadManifest(root));
@@ -31,7 +33,7 @@ test('changed registry is rejected before a new durable apply transaction is cre
  const original=process.env.RIGUP_NPM_REGISTRY;
  try{
   process.env.RIGUP_NPM_REGISTRY='https://one.example.test/npm';
-  const reviewed=await preview(await plan(root),[],{cacheRoot});assert.equal(reviewed.executable,true,reviewed.blockers.join('\n'));
+  const reviewed=await preview(await plan(root,stateRoot),[],{cacheRoot});assert.equal(reviewed.executable,true,reviewed.blockers.join('\n'));
   process.env.RIGUP_NPM_REGISTRY='https://two.example.test/npm';
   await assert.rejects(apply(reviewed.previewId,{cacheRoot,stateRoot}),/registry.*(?:changed|review)|(?:changed|review).*registry/i);
   assert.deepEqual(await readdir(root),[]);await assert.rejects(readFile(applyRecordPath(root,stateRoot)),{code:'ENOENT'});
@@ -53,8 +55,13 @@ for(const interruption of [undefined,'after-checks','after-manifest'])test('repl
    assert.equal(first.runtimeSetup?.capabilities.find(item=>item.capability==='customer:environment')?.verification,'passed');
   }
   assert.equal(await readFile(marker,'utf8'),'run\n');
-  const path=join(root,'.rigup/.env');await writeFile(path,(await readFile(path,'utf8')).replace('synthetic-first-private-input','synthetic-second-private-input'));
+  const path=join(root,'.rigup/.env');await writeFile(path,(await readFile(path,'utf8')).replace('synthetic-first-private-input',interruption==='after-manifest'?'':'synthetic-second-private-input'));
+  if(interruption==='after-manifest')process.env[name]='synthetic-second-private-input';
   const replay=await apply(reviewed.previewId,{cacheRoot,stateRoot,recover:true});
+  if(interruption==='after-manifest'){
+   assert.match(await readFile(path,'utf8'),/synthetic-second-private-input/);
+   assert.equal(replay.runtimeSetup?.template.state,'written');
+  }
   assert.equal(replay.runtimeSetup?.capabilities.find(item=>item.capability==='customer:environment')?.verification,'not-run');
   assert.equal(await readFile(marker,'utf8'),'run\n','recovery must not silently rerun a completed check');
   assert.doesNotMatch(JSON.stringify(replay),/synthetic-(?:first|second)-private-input/);

@@ -26,8 +26,170 @@ test('bare_non_tty_exits_2_without_writes', async () => {
   } finally { await rm(root,{recursive:true,force:true}); }
 });
 
+test('a TTY can save one approved preview for a later noninteractive apply',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const reports:Record<string,unknown>[]=[];let output='';
+ const answers=['2'];const io={cwd:root,isTTY:true,write:(text:string)=>output+=text,read:async()=>answers.shift()??null,services:{cacheRoot,stateRoot,report:(report:Record<string,unknown>)=>reports.push(report)}};
+ assert.equal(await runCli(['init','--agents','codex','--sdd','none','--tools','none','--defer-research','--language','auto'],io),3,output);
+ const saved=reports.at(-1)!;assert.equal(saved.phase,'handoff');
+ assert.match(output,new RegExp(' --apply '+saved.previewId));
+ assert.deepEqual(await readdir(root),[]);
+ assert.equal(await runCli(['update','--apply',String(saved.previewId),'--dry-run'],{...io,isTTY:false}),2);
+ assert.deepEqual(await readdir(root),[]);
+ assert.equal(await runCli(['update','--apply',String(saved.previewId),'--sessions-ended'],{...io,isTTY:false}),0,output);
+ assert.equal(reports.at(-1)?.previewId,saved.previewId);
+}))));
+
+test('preview cancellation and incompatible standalone preparation cannot write the project',t=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:root});
+ const io={cwd:root,isTTY:true,write:()=>{},read:async()=>null,services:{cacheRoot,stateRoot}};
+ assert.equal(await runCli(['init','--agents','codex','--sdd','none','--tools','none','--defer-research','--language','auto'],io),130);
+ assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--prepare-openspec','--review'],io),2);
+ assert.deepEqual(await readdir(root),[]);
+}))));
+
+for(const flag of ['--resume','--request','--response'])test('interactive '+flag+' still requires approval for a new preview',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {access,mkdir,writeFile}=await import('node:fs/promises');
+ await mkdir(join(root,'.rigup'));
+ await writeFile(join(root,'.rigup','config.yaml'),JSON.stringify({
+  agents:['codex'],sdd:'none',projectRules:false,backend:'host',
+  mcp:[{id:'docs',agents:['codex'],url:'https://example.org/mcp'}],
+ }));
+ const args=flag==='--resume'?[flag]:[flag,join(cacheRoot,'host','exchange.json')];
+ let output='',reads=0;
+ const code=await runCli(['update',...args],{
+  cwd:root,isTTY:true,write:text=>output+=text,read:async()=>{reads++;return '3';},services:{cacheRoot,stateRoot},
+ });
+ assert.equal(code,130,output);assert.equal(reads,1);
+ await assert.rejects(access(join(root,'.rigup','manifest.json')),{code:'ENOENT'});
+ await assert.rejects(access(join(root,'.codex','config.toml')),{code:'ENOENT'});
+}))));
+
+test('plain preview describes zero writes and keeps file bodies in private details',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {readFile,writeFile}=await import('node:fs/promises');
+ let output='',stderr='';
+ const io={cwd:root,isTTY:false,write:(text:string)=>output+=text,writeError:(text:string)=>stderr+=text,services:{cacheRoot,stateRoot}};
+ const flags=['init','--agents','codex','--sdd','none','--dry-run'];
+ assert.equal(await runCli(flags,io),0,output);
+ assert.match(output,/Nothing was written to the project/);
+ assert.doesNotMatch(output,/owned after/);
+ const details=output.match(/^Details: (.+)$/m)?.[1];
+ assert.ok(details);assert.ok(details.startsWith(stateRoot));
+ assert.match(await readFile(details,'utf8'),/owned after/);
+ output='';
+ assert.equal(await runCli([...flags,'--json','--verbose'],io),0,output);
+ assert.ok(JSON.parse(output).items.some((item:{after?:string})=>item.after));
+ assert.match(stderr,/owned after/);
+ await rm(join(stateRoot,'details'),{recursive:true});
+ await writeFile(join(stateRoot,'details'),'unwritable log location');
+ output='';
+ assert.equal(await runCli([...flags,'--verbose'],io),0,output);
+ assert.match(output,/Details unavailable/);assert.match(output,/owned after/);
+ assert.deepEqual(await readdir(root),[]);
+}))));
+
+test('read-only command detection skips project binaries and links back into the project',{skip:process.platform==='win32'},t=>project(root=>project(async outside=>{
+ const {mkdir,symlink,writeFile,access}=await import('node:fs/promises');
+ const {delimiter}=await import('node:path');
+ const {detectCommands}=await import('../src/setup-detection.js');
+ const bin=join(root,'bin'),userBin=join(outside,'user bin'),called=join(outside,'called');
+ await mkdir(bin);await mkdir(userBin);
+ const command='#!/bin/sh\n/usr/bin/touch '+JSON.stringify(called)+'\n';
+ await writeFile(join(userBin,'claude'),command,{mode:0o755});
+ await writeFile(join(bin,'codex'),command,{mode:0o755});
+ await symlink(join(bin,'codex'),join(userBin,'codex'));
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:['', 'bin',bin,userBin].join(delimiter)});
+ const found=await detectCommands(root);
+ assert.deepEqual(found.agents,['claude']);assert.equal(found.tools.size,0);
+ await assert.rejects(access(called),{code:'ENOENT'});
+})));
+
+test('TTY streams use the rendered confirmation and support cancelling with EOF', {timeout:3000}, t=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {PassThrough}=await import('node:stream');
+ const input=Object.assign(new PassThrough(),{isTTY:true,isRaw:false,setRawMode(value:boolean){this.isRaw=value;}});
+ const output=Object.assign(new PassThrough(),{isTTY:true,columns:80,rows:24});
+ testEnvironment(t,{CI:'',TERM:'xterm-256color',WT_SESSION:'rigup-test-terminal'});
+ let rendered='';
+ output.on('data',chunk=>{rendered+=chunk.toString();if(rendered.includes('Continue?')&&!input.writableEnded)input.end();});
+ const result=await runCli(['init','--agents','codex','--sdd','none','--tools','none'],{
+  cwd:root,isTTY:true,write:text=>output.write(text),terminal:{input,output},services:{cacheRoot,stateRoot},
+ });
+ assert.equal(result,130,rendered);
+ assert.match(rendered,/Continue\?/);assert.match(rendered,/\x1b\[/);
+ assert.equal(input.isRaw,false);
+ assert.deepEqual(await readdir(root),[]);
+}))));
+
+test('interactive preview remains visible beside confirmation when stdout is redirected',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ let stdout='',stderr='';
+ const code=await runCli(['init','--agents','codex','--sdd','none','--tools','none'],{
+  cwd:root,isTTY:true,outputIsTTY:false,write:text=>stdout+=text,writeError:text=>stderr+=text,
+  read:async()=>{assert.match(stderr,/Preview [a-f0-9]{64}[\s\S]+Create[\s\S]+Continue\?/);return '3';},
+  services:{cacheRoot,stateRoot},
+ });
+ assert.equal(code,130,stderr);
+ assert.equal(stdout,'');assert.deepEqual(await readdir(root),[]);
+}))));
+
+test('default interactive setup defers a configured provider before any credentials or research',t=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {mkdir,writeFile,readFile}=await import('node:fs/promises');
+ await mkdir(join(root,'.rigup'));await writeFile(join(root,'.rigup/config.yaml'),'projectRules: true\n');
+ testEnvironment(t,{RIGUP_PROVIDER:'invalid-provider',ANTHROPIC_API_KEY:'test-provider-secret',RIGUP_BASE_URL:'https://gateway.example.test'});
+ let reads=0,calls=0,output='';
+ const io={cwd:root,isTTY:true,write:(text:string)=>output+=text,read:async()=>{reads++;return reads===1?'':null;},
+  services:{cacheRoot,stateRoot,backend:{run:async()=>{calls++;throw Error('unexpected research');}}}};
+ const args=['init','--agents','codex','--sdd','none','--tools','none'];
+ assert.equal(await runCli(args,io),0,output);
+ assert.equal(reads,1);assert.equal(calls,0);
+ assert.equal(JSON.parse(await readFile(join(root,'.rigup/manifest.json'),'utf8')).projectRules,'pending');
+ output='';
+ assert.equal(await runCli(['update','--backend','native','--model','fixture','--review','--json'],io),1,output);
+ assert.match(JSON.parse(output).error,/RIGUP_PROVIDER/);assert.equal(calls,0);
+}))));
+
+test('explicit SDD none in a profile survives conflicting OpenSpec evidence',t=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {mkdir,writeFile}=await import('node:fs/promises');
+ await mkdir(join(root,'openspec'));await writeFile(join(root,'openspec/config.yaml'),'schema: spec-driven\n');
+ await writeFile(join(root,'setup.yaml'),'agents: [codex]\nsdd: none\n');
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:cacheRoot});
+ let output='';
+ const code=await runCli(['init','--agents','codex','--profile','setup.yaml','--tools','none','--dry-run'],{
+  cwd:root,isTTY:true,write:text=>output+=text,read:async()=>'',services:{cacheRoot,stateRoot},
+ });
+ assert.equal(code,0,output);assert.match(output,/原生 SDD \[Enter: none\]/);
+ assert.equal((await readdir(root)).includes('.rigup'),false);
+}))));
+
+test('foundation reconfiguration retires only the unselected OpenWiki connection', t=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {mkdir,writeFile,readFile}=await import('node:fs/promises');
+ await mkdir(join(root,'.rigup'));
+ await writeFile(join(root,'.rigup/config.yaml'),JSON.stringify({agents:['codex'],projectRules:true,sdd:'none',tools:[{id:'openwiki',install:false,initialize:false,agents:['codex']}]}));
+ testEnvironment(t,{RIGUP_PROVIDER:'anthropic',ANTHROPIC_API_KEY:'rigup-ban-network-fixture'});
+ let output='',calls=0;
+ const io={cwd:root,isTTY:false,write:(text:string)=>output+=text,services:{cacheRoot,stateRoot,backend:{run:async()=>{
+  calls++;return {status:'complete' as const,value:{data:{observations:[],unknowns:[],guidance:[],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};
+ }}}};
+ const invoke=async(args:string[],code:number,interactive=false)=>{
+  output='';assert.equal(await runCli(args,interactive?{...io,isTTY:true,read:async()=>null}:io),code,output);
+ };
+ await invoke(['init','--model','fixture','--json'],0);
+ assert.equal(JSON.parse(output).projectRules,'ready');
+ const before=calls;
+ const flags=['update','--configure','--agents','codex','--sdd','none','--tools','none','--review'];
+ await invoke(flags,3,true);
+ assert.match(output,/retire mcp:codex:openwiki/i);
+ await invoke([...flags,'--retire','mcp:codex:openwiki,entry:AGENTS.md'],1,true);
+ assert.match(output,/retirement contradicts selected/);
+ await invoke([...flags,'--retire','mcp:codex:openwiki'],3,true);
+ const id=output.match(/Preview ([a-f0-9]{64})/)?.[1];assert.ok(id);
+ await invoke(['update','--apply',id,'--sessions-ended','--json'],0);
+ assert.equal(JSON.parse(output).projectRules,'ready');assert.equal(calls,before);
+ assert.match(await readFile(join(root,'.rigup/config.yaml'),'utf8'),/"?tools"?:\s*\[\s*\]/);
+ const mcp=await readFile(join(root,'.codex/config.toml'),'utf8');
+ assert.doesNotMatch(mcp,/mcp_servers.openwiki/);assert.match(mcp,/mcp_servers.rigup/);
+}))));
+
 test('bare_tty_routes_by_project_state',()=>project(async root=>{
- let output='';const answers=['1','1','4','3','1','',''];
+ let output='';const answers=['1','1','4','3',''];
  const code=await runCli([],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null});
  assert.equal(code,0,output);assert.match(output,/init:/);
 }));
@@ -60,10 +222,17 @@ test('init_existing_manifest_uses_update_rules_and_doctor_is_read_only', async (
   }
  } finally {await rm(root,{recursive:true,force:true});}
 });
-import {confirmedHarnessSource,project,writeOpenSpecFixture} from './helpers.js';
+import {confirmedHarnessSource,project,testEnvironment,writeOpenSpecFixture} from './helpers.js';
+import {fixedNpmView} from './native-tool-fixture.js';
 test('tools flag keeps OpenWiki generation separate from protected CodeGraph initialization',()=>project(async root=>project(async cache=>project(async state=>{
- let output='';const code=await runCli(['init','--tools','openwiki,codegraph','--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
+ const calls:string[]=[];
+ let output='';const code=await runCli(['init','--tools','openwiki,codegraph','--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,npmView:async(args,cwd)=>{
+  calls.push(args[1]);return JSON.stringify({...JSON.parse(await fixedNpmView(args,cwd)),version:'2.0.0','dist-tags.latest':'2.0.0'});
+ }}});
  assert.equal(code,0,output);const report=JSON.parse(output);assert.equal(report.executable,true);assert.deepEqual(report.operations.map((o:any)=>o.id),['install:openwiki','install:codegraph','initialize:codegraph']);assert.ok(report.warnings.some((w:string)=>/openwiki_begin/.test(w)));assert.deepEqual(await readdir(root),[]);
+ assert.deepEqual(calls,['openwiki@latest','@colbymchenry/codegraph@latest']);
+ assert.ok(report.operations.every((operation:any)=>operation.version==='2.0.0'));
+ assert.equal(report.operations[0].registry,'https://registry.npmjs.org/');
 }))));
 test('missing OpenSpec bindings return a copyable recovery command without applying',()=>project(async root=>project(async cache=>project(async state=>{
  let output='';const code=await runCli(['init','--agents','codex','--sdd','openspec','--defer-research','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
@@ -96,7 +265,7 @@ test('apply_id_cannot_redirect_cli_to_a_different_project_root',()=>project(asyn
 
 
 test('first_run_with_only_a_backend_still_guides_missing_agents_and_sdd',()=>project(async root=>project(async cache=>project(async state=>{
- const {readFile}=await import('node:fs/promises');const answers=['1','1','3','2','','3'];const reports:Record<string,any>[]=[];let output='';
+ const {readFile}=await import('node:fs/promises');const answers=['1','1','3'];const reports:Record<string,any>[]=[];let output='';
  const code=await runCli(['init','--backend','host'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null,services:{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}});
  assert.equal(code,3,output);assert.equal(answers.length,0);const paused=reports.find(r=>r.requestPath);assert.ok(paused,'interactive selections must reach actual host research');
  const request=JSON.parse(await readFile(paused.requestPath,'utf8'));assert.deepEqual(request.context.options.agents,['claude']);assert.equal(request.context.options.sdd,'superpowers');assert.equal(request.context.options.backend,'host');assert.equal(request.context.root,root);assert.deepEqual(await readdir(root),[]);
@@ -152,7 +321,7 @@ test('CLI list options accept PowerShell array strings, split args and repeated 
   ['--agents=claude,codex','--tools=openwiki','--tools','codegraph'],
  ]){
   let output='';
-  const code=await runCli(['init','.',...args,'--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}});
+  const code=await runCli(['init','.',...args,'--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,npmView:fixedNpmView}});
   assert.equal(code,0,output);
   const report=JSON.parse(output);
   assert.deepEqual(report.operations.map((op:{id:string})=>op.id),['install:openwiki','install:codegraph','initialize:codegraph']);

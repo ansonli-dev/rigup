@@ -6,7 +6,7 @@ import {isValidMaxOutputTokens} from '../analyzer/provider-loop.js';
 import {privateDirectory} from '../generator/cache.js';
 import {readDurableRecord} from '../private-record.js';
 import type {OnboardingIO} from '../onboarding.js';
-import {promptChoice} from '../prompt.js';
+import {askLine,promptCancelled} from '../prompt.js';
 import type {SetupOptions} from '../types.js';
 
 type Model=NonNullable<SetupOptions['model']>;
@@ -79,25 +79,30 @@ export async function resolveResearchProvider(root:string,modelOverride?:string,
  return {...metadata,identity:{provider,model,apiKeyEnv},apiKey};
 }
 
-export async function promptResearchProvider(io:OnboardingIO,modelOverride?:string,environment:NodeJS.ProcessEnv=process.env):Promise<ResearchProvider|undefined>{
+export async function promptResearchProvider(io:OnboardingIO,modelOverride?:string,environment:NodeJS.ProcessEnv=process.env):Promise<ResearchProvider|undefined|null>{
  const later='Use Rigup MCP in the agent';
- io.write('Choose the provider for this run, or finish the setup and use Rigup MCP in the agent.\n');
- const answer=await promptChoice(io,[...providers,later],false,[later]);
+ const answer=await askLine(io,{message:'Choose the provider for this run',choices:[...providers,later],defaults:[later]});
+ if(answer===null)return null;
  if(!Array.isArray(answer)||answer.length!==1||answer[0]===later)return;
  const provider=answer[0] as Provider,defaults=envNames[provider];
- if(!modelOverride)io.write('Model ID (Esc to use the agent)\n');
- const model=(modelOverride??await io.read())?.trim();
- if(!nonEmpty(model)||model==='\x1b')return;
- io.write('Provider base URL (Enter for '+defaults.defaultURL+', Esc to use the agent)\n');
+ let model=modelOverride?.trim();
+ while(!model){
+  io.write('Model ID (Esc to cancel)\n');
+  const value=await io.read();
+  if(promptCancelled(value))return null;
+  model=value.trim();
+ }
+ io.write('Provider base URL (Enter for '+defaults.defaultURL+', Esc to cancel)\n');
  const url=await io.read();
- if(url===null||url==='\x1b')return;
+ if(promptCancelled(url))return null;
  const baseURL=validateProviderBaseURL(url.trim()||defaults.defaultURL).href;
  let apiKey=environment[defaults.key]?.trim();
- if(!apiKey){
-  io.write('Enter an API key for this run only (Esc to use the agent)\n');
-  apiKey=(await io.read(true))?.trim();
+ while(!apiKey){
+  io.write('Enter an API key for this run only (Esc to cancel)\n');
+  const value=await io.read(true);
+  if(promptCancelled(value))return null;
+  apiKey=value.trim();
  }
- if(!apiKey||apiKey==='\x1b')return;
  const maxOutputTokens=outputTokenLimit(environment.RIGUP_MAX_OUTPUT_TOKENS);
  return {identity:{provider,model,apiKeyEnv:defaults.key},baseURL,apiKey,...(maxOutputTokens===undefined?{}:{maxOutputTokens})};
 }

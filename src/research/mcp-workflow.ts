@@ -17,7 +17,9 @@ import {TEMPLATE_VERSION} from '../generator/render.js';
 import {interruptedApplyId} from '../installer/apply.js';
 import {loadManifest,sourceReview,trustedBaseline,type Manifest} from '../installer/baseline.js';
 import {acquireLock,defaultStateRoot} from '../installer/lock.js';
-import {absentDigest,installationInput,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
+import {absentDigest,installationInput,LegacyPreviewError,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
+import {defaultNpmRegistry,type NpmView} from '../integrations/tools/npm-resolution.js';
+import {selectedNpmRegistry} from '../runtime-inputs.js';
 import {platformFileMode,readFileState,readFileStates,matchesFileState} from '../installer/file-state.js';
 import {equalOwnedContent,ownedContent} from '../installer/ownership.js';
 import {executeLifecycle} from '../lifecycle.js';
@@ -57,6 +59,14 @@ const validState=(state:ResearchState)=>state.version===1&&typeof state.id==='st
  (state.result===undefined||isRecord(state.result)&&validDigest(state.result.previewId)&&validDigest(state.result.inventory)&&(state.result.retireIds===undefined||validIds(state.result.retireIds)));
 
 async function previewStillCurrent(root:string,data:PreviewData,stateRoot:string):Promise<boolean>{
+ if(data.plan.requirements.some(requirement=>requirement.kind==='npm-resolution'))return false;
+ const installs=data.plan.operations.filter(operation=>operation.kind==='install');
+ if(installs.length){
+  try{
+   const registry=await selectedNpmRegistry(root)??defaultNpmRegistry;
+   if(installs.some(operation=>(operation.registry??defaultNpmRegistry)!==registry))return false;
+  }catch{return false;}
+ }
  const current=await readTarget(root,'.rigup/manifest.json');
  if((current?digest(current):absentDigest)!==data.manifestDigest)return false;
  if(signature(await sourceReview(root,data.oldManifest,stateRoot)??null)!==signature(data.sourceReview??null))return false;
@@ -108,7 +118,7 @@ function readSubmission(name:string,args:Record<string,unknown>):Submission|unde
  return {id:args.jobId,data:args.data,digest:signature(args.data),stage:name==='rigup_submit_page'?'page':'planning'};
 }
 
-export async function openResearchMcp(project:string,host:Agent,dependencies:{stateRoot?:string;cacheRoot?:string}={}){
+export async function openResearchMcp(project:string,host:Agent,dependencies:{stateRoot?:string;cacheRoot?:string;npmView?:NpmView}={}){
  const root=await realpath(project);
  const stateRoot=dependencies.stateRoot??defaultStateRoot();
  const cacheRoot=dependencies.cacheRoot??join(homedir(),'.cache','rigup');
@@ -154,10 +164,10 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
     if(args.retireIds!==undefined&&(!validIds(args.retireIds)||args.retireIds.some(id=>!manifest.assets.some(asset=>asset.logicalId===id))))throw Error('Retirement IDs must identify existing managed assets');
     const retireIds=Array.isArray(args.retireIds)?[...args.retireIds].sort():state.result.retireIds;
     const load=()=>loadPreview(state!.result!.previewId,previews);
-    const saved=await load().catch(error=>{if((error as Error).message!=='private preview missing or corrupted')throw error;});
+    const saved=await load().catch(error=>{if(!(error instanceof LegacyPreviewError)&&(error as Error).message!=='private preview missing or corrupted')throw error;});
     let preview=saved?.preview;
     if(!saved||signature(retireIds??[])!==signature(state.result.retireIds??[])||!await previewStillCurrent(root,saved,lock.stateRoot)){
-     const regenerated=await advanceResearch(root,host,state,path,options,profile.fingerprint,undefined,{cacheRoot,stateRoot:lock.stateRoot},retireIds);
+     const regenerated=await advanceResearch(root,host,state,path,options,profile.fingerprint,undefined,{cacheRoot,stateRoot:lock.stateRoot,npmView:dependencies.npmView},retireIds);
      if(regenerated.status!=='ready')throw Error('Research generation state could not restore the preview');
      preview=(await load()).preview;
     }
@@ -165,12 +175,12 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
     const nextCommand=preview.executable?'rigup update '+quoteShell(root)+' --apply '+preview.previewId+' --sessions-ended':undefined;
     return {status:'preview',runId:state.id,previewId:preview.previewId,preview,nextCommand};
    }
-   return await advanceResearch(root,host,state,path,options,profile.fingerprint,submission,{cacheRoot,stateRoot:lock.stateRoot});
+   return await advanceResearch(root,host,state,path,options,profile.fingerprint,submission,{cacheRoot,stateRoot:lock.stateRoot,npmView:dependencies.npmView});
   }finally{await lock.release();}
  }};
 }
 
-async function advanceResearch(root:string,host:Agent,state:ResearchState,path:string,options:SetupOptions,fingerprint:string,submission:Submission|undefined,paths:{cacheRoot:string;stateRoot:string},retireIds?:string[]):Promise<ResearchReply>{
+async function advanceResearch(root:string,host:Agent,state:ResearchState,path:string,options:SetupOptions,fingerprint:string,submission:Submission|undefined,paths:{cacheRoot:string;stateRoot:string;npmView?:NpmView},retireIds?:string[]):Promise<ResearchReply>{
  const persist=()=>saveDurable(path,JSON.stringify(state));
  let consumed=false;
  const settle=async(next?:string)=>{
