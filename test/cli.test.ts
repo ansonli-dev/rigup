@@ -436,3 +436,16 @@ for(const mutation of ['skill','manifest','entry','path','disable'] as const)for
  await assert.rejects(()=>apply(review.previewId,{...dependencies,recover:interrupted}),/source.*changed|snapshot|input/i);
  assert.deepEqual(await snapshot(),before);
 })))));
+
+for(const scenario of ['missing-claude','missing-omp','missing-both','conflict','cancel'] as const)test(`claude,omp ${scenario} preserves user files`,()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {mkdir,writeFile,readFile}=await import('node:fs/promises');
+ for(const host of ['claude','omp'])if(scenario!=='missing-both'&&scenario!=='missing-'+host)for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion']){
+  const path=join(root,'.'+host,'skills',name);await mkdir(path,{recursive:true});await writeFile(join(path,'SKILL.md'),`---\nname: ${name}\ndescription: Native workflow\n---\nKeep native approvals.`);
+ }
+ if(scenario==='conflict'){const path=join(root,'.omp/skills/duplicate/brainstorming');await mkdir(path,{recursive:true});await writeFile(join(path,'SKILL.md'),'---\nname: brainstorming\ndescription: Conflicting workflow\n---\nDifferent requirements');}
+ await writeFile(join(root,'user.txt'),'User work');const before=await readdir(root,{recursive:true});
+ let output='';const code=await runCli(['init','--agents','claude,omp','--sdd','superpowers','--tools','none','--defer-research','--language','auto',...(scenario==='cancel'?[]:['--json'])],{cwd:root,isTTY:scenario==='cancel',read:async()=>null,write:s=>output+=s,services:{cacheRoot,stateRoot}});
+ if(scenario==='cancel')assert.equal(code,130,output);
+ else {assert.equal(code,3,output);const report=JSON.parse(output);assert.equal(report.executable,false);assert.match(output,scenario==='conflict'?/omp.*conflict/:/missing native entry:/);}
+ assert.deepEqual(await readdir(root,{recursive:true}),before);assert.equal(await readFile(join(root,'user.txt'),'utf8'),'User work');
+}))));
