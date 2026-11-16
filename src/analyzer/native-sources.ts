@@ -1,5 +1,5 @@
 import {readFile,readdir,realpath,stat,lstat} from 'node:fs/promises';
-import {join,isAbsolute,relative,dirname,resolve} from 'node:path';
+import {join,isAbsolute,relative,dirname,resolve,matchesGlob} from 'node:path';
 import {homedir} from 'node:os';
 import {parse} from 'yaml';
 import {parse as toml} from 'smol-toml';
@@ -19,20 +19,29 @@ export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean;
 }
 const inside=(base:string,path:string)=>{const rel=relative(base,path);return rel===''||!rel.startsWith('..')&&!isAbsolute(rel);};
 const list=async(path:string)=>readdir(path).catch(()=>[] as string[]);
+const record=(value:unknown):Record<string,any>=>value!==null&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,any>:{};
 const array=(value:unknown):string[]=>typeof value==='string'?[value]:Array.isArray(value)?value.filter((x):x is string=>typeof x==='string'):[];
 export async function discoverNativeSources(root:string,options:SetupOptions,dependencies:NativeDiscoveryOptions={}) {
  const result:Partial<Record<Agent,SkillSource[]>>={};if(!options.sdd&&!options.customSkills?.length)return result;
  const home=dependencies.home??homedir(),env=dependencies.env??(dependencies.home?{}:process.env);
  const wanted=new Set(options.sdd?sddDiscoveryNames(options.sdd,options.sdd!=='openspec'||!dependencies.requiredOpenSpecEntriesOnly):[]);
+ let metadataFiles=0,metadataBytes=0,metadataExhausted=false;
  const metadataText=async(path:string,bound?:string)=>{
   const canonical=await realpath(path);if(bound&&!inside(await realpath(bound),canonical))throw Error('native source escapes installation root');
-  const info=await stat(canonical);if(!info.isFile()||info.size>256000)throw Error('Native manager metadata exceeds budget');return readFile(canonical,'utf8');
+  const info=await stat(canonical);if(!info.isFile()||info.size>256000)throw Error('Native manager metadata exceeds budget');
+  if(++metadataFiles>2000||(metadataBytes+=info.size)>8_000_000){metadataExhausted=true;throw Error('Native metadata read budget exceeded');}
+  return readFile(canonical,'utf8');
  };
- const json=async(path:string)=>{try{return JSON.parse(await metadataText(path,inside(root,path)?root:undefined));}catch{return {};}};
+ const json=async(path:string)=>{try{return record(JSON.parse(await metadataText(path,inside(root,path)?root:undefined)));}catch{return {};}};
  for(const item of options.customSkills??[]){try{const meta=nativeSkillMetadata(await metadataText(join(isAbsolute(item.source)?item.source:join(root,item.source),'SKILL.md')));if(meta)wanted.add(unqualifiedSkillName(meta.name));}catch{}}
  let hooks:any[]=[];
  if(options.sdd==='spec-kit')try{const extension=parse(await metadataText(join(root,'.specify/extensions.yml'),root));hooks=Object.values(extension?.hooks??{}).flat().filter((hook:any)=>hook&&hook.enabled!==false&&hook.optional===false&&!hook.condition);for(const hook of hooks)if(typeof hook.command==='string'){wanted.add(hook.command);wanted.add(hook.command.replaceAll('.','-'));}}catch{}
- const claude=env.CLAUDE_CONFIG_DIR??join(home,'.claude'),codex=env.CODEX_HOME??join(home,'.codex'),omp=env.PI_CODING_AGENT_DIR??join(home,'.omp/agent');
+ const claude=env.CLAUDE_CONFIG_DIR??join(home,'.claude'),codex=env.CODEX_HOME??join(home,'.codex');
+ const profileName=env.OMP_PROFILE??env.PI_PROFILE;
+ const ompRoot=join(home,env.PI_CONFIG_DIR||'.omp',...(profileName&&profileName!=='default'&&/^[a-z0-9][a-z0-9._-]{0,63}$/.test(profileName)?['profiles',profileName]:[]));
+ const omp=env.PI_CODING_AGENT_DIR??join(ompRoot,'agent');
+ const xdgRoot=env.XDG_DATA_HOME?join(env.XDG_DATA_HOME,'omp',...(profileName&&profileName!=='default'?['profiles',profileName]:[])):undefined;
+ const ompPlugins=join(xdgRoot&&['darwin','linux'].includes(process.platform)&&omp===join(ompRoot,'agent')&&(await stat(xdgRoot).catch(()=>undefined))?.isDirectory()?xdgRoot:ompRoot,'plugins');
  const claudeSettings:Record<string,boolean>={};
  for(const file of [join(claude,'settings.json'),join(root,'.claude/settings.json'),join(root,'.claude/settings.local.json')])Object.assign(claudeSettings,(await json(file)).enabledPlugins??{});
  const matchingProject=async(record:any)=>['project','local'].includes(record.scope)&&typeof record.projectPath==='string'&&await realpath(record.projectPath).catch(()=>undefined)===root;
@@ -40,6 +49,8 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   const sources:SkillSource[]=[];result[agent]=sources;
   let count=0,bytes=0,directories=0;
   const visited=new Set<string>();
+  const inlineBodies=new Map<string,string>();
+  const commandSources=new Set<string>();
   const warn=(id:string,error:unknown)=>dependencies.onWarning?.('Native plugin '+(/^[\w.@/-]{1,200}$/.test(id)?id:'invalid identifier')+' skipped: '+((error as NodeJS.ErrnoException)?.code==='ENOENT'?'manifest missing':'invalid or unavailable metadata; repair the enabled installation'));
   const unavailable=(problem:string)=>{for(const name of wanted)sources.push({name,identity:agent+':unavailable',origin:'unknown',satisfies:false,problem});};
   type Context={origin:SkillSource['origin'];namespace?:string;bound?:string;packageName?:string;sourceFingerprint?:string;project?:boolean;pathNames?:boolean;skillRoot?:string};
@@ -53,7 +64,8 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    if(ctx.pathNames&&ctx.skillRoot)meta.name=relative(ctx.skillRoot,path).replace(/(?:\/SKILL)?\.md$/i,'').split('\\').join('/');
    const name=ctx.namespace&&!meta.name.includes(':')?ctx.namespace+':'+meta.name:meta.name;
    if(!wanted.has(unqualifiedSkillName(name)))return;
-   sources.push({name,identity:await identity(path,ctx),origin:ctx.origin,digest:digest(text),satisfies:meta.satisfies&&!meta.disabled,
+   const sourceIdentity=await identity(path,ctx);if(commandName)commandSources.add(sourceIdentity);
+   sources.push({name,identity:sourceIdentity,origin:ctx.origin,digest:digest(text),satisfies:meta.satisfies&&!meta.disabled,
     ...(meta.disabled?{problem:'disable-model-invocation prevents calling '+name+'; enable model invocation in the native entry'}:{}),
     ...(ctx.packageName?{packageName:ctx.packageName}:{}),...(ctx.sourceFingerprint?{sourceFingerprint:ctx.sourceFingerprint}:{})});
   };
@@ -83,13 +95,13 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   if(commandRoot&&agent!=='opencode')await commands(commandRoot,local(commandRoot));
   if(agent==='opencode'){
    const standard=join(env.XDG_CONFIG_HOME??join(home,'.config'),'opencode'),custom=env.OPENCODE_CONFIG_DIR;
-   const configAt=async(path:string)=>{try{return jsonc(await metadataText(path,inside(root,path)?root:undefined))??{};}catch{return {};}};
+   const configAt=async(path:string)=>{try{return record(jsonc(await metadataText(path,inside(root,path)?root:undefined)));}catch{return {};}};
    const documents=async(dir:string)=>Promise.all(['opencode.json','opencode.jsonc'].map(async name=>({path:join(dir,name),value:await configAt(join(dir,name))})));
    const standardDocs=await documents(standard),customDocs=custom?await documents(custom):[];
    const explicit=env.OPENCODE_CONFIG?[{path:env.OPENCODE_CONFIG,value:await configAt(env.OPENCODE_CONFIG)}]:[];
    const disabled=['true','1'].includes(env.OPENCODE_DISABLE_PROJECT_CONFIG??'');
    const projectDocs=disabled?[]:[...await documents(root),...await documents(join(root,'.opencode'))];
-   let inline:any={};try{inline=jsonc(env.OPENCODE_CONFIG_CONTENT??'{}');}catch{}
+   let inline:any={};try{inline=record(jsonc(env.OPENCODE_CONFIG_CONTENT??'{}'));}catch{}
    const v2=[...standardDocs,...customDocs,...explicit,...projectDocs,{value:inline}].some(doc=>Array.isArray(doc.value.plugins));
    const configs=[...(v2&&custom?customDocs:standardDocs),...explicit,...projectDocs,...(!v2?customDocs:[]),{path:'OPENCODE_CONFIG_CONTENT',value:inline}];
    const config:any={};for(const {value} of configs)for(const [key,item] of Object.entries(value)){config[key]=item&&typeof item==='object'&&!Array.isArray(item)?{...config[key],...item}:item;}
@@ -104,22 +116,24 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    for(const path of commandRoots){const start=sources.length;await commands(path,local(path));const names=new Set(sources.slice(start).map(source=>source.name));for(let i=start-1;i>=0;i--)if(names.has(sources[i].name))sources.splice(i,1);}
    for(const {path,value} of configs)for(const [name,command] of Object.entries(value.command??{}) as [string,any][]){
     if(!wanted.has(name))continue;for(let i=sources.length-1;i>=0;i--)if(sources[i].name===name)sources.splice(i,1);
-    if(typeof command?.template==='string')sources.push({name,identity:path+'#command.'+name,origin:'local',digest:digest(JSON.stringify(command)),satisfies:true});
+    if(typeof command?.template==='string'&&Buffer.byteLength(command.template)<=256000){const identity=path+'#command.'+name;inlineBodies.set(identity,command.template);sources.push({name,identity,origin:'local',digest:digest(JSON.stringify(command)),satisfies:true});}
    }
    const matches=(pattern:string,name:string)=>new RegExp('^'+pattern.replace(/[.+?^${}()|[\]\\]/g,'\\$&').replaceAll('*','.*')+'$').test(name);
    const loaded=new Map<string,{id:string;items:SkillSource[]}>();
-   const operations=configs.flatMap(({path,value})=>(Array.isArray(v2?value.plugins:value.plugin)?(v2?value.plugins:value.plugin):[]).flatMap((item:any)=>{const target=typeof item==='string'?item:item?.package;return typeof target==='string'?[{path,target}]:[];}));
+   const autoRoots=[...(!v2||!custom?[standard]:[]),...(!disabled?[join(root,'.opencode')]:[]),...(custom?[custom]:[])];
+   const auto=[];for(const base of autoRoots)for(const name of ['plugin','plugins'])for(const file of await list(join(base,name))){const target=join(base,name,file);if(v2?(await stat(target).catch(()=>undefined))?.isDirectory():/\.[cm]?[jt]s$/.test(file))auto.push({path:base,target});}
+   const operations=[...auto,...configs.flatMap(({path,value})=>(Array.isArray(v2?value.plugins:value.plugin)?(v2?value.plugins:value.plugin):[]).flatMap((item:any)=>{const target=typeof item==='string'?item:item?.package;return typeof target==='string'?[{path,target}]:[];}))];
    for(const {path,target} of operations){
     if(v2&&target.startsWith('-')){for(const [key,item] of loaded)if(matches(target.slice(1),item.id))loaded.delete(key);continue;}
     if(v2&&[...loaded.values()].some(item=>matches(target,item.id)))continue;
-    const official=/^(?:git\+)?https:\/\/github\.com\/obra\/superpowers(?:\.git)?(?:#.*)?$/.test(target)||/^github:obra\/superpowers(?:#.*)?$/.test(target);
-    const localTarget=target.startsWith('file://')?fileURLToPath(target):isAbsolute(target)?target:target.startsWith('.')?resolve(dirname(path),target):undefined;
+    const official=/^(?:superpowers@)?(?:git\+)?https:\/\/github\.com\/obra\/superpowers(?:\.git)?(?:#.*)?$/.test(target)||/^(?:superpowers@)?github:obra\/superpowers(?:#.*)?$/.test(target);
+    let localTarget:string|undefined;try{localTarget=target.startsWith('file://')?fileURLToPath(target):isAbsolute(target)?target:target.startsWith('.')?resolve(dirname(path),target):undefined;}catch(error){warn('superpowers',error);continue;}
     if(!official&&!localTarget)continue;
-    const policyTarget='plugin:'+target;
+    const versionSeparator=target.lastIndexOf('@');const policyTarget='plugin:'+(isAbsolute(target)||versionSeparator<=0?target:target.slice(0,versionSeparator));
     if(v2&&configs.flatMap(doc=>doc.value.policies??[]).findLast((policy:any)=>policy.action==='integration.use'&&matches(policy.resource,policyTarget))?.effect==='deny')continue;
     try{
      let base:string;
-     if(localTarget){base=(await stat(localTarget)).isDirectory()?localTarget:resolve(dirname(localTarget),'../..');if(inside(root,path)&&!inside(root,await realpath(base)))throw Error('project plugin escapes project');}
+     if(localTarget){localTarget=await realpath(localTarget);base=(await stat(localTarget)).isDirectory()?localTarget:resolve(dirname(localTarget),'../..');if(inside(root,path)&&!inside(root,await realpath(base)))throw Error('project plugin escapes project');}
      else {
       const cache=join(env.XDG_CACHE_HOME??join(home,'.cache'),'opencode');
       if(v2){const key=join(cache,'npm','git-superpowers-'+digest(target).slice(0,12));const generation=(await list(key)).filter(name=>/^\d+$/.test(name)).sort((a,b)=>Number(a)-Number(b)).at(-1);if(!generation)throw Error('missing current plugin generation');base=join(key,generation,'node_modules/superpowers');}
@@ -127,12 +141,16 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
      }
      const canonical=await realpath(base),manifestPath=join(base,'package.json'),manifestText=await metadataText(manifestPath,canonical),manifest=JSON.parse(manifestText);
      if(manifest.name!=='superpowers')throw Error('Invalid plugin manifest');
-     const entry=localTarget&&(await stat(localTarget)).isFile()?localTarget:resolve(base,manifest.opencode?.server??'.opencode/plugins/superpowers.js');
+     const directEntry=localTarget&&(await stat(localTarget)).isFile()?localTarget:undefined;
+     if(!directEntry&&(typeof manifest.main!=='string'||manifest.exports!==undefined))throw Error('Unrecognized Superpowers package entry; repair the official installation');
+     const entry=directEntry??resolve(base,manifest.main);
      const entryText=await metadataText(entry,canonical);
+     if(!recognizableOpenCodeRegistration(entryText,v2))throw Error('Superpowers loader does not register native skills; repair the official plugin entry');
      const id=v2?entryText.match(/export\s+default\s*\{\s*id\s*:\s*['"]([^'"]+)['"]/)?.[1]:'superpowers';
      if(!id)throw Error('plugin registration ID unavailable; repair configuration');
      const before=sources.length;
-     await walk(join(base,'skills'),{origin:'plugin',bound:canonical,packageName:'superpowers',pathNames:v2,skillRoot:join(base,'skills'),sourceFingerprint:digest(JSON.stringify({root:canonical,manifest:await realpath(manifestPath),manifestDigest:digest(manifestText),entry:await realpath(entry),entryDigest:digest(entryText),id}))});
+     const skillRoot=join(base,'skills'),ctx:Context={origin:'plugin',bound:canonical,packageName:'superpowers',pathNames:v2,skillRoot,sourceFingerprint:digest(JSON.stringify({root:canonical,manifest:await realpath(manifestPath),manifestDigest:digest(manifestText),entry:await realpath(entry),entryDigest:digest(entryText),id}))};
+     for(const name of await list(skillRoot))if(!name.startsWith('.')&&(await stat(join(skillRoot,name)).catch(()=>undefined))?.isDirectory())try{await add(join(skillRoot,name,'SKILL.md'),ctx);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')warn('superpowers',error);}
      loaded.set(target,{id,items:sources.splice(before)});
     }catch(error){warn('superpowers',error);}
    }
@@ -167,10 +185,10 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    let settings:any={};
    if(agent==='omp'){
     for(const base of [omp,join(root,'.omp')]){
-     let value=await json(join(base,'settings.json'));for(const name of base===omp?['config.yml','config.yaml']:['config.yml']){try{value=parse(await metadataText(join(base,name),inside(root,base)?root:undefined))??{};break;}catch{}}
+     let value=await json(join(base,'settings.json'));for(const name of base===omp?['config.yml','config.yaml']:['config.yml']){try{value=record(parse(await metadataText(join(base,name),inside(root,base)?root:undefined)));break;}catch{}}
      settings={...settings,...value,skills:{...settings.skills,...value.skills}};
     }
-    for(const [registry,isProject] of [[join(omp,'plugins/installed_plugins.json'),false],[join(root,'.omp/plugins/installed_plugins.json'),true]] as const){
+    for(const [registry,isProject] of [[join(ompPlugins,'installed_plugins.json'),false],[join(root,'.omp/plugins/installed_plugins.json'),true]] as const){
      for(const [id,items] of Object.entries((await json(registry)).plugins??{})){
       if(!Array.isArray(items)||!items.length)continue;
       const active=items.filter(record=>record&&record.enabled!==false&&typeof record.installPath==='string').map(record=>({record,origin:'omp' as const,project:isProject}));
@@ -192,7 +210,7 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    if(agent==='omp'){
     const overrides=await json(join(root,'.omp/plugin-overrides.json'));
     const packages=new Map<string,{path:string;entries:string[];scope:'user'|'project'}>();
-    for(const [base,scope] of [[join(omp,'plugins'),'user'],[join(root,'.omp/plugins'),'project']] as const){
+    for(const [base,scope] of [[ompPlugins,'user'],[join(root,'.omp/plugins'),'project']] as const){
      const pkg=await json(join(base,'package.json')),lock=await json(join(base,'omp-plugins.lock.json'));
      const declared=Object.keys(pkg.dependencies??{});
      for(const name of new Set([...declared,...Object.keys(lock.plugins??{})])){
@@ -206,7 +224,11 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
     }
     for(const [name,{path,entries,scope}] of packages)try{await plugin(path,'package.json',name,undefined,['skills'],scope,entries);}catch(error){warn(name,error);}
     if(settings.skills?.enabled===false){sources.length=0;unavailable('skills.enabled:false blocks native and Rigup project skills; set skills.enabled to true in OMP settings');}
-    else for(let i=sources.length-1;i>=0;i--)if(settings.skills?.ignoredSkills?.includes(sources[i].name)||settings.disabledExtensions?.includes('skill:'+sources[i].name))sources.splice(i,1);
+    else {
+     const excluded=(name:string)=>array(settings.skills?.ignoredSkills).some(pattern=>matchesGlob(name,pattern))||array(settings.disabledExtensions).includes('skill:'+name)||array(settings.skills?.includeSkills).length>0&&!array(settings.skills?.includeSkills).some(pattern=>matchesGlob(name,pattern));
+     for(let i=sources.length-1;i>=0;i--){const source=sources[i];if(commandSources.has(source.identity))continue;const nativeProject=source.identity.startsWith('.omp/skills/'),nativeUser=source.identity.startsWith(join(omp,'skills')+'/');if(excluded(source.name)||nativeProject&&settings.skills?.enablePiProject===false||nativeUser&&settings.skills?.enablePiUser===false)sources.splice(i,1);}
+     if(settings.skills?.enablePiProject===false||['change-prepare','change-ready','change-deliver'].some(excluded))unavailable('OMP project skill settings prevent Rigup project entries; enable skills.enablePiProject and allow change-prepare, change-ready and change-deliver in ignoredSkills/includeSkills/disabledExtensions');
+    }
    }
   }
   if(agent!=='opencode'){
@@ -215,25 +237,67 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    for(let i=sources.length-1;i>=0;i--)if(priority(sources[i])<ranks.get(sources[i].name)!)sources.splice(i,1);
   }
   if(options.sdd==='spec-kit'&&sources.length&&!sources.some(source=>source.problem)){
-   const checked=new Map<string,string>();let failure:string|undefined;
-   const inspect=async(path:string,depth=0):Promise<void>=>{
-    if(/^\.specify\/templates\/[^/]+\.md$/.test(path)){const override=path.replace('/templates/','/templates/overrides/');if((await stat(join(root,override)).catch(()=>undefined))?.isFile())path=override;}
+   const checked=new Map<string,string>(),templates=new Set<string>();let failure:string|undefined;
+   const present=async(path:string)=>(await stat(join(root,path)).catch(()=>undefined))?.isFile();
+   const readChecked=async(path:string)=>{
+    if(checked.size>=100&&!checked.has(path))throw Error('Spec Kit dependency budget exceeded');
+    const target=await safePath(root,path),text=await metadataText(target,root);checked.set(path,JSON.stringify([await realpath(target),digest(text)]));return text;
+   };
+   const templateIds=(text:string)=>[...text.matchAll(/(?:resolve_template(?:_content)?(?:\s+|\(\s*)|Resolve-Template(?:Content)?\s+-TemplateName\s+)['"]([a-z-]+-template)['"]/g)].map(match=>match[1]);
+   const template=async(name:string,depth:number)=>{
+    if(templates.has(name))return;templates.add(name);
+    const override='.specify/templates/overrides/'+name+'.md';
+    if(await present(override)){await inspect(override,depth,true);return;}
+    let baseFound=false;
+    for(const kind of ['presets','extensions'] as const){
+     const base='.specify/'+kind,registryPath=base+'/.registry';
+     let registry:Record<string,any>|undefined;
+     if(await present(registryPath)){
+      try{const parsed=JSON.parse(await readChecked(registryPath));if(!parsed||typeof parsed!=='object'||!parsed[kind]||typeof parsed[kind]!=='object'||Array.isArray(parsed[kind]))throw Error('invalid template registry');registry=parsed[kind];}
+      catch{if(kind==='extensions')throw Error('invalid extension template registry');}
+     }
+     const candidates=new Map<string,number>();
+     for(const [id,value] of Object.entries(registry??{}))if(/^[a-z0-9-]+$/.test(id)&&value&&typeof value==='object'&&value.enabled!==false)candidates.set(id,Number.isInteger(Number(value.priority))&&Number(value.priority)>0?Number(value.priority):10);
+     if(!registry||kind==='extensions')for(const id of await list(join(root,base)))if(/^[a-z0-9-]+$/.test(id)&&!Object.hasOwn(registry??{},id))candidates.set(id,10);
+     for(const [id] of [...candidates].sort(([a,ap],[b,bp])=>ap-bp||a.localeCompare(b))){
+      let strategy='replace',declared=false,candidate:string|undefined;
+      const manifest=base+'/'+id+'/preset.yml';
+      if(kind==='presets'&&await present(manifest)){
+       const value=parse(await readChecked(manifest)),provided=value?.provides?.templates;
+       if(!Array.isArray(provided)||!provided.length)throw Error('invalid preset template manifest');
+       for(const entry of provided)if(!entry||!['template','command','script'].includes(entry.type)||typeof entry.name!=='string'||typeof entry.file!=='string'||!['replace','append','prepend','wrap'].includes((entry.strategy??'replace').toLowerCase()))throw Error('invalid preset template declaration');
+       const entry=provided.find(item=>item.type==='template'&&item.name===name);
+       if(entry){declared=true;strategy=(entry.strategy??'replace').toLowerCase();const target=resolve(root,base,id,entry.file);if(!inside(join(root,base,id),target))throw Error('preset template escapes its root');if(await present(relative(root,target)))candidate=relative(root,target);}
+      }
+      if(!declared)for(const path of [base+'/'+id+'/templates/'+name+'.md',base+'/'+id+'/'+name+'.md'])if(await present(path)){candidate=path;break;}
+      if(!candidate)continue;
+      await inspect(candidate,depth,true);
+      if(strategy==='wrap'&&!(await readChecked(candidate)).includes('{CORE_TEMPLATE}'))throw Error('wrap template missing CORE_TEMPLATE');
+      if(strategy==='replace'){baseFound=true;break;}
+     }
+     if(baseFound)break;
+    }
+    if(!baseFound)await inspect('.specify/templates/'+name+'.md',depth,true);
+   };
+   const inspect=async(path:string,depth=0,selectedTemplate=false):Promise<void>=>{
     if(checked.has(path)||depth>8)return;
-    if(checked.size>=100){failure='Spec Kit dependency budget exceeded; repair native workflow';return;}
     try{
-     const target=await safePath(root,path),text=await metadataText(target,root);checked.set(path,JSON.stringify([await realpath(target),digest(text)]));
+     if(!selectedTemplate&&/^\.specify\/templates\/[^/]+\.md$/.test(path)){await template(path.slice('.specify/templates/'.length,-3),depth+1);return;}
+     const text=await readChecked(path);
      if(path.startsWith('.specify/scripts/')){
       for(const ref of references(text))await inspect(ref,depth+1);
-      for(const match of text.matchAll(/resolve_template(?:_content)?\s+["']([a-z-]+-template)["']/g))await inspect('.specify/templates/'+match[1]+'.md',depth+1);
-      for(const ref of text.matchAll(/(?:\$SCRIPT_DIR\/|\$PSScriptRoot[^\n]*?['"])([\w.-]+\.(?:sh|ps1))/g))await inspect(join(dirname(path),ref[1]),depth+1);
+      for(const ref of text.matchAll(/\$(?:SCRIPT_DIR|PSScriptRoot)[\/\\]([\w.-]+\.(?:sh|ps1))/g))await inspect(join(dirname(path),ref[1]),depth+1);
+      for(const ref of text.matchAll(/Join-Path\s+\$PSScriptRoot\s+['"]([\w.-]+\.ps1)['"]/g))await inspect(join(dirname(path),ref[1]),depth+1);
+      if(path.endsWith('.py')&&/^\s*from\s+\.?common\s+import\s/m.test(text))await inspect(join(dirname(path),'common.py'),depth+1);
+      for(const name of templateIds(text))await template(name,depth+1);
      }
-    }catch{failure??='missing native dependency: '+path+'; restore it from the current Spec Kit integration before retrying';}
+    }catch{failure??='missing or invalid native dependency: '+path+'; restore it from the current Spec Kit integration before retrying';}
    };
    const references=(text:string)=>[...text.matchAll(/\.specify\/(?:scripts|templates)\/[\w./-]+\.(?:sh|ps1|py|md|json|ya?ml)\b/g)].map(match=>match[0]).filter(path=>!path.startsWith('.specify/templates/overrides/'));
    await inspect('.specify/memory/constitution.md');
    const required=new Set(sddDiscoveryNames('spec-kit',false));
    for(const source of sources.filter(source=>required.has(source.name))){
-    try{const text=await metadataText(isAbsolute(source.identity)?source.identity:join(root,source.identity));for(const path of references(text))await inspect(path);
+    try{const text=inlineBodies.get(source.identity)??await metadataText(isAbsolute(source.identity)?source.identity:join(root,source.identity));for(const path of references(text))await inspect(path);
      // Upstream resolves these fixed template IDs through the current resolver.
      for(const match of text.matchAll(/resolve-template\.(?:sh|ps1|py)[`'" ]+([a-z-]+)/g))if(/^(?:spec|plan|tasks|constitution|checklist)(?:-template)?$/.test(match[1]))await inspect('.specify/templates/'+match[1].replace(/-template$/,'')+'-template.md');
     }catch{/* Inline host commands carry their own source digest. */}
@@ -246,7 +310,19 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    const fingerprint=digest(JSON.stringify({dependencies:[...checked].sort(),hooks}));
    for(const source of sources){source.sourceFingerprint=digest((source.sourceFingerprint??'')+fingerprint);if(failure){source.satisfies=false;source.problem=failure;}}
   }
+  if(metadataExhausted){sources.length=0;unavailable('Native metadata read budget exceeded; reduce or repair the effective native installation');}
   if(!sources.length)delete result[agent];
  }
  return result;
+}
+
+// Recognize the audited upstream registration, without importing or executing a plugin.
+// Unknown loaders must be repaired or exposed as native skills before binding.
+function recognizableOpenCodeRegistration(source:string,v2:boolean):boolean {
+ const code=source.replace(/\/\*[\s\S]*?\*\//g,'').replace(/^\s*\/\/.*$/gm,'').replace(/\s+/g,'');
+ if(!/constsuperpowersSkillsDir=path\.resolve\(__dirname,['"]\.\.\/\.\.\/skills['"]\)/.test(code))return false;
+ if(!v2)return /exportconstSuperpowersPlugin=async\(/.test(code)&&code.includes('config:async(config)=>{')&&code.includes('config.skills.paths.push(superpowersSkillsDir)');
+ return code.includes('asyncfunctionsetup(ctx){')&&/exportdefault\{id:['"][^'"]+['"],server:SuperpowersPlugin,setup,?\}/.test(code)&&
+  code.includes('fs.readdirSync(superpowersSkillsDir,{withFileTypes:true})')&&code.includes("path.join(superpowersSkillsDir,entry.name,'SKILL.md')")&&
+  code.includes('id:entry.name,')&&code.includes('path:skillPath,')&&code.includes('awaitctx.skill.transform((draft)=>{')&&code.includes('draft.add(skill)');
 }

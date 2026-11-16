@@ -315,5 +315,5 @@ export async function installationInput(root:string,plan:SetupPlan,managedTarget
   if(!state.bytes)throw Error('source input changed while preparing installation');
   values.push(path+'\0'+digest(state.bytes));
  }
- const config=await readTarget(root,'.rigup/config.yaml');const nativeSources=Object.fromEntries(Object.entries(profile.skillSources??{}).map(([agent,sources])=>[agent,sources.filter(s=>isAbsolute(s.identity))]).filter(([,sources])=>(sources as unknown[]).length));return signature({values,nativeSources,ignore:profile.ignoreFingerprint,config:plan.assets.some(a=>a.target==='.rigup/config.yaml')?'configured-in-this-preview':config?digest(config):absentDigest});
+ const config=await readTarget(root,'.rigup/config.yaml');const nativeSources=Object.fromEntries(Object.entries(profile.skillSources??{}).map(([agent,sources])=>[agent,sources.filter(s=>isAbsolute(s.identity)||s.sourceFingerprint&&!managedTargets.some(target=>scopeContains(target,s.identity)))]).filter(([,sources])=>(sources as unknown[]).length));return signature({values,nativeSources,ignore:profile.ignoreFingerprint,config:plan.assets.some(a=>a.target==='.rigup/config.yaml')?'configured-in-this-preview':config?digest(config):absentDigest});
 }

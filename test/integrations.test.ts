@@ -283,3 +283,12 @@ test('Spec Kit repair distinguishes first initialization, host addition and brok
  prepared=await prepareIntegrations(await scanRepository(root,options),options);
  assert.match(prepared.requirements[0].reason,/restore|repair/i);assert.match(prepared.requirements[0].reason,/setup-plan.sh/);
 }));
+
+test('registered damaged Spec Kit uses native upgrade and OpenSpec source conflict never suggests specify',()=>project(async root=>{
+ await mkdir(join(root,'.specify'),{recursive:true});await writeFile(join(root,'.specify/integration.json'),JSON.stringify({version:'1.3.2',integration_state_schema:1,installed_integrations:['omp'],integration:'omp',default_integration:'omp'}));
+ const options={agents:['omp' as const],backend:'host' as const,sdd:'spec-kit' as const};
+ const repair=await prepareIntegrations(await scanRepository(root,options),options);assert.match(repair.requirements[0].nextCommand!,/specify integration upgrade omp/);
+ const osOptions={...options,sdd:'openspec' as const};const profile=await scanRepository(root,{agents:[],backend:'host'});
+ const {setNativeEntries}=await import('./helpers.js');setNativeEntries(profile,{omp:['openspec-propose','openspec-apply-change','openspec-archive-change']});profile.skillSources!.omp!.push({...profile.skillSources!.omp![0],identity:'different',digest:'different'});
+ const conflict=await prepareIntegrations(profile,osOptions);assert.match(conflict.requirements[0].reason,/conflict/);assert.doesNotMatch(JSON.stringify(conflict.requirements),/specify/);
+}));
