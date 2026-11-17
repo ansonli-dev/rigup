@@ -20,6 +20,7 @@ import type {Ownership} from '../managed-input.js';
 import {resolveSddBinding,resolveSkillSource,type SddBinding} from './sdd/binding.js';
 import {digest,safePath} from '../analyzer/evidence.js';
 import {openspecPreparationCommand} from './sdd/openspec.js';
+import {nativePreparationCommand,superpowersManual,superpowersReadiness,supportedHost} from './host-setup/manual.js';
 import {RIGUP_VERSION} from '../version.js';
 import {runtimeSetupSummary,selectedNpmRegistry} from '../runtime-inputs.js';
 import {consumerPath} from '../npm-command.mjs';
@@ -61,13 +62,14 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
      requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason,nextCommand:reason});
      continue;
     }
-    const nextCommand=options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')
-     ?openspecPreparationCommand(profile.root,options.agents):undefined;
+    const native=options.sdd==='superpowers'&&supportedHost(agent)?superpowersReadiness(profile,agent):undefined;
+    const nextCommand=native?.status==='missing'?nativePreparationCommand(profile.root,[agent]):
+     options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')?openspecPreparationCommand(profile.root,options.agents):undefined;
     const initialized=options.sdd==='spec-kit'&&(await stat(resolve(profile.root,'.specify')).catch(()=>undefined))?.isDirectory();
     let registered=false;if(initialized)try{const path=await safePath(profile.root,'.specify/integration.json');if((await stat(path)).size<=256000){const state=JSON.parse(await readFile(path,'utf8'));registered=Array.isArray(state?.installed_integrations)&&state.installed_integrations.includes(agent)||state?.integration===agent||state?.default_integration===agent;}}catch{}
-    const repair=options.sdd==='superpowers'?{claude:'/plugin install superpowers@claude-plugins-official',codex:'Open /plugins and install or enable Superpowers',opencode:'Configure the official Superpowers plugin and restart OpenCode',omp:'Install or enable Superpowers in the OMP Marketplace or with omp plugin install omp-superpowers'}[agent]:options.sdd==='openspec'?'rigup doctor '+quoteShell(profile.root):'cd '+quoteShell(profile.root)+' && specify '+(registered?'integration upgrade '+agent:initialized?'integration install '+agent:'init --here --integration '+agent);
+    const repair=options.sdd==='superpowers'?superpowersManual[agent]:options.sdd==='openspec'?'rigup doctor '+quoteShell(profile.root):'cd '+quoteShell(profile.root)+' && specify '+(registered?'integration upgrade '+agent:initialized?'integration install '+agent:'init --here --integration '+agent);
     const cliHelp=options.sdd==='spec-kit'?'; if specify is unavailable, use uvx --from git+https://github.com/github/spec-kit.git@v1.3.2 specify, or uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.3.2':'';
-    requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason+'; '+(nextCommand??repair)+cliHelp,nextCommand:nextCommand??repair});
+    requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+(native?.reason??reason)+'; '+(native?repair:nextCommand??repair)+cliHelp,nextCommand:nextCommand??repair});
    }
   }
  }
