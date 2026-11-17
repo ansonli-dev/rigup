@@ -1,0 +1,10 @@
+export const claudeCliVersion='2.1.273';
+export const claudeMarket='claude-plugins-official';
+export const claudeRepo='anthropics/claude-plugins-official';
+export const claudeSource='https://github.com/obra/superpowers.git';
+export const claudeSha='22f0b463e7a5e579904dd6211a520321035526f7';
+export const claudeVersion='7.0.2';
+export const ompCliVersion='18.1.13';
+export const ompVersion='7.0.2-omp.3';
+export const ompIntegrity='sha512-e0iw1xbuH8F678WCuMT+ZN4b08WfCNEf3kranIqdFva7Hbkuy1v6mgrbP7miVd6r9qzS9/e/ZaQPiXYwQw8BZQ==';
+export const ompTarball='https://registry.npmjs.org/@loneexile/omp-superpowers/-/omp-superpowers-7.0.2-omp.3.tgz';
