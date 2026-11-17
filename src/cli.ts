@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {inspectGlobalNpm} from './integrations/tools/global-npm.js';
+import {toolPackage} from './integrations/tools/recipes.js';
 import {readFile,realpath,rm} from 'node:fs/promises';
 import {resolve,join,relative,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
@@ -306,7 +307,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    if(services.signal?.aborted)return 'stop';
    if(!setup.requirements.length)return 'ready';
    if(!setup.cli&&!selectedOpenSpecScope&&(setup.projectAvailable||setup.globalAvailable)){
-    const project='当前项目 · .rigup/tools/openspec/',global='全局 · 当前用户的 npm 全局前缀';
+    const project='当前项目 · .rigup/tools/openspec/',global='全局 · '+terminalText(setup.prefix??'当前用户的 npm 全局前缀');
     const choices=[...(setup.projectAvailable?[project]:[]),...(setup.globalAvailable?[global]:[])];
     if(guided){
      const selection=await ask({message:'OpenSpec 安装到哪里？',choices,defaults:[choices[0]],back});
@@ -377,9 +378,10 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
     if(detected.state==='available')io.write(tool.id+': reuse existing PATH installation\n');
     if(detected.state==='repair')io.write(tool.id+': '+detected.reason+'\n');
     if(detected.state==='missing'&&io.isTTY&&!values['--json']){
-     const global=await inspectGlobalNpm(root,tool.id).then(()=>true,()=>false);
+     const global=await inspectGlobalNpm(root,tool.id).catch(()=>undefined);
      if(global){
-      const scope=await ask({message:tool.id+' 安装范围',choices:['project','global'],defaults:['project']});
+      const destinations='project 写入 '+toolPackage(tool.id).prefix+'，global 写入 '+terminalText(global.prefix);
+      const scope=await ask({message:tool.id+' 安装范围（'+destinations+'）',choices:['project','global'],defaults:['project']});
       if(!Array.isArray(scope))return 130;
       if(scope[0]==='global'){(flags.globalTools??=[]).push(tool.id);choices.push({...tool,install:false,initialize:prior?.initialize??false});continue;}
      }

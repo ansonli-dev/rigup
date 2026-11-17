@@ -103,6 +103,10 @@ for(const scope of ['project','global'] as const)test('missing tools offer '+sco
   return ['Save preview, apply later'];
  },services:{stateRoot,cacheRoot,confirmPreview:async()=> 'save'}});
  assert.equal(result,3,output);assert.equal(questions.filter(question=>question.includes('安装范围')).length,2);
+ for(const id of ['openwiki','codegraph']){
+  const question=questions.find(message=>message.startsWith(id+' 安装范围'))??'';
+  assert.ok(question.includes('.rigup/tools/'+id)&&question.includes(prefix),question);
+ }
  await assert.rejects(access(globalLauncher(prefix,'openwiki')),{code:'ENOENT'});
  await assert.rejects(access(join(root,'.rigup/manifest.json')),{code:'ENOENT'});
  const files=await readdir(join(cacheRoot,'previews'));
