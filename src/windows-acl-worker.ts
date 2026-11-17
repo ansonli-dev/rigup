@@ -67,6 +67,10 @@ function describePath(path:string):string{
 function startWorker(check:string){
  const command=[
   "$ErrorActionPreference = 'Stop'",
+  // Import the inbox cmdlets directly. First-use module discovery can stall
+  // at ConvertFrom-Json even after the request has arrived on the pipe.
+  "$PSModuleAutoLoadingPreference = 'None'",
+  "Import-Module ([IO.Path]::Combine($PSHOME, 'Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1'))",
   '[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)',
   '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)',
   'function Test-RigupAcl([string]$path, [bool]$directory, [bool]$ancestorsOnly, [bool]$create, [bool]$privateLeaf) {',
