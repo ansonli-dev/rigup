@@ -6,6 +6,7 @@ import {dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 
+const conptyProbe=new URL('./probe-native-windows-conpty.mjs',import.meta.url).href;
 const id='superpowers@claude-plugins-official';
 const ompId='@loneexile/omp-superpowers';
 const market='claude-plugins-official';
@@ -39,20 +40,24 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
   });
   child.onExit(({exitCode})=>{clearTimeout(timer);sent.then(()=>resolve({exitCode,output,approval}),reject);});
  });
- const assertExit=(actual,code)=>assert.equal(actual.exitCode,code,actual.output.slice(-5000));
+ const diagnostic=join(stage,'conpty-acl-debug.log');
+ const assertExit=async(actual,code)=>{
+  if(windows&&actual.exitCode!==code)console.log(await readFile(diagnostic,'utf8').catch(()=>'(no helper log)'));
+  assert.equal(actual.exitCode,code,actual.output.slice(-5000));
+ };
  const caseAt=async name=>{
   const home=join(stage,name+' home'),root=join(stage,name+' project'),temp=join(stage,name+' temp');
   const roaming=join(home,'roaming'),local=join(home,'local');
   for(const dir of [home,root,temp,roaming,local])await mkdir(dir,{mode:0o700});
   const env={...toolEnv,HOME:home,CLAUDE_CONFIG_DIR:join(home,'Claude config'),TERM:'dumb',
-   ...(windows?{USERPROFILE:home,APPDATA:roaming,LOCALAPPDATA:local,TEMP:temp,TMP:temp}:{TMPDIR:temp})};
+   ...(windows?{RIGUP_ACL_DIAGNOSTIC:diagnostic,USERPROFILE:home,APPDATA:roaming,LOCALAPPDATA:local,TEMP:temp,TMP:temp}:{TMPDIR:temp})};
   const state=join(home,'.local/state/rigup');
   const cfg=(hosts,...flags)=>[entry,'init',root,'--agents',hosts,'--sdd','superpowers','--prepare-native',...flags];
   const direct=(hosts,...flags)=>{
    const child=spawnSync(process.execPath,cfg(hosts,...flags),{cwd:stage,env,encoding:'utf8',timeout:45_000});
    return {exitCode:child.status,output:child.stdout+child.stderr,text:child.stdout};
   };
-  const interactive=(hosts,mode)=>run(cfg(hosts),env,mode);
+  const interactive=(hosts,mode)=>run(windows?['--import',conptyProbe,...cfg(hosts)]:cfg(hosts),env,mode);
   const checks=async hosts=>(await scanNativeEntries(root,{agents:hosts,backend:'host',sdd:'superpowers'},{home,env})).skillSources;
   const passiveAbsent=async()=>{
    for(const path of [env.CLAUDE_CONFIG_DIR,join(root,'.claude'),join(home,'.omp'),state])
@@ -85,23 +90,23 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  result.cases=[];
  const first=await caseAt('Claude first');
  for(const flags of [['--review','--json'],['--dry-run','--json']]){
-  const preview=first.direct('claude,omp',...flags);assertExit(preview,0);
+  const preview=first.direct('claude,omp',...flags);await assertExit(preview,0);
   const plan=JSON.parse(preview.text).nativePreparation;
   assert.deepEqual(plan.hosts.map(item=>item.status),['action','action']);
   if(windows)assert.match(plan.hosts[0].steps[0].command,/bin\\claude\.exe/i);
  }
- assertExit(first.direct('claude,omp','--json'),3);
- assertExit(first.direct('claude,omp'),3);
+ await assertExit(first.direct('claude,omp','--json'),3);
+ await assertExit(first.direct('claude,omp'),3);
  const redirected=await run(['-e',String.raw`
   if(!process.stdin.isTTY||!process.stdout.isTTY)process.exit(125);
   const {spawnSync}=require('node:child_process');
   const r=spawnSync(process.execPath,process.argv.slice(1),{stdio:['inherit','pipe','pipe'],encoding:'utf8'});
   process.stdout.write(r.stdout+r.stderr);process.exitCode=r.status??126;
  `,'--',...first.cfg('claude,omp')],first.env);
- assertExit(redirected,3);assert.equal(redirected.approval,false);
+ await assertExit(redirected,3);assert.equal(redirected.approval,false);
  for(const mode of ['cancel','eof']){
   const chosen=await first.interactive('claude,omp',mode);
-  assertExit(chosen,130);assert.equal(chosen.approval,true);
+  await assertExit(chosen,130);assert.equal(chosen.approval,true);
  }
  await first.passiveAbsent();
  result.cases.push({name:'read-only, piped, real stdout redirection, cancellation and EOF',status:'passed'});
@@ -113,13 +118,13 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
   await mkdir(dirname(local));
   await writeFile(local,dangerous);
  });
- assertExit(drift,3);
+ await assertExit(drift,3);
  assert.equal(await exists(canary),false);
  assert.equal(await exists(first.env.CLAUDE_CONFIG_DIR),false);
  await rm(dirname(local),{recursive:true});
  if(windows){
   for(const name of ['git.exe','helper.dll'])await copyFile(process.execPath,join(first.root,name));
-  const blocked=await first.interactive('claude','approve');assertExit(blocked,3);assert.equal(blocked.approval,false);
+  const blocked=await first.interactive('claude','approve');await assertExit(blocked,3);assert.equal(blocked.approval,false);
   assert.match(blocked.output,/executable or DLL/);
   assert.equal(await exists(first.env.CLAUDE_CONFIG_DIR),false);
   for(const name of ['git.exe','helper.dll'])await rm(join(first.root,name));
@@ -127,12 +132,12 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  result.cases.push({name:'post-preview project canaries and Windows cwd helper checks',status:'passed',windows});
 
  const native=await first.interactive('claude,omp','approve');
- assertExit(native,0);assert.equal(native.approval,true);
+ await assertExit(native,0);assert.equal(native.approval,true);
  assert.match(native.output,/omp: recognized via the Claude project plugin/);
  const firstReceipt=await first.claudeReceipt();
  assert.equal(await exists(join(first.home,'.omp/plugins/omp-plugins.lock.json')),false);
  assert.equal(await exists(join(first.state,'native-packages')),false);
- assertExit(first.direct('claude,omp'),0);
+ await assertExit(first.direct('claude,omp'),0);
  assert.deepEqual(await first.claudeReceipt(),firstReceipt);
  result.cases.push({name:'Claude project registration and install, conditional OMP import and no-op',status:'passed',
   claude:{projectScope:true,gitCommitSha:sha,version:'7.0.2'},ompUserWrite:false});
@@ -147,14 +152,14 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  result.cases.push({name:'install Git environment denies official marketplace refresh',status:'passed'});
 
  const second=await caseAt('OMP first');
- const linked=await second.interactive('omp','approve');assertExit(linked,0);
+ const linked=await second.interactive('omp','approve');await assertExit(linked,0);
  const lock=await second.ompReceipt();
- assertExit(second.direct('omp'),0);
- const both=await second.interactive('claude,omp','approve');assertExit(both,0);
+ await assertExit(second.direct('omp'),0);
+ const both=await second.interactive('claude,omp','approve');await assertExit(both,0);
  await second.claudeReceipt();
  assert.deepEqual(await second.ompReceipt(),lock);
  assert.ok((await second.checks(['omp'])).omp.every(source=>source.packageName===ompId));
- assertExit(second.direct('claude,omp'),0);
+ await assertExit(second.direct('claude,omp'),0);
  result.cases.push({name:'OMP verified link, real Claude install, native OMP source precedence and no-op',status:'passed',
   omp:{version:'7.0.2-omp.3',integrity,enabled:true,linked:true},claudeCommit:sha});
 
@@ -162,10 +167,10 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  const data=join(profile.home,'XDG data'),named=join(profile.home,'.omp/profiles/work');
  await mkdir(join(data,'omp/profiles/work'),{recursive:true});
  Object.assign(profile.env,{OMP_PROFILE:'work',PI_CODING_AGENT_DIR:join(profile.home,'unused agent'),XDG_DATA_HOME:data});
- assertExit(await profile.interactive('omp','approve'),0);
+ await assertExit(await profile.interactive('omp','approve'),0);
  await profile.ompReceipt(join(windows?named:join(data,'omp/profiles/work'),'plugins'));
  assert.equal(await exists(profile.env.PI_CODING_AGENT_DIR),false);
- assertExit(profile.direct('omp'),0);
+ await assertExit(profile.direct('omp'),0);
  result.cases.push({name:'named OMP profile overrides custom agent folder and uses applicable XDG data',status:'passed'});
  result.modelCalls=0;
 }
