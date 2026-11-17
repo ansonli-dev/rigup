@@ -128,11 +128,19 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     if(result.status==='done'&&approval&&globalOperations.some(value=>signature(value)===approval))completedGlobals.set(approval,result);
    }
   }
+  if(tx?.status==='prepared'&&tx.previewId===previewId)approvedInterruptedPreview(root,tx);
+  const restoringApproval=tx?.previewId===previewId&&tx.preview?.digest===signature(data);
+  const versions={rigup:RIGUP_VERSION,prompt:PROMPT_VERSION,read:READ_POLICY_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION};
+  for(const [key,value] of Object.entries(versions)){
+   const approved=data.plan.versions[key];
+   if(approved===undefined||approved===value)continue;
+   // These prompt revisions preserve the writes in a matching durable approval.
+   if(key==='prompt'&&(approved==='10'||approved==='12')&&restoringApproval)continue;
+   throw new Error(restoringApproval&&tx?.status==='prepared'?upgradeReconciliation:'implementation version changed; regenerate preview');
+  }
   const interruptedInstall=await interruptedInstallApplyId(root,lock.stateRoot);
   if(interruptedInstall&&interruptedInstall!==previewId)throw Error('Resume the original tool approval with rigup update '+quoteShell(root)+' --resume --review');
   await assertNoUnknownWriters(root,lock.stateRoot);
-  if(tx?.status==='prepared'&&tx.previewId===previewId)approvedInterruptedPreview(root,tx);
-  const restoringApproval=tx?.previewId===previewId&&tx.preview?.digest===signature(data);
   const operations=data.plan.operations;
   for(const operation of operations){
    if(operation.kind==='initialize'&&operation.integrationId==='openwiki')throw Error(openwikiInitializationGuide);
@@ -147,14 +155,6 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(tx?.status==='prepared'&&tx.previewId!==previewId){
    if(Object.keys(tx.seedProgress??{}).length)throw Error(seedReconciliation);
    if(tx.preview?.data&&(!tx.preview.data.approvalNonce||tx.preview.data.inputSnapshotVersion!==3))throw Error(upgradeReconciliation);
-  }
-  const versions={rigup:RIGUP_VERSION,prompt:PROMPT_VERSION,read:READ_POLICY_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION};
-  for(const [key,value] of Object.entries(versions)){
-   const approved=data.plan.versions[key];
-   if(approved===undefined||approved===value)continue;
-   // These prompt revisions preserve the writes in a matching durable approval.
-   if(key==='prompt'&&(approved==='10'||approved==='12')&&restoringApproval)continue;
-   throw new Error(restoringApproval&&tx?.status==='prepared'?upgradeReconciliation:'implementation version changed; regenerate preview');
   }
   if(data.inputSnapshotVersion!==3)throw new Error('source snapshot version changed; regenerate preview without discarding durable state');
   const priorReport=tx?.report;

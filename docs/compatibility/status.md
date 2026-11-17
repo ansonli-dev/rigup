@@ -13,6 +13,8 @@ The macOS ARM64 probes compared the selected source with each host's native cata
 
 Oh My Pi 18.1.13 and 18.19.0 also resolved the installed Rigup skills by `skill://` with slash commands hidden. Disabling the skills loader or project skills blocked the Rigup wrappers. Spec Kit still appeared in the native file-command list. OpenCode V2 has fixture coverage and lacked a live executable for this check.
 
+The repeated Oh My Pi 18.19.0 canary found `skill:rigup-live-canary` with `source: skill` when skill commands were enabled. The SDK resolved the same installed skill and reference in both settings. The historical probe timed out during startup and logged that no models were available. The model availability issue remains unresolved. [Canary receipt](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-17-integration-setup/omp-canary.json)
+
 The portable CLI also prepared a project OpenSpec 2.1.0 installation with its bundled runtime. Both installation scopes passed real OpenWiki 0.9.0 and CodeGraph 1.6.2 checks. A second project reused the global tools, including OpenSpec. [Installation receipts](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-17-integration-setup/install-scopes.json)
 
 ## Verified scenarios
