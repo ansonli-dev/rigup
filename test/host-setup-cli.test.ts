@@ -23,6 +23,7 @@ function cli(root:string,home:string){
   stateRoot,report:r=>reports.push(r),nativeSetup:{
    home,env:{...process.env,HOME:home,USERPROFILE:home,CLAUDE_CONFIG_DIR:join(home,'.claude'),
     PI_CODING_AGENT_DIR:undefined,XDG_CONFIG_HOME:undefined,RIGUP_CONSUMER_PATH:path,PATH:path,
+   },
   },
  },ask:async q=>{questions.push(q);return ['Approve'];}};
  return {io,stateRoot,questions,reports,output};
