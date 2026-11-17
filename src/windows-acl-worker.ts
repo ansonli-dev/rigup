@@ -95,7 +95,7 @@ function startWorker(check:string){
  ].join('\n');
  const executable=windowsPowerShellExecutable();
  const child=spawn(executable,['-NoLogo','-NoProfile','-NonInteractive','-Command',command],{
-  cwd:win32.dirname(executable),env:windowsSystemEnvironment(),windowsHide:true,stdio:['pipe','pipe','ignore'],
+  cwd:win32.dirname(executable),env:windowsSystemEnvironment(),windowsHide:true,stdio:['pipe','pipe','pipe'],
  });
  // Pending request timers keep Node alive. Once the CLI exits, EOF stops
  // the worker even when the caller is interrupted.
@@ -103,6 +103,10 @@ function startWorker(check:string){
  const reusable=child.stdin instanceof Socket&&child.stdout instanceof Socket;
  if(child.stdin instanceof Socket)child.stdin.unref();
  if(child.stdout instanceof Socket)child.stdout.unref();
+ // With every standard handle redirected, Windows PowerShell can start
+ // from a ConPTY without consulting the attached console. Discard stderr.
+ child.stderr.resume();
+ if(child.stderr instanceof Socket)child.stderr.unref();
  const pending=new Map<number,Request>();
  let sequence=0;
  let idle:NodeJS.Timeout|undefined;
@@ -142,6 +146,7 @@ function startWorker(check:string){
  child.on('error',stop);
  child.stdin.on('error',stop);
  child.stdout.on('error',stop);
+ child.stderr.on('error',stop);
  child.on('exit',()=>stop(new Error('Windows ACL process exited')));
 
  const client={
@@ -171,7 +176,8 @@ export async function checkWindowsAccess(check:string,path:string,directory:bool
    worker??=startWorker(check);
    result=await worker.request(path,directory,ancestorsOnly,create,privateLeaf,remaining);
   }catch(cause){
-   throw new WindowsAclCheckError(`Windows ACL worker unavailable checking ${describePath(path)}`,{cause});
+   const known=cause instanceof Error&&['Invalid Windows ACL response','Invalid Windows ACL denial path','Windows ACL process exited','Windows ACL check timed out'].includes(cause.message)?'; '+cause.message:'';
+   throw new WindowsAclCheckError(`Windows ACL worker unavailable checking ${describePath(path)}${known}`,{cause});
   }
   if(result.status==='ok')return;
   if(result.status==='io-error')throw new WindowsAclCheckError(`Windows ACL I/O failed checking ${describePath(path)}`);
