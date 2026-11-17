@@ -68,3 +68,13 @@ test('OMP uses the named profile data root and treats required skill overrides a
  await put(join(profile,'agent','config.yml'),'skills:\n  ignoredSkills: [brainstorming]\n');
  await assert.rejects(omp.inspectOmp(rt),/excludes required/);
 })));
+
+test('OMP rejects host dotenv files that could silently redirect plugin link',()=>project(root=>project(async home=>{
+ const omp=await load();assert.ok(omp);
+ for(const path of [join(home,'.env'),join(home,'.omp','.env'),join(home,'.omp','agent','.env')]){
+  await put(path,'XDG_DATA_HOME='+root+'\nPI_CONFIG_FILES=another.yml\n');
+  await assert.rejects(omp.inspectOmp(runtime(root,home)),/can reload.*\.env/);
+  const {rm}=await import('node:fs/promises');
+  await rm(path);
+ }
+})));

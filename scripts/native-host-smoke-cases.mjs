@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {copyFile,mkdir,readFile,realpath,rm,stat,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {setTimeout as delay} from 'node:timers/promises';
 
 const id='superpowers@claude-plugins-official';
 const ompId='@loneexile/omp-superpowers';
@@ -27,10 +28,13 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
    output+=chunk;
    if(!approval&&output.includes('2. Approve')){
     approval=true;
-    if(mode==='cancel')child.write('1\r');
-    else if(mode==='eof')child.write('\x04');
-    else if(mode==='approve')child.write('2\r');
-    else if(typeof mode==='function')sent=Promise.resolve(mode()).then(()=>child.write('2\r'));
+    // The prompt text can arrive before the child switches stdin to raw mode.
+    sent=delay(150).then(async()=>{
+     if(mode==='cancel')child.write('1\r');
+     else if(mode==='eof')child.write('\x04');
+     else if(mode==='approve')child.write('2\r');
+     else if(typeof mode==='function'){await mode();child.write('2\r');}
+    });
    }
   });
   child.onExit(({exitCode})=>{clearTimeout(timer);sent.then(()=>resolve({exitCode,output,approval}),reject);});

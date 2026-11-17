@@ -1,8 +1,11 @@
+import {join} from 'node:path';
 import type {ProjectProfile} from '../../analyzer/repository.js';
 import {quoteShell,quoteShellList} from '../../shell-command.js';
 import type {Agent} from '../../types.js';
 import {resolveSddBinding,sddDiscoveryNames,unqualifiedSkillName} from '../sdd/binding.js';
 
+export const claudeManagedRoot=(env:NodeJS.ProcessEnv)=>process.platform==='darwin'?'/Library/Application Support/ClaudeCode':
+ process.platform==='linux'?'/etc/claude-code':join(env.SystemRoot??env.SYSTEMROOT??process.env.SystemRoot??'C:\\Windows','..','Program Files','ClaudeCode');
 export const claudePlugin='superpowers@claude-plugins-official';
 export const ompPackage='@loneexile/omp-superpowers';
 export const supportedHost=(agent:Agent):agent is 'claude'|'omp'=>agent==='claude'||agent==='omp';

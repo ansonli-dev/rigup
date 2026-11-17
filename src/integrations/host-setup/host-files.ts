@@ -1,6 +1,6 @@
 import {constants} from 'node:fs';
 import {lstat,open,realpath} from 'node:fs/promises';
-import {dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
+import {basename,dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
 import {visit} from 'jsonc-parser';
 import {isRecord} from '../../private-record.js';
 export {withinPath} from '../../npm-command.mjs';
@@ -43,6 +43,19 @@ export async function checkedDirectory(path:string){
    throw Error('Directory is not trusted or uses a link');
  }
  return info;
+}
+
+export async function canonicalHostDirectory(value:string){
+ let cursor=absoluteHostPath(value);
+ await checkedDirectory(cursor);
+ const suffix:string[]=[];
+ while(!await statIfPresent(cursor)){
+  suffix.unshift(basename(cursor));
+  const parent=dirname(cursor);
+  if(parent===cursor)throw Error('Native directory root is unavailable');
+  cursor=parent;
+ }
+ return join(await realpath(cursor),...suffix);
 }
 
 export async function checkedFile(path:string,{hardlinks=false,limit=256_000}={}){

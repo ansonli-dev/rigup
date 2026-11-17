@@ -3,8 +3,9 @@ import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {homedir, release} from 'node:os';
-import {delimiter, join, resolve} from 'node:path';
+import {delimiter, dirname, join, resolve} from 'node:path';
 import {createRequire} from 'node:module';
+import {resolveWindowsExecutable} from '../src/integrations/tools/windows-process.mjs';
 import {npmCommand} from '../src/npm-command.mjs';
 import {smokeNativeHosts} from './native-host-smoke-cases.mjs';
 
@@ -70,7 +71,13 @@ try {
     ? join(claude, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')
     : join(claude, 'bin', 'claude');
   const pathKey = Object.keys(toolEnv).find(key => key.toUpperCase() === 'PATH') ?? 'PATH';
-  toolEnv[pathKey] = [windows ? claude : join(claude, 'bin'), binaries, currentPath].join(delimiter);
+  const systemPath=windows?[
+    dirname(process.execPath),
+    dirname(resolveWindowsExecutable('git',stage,env)),
+    dirname(resolveWindowsExecutable('pwsh',stage,env)),
+    join(process.env.SystemRoot,'System32'),process.env.SystemRoot,
+  ].join(delimiter):currentPath;
+  toolEnv[pathKey] = [windows ? claude : join(claude, 'bin'), binaries, systemPath].join(delimiter);
   const nativeVersion = path => execFileSync(path, ['--version'], {encoding: 'utf8', env: toolEnv, cwd: home, timeout: 20_000}).trim();
   result.git = nativeVersion('git');
   result.claude = nativeVersion(claudeExe);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdir,stat,writeFile} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
 import {test} from 'node:test';
+import {resolveWindowsExecutable} from '../src/integrations/tools/windows-process.mjs';
 import {runCli,type CliIO} from '../src/cli.js';
 import {project} from './helpers.js';
 
@@ -17,10 +18,11 @@ const missing=(path:string)=>assert.rejects(stat(path),{code:'ENOENT'});
 function cli(root:string,home:string){
  const stateRoot=join(home,'state'),questions:Parameters<NonNullable<CliIO['ask']>>[0][]=[],reports:Record<string,unknown>[]=[];
  const output:string[]=[];
+ const path=[join(home,'bin'),...(process.platform==='win32'?[dirname(resolveWindowsExecutable('git',root,process.env))]:[process.env.PATH??''])].join(delimiter);
  const io:CliIO={cwd:root,isTTY:true,outputIsTTY:true,write:t=>output.push(t),writeError:t=>output.push(t),services:{
   stateRoot,report:r=>reports.push(r),nativeSetup:{
    home,env:{...process.env,HOME:home,USERPROFILE:home,CLAUDE_CONFIG_DIR:join(home,'.claude'),
-    PI_CODING_AGENT_DIR:undefined,XDG_CONFIG_HOME:undefined,RIGUP_CONSUMER_PATH:undefined,PATH:[join(home,'bin'),process.env.PATH??''].join(delimiter)},
+    PI_CODING_AGENT_DIR:undefined,XDG_CONFIG_HOME:undefined,RIGUP_CONSUMER_PATH:path,PATH:path,
   },
  },ask:async q=>{questions.push(q);return ['Approve'];}};
  return {io,stateRoot,questions,reports,output};
@@ -123,4 +125,60 @@ test('native preparation verifies a completed step before retry, and recognizes 
  await missing(join(home,'.omp'));
  assert.equal(await runCli(args(root,'claude,omp'),io),0);
  assert.equal(steps.length,3);
+})));
+
+test('first guided init can return from native consent and then prepares a fresh executable preview',()=>project(root=>project(async home=>{
+ const {io,stateRoot,reports,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ // The ordinary lifecycle scans the actual host environment when it builds
+ // its new preview, so make it the same as the isolated native test home.
+ const overrides=io.services!.nativeSetup!.env!;
+ const keys=['HOME','USERPROFILE','CLAUDE_CONFIG_DIR'];
+ const before=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+ try{
+  for(const key of keys)process.env[key]=overrides[key]!;
+  let nativePrompts=0,sddPrompts=0,previewPrompt=false;
+  io.ask=async q=>{
+   if(q.choices.includes('superpowers')){sddPrompts++;return ['superpowers'];}
+   if(q.choices.includes('Approve')){
+    nativePrompts++;
+    if(nativePrompts===1)return 'back';
+    assert.deepEqual(steps,[]);
+    await missing(join(root,'.claude'));
+    return ['Approve'];
+   }
+   if(q.choices.includes('Save preview, apply later')){previewPrompt=true;return ['Save preview, apply later'];}
+   assert.fail('Unexpected question: '+q.message);
+  };
+  const code=await runCli(['init',root,'--agents','claude','--tools','none'],io);
+  assert.equal(code,3,output.join(''));
+  assert.equal(sddPrompts,2);assert.equal(nativePrompts,2);assert.equal(previewPrompt,true);
+  assert.deepEqual(steps,['marketplace','install']);
+  assert.ok(reports.some(r=>r.phase==='preview'&&r.executable===true));
+ }finally{for(const key of keys){const value=before[key];if(value===undefined)delete process.env[key];else process.env[key]=value;}}
+})));
+
+test('guided review retains the blocked preview and active session cannot confirm native setup',()=>project(root=>project(async home=>{
+ const {io,reports,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ let asked=0;io.ask=async()=>{asked++;return ['Approve'];};
+ const review=await runCli(['init',root,'--agents','claude','--sdd','superpowers','--tools','none','--review'],io);
+ assert.equal(review,3,output.join(''));
+ assert.ok(reports.some(r=>r.phase==='preview'&&r.executable===false));
+ const originalCwd=process.cwd(),original=process.env.CLAUDECODE;
+ try{
+  process.chdir(root);process.env.CLAUDECODE='1';
+  assert.equal(await runCli(args(root),io),3);
+  assert.match(output.join(''),/independent terminal/);
+ }finally{process.chdir(originalCwd);if(original===undefined)delete process.env.CLAUDECODE;else process.env.CLAUDECODE=original;}
+ assert.equal(asked,0);
+ assert.deepEqual(steps,[]);
+})));
+
+test('mixed native preparation finishes only the approved eligible host, leaving another pending',()=>project(root=>project(async home=>{
+ const {io,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ assert.equal(await runCli(args(root,'codex,claude'),io),3);
+ assert.deepEqual(steps,['marketplace','install']);
+ assert.match(output.join(''),/codex: missing native entry/);
 })));

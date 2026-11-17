@@ -1,9 +1,10 @@
 import {runGlobalNpmInstall,queryGlobalNpmInstall,type GlobalNpmReceipt} from '../integrations/tools/global-npm.js';
 import {queryInstalledTool,queryToolPackage,type ToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import {isRecord,readDurableRecord,saveDurable} from '../private-record.js';
-import {join,resolve,isAbsolute} from 'node:path';
+import {join,resolve,isAbsolute,relative} from 'node:path';
 import {lstat,readFile,realpath} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
+import {userInfo} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import type {SetupOperation} from '../types.js';
 import {privateDirectory,signature} from '../generator/cache.js';
@@ -67,6 +68,9 @@ export async function writerAlive(identity:WriterIdentity,trusted=false):Promise
  try{process.kill(-identity.pid,0);throw new Error('writer process group exit cannot be confirmed');}catch(e){if((e as NodeJS.ErrnoException).code==='ESRCH')return false;throw e;}}
 const nativeHosts=['claude','omp'] as const;
 type NativeHost=typeof nativeHosts[number];
+// HOME can be isolated or overridden while two processes still target the
+// same native host. Writer recovery must span those effective homes.
+export const nativeWriterStateRoot=(override?:string)=>override??join(userInfo().homedir,'.local','state','rigup');
 export const hostWriterPath=(stateRoot:string,host:NativeHost)=>join(stateRoot,'native-'+host+'.writer.json');
 
 export async function readHostWriter(stateRoot:string,host:NativeHost){
@@ -83,9 +87,17 @@ export async function readHostWriter(stateRoot:string,host:NativeHost){
 export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateRoot()):Promise<void>{
  const state=await privateDirectory(stateRoot,root);
  root=await realpath(root);
- for(const host of nativeHosts){
-  const record=await readHostWriter(state,host);
-  if(record?.root===root&&await writerAlive(record.identity,true))throw Error('Previous '+host+' writing process still active; project blocked');
+ for(const writerState of new Set([state,nativeWriterStateRoot()])){
+  for(const host of nativeHosts){
+   if(writerState!==state){
+    const exists=await lstat(hostWriterPath(writerState,host)).catch(error=>{if(error.code==='ENOENT')return;throw error;});
+    if(!exists)continue;
+   }
+   const same=await privateDirectory(writerState,root);
+   const record=await readHostWriter(same,host);
+   if(record&&relative(record.root,root)===''&&await writerAlive(record.identity,true))
+    throw Error('Previous '+host+' writing process still active; project blocked');
+  }
  }
  for(const item of await pendingOperations(root,state)){
   if(item.identity&&await writerAlive(item.identity))throw new Error('previous writing process still active; project blocked');
@@ -277,6 +289,7 @@ export async function protectedOperationCommand(command:{executable:string;args:
  }
  const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...command,cwd:root,captureOutput:!!dependencies.stdout})],{...dependencies.launcher,detached:true,stdio:['pipe',dependencies.stdout?'pipe':'ignore','ignore']});
  if(dependencies.stdout)child.stdout?.on('data',dependencies.stdout);
+ child.stdin?.on('error',()=>{});
  if(!child.pid)throw new Error('Cannot start protected operation process');
  const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>(resolve=>{child.once('error',()=>resolve({code:1,signal:null}));child.once('exit',(code,signal)=>resolve({code,signal}));});
  try{await markDispatching(await processIdentity(child.pid,!!dependencies.launcher));}catch(e){child.stdin!.end();await completed;throw e;}
@@ -290,13 +303,25 @@ export async function protectedOperationCommand(command:{executable:string;args:
  const hardKill=setTimeout(()=>{if(cancelled)try{process.kill(-child.pid!,'SIGKILL');}catch{}},timeoutMs+3000);
  dependencies.signal?.addEventListener('abort',terminate,{once:true});
  child.stdin!.write('go\n');child.stdin!.end();
- const outcome=await completed;clearTimeout(timeout);clearTimeout(hardKill);if(forceTimer)clearTimeout(forceTimer);dependencies.signal?.removeEventListener('abort',terminate);
- if(identity()){
-  // The process-group leader and native worker do not exit at the same instant.
-  // Keep the durable intent unresolved until every possible writer is gone.
-  const deadline=Date.now()+3000;let alive=true;
-  do {try{alive=await writerAlive(identity()!,!!dependencies.launcher);}catch{alive=true;}if(!alive)break;if(Date.now()<deadline)await new Promise(done=>setTimeout(done,50));}while(Date.now()<deadline);
-  if(alive)throw new Error('writing process exit unconfirmed; persistent record keeps project blocked');
- }
+ const outcome=await completed;clearTimeout(timeout);clearTimeout(hardKill);
+ dependencies.signal?.removeEventListener('abort',terminate);
+ try{
+  if(identity()){
+   // Keep escalation active until the whole native process group is gone.
+   const treeAlive=()=>writerAlive(identity()!,!!dependencies.launcher).catch(()=>true);
+   let alive=await treeAlive();
+   if(alive&&dependencies.launcher&&!cancelled){
+    await new Promise(done=>setTimeout(done,100));
+    alive=await treeAlive();
+    if(alive)terminate();
+   }
+   const deadline=Date.now()+(forceTimer?6500:3000);
+   while(alive&&Date.now()<deadline){
+    await new Promise(done=>setTimeout(done,50));
+    alive=await treeAlive();
+   }
+   if(alive)throw new Error('writing process exit unconfirmed; persistent record keeps project blocked');
+  }
+ }finally{if(forceTimer)clearTimeout(forceTimer);}
  return finish(outcome.code,cancelled||timedOut);
 }

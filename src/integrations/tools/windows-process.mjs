@@ -1,3 +1,4 @@
+import {windowsSystemEnvironment,windowsSystemPowerShell} from '../../windows-system-env.mjs';
 import {execFile,spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {statSync} from 'node:fs';
@@ -237,18 +238,12 @@ ${native}
 }
 `,'utf16le').toString('base64');
 
-export function windowsPowerShellExecutable(){
- const root=process.env.SystemRoot;
- if(!root||!/^[a-z]:[\\/]/i.test(root))throw Error('Windows system directory unavailable');
- return path.join(root,'System32','WindowsPowerShell','v1.0','powershell.exe');
-}
+export const windowsPowerShellExecutable=windowsSystemPowerShell;
 
-function supervisorOptions(query,base=process.env){
+function supervisorOptions(query,base){
  const executable=windowsPowerShellExecutable();
  const cwd=path.dirname(executable);
- const system=path.join(path.dirname(path.dirname(cwd)));
- const env={...Object.fromEntries(Object.entries(base).filter(([key])=>/^(?:SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|LOCALAPPDATA|APPDATA)$/i.test(key))),
-  PATH:system,NoDefaultCurrentDirectoryInExePath:'1',PSModulePath:path.join(cwd,'Modules'),RIGUP_QUERY_JOB:query};
+ const env={...windowsSystemEnvironment(base),RIGUP_QUERY_JOB:query};
  return {executable,args:['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',worker],cwd,env};
 }
 

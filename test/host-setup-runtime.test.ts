@@ -103,3 +103,60 @@ test('protected launch does not run inherited Node startup hooks or dispatch on 
   await assert.rejects(readFile(canary),{code:'ENOENT'});
  }finally{if(before===undefined)delete process.env.NODE_OPTIONS;else process.env.NODE_OPTIONS=before;}
 })));
+
+test('rejects a project-independent executable leaf that other users can modify',{skip:!windows},()=>project(root=>project(async home=>{
+ const runtime=await load();assert.ok(runtime);
+ const bin=join(home,'bin'),exe=join(bin,'claude.exe');
+ await mkdir(bin);await copyFile(process.execPath,exe);
+ const {execFileSync}=await import('node:child_process');
+ execFileSync(join(process.env.SystemRoot!,'System32','icacls.exe'),[exe,'/grant','*S-1-1-0:(M)']);
+ const value=await runtime.inspectHostRuntime(root,'claude',config(home,bin));
+ await assert.rejects(runtime.assertWindowsLaunch(value,[]),/untrusted grant/);
+})));
+
+test('a plain executable text file is no native launcher',{skip:windows},()=>project(root=>project(async home=>{
+ const runtime=await load();assert.ok(runtime);
+ const bin=join(home,'bin');await mkdir(bin);
+ await writeFile(join(bin,'claude'),'touch this-is-not-native',{mode:0o700});
+ await assert.rejects(runtime.inspectHostRuntime(root,'claude',config(home,bin)),/Unsupported native/);
+})));
+
+test('POSIX native timeout stops a child that ignores SIGTERM after its host exits',{skip:windows},()=>project(root=>project(async state=>{
+ const runtime=await load();assert.ok(runtime);
+ await chmod(state,0o700);
+ const pidFile=join(root,'child.pid');
+ const childScript='process.on("SIGTERM",()=>{});require("node:fs").writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},10_000)';
+ const hostScript='process.on("SIGTERM",()=>process.exit(7));require("node:child_process").spawn(process.execPath,["-e",'+JSON.stringify(childScript)+',process.argv[1]],{stdio:"ignore"});setInterval(()=>{},10_000)';
+ const result=await runtime.withHostWriter({root,stateRoot:state},'omp',runner=>runner.run(
+  {executable:process.execPath,args:['-e',hostScript,pidFile],env:{}},root,1200,async()=>undefined));
+ assert.equal(result.cancelled,true);
+ const pid=Number(await readFile(pidFile,'utf8'));
+ assert.ok(Number.isInteger(pid)&&pid>0);
+ assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
+ await operation.assertNoUnknownWriters(root,state);
+})));
+
+test('native resource lock recovery recognizes a live writer across time zones',{skip:windows},()=>project(root=>project(other=>project(async state=>{
+ await chmod(state,0o700);
+ const previous=process.env.TZ;
+ try{
+  process.env.TZ='UTC';
+  const first=await acquireLock(root,{stateRoot:state,resource:'test-native',recover:true,trustedProcess:true});
+  try{
+   process.env.TZ='Asia/Shanghai';
+   await assert.rejects(acquireLock(other,{stateRoot:state,resource:'test-native',recover:true,trustedProcess:true}),/occupied/);
+  }finally{await first.release();}
+ }finally{if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous;}
+}))));
+
+test('a differently spelled existing project ancestor cannot accept a config override',()=>project(base=>project(async home=>{
+ const runtime=await load();assert.ok(runtime);
+ const root=join(base,'Project'),alias=join(base,'project');
+ await mkdir(root);
+ const lookup=await readFile(join(alias,'missing')).catch(error=>error.code);
+ assert.equal(lookup,'ENOENT');
+ const {stat}=await import('node:fs/promises');
+ if(!await stat(alias).catch(()=>undefined))return; // The host uses case-sensitive lookup.
+ const input=config(home,'');
+ await assert.rejects(runtime.inspectHostRuntime(root,'claude',{...input,env:{...input.env,CLAUDE_CONFIG_DIR:join(alias,'future-config')}}),/CLAUDE_CONFIG_DIR/);
+})));

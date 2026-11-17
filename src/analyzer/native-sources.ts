@@ -11,7 +11,7 @@ import {agents,projectCommandRoots} from '../integrations/agents/index.js';
 import type {Agent,SetupOptions} from '../types.js';
 import {sddDiscoveryNames,unqualifiedSkillName,type SkillSource} from '../integrations/sdd/binding.js';
 import {ompLocations} from '../integrations/host-setup/omp-locations.js';
-import {claudePlugin,ompPackage} from '../integrations/host-setup/manual.js';
+import {claudeManagedRoot,claudePlugin,ompPackage} from '../integrations/host-setup/manual.js';
 export interface NativeDiagnostic {agent:Agent;code:'omp-claude-provider-filtered'|'plugin-skipped'|'native-conflict';subject:string;detail:string}
 export interface NativeDiscoveryOptions {home?:string;env?:Record<string,string|undefined>;requiredOpenSpecEntriesOnly?:true;managedProjectPaths?:string[];onWarning?:(message:string)=>void;onDiagnostic?:(diagnostic:NativeDiagnostic)=>void}
 export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean;disabled?:boolean}|undefined {
@@ -46,10 +46,19 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
  let hooks:any[]=[];
  if(options.sdd==='spec-kit')try{const extension=parse(await metadataText(join(root,'.specify/extensions.yml'),root));hooks=Object.values(extension?.hooks??{}).flat().filter((hook:any)=>hook&&hook.enabled!==false&&hook.optional===false&&!hook.condition);for(const hook of hooks)if(typeof hook.command==='string'){wanted.add(hook.command);wanted.add(hook.command.replaceAll('.','-'));}}catch{}
  const claude=env.CLAUDE_CONFIG_DIR??join(home,'.claude'),codex=env.CODEX_HOME??join(home,'.codex');
- const {agent:omp,plugins:ompPlugins,configDir:ompConfigDir}=await ompLocations(home,env);
- const ompProjectPlugins=join(root,ompConfigDir,'plugins');
+ const {agent:omp,plugins:ompPlugins}=await ompLocations(home,env);
+ const ompProjectPlugins=join(root,'.omp','plugins');
  const claudeSettings:Record<string,boolean>={};
  for(const file of [join(claude,'settings.json'),join(root,'.claude/settings.json'),join(root,'.claude/settings.local.json')])Object.assign(claudeSettings,(await json(file)).enabledPlugins??{});
+ const managedClaude:Record<string,unknown>={};
+ let invalidClaudePolicy=false;
+ if(options.sdd==='superpowers'&&options.agents.includes('claude')){
+  const policy=claudeManagedRoot(env),fragments=join(policy,'managed-settings.d');
+  const files=await readdir(fragments).catch(error=>{if(error.code!=='ENOENT')invalidClaudePolicy=true;return [];});
+  const policies=[join(policy,'managed-settings.json'),...files.filter(name=>name.endsWith('.json')).sort().slice(0,50).map(name=>join(fragments,name))];
+  if(files.length>50)invalidClaudePolicy=true;
+  for(const file of policies){const document=await json(file,()=>{invalidClaudePolicy=true;});Object.assign(managedClaude,document.enabledPlugins??{});}
+ }
  const matchingProject=async(record:any)=>['project','local'].includes(record.scope)&&typeof record.projectPath==='string'&&await realpath(record.projectPath).catch(()=>undefined)===root;
  for(const agent of options.agents){
   const sources:SkillSource[]=[];result[agent]=sources;
@@ -194,13 +203,14 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   if(agent==='claude'||agent==='omp'){
    const installed=(await json(join(claude,'plugins/installed_plugins.json'),()=>{if(agent==='claude')diag('native-conflict',claudePlugin,'Claude installed_plugins.json is invalid or unreadable');})).plugins??{};
    const imported=new Set<SkillSource>();
-   if(agent==='claude'&&claudeSettings[claudePlugin]===false)diag('native-conflict',claudePlugin,'Claude Superpowers is explicitly disabled');
+   if(agent==='claude'&&invalidClaudePolicy)diag('native-conflict',claudePlugin,'Claude managed plugin settings could not be read');
+   if(agent==='claude'&&(claudeSettings[claudePlugin]===false||managedClaude[claudePlugin]===false))diag('native-conflict',claudePlugin,'Claude Superpowers is explicitly disabled');
    if(agent==='claude'&&claudeSettings[claudePlugin]===true&&!Object.hasOwn(installed,claudePlugin))diag('native-conflict',claudePlugin,'Claude Superpowers is enabled without an install receipt; '+repair.toLowerCase());
    const marketplaces=agent==='claude'?await json(join(claude,'plugins/known_marketplaces.json')):{};
    const records=new Map<string,{record:any;origin:'claude'|'omp';project:boolean}[]>();
    for(const [id,items] of Object.entries(installed)){
     if(!Array.isArray(items)){warn(id,undefined);continue;}
-    for(const record of items){if(!record||record.enabled===false||claudeSettings[id]===false||agent==='claude'&&claudeSettings[id]!==true)continue;
+    for(const record of items){if(!record||record.enabled===false||claudeSettings[id]===false||agent==='claude'&&(invalidClaudePolicy||managedClaude[id]===false||claudeSettings[id]!==true))continue;
      const project=await matchingProject(record);if(record.scope!=='user'&&!project)continue;
      records.set(id,[...records.get(id)??[],{record,origin:'claude',project}]);}
    }
@@ -256,7 +266,17 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
     }catch(error){warn(id,error);}}
    }
    if(agent==='omp'){
-    const overrides=await json(join(root,'.omp/plugin-overrides.json'),()=>diag('native-conflict',ompPackage,'OMP project plugin overrides are invalid or unreadable'));
+    let overrides:Record<string,any>={};
+    for(const dir of ['.omp','.pi']){
+     const path=join(root,dir,'plugin-overrides.json');
+     try{
+      const file=JSON.parse(await metadataText(path,root));
+      if(!file||typeof file!=='object'||Array.isArray(file))throw Error('Invalid OMP project plugin overrides');
+      overrides=file;break;
+     }catch(error){
+      if((error as NodeJS.ErrnoException)?.code!=='ENOENT')diag('native-conflict',ompPackage,'OMP project plugin overrides are invalid or unreadable');
+     }
+    }
     const ompDisabled=array(settings.disabledProviders).includes('omp-plugins')||array(overrides.disabled).includes(ompPackage);
     if(ompDisabled)diag('native-conflict',ompPackage,'The OMP Superpowers plugin or its provider is explicitly disabled');
     const packages=new Map<string,{path:string;entries:string[];scope:'user'|'project'}>();

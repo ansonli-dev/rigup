@@ -1,4 +1,4 @@
-import {stat} from 'node:fs/promises';
+import {lstat,stat} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 
 const profile=(value:string|undefined)=>{
@@ -19,4 +19,13 @@ export async function ompLocations(home:string,env:NodeJS.ProcessEnv){
  };
  const [data,state,cache]=await Promise.all([env.XDG_DATA_HOME,env.XDG_STATE_HOME,env.XDG_CACHE_HOME].map(select));
  return {configDir,base,agent,plugins:join(data,'plugins'),state,cache};
+}
+
+export async function assertOmpEnvironmentFiles(home:string,env:NodeJS.ProcessEnv,locations:Awaited<ReturnType<typeof ompLocations>>){
+ if(env.PI_CONFIG_FILES||env.OMP_CONFIG_FILES)
+  throw Error('OMP config overlays are unsupported for native preparation; reconcile PI_CONFIG_FILES in the host.');
+ for(const dir of new Set([home,locations.base,locations.agent])){
+  const hasEnv=await lstat(join(dir,'.env')).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
+  if(hasEnv)throw Error('OMP can reload a HOME, profile, or agent .env before choosing a destination; prepare manually in this configuration');
+ }
 }

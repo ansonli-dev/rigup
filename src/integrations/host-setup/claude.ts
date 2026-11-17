@@ -3,8 +3,8 @@ import {dirname,join,relative} from 'node:path';
 import type {ProjectProfile} from '../../analyzer/repository.js';
 import {signature} from '../../generator/cache.js';
 import {isRecord} from '../../private-record.js';
-import {absoluteHostPath,checkedDirectory,checkedFile,nativeJson,readNativeFile,statIfPresent,withinPath} from './host-files.js';
-import {claudePlugin} from './manual.js';
+import {absoluteHostPath,canonicalHostDirectory,checkedDirectory,nativeJson,readNativeFile,statIfPresent,withinPath} from './host-files.js';
+import {claudeManagedRoot,claudePlugin} from './manual.js';
 import {claudeMarket,claudeRepo,claudeSha,claudeSource,claudeVersion} from './pins.js';
 import {bindingFrom} from './receipt.js';
 import {nativeChildEnv,trustedHelper,type HostRuntime} from './runtime.js';
@@ -42,15 +42,14 @@ async function gitConfig(dir:string,cached=false){
 
 export async function inspectClaude(runtime:HostRuntime){
  const {root,home,env}=runtime;
- const config=env.CLAUDE_CONFIG_DIR??join(home,'.claude');
+ const config=await canonicalHostDirectory(env.CLAUDE_CONFIG_DIR??join(home,'.claude'));
  const project=join(root,'.claude','settings.json'),local=join(root,'.claude','settings.local.json');
  const user=join(config,'settings.json'),plugins=join(config,'plugins');
  const known=join(plugins,'known_marketplaces.json'),registry=join(plugins,'installed_plugins.json');
  const catalogRoot=join(plugins,'marketplaces',claudeMarket),catalog=join(catalogRoot,'.claude-plugin','marketplace.json');
  const packageRoot=join(plugins,'cache',claudeMarket,'superpowers'),install=join(packageRoot,claudeVersion);
  const configFile=join(env.CLAUDE_CONFIG_DIR??home,'.claude.json'),backups=join(config,'backups');
- const managed=process.platform==='darwin'?'/Library/Application Support/ClaudeCode':process.platform==='linux'?'/etc/claude-code':
-  join(env.SystemRoot??process.env.SystemRoot??'C:\\Windows','..','Program Files','ClaudeCode');
+ const managed=claudeManagedRoot(env);
  const policy=join(managed,'managed-settings.json'),dropIns=join(managed,'managed-settings.d');
  const documents=[user,project,local,policy];
  if(await checkedDirectory(dropIns)){
@@ -59,12 +58,12 @@ export async function inspectClaude(runtime:HostRuntime){
   documents.push(...names.map(name=>join(dropIns,name)));
  }
  if(withinPath(root,config))throw Error('Claude configuration must be outside the project');
- await checkedFile(configFile,{limit:4_000_000});
  const stamps:Record<string,string|undefined>={};
  const read=async (path:string,label:string,limit?:number)=>{
   try{const doc=await nativeJson(path,limit);stamps[path]=doc?.identity;return doc?.value;}
   catch{throw Error('Invalid, redirected or unreadable '+label+'; reconcile it before retrying');}
  };
+ await read(configFile,'Claude user state',4_000_000);
  let projectEnabled=false,enabled=false,declared=false,projectOutsideMarket:unknown={};
  for(const path of documents){
   const value=await read(path,'Claude settings');
@@ -130,7 +129,7 @@ export async function inspectClaude(runtime:HostRuntime){
  for(const directory of [dirname(project),config,plugins,dirname(catalogRoot),dirname(packageRoot),backups])await checkedDirectory(directory);
  const paths=[project,local,user,known,registry,catalog,install,configFile,backups,policy];
  return {market,installed,declared,project,config,configFile,backups,known,registry,catalogRoot,install,paths,
-  invariants:signature([projectOutsideMarket,...Object.entries(stamps).filter(([path])=>![project,known,registry,catalog,catalogRoot].includes(path))]),
+  invariants:signature([projectOutsideMarket,...Object.entries(stamps).filter(([path])=>![project,known,registry,catalog,catalogRoot,configFile].includes(path))]),
   snapshot:signature({stamps,market,installed,paths})};
 }
 

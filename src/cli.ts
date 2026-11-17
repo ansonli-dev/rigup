@@ -27,6 +27,7 @@ import {LinkedRigupDirectoryError} from './installer/ownership.js';
 import {promptResearchProvider,resolveResearchProvider} from './research/provider-settings.js';
 import {runtimeEnvironment,runtimeSetupSummary,writeRuntimeSummary,type RuntimeSetupSummary} from './runtime-inputs.js';
 import {applyReason,createCliOutput,terminalText} from './cli-output.js';
+import {supportedHost} from './integrations/host-setup/manual.js';
 import {nativeSetupInteraction} from './integrations/host-setup/index.js';
 import {terminalUI,type TerminalStreams} from './terminal-ui.js';
 export interface CliIO {cwd:string;isTTY:boolean;outputIsTTY?:boolean;write(text:string):void;writeError?(text:string):void;read?(secret?:boolean):Promise<string|null>;ask?:Ask;terminal?:TerminalStreams;services?:LifecycleServices}
@@ -311,7 +312,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    }
   }
   const checkWorkflow=async(selected:SetupOptions,back=false):Promise<'ready'|'back'|'stop'>=>{
-   if(selected.sdd==='superpowers'&&selected.agents.length&&firstWorkflow&&wizard&&inlineReview&&!flags.review&&!flags.dryRun&&nativeTTY){
+   if(selected.sdd==='superpowers'&&selected.agents.some(supportedHost)&&firstWorkflow&&wizard&&inlineReview&&!flags.review&&!flags.dryRun&&nativeTTY){
     const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:value=>{
      nativePreparation=value.nativePreparation as Record<string,unknown>;
      if(value.installStatus!=='complete'&&value.installStatus!=='up-to-date')services.report?.(value);

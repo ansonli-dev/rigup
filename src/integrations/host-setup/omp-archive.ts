@@ -78,7 +78,7 @@ export function parseOmpTar(tar:Buffer){
  return files;
 }
 const unpack=(bytes:Buffer)=>parseOmpTar(gunzipSync(pin(bytes),{maxOutputLength:2_000_000}));
-export const storePackage=(runtime:HostRuntime)=>join(runtime.stateRoot,'native-packages','omp-superpowers-'+ompVersion,'package');
+export const storePackage=(runtime:Pick<HostRuntime,'stateRoot'>)=>join(runtime.stateRoot,'native-packages','omp-superpowers-'+ompVersion,'package');
 
 export async function verifyOmpStore(packageDir:string){
  const base=dirname(packageDir);

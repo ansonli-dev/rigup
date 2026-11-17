@@ -4,12 +4,12 @@ import {homedir} from 'node:os';
 import {basename,delimiter,dirname,extname,join,relative,resolve} from 'node:path';
 import {signature} from '../../generator/cache.js';
 import {acquireLock,defaultStateRoot,type ProjectLock} from '../../installer/lock.js';
-import {protectedOperationCommand,hostWriterPath,readHostWriter,writerAlive,type WriterIdentity} from '../../installer/operations.js';
+import {protectedOperationCommand,hostWriterPath,nativeWriterStateRoot,readHostWriter,writerAlive,type WriterIdentity} from '../../installer/operations.js';
 import {isRecord,saveDurable} from '../../private-record.js';
 import {syncDirectory} from '../../sync-directory.js';
-import {assertSafeWindowsAncestors} from '../../private-access.js';
+import {assertSafeWindowsAncestors,assertTrustedWindowsEntry} from '../../private-access.js';
 import {npmPathDirectories} from '../../npm-command.mjs';
-import {absoluteHostPath,checkedDirectory,checkedFile,nativeJson,statIfPresent,stamp,withinPath} from './host-files.js';
+import {absoluteHostPath,canonicalHostDirectory,checkedDirectory,checkedFile,nativeJson,statIfPresent,stamp,withinPath} from './host-files.js';
 
 const windows=process.platform==='win32';
 export type SetupHost='claude'|'omp';
@@ -52,7 +52,7 @@ async function safeBinary(path:string,root:string,header=false){
   const handle=await open(target,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
   try{
    if(stamp(await handle.stat({bigint:true}))!==stamp(before))throw Error('Native launcher changed');
-   start=Buffer.alloc(256);
+   start=Buffer.alloc(4096);
    await handle.read(start);
   }finally{await handle.close();}
  }
@@ -79,6 +79,16 @@ export async function vettedPath(root:string,raw:string){
  return paths;
 }
 
+const machO=new Set([0xfeedface,0xfeedfacf,0xcefaedfe,0xcffaedfe,0xcafebabe,0xbebafeca,0xcafebabf,0xbfbafeca]);
+const nativeImage=(bytes:Buffer)=>{
+ if(windows){
+  if(bytes.toString('ascii',0,2)!=='MZ')return false;
+  const pe=bytes.readUInt32LE(0x3c);
+  return pe>=0x40&&pe<=bytes.length-4&&bytes.readUInt32LE(pe)===0x4550;
+ }
+ return process.platform==='darwin'?machO.has(bytes.readUInt32BE(0)):bytes.readUInt32BE(0)===0x7f454c46;
+};
+
 export async function nativeProgram(host:SetupHost,root:string,paths:string[]):Promise<NativeProgram>{
  const locate=async(name:string,dirs=paths)=>{
   for(const dir of dirs){
@@ -91,10 +101,10 @@ export async function nativeProgram(host:SetupHost,root:string,paths:string[]):P
   const binary=await locate(host+(windows?'.exe':''),[directory]);
   if(binary){
    const text=binary.start!.toString('utf8');
-   if(windows&&text.startsWith('MZ')||!windows&&!text.startsWith('#!'))return direct(binary);
+   if(nativeImage(binary.start!))return direct(binary);
    if(!windows&&host==='omp'&&/^#![ \t]*\/usr\/bin\/env[ \t]+bun[ \t]*\r?\n/.test(text)){
     const bun=await locate('bun');
-    if(!bun||bun.start!.toString('utf8').startsWith('#!'))throw Error('OMP requires a trusted native Bun interpreter');
+    if(!bun||!nativeImage(bun.start!))throw Error('OMP requires a trusted native Bun interpreter');
     return {file:bun.file,args:[binary.file],identity:signature([bun.identity,binary.identity]),paths:[bun.file,binary.file]};
    }
    throw Error('Unsupported native '+host+' launcher; install the vetted CLI directly');
@@ -115,11 +125,11 @@ export async function nativeProgram(host:SetupHost,root:string,paths:string[]):P
   if(relative(entry,payload.file)!=='')throw Error('Claude npm launcher entry is redirected');
   const identity=[stamp(shimInfo),manifest!.identity,payload.identity];
   if(extname(entry).toLowerCase()==='.exe'){
-   if(!payload.start!.toString('utf8').startsWith('MZ'))throw Error('Claude npm entry is not a native executable');
+   if(!nativeImage(payload.start!))throw Error('Claude npm entry is not a native executable');
    return {file:entry,args:[],identity:signature(identity),paths:[entry,shim,manifestPath]};
   }
   const node=await locate('node.exe');
-  if(!node||!node.start!.toString('utf8').startsWith('MZ'))throw Error('Claude npm launcher requires trusted node.exe');
+  if(!node||!nativeImage(node.start!))throw Error('Claude npm launcher requires trusted node.exe');
   return {file:node.file,args:[entry],identity:signature([...identity,node.identity]),paths:[node.file,entry,shim,manifestPath]};
  }
  throw Error(host+' was not found on a trusted PATH; install the supported CLI and retry');
@@ -130,9 +140,8 @@ export async function inspectHostRuntime(root:string,host:SetupHost,input:Native
  const raw=consumerEnvironment(input.env??(input.home?{}:process.env)),env:NodeJS.ProcessEnv={};
  const externalDirectory=async(key:string,value:string)=>{
   try{
-   const path=absoluteHostPath(value);
+   const path=await canonicalHostDirectory(value);
    if(withinPath(root,path))throw Error('inside project');
-   await checkedDirectory(path);
    return path;
   }catch{throw Error(key+' must point to a trusted absolute directory outside the project, without symlinks or junctions');}
  };
@@ -154,7 +163,7 @@ export async function inspectHostRuntime(root:string,host:SetupHost,input:Native
   if(raw[key]!==undefined)env[key]=await externalDirectory(key,raw[key]!);
  }
  if(host==='omp'){
-  if(raw.PI_CONFIG_FILES)throw Error('PI_CONFIG_FILES supplies unsupported OMP settings overlays; prepare manually or remove the overlay before retrying');
+  if(raw.PI_CONFIG_FILES||raw.OMP_CONFIG_FILES)throw Error('PI_CONFIG_FILES supplies unsupported OMP settings overlays; prepare manually or remove the overlay before retrying');
   if(raw.PI_CONFIG_DIR){
    if(!localConfig.test(raw.PI_CONFIG_DIR)||specialName.test(raw.PI_CONFIG_DIR)||raw.PI_CONFIG_DIR.endsWith('.'))throw Error('PI_CONFIG_DIR must be a supported directory name under HOME');
    env.PI_CONFIG_DIR=raw.PI_CONFIG_DIR;
@@ -167,12 +176,13 @@ export async function inspectHostRuntime(root:string,host:SetupHost,input:Native
   }
  }
  const stateRoot=await externalDirectory('Rigup state',input.stateRoot??(input.home?join(home,'.local','state','rigup'):defaultStateRoot()));
+ const writerRoot=await externalDirectory('Rigup native writer state',nativeWriterStateRoot(input.stateRoot));
  await assertProjectScope(root,home,host,env);
  const path=await vettedPath(root,raw.RIGUP_CONSUMER_PATH??raw.PATH??'');
  env.PATH=path.join(delimiter);
  const program=await nativeProgram(host,root,path);
- const approved=signature({home,root,stateRoot,env,program});
- return {root,home,stateRoot,env,program,approved};
+ const approved=signature({home,root,stateRoot,writerRoot,env,program});
+ return {root,home,stateRoot,writerRoot,env,program,approved};
 }
 export type HostRuntime=Awaited<ReturnType<typeof inspectHostRuntime>>;
 
@@ -182,18 +192,20 @@ export function nativeChildEnv(runtime:HostRuntime,privateTemp:string):NodeJS.Pr
 
 export async function assertWindowsLaunch(runtime:HostRuntime,writePaths:string[]){
  if(!windows)return;
- for(const path of new Set([...runtime.program.paths,runtime.root,...writePaths])){
+ const pathDirs=(runtime.env.PATH??'').split(delimiter).filter(Boolean);
+ for(const path of new Set([...runtime.program.paths,runtime.root,...writePaths,...pathDirs])){
   let current=path,info=await statIfPresent(current);
   while(!info&&dirname(current)!==current){current=dirname(current);info=await statIfPresent(current);}
-  await assertSafeWindowsAncestors(info?.isDirectory()?join(current,'check-cwd'):current,'Native setup requires trusted Windows directories');
+  if(!info||info.isSymbolicLink())await assertSafeWindowsAncestors(current,'Native setup requires trusted Windows directories');
+  else await assertTrustedWindowsEntry(current,info.isDirectory(),'Native setup requires trusted Windows files and directories');
  }
 }
 
 export async function withHostWriter<T>(
  lock:Pick<ProjectLock,'root'|'stateRoot'>,host:SetupHost,
- work:(runner:{run:typeof run})=>Promise<T>,signal?:AbortSignal,
+ work:(runner:{run:typeof run})=>Promise<T>,signal?:AbortSignal,writerRoot=lock.stateRoot,
 ){
- const resource=await acquireLock(lock.root,{stateRoot:lock.stateRoot,resource:'native-host:'+host,recover:true,trustedProcess:true});
+ const resource=await acquireLock(lock.root,{stateRoot:writerRoot,resource:'native-host:'+host,recover:true,trustedProcess:true});
  const record=hostWriterPath(resource.stateRoot,host);
  const clear=async()=>{await rm(record,{force:true});await syncDirectory(resource.stateRoot);};
  try{
@@ -232,8 +244,7 @@ export async function trustedHelper(name:string,runtime:HostRuntime){
   const candidate=join(directory,name+(windows?'.exe':''));
   if(await statIfPresent(candidate)){
    const binary=await safeBinary(candidate,runtime.root,true);
-   const start=binary.start!.toString('utf8');
-   if(windows&&!start.startsWith('MZ')||!windows&&start.startsWith('#!'))throw Error('Native setup needs a trusted '+name+' binary');
+   if(!nativeImage(binary.start!))throw Error('Native setup needs a trusted '+name+' binary');
    return {path:binary.file,identity:binary.identity};
   }
  }

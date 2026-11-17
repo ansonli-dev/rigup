@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import {mkdir,writeFile} from 'node:fs/promises';
-import {dirname,join} from 'node:path';
+import {chmod,copyFile,mkdir,writeFile} from 'node:fs/promises';
+import {delimiter,dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {scanNativeEntries} from '../src/analyzer/repository.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
@@ -11,6 +11,16 @@ const id='superpowers@claude-plugins-official';
 const ompPackage='@loneexile/omp-superpowers';
 const names=['brainstorming','writing-plans','executing-plans','verification-before-completion'];
 const options=(agent:Agent):SetupOptions=>({agents:[agent],sdd:'superpowers',tools:[],backend:'host'});
+async function supportedInput(home:string,host:'claude'|'omp'){
+ const bin=join(home,'test tools');
+ await mkdir(bin);
+ const program=join(bin,host+(process.platform==='win32'?'.exe':''));
+ await copyFile(process.execPath,program);
+ if(process.platform!=='win32')await chmod(program,0o700);
+ const path=bin+delimiter+(process.env.PATH??'');
+ return {home,stateRoot:join(home,'state'),env:{...process.env,HOME:home,USERPROFILE:home,PATH:path,
+  RIGUP_CONSUMER_PATH:path,CLAUDE_CONFIG_DIR:undefined,PI_CODING_AGENT_DIR:undefined,XDG_CONFIG_HOME:undefined}};
+}
 async function put(root:string,path:string,value:unknown){
  const target=join(root,path);
  await mkdir(dirname(target),{recursive:true});
@@ -44,7 +54,7 @@ test('explains a real filtered Claude user plugin without invalidating the nativ
  assert.equal(filtered.fingerprint,missing.fingerprint);
  assert.deepEqual(filtered.unknowns,missing.unknowns);
  assert.equal(filtered.nativeDiagnostics?.find(item=>item.code==='omp-claude-provider-filtered')?.subject,id);
- const pending=(await prepareIntegrations(filtered,opts)).requirements[0];
+ const pending=(await prepareIntegrations(filtered,opts,await supportedInput(home,'omp'))).requirements[0];
  assert.match(pending.reason,/enabledProviders.*claude-plugins/);
  assert.match(pending.nextCommand??'',/--agents omp --sdd superpowers --prepare-native$/);
  await put(home,'.omp/agent/config.yml','enabledProviders: [claude-plugins]\n');
@@ -55,8 +65,13 @@ test('explains a real filtered Claude user plugin without invalidating the nativ
 
 test('points to terminal preparation only for an absent workflow',()=>project(root=>project(async home=>{
  const opts=options('claude');
- const absent=await prepareIntegrations(await scanNativeEntries(root,opts,{home}),opts);
+ const input=await supportedInput(home,'claude');
+ const absent=await prepareIntegrations(await scanNativeEntries(root,opts,{home}),opts,input);
  assert.match(absent.requirements[0].nextCommand??'',/--prepare-native$/);
+ await put(root,'.claude/settings.json',{hooks:{}});
+ const unsafe=await prepareIntegrations(await scanNativeEntries(root,opts,{home}),opts,input);
+ assert.match(unsafe.requirements[0].reason,/unsupported Claude project key.*hooks/i);
+ assert.doesNotMatch(unsafe.requirements[0].nextCommand??'',/--prepare-native/);
  await claudeReceipt(home,root);
  await put(root,'.claude/settings.json',{enabledPlugins:{[id]:false}});
  const disabled=await prepareIntegrations(await scanNativeEntries(root,opts,{home}),opts);

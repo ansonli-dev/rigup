@@ -1,8 +1,10 @@
 import {mkdir,mkdtemp,readdir,rm} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {join} from 'node:path';
+import {isAbsolute,join} from 'node:path';
 import {scanNativeEntries,type ProjectProfile} from '../../analyzer/repository.js';
 import {privateDirectory,signature} from '../../generator/cache.js';
+import {loadOptions} from '../../config.js';
+import {loadManifest} from '../../installer/baseline.js';
 import {interruptedInstallApplyId,interruptedSeedApplyId} from '../../installer/apply.js';
 import {acquireLock,defaultStateRoot} from '../../installer/lock.js';
 import {assertNoUnknownWriters} from '../../installer/operations.js';
@@ -10,8 +12,10 @@ import {agents as hostInfo,projectCommandRoots} from '../agents/index.js';
 import {quoteShell} from '../../shell-command.js';
 import type {Agent} from '../../types.js';
 import {claudeArgs,claudeCommand,claudeGitIdentity,claudeRecognized,inspectClaude,prepareClaudeScratch,type ClaudeStep} from './claude.js';
-import {checkedFile,stamp,statIfPresent} from './host-files.js';
+import {checkedFile,stamp,statIfPresent,withinPath} from './host-files.js';
 import {claudePlugin,ompPackage,superpowersManual,superpowersReadiness,supportedHost} from './manual.js';
+import {assertOmpEnvironmentFiles,ompLocations} from './omp-locations.js';
+import {storePackage} from './omp-archive.js';
 import {downloadOmp,inspectOmp,installOmpStore,ompArgs,ompCommand,ompRecognized} from './omp.js';
 import {claudeCliVersion,claudeSha,claudeVersion,ompCliVersion,ompIntegrity,ompTarball,ompVersion} from './pins.js';
 import {bindingFrom} from './receipt.js';
@@ -45,6 +49,21 @@ const scan=async(root:string,hosts:Agent[],input:NativeInputs)=>{
  return scanNativeEntries(root,{agents:hosts,sdd:'superpowers',backend:'host',
   scope:hosts.flatMap(agent=>[hostInfo[agent].skillDirectory,...projectCommandRoots[agent]])},{home,env});
 };
+async function verifiedExisting(profile:ProjectProfile,host:Agent,input:NativeInputs){
+ const ready=superpowersReadiness(profile,host);
+ if(ready.status!=='ready'||host!=='omp')return ready;
+ const home=input.home??homedir(),env=consumerEnvironment(input.env??(input.home?{}:process.env));
+ try{await assertOmpEnvironmentFiles(home,env,await ompLocations(home,env));}
+ catch(error){return {status:'manual' as const,reason:explain(error,'OMP environment and path overlays could not be verified')};}
+ const stateRoot=input.stateRoot??(input.home?join(home,'.local','state','rigup'):defaultStateRoot());
+ const store=storePackage({stateRoot});
+ if(!profile.skillSources?.omp?.some(source=>source.packageName===ompPackage&&isAbsolute(source.identity)&&withinPath(store,source.identity)))return ready;
+ try{
+  const receipt=await inspectOmp({root:profile.root,home,env,stateRoot});
+  if(ompRecognized(receipt,profile))return ready;
+ }catch{/* A Rigup-managed link needs its verified store on every reuse. */}
+ return {status:'manual' as const,reason:'The existing OMP link no longer matches the verified package; reconcile it manually.'};
+}
 const commandLine=(runtime:HostRuntime,args:string[])=>[runtime.program.file,...runtime.program.args,...args].map(quoteShell).join(' ');
 async function planHost(root:string,host:SetupHost,input:NativeSetupServices):Promise<Planned>{
  const runtime=await inspectHostRuntime(root,host,input);
@@ -70,11 +89,21 @@ async function planHost(root:string,host:SetupHost,input:NativeSetupServices):Pr
    {level:'state',path:recipe.store}],undo:'omp plugin uninstall '+ompPackage}]};
 }
 
+export async function nativePreparationProblem(root:string,host:SetupHost,input:NativeInputs={}){
+ try{await planHost(root,host,input);return;}
+ catch(error){return explain(error,'Native prerequisites could not be verified; prepare manually');}
+}
+
+async function currentReviewPolicy(root:string){
+ const manifest=await loadManifest(root);
+ return (await loadOptions(root,{},undefined,{fallback:manifest?.options})).executionPolicy?.mode==='review';
+}
+
 export async function planNativePreparation(root:string,hosts:Agent[],input:NativeSetupServices={}){
  const profile=await scan(root,hosts,input);
  const entries:Entry[]=[];
  for(const host of executionOrder.filter(host=>hosts.includes(host))){
-  const readiness=superpowersReadiness(profile,host);
+  const readiness=await verifiedExisting(profile,host,input);
   if(readiness.status==='ready'){entries.push({host,status:'ready'});continue;}
   if(!supportedHost(host)||readiness.status==='manual'){entries.push({host,status:'manual',reason:readiness.reason});continue;}
   try{
@@ -88,6 +117,8 @@ export type NativePreparation=Awaited<ReturnType<typeof planNativePreparation>>;
 export function describeNativePreparation(plan:NativePreparation){
  return {kind:'superpowers',hosts:plan.entries.map(({host,status,reason,action})=>({
   host,status,reason,...(status==='ready'?{}:{manual:superpowersManual[host]}),steps:action?.steps??[],
+  ...(action?{launcher:{requiredVersion:host==='claude'?claudeCliVersion:ompCliVersion,
+    versionCommand:commandLine(action.runtime,['--version']),temporaryUnder:action.runtime.stateRoot,writerState:action.runtime.writerRoot}}:{}),
   ...(host==='omp'&&plan.hosts.includes('claude')&&action?{conditional:'Skip the user plugin link if the approved Claude project install supplies the full OMP workflow.'}:{}),
  }))};
 }
@@ -125,13 +156,14 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
   const lock=await acquireLock(root,{stateRoot,recover:true,trustedProcess:true});
   try{
    await assertNoUnknownWriters(root,lock.stateRoot);
+   if(await currentReviewPolicy(root))return fail('The project now requires review; native preparation needs a fresh plan.',3);
    if(await interruptedInstallApplyId(root,lock.stateRoot)||await interruptedSeedApplyId(root,lock.stateRoot))
     return fail('Reconcile the interrupted Rigup installation before native preparation.',3);
    let pending=false,claudePath:string|undefined;
    for(const entry of plan.entries){
     currentHost=entry.host;attempted=false;
     if(input.signal?.aborted)return end(130);
-    const profile=await scan(root,[currentHost],input),ready=superpowersReadiness(profile,currentHost);
+    const profile=await scan(root,[currentHost],input),ready=await verifiedExisting(profile,currentHost,input);
     if(ready.status==='ready'){
      const imported=currentHost==='omp'&&claudePath&&bindingFrom(profile,'omp',claudePath,'superpowers');
      progress.push({host:currentHost,status:imported?'recognized':'ready',message:imported?
@@ -159,6 +191,7 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
       const guard=async()=>{
        if(input.signal?.aborted)return 'Native preparation canceled before dispatch.';
        try{
+        if(await currentReviewPolicy(root))return 'The project now requires review; native preparation needs a fresh plan.';
         const trusted=await fresh();
         if(superpowersReadiness(await scan(root,[host],input),host).status!=='missing')return 'Native entry sources changed after approval; review a fresh plan.';
         if(identity(trusted)!==identity(state))return 'Native prerequisites changed after approval; review a fresh plan.';
@@ -225,7 +258,7 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
       }
       return;
      }finally{if(!attempted)await rm(scratch,{recursive:true,force:true,maxRetries:3});}
-    },input.signal);
+    },input.signal,approved.runtime.writerRoot);
     if(result)return result;
    }
    return end(pending?3:0);
@@ -252,6 +285,7 @@ export async function nativeSetupInteraction(root:string,hosts:Agent[],input:Nat
    nativePreparation:{...description,progress},pending,...(!ready&&exitCode!==0&&hasAction?{nextCommand}:{})});
  for(const entry of description.hosts){
   write(entry.host+': '+(entry.status==='ready'?'Native Superpowers sources are already recognized; no setup needed.':entry.reason??entry.status));
+  if(entry.launcher)write('  Verify CLI '+entry.launcher.requiredVersion+': '+entry.launcher.versionCommand+' (private work directory under '+entry.launcher.temporaryUnder+'; writer guard under '+entry.launcher.writerState+')');
   for(const step of entry.steps){
    write('  '+step.command+' ('+step.pin+')');
    for(const item of step.writes)write('    '+item.level+': '+item.path+

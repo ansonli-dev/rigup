@@ -10,6 +10,7 @@ import {syncDirectory} from '../sync-directory.js';
 import {runWindowsPowerShell} from '../windows-powershell.js';
 const exec=promisify(execFile);
 const windowsStartPattern=/^win32:[1-9]\d{17,18}$/;
+const portablePosixStart='posix-utc:';
 
 export interface ProcessIdentity {pid:number;started:string}
 
@@ -42,16 +43,20 @@ export async function processIdentity(pid:number,trusted=false):Promise<ProcessI
  if(!validPid(pid))throw new Error('process identity unavailable');
  const started=process.platform==='win32'
   ?await windowsStart(pid)
-  :(await exec(trusted?'/bin/ps':'ps',['-p',String(pid),'-o','lstart='],trusted?{env:{LANG:process.env.LANG,LC_ALL:process.env.LC_ALL,LC_TIME:process.env.LC_TIME,TZ:process.env.TZ}}:{})).stdout.trim();
+  :(await exec(trusted?'/bin/ps':'ps',['-p',String(pid),'-o','lstart='],trusted?{env:{LANG:'C',LC_ALL:'C',TZ:'UTC'}}:{})).stdout.trim();
  if(!started)throw new Error('process identity unavailable');
- return {pid,started};
+ return {pid,started:process.platform!=='win32'&&trusted?portablePosixStart+started:started};
 }
 
 export async function isAlive(identity:ProcessIdentity,trusted=false):Promise<boolean>{
  if(!validPid(identity?.pid)||typeof identity.started!=='string'||!identity.started.trim()||
     (process.platform==='win32'&&!windowsStartPattern.test(identity.started)))throw new Error('process identity cannot be confirmed');
  try{process.kill(identity.pid,0);}catch(e){if((e as NodeJS.ErrnoException).code==='ESRCH')return false;throw new Error('process exit cannot be confirmed');}
- try{return (await processIdentity(identity.pid,trusted)).started===identity.started;}catch{throw new Error('process identity cannot be confirmed');}
+ const portable=identity.started.startsWith(portablePosixStart);
+ // A live legacy PID is conservatively occupied for a native writer: an
+ // older record may have used a different time zone or localized ps output.
+ if(process.platform!=='win32'&&trusted&&!portable)return true;
+ try{return (await processIdentity(identity.pid,portable)).started===identity.started;}catch{throw new Error('process identity cannot be confirmed');}
 }
 export interface ProjectLock {root:string;id:string;stateRoot:string;release():Promise<void>}
 export const defaultStateRoot=()=>join(homedir(),'.local','state','rigup');
