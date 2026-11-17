@@ -1,4 +1,4 @@
-import {globalNpmInstallOperation,runGlobalNpmInstall,type GlobalNpmApproval} from '../tools/global-npm.js';
+import {globalNpmInstallOperation,managedGlobalNpmProblem,runGlobalNpmInstall,type GlobalNpmApproval} from '../tools/global-npm.js';
 import {packageDirectory,exists,consumerPath,findProgram,commandEnvironment,command,npmPrefix,userNode,programIdentity,prefixIdentity,type Program as GlobalProgram} from '../tools/global-npm-runtime.js';
 import {lstat,mkdir,mkdtemp,readdir,readFile,realpath,rm} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -93,10 +93,12 @@ export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal
   verifiedProjectOpenSpec(root,stateRoot).catch(error=>({problem:(error as Error).message})),
   findProgram('openspec',root,path).catch(()=>null)
  ]);
- const cli:Program|undefined=project?('file' in project?project:undefined):external??undefined;
  const needsEntries:Agent[]=[],problems:string[]=[];
  if(project&&'problem' in project)problems.push(project.problem);
  if(!project&&external===null)problems.push('The existing openspec command could not be resolved. Repair its installation or put a working CLI first on PATH.');
+ const externalProblem=!project&&external?await managedGlobalNpmProblem('openspec',external.launcher??external.file,stateRoot):undefined;
+ if(externalProblem)problems.push(externalProblem);
+ const cli:Program|undefined=project?('file' in project?project:undefined):externalProblem?undefined:external??undefined;
  for(const agent of options.agents){
   try{resolveSddBinding('openspec',agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);}
   catch(error){

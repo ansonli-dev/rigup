@@ -137,7 +137,12 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(options.sdd==='openspec'&&options.agents.length){
    const native=await inspectOpenSpecForSetup(root,options,lock.stateRoot,services.signal);
    if(native.requirements.length){
-    if(!needsResearch||backendKind!=='host'||await loadManifest(root)){
+    const installed=await loadManifest(root);
+    if(needsResearch&&installed){
+     const {researchBlocked}=await scanRepository(root,options);
+     if(researchBlocked)throw Error(researchBlocked);
+    }
+    if(!needsResearch||backendKind!=='host'||installed){
      const nextCommand=native.steps.length?native.steps.join(' && '):null;
      const reason='Prepare the selected OpenSpec integration, then repeat your setup command.';
      for(const problem of native.requirements)notice('OpenSpec: '+problem+'\n');

@@ -1,7 +1,7 @@
 import {scanRepository} from '../src/analyzer/repository.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir,readFile,access} from 'node:fs/promises';
+import {mkdir,readFile,access,unlink} from 'node:fs/promises';
 import {join,delimiter,dirname} from 'node:path';
 import {npmRegistry} from './npm-registry-fixture.js';
 import {project,testEnvironment} from './helpers.js';
@@ -11,11 +11,7 @@ import {apply} from '../src/installer/apply.js';
 const globalBin=(prefix:string)=>process.platform==='win32'?prefix:join(prefix,'bin');
 const globalLauncher=(prefix:string,id:string)=>join(globalBin(prefix),id+(process.platform==='win32'?'.cmd':''));
 
-test('approved global tool uses exact registry version after retag and leaves project receipts empty',t=>project(control=>npmRegistry(async registry=>{
- const root=join(control,'project'),prefix=join(control,'prefix'),stateRoot=join(control,'state'),cacheRoot=join(control,'cache');
- await mkdir(root);await mkdir(globalBin(prefix),{recursive:true});
- await registry.publish('openwiki','0.9.0',{bin:{openwiki:'cli.js'}},{'cli.js':'#!/usr/bin/env node\nconsole.log("0.9.0");\n'});
- testEnvironment(t,{npm_config_prefix:prefix,RIGUP_CONSUMER_PATH:[globalBin(prefix),dirname(process.execPath)].join(delimiter),RIGUP_NPM_REGISTRY:registry.url});
+test('approved global tool uses exact registry version after retag and leaves project receipts empty',t=>globalFixture(t,async({root,prefix,stateRoot,cacheRoot,registry})=>{
  let previewId='',operations:unknown[]=[];
  const code=await executeLifecycle(root,{agents:['claude'],backend:'host',sdd:undefined,tools:[{id:'openwiki',install:false,initialize:false,agents:['claude']}]},{dryRun:true,globalTools:['openwiki']} as LifecycleFlags,()=>{},{stateRoot,cacheRoot,report:r=>{if(r.previewId)previewId=String(r.previewId);if(r.operations)operations=r.operations as unknown[];}});
  assert.equal(code,0);assert.equal(operations.length,1,'missing global install plan');
@@ -25,7 +21,7 @@ test('approved global tool uses exact registry version after retag and leaves pr
  assert.equal(result.status,'complete',JSON.stringify(result));
  assert.equal(JSON.parse(await readFile(join(prefix,process.platform==='win32'?'node_modules/openwiki/package.json':'lib/node_modules/openwiki/package.json'),'utf8')).version,'0.9.0');
  assert.deepEqual(JSON.parse(await readFile(join(root,'.rigup/manifest.json'),'utf8')).installedTools,{});
-})));
+}));
 
 import {planGlobalNpmInstall,globalNpmInstallOperation,runGlobalNpmInstall} from '../src/integrations/tools/global-npm.js';
 import {preview} from '../src/installer/preview.js';
@@ -112,6 +108,12 @@ for(const scope of ['project','global'] as const)test('missing tools offer '+sco
  const files=await readdir(join(cacheRoot,'previews'));
  const saved=JSON.parse(await readFile(join(cacheRoot,'previews',files[0]),'utf8')).data;
  assert.deepEqual(saved.plan.operations.map((operation:{id:string})=>operation.id),scope==='global'?['install-global:openwiki','install-global:codegraph']:['install:openwiki','install:codegraph','initialize:codegraph']);
+ const approved=saved.plan.operations[0];
+ const details=output.match(/^Details: (.+)$/m)?.[1];
+ assert.ok(details,output);
+ const identity='registry '+approved.registry+' scope '+(scope==='global'?prefix:'.rigup/tools/openwiki')+' integrity '+approved.query.integrity;
+ assert.ok(output.includes(identity),output);
+ assert.ok((await readFile(details,'utf8')).includes(identity));
 }));
 
 test('host continuation retains global consent, hands off, then second project reuses PATH',t=>globalFixture(t,async({root,prefix,stateRoot,cacheRoot})=>{
@@ -266,4 +268,59 @@ test('global recipe cannot substitute another package behind a selected integrat
  const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
  const substituted=globalNpmInstallOperation({...approval,name:'@colbymchenry/codegraph'});
  assert.throws(()=>assertGlobalOperation(root,substituted),/recipe|package/);
+}));
+
+for(const point of ['after-operation','before-manifest'] as const)test('global launcher removal at '+point+' prevents committing project wiring',t=>globalFixture(t,async({root,prefix,stateRoot,cacheRoot,registry})=>{
+ const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
+ const plan=await emptyPlan(root,[globalNpmInstallOperation(approval)]);
+ plan.assets=[{logicalId:'test:wiring',target:'wiring.txt',content:'approved wiring\n',ownership:{kind:'file'},source:{kind:'fixed-template',ref:'fixture'}}];
+ const prepared=await preview(plan,[],{cacheRoot,stateRoot});
+ const failed=await apply(prepared.previewId,{stateRoot,cacheRoot,hook:async current=>{if(current===point)await unlink(globalLauncher(prefix,'openwiki'));}});
+ assert.equal(failed.status,'failed');assert.equal(failed.operations[0].status,'done');assert.match(failed.nextCommand??'',/--resume/);
+ await assert.rejects(access(join(root,'.rigup/manifest.json')),{code:'ENOENT'});
+ if(point==='after-operation')await assert.rejects(access(join(root,'wiring.txt')),{code:'ENOENT'});
+ const requests=registry.requests.length;
+ const resumed=await apply(prepared.previewId,{stateRoot,cacheRoot,recover:true});
+ assert.equal(resumed.status,'failed');assert.equal(resumed.operations[0].status,'done');assert.match(resumed.nextCommand??'',/--resume/);
+ assert.equal(registry.requests.length,requests,'resume must not reinstall changed approved software');
+}));
+
+for(const recovery of ['committed','complete'] as const)test('global '+recovery+' replay rejects a changed launcher and keeps the original result',t=>globalFixture(t,async({root,prefix,stateRoot,cacheRoot,registry})=>{
+ const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
+ const prepared=await preview(await emptyPlan(root,[globalNpmInstallOperation(approval)]),[],{cacheRoot,stateRoot});
+ const installed=await apply(prepared.previewId,{stateRoot,cacheRoot,hook:async point=>{if(recovery==='committed'&&point==='after-manifest')throw Error('controller interrupted');}});
+ assert.equal(installed.status,recovery==='committed'?'failed':'complete');
+ await unlink(globalLauncher(prefix,'openwiki'));
+ const manifest=await readFile(join(root,'.rigup/manifest.json'),'utf8'),requests=registry.requests.length;
+ const replay=await apply(prepared.previewId,{stateRoot,cacheRoot,recover:true});
+ assert.equal(replay.status,'failed');assert.equal(replay.operations[0].status,'done');assert.match(replay.nextCommand??'',/--resume/);
+ assert.equal(registry.requests.length,requests);assert.equal(await readFile(join(root,'.rigup/manifest.json'),'utf8'),manifest);
+}));
+
+test('global apply refuses an earlier PATH launcher without running it',t=>globalFixture(t,async({root,prefix,stateRoot,cacheRoot})=>{
+ const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
+ const prepared=await preview(await emptyPlan(root,[globalNpmInstallOperation(approval)]),[],{cacheRoot,stateRoot});
+ const shadow=join(root,'..','shadow'),marker=join(root,'..','unapproved-command-ran');await mkdir(shadow);
+ const failed=await apply(prepared.previewId,{stateRoot,cacheRoot,hook:async point=>{
+  if(point!=='after-operation')return;
+  await writeFile(join(shadow,process.platform==='win32'?'openwiki.cmd':'openwiki'),process.platform==='win32'?'@echo unexpected > '+marker:'#!/usr/bin/env node\nrequire("fs").writeFileSync('+JSON.stringify(marker)+',"unexpected");\n',{mode:0o755});
+  process.env.RIGUP_CONSUMER_PATH=shadow+delimiter+process.env.RIGUP_CONSUMER_PATH;
+ }});
+ assert.equal(failed.status,'failed');assert.equal(failed.operations[0].status,'done');assert.match(failed.nextCommand??'',/--resume/);
+ await assert.rejects(access(marker),{code:'ENOENT'});await assert.rejects(access(join(root,'.rigup/manifest.json')),{code:'ENOENT'});
+ await access(globalLauncher(prefix,'openwiki'));
+}));
+
+test('source drift before global replay preserves the saved completion and recovery command',t=>globalFixture(t,async({root,stateRoot,cacheRoot,registry})=>{
+ await writeFile(join(root,'README.md'),'Original project source\n');
+ const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
+ const prepared=await preview(await emptyPlan(root,[globalNpmInstallOperation(approval)]),[],{cacheRoot,stateRoot});
+ const interrupted=await apply(prepared.previewId,{stateRoot,cacheRoot,hook:async point=>{if(point==='after-operation')throw Error('controller interrupted');}});
+ assert.equal(interrupted.status,'failed');assert.equal(interrupted.operations[0].status,'done');
+ await writeFile(join(root,'README.md'),'Changed project source\n');
+ const requests=registry.requests.length;
+ const resumed=await apply(prepared.previewId,{stateRoot,cacheRoot,recover:true});
+ assert.equal(resumed.status,'failed');assert.equal(resumed.operations[0].status,'done');assert.match(resumed.nextCommand??'',/--resume/);
+ assert.ok(resumed.warnings.some(warning=>/source input changed/.test(warning)));
+ assert.equal(registry.requests.length,requests);await assert.rejects(access(join(root,'.rigup/manifest.json')),{code:'ENOENT'});
 }));

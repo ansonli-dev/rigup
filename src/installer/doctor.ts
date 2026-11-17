@@ -20,7 +20,8 @@ import {probeClaudeProjectMcp} from '../integrations/agents/claude-health.js';
 import {runtimeSetupSummary} from '../runtime-inputs.js';
 import {probeRigupProjectMcp} from '../integrations/agents/rigup-health.js';
 import {RIGUP_VERSION} from '../version.js';
-import {checkHostNode,consumerPath,resolveExternalTool} from '../npm-command.mjs';
+import {checkHostNode,consumerPath} from '../npm-command.mjs';
+import {detectExternalTool} from '../integrations/tools/global-npm.js';
 export interface DoctorOptions {checkHost?:'claude';runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
 export interface Diagnostic {category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
 
@@ -128,7 +129,7 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   const installed=manifest.installedTools?.[tool.id];
   const useProject=tool.install||tool.initialize&&!!installed;
   const verified=useProject?await readVerifiedToolInstall(root,tool.id,installed):undefined;
-  const external=useProject?undefined:await resolveExternalTool(root,tool.id,toolPath);
+  const external=useProject?undefined:await detectExternalTool(root,tool.id,toolPath,stateRoot);
   const repair='Fix the host PATH or run rigup update '+quoteShell(root)+' --configure --tools '+selected.tools!.map(tool=>tool.id).join(',');
   add('tools',tool.id+':binary',verified||external?.state==='available'?'available':'pending',verified?'Installed '+verified.version+' verified by package, dependency tree, launcher and receipt':external?.state==='available'?'Existing external installation located on the filtered PATH':external?.state==='repair'?external.reason:external?'Command unavailable on PATH. '+repair:'Project installation unavailable or needs receipt reconciliation');
   const nativeReceipt=manifest.initializedTools?.[tool.id];

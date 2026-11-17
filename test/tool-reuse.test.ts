@@ -7,6 +7,8 @@ import {promisify} from 'node:util';
 import {runCli} from '../src/cli.js';
 import {project, testEnvironment} from './helpers.js';
 import {fixedNpmView} from './native-tool-fixture.js';
+import {signature} from '../src/generator/cache.js';
+import {saveDurable} from '../src/private-record.js';
 
 const exec=promisify(execFile);
 const nodeDir=dirname(process.execPath);
@@ -35,6 +37,28 @@ test('new --tools selects existing PATH OpenWiki without consulting npm',t=>proj
  const result=JSON.parse(stdout);
  assert.equal(code,0,stdout);
  assert.equal(result.executable,true);
+ assert.deepEqual(result.operations,[]);
+ assert.equal(views,0);
+}))));
+
+test('an incomplete global OpenWiki launch is blocked in another project without resolving npm',t=>project(root=>project(outside=>project(async stateRoot=>{
+ const prefix=join(outside,'prefix'),bin=process.platform==='win32'?prefix:join(prefix,'bin');
+ await openWikiCommand(bin,'incomplete');
+ await saveDurable(join(stateRoot,'global-npm-'+signature({prefix})+'.operations.json'),JSON.stringify({records:[{
+  approval:{root:outside,id:'openwiki',name:'openwiki',bin:'openwiki',prefix,prefixIdentity:'approved',npmIdentity:'approved',
+   install:{version:'0.9.0',packageIntegrity:'approved',registry:'https://registry.npmjs.org/'}},
+  authorizationRef:'original-approval',stage:'dispatching',identity:{pid:2147483647,started:'exited'},
+ }]}));
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:[bin,nodeDir].join(delimiter)});
+ let stdout='',views=0;
+ const code=await runCli(['init','--agents','claude','--sdd','none','--tools','openwiki','--dry-run','--json'],{
+  cwd:root,isTTY:false,write:text=>stdout+=text,
+  services:{cacheRoot:join(stateRoot,'cache'),stateRoot,npmView:async(...args)=>{views++;return fixedNpmView(...args);}},
+ });
+ const result=JSON.parse(stdout);
+ assert.equal(code,3,stdout);
+ assert.equal(result.executable,false);
+ assert.match(result.blockers.join('\n'),/Resume the original approval/);
  assert.deepEqual(result.operations,[]);
  assert.equal(views,0);
 }))));

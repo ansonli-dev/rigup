@@ -393,17 +393,24 @@ test('harness CLI reviews restored approved authority without provider or file c
  assert.equal(await readFile(join(root,path),'utf8'),original);
 }))));
 
-test('claude,omp Superpowers actual project sources produce an executable preview and separate apply',()=>project(async root=>project(async cache=>project(async state=>{
+for(const interactive of [false,true])test('claude,omp Superpowers produces an executable '+(interactive?'guided':'JSON')+' preview and separate apply',()=>project(async root=>project(async cache=>project(async state=>{
  const {mkdir,writeFile,readFile}=await import('node:fs/promises');
  for(const host of ['.claude','.omp'])for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion']){
   const path=join(root,host,'skills',name);await mkdir(path,{recursive:true});
   await writeFile(join(path,'SKILL.md'),`---\nname: ${name}\ndescription: Native workflow\n---\nUse native approvals.\n`);
  }
  await writeFile(join(root,'user.txt'),'preserve');
- let output='';const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
- const code=await runCli(['init','--agents','claude,omp','--sdd','superpowers','--defer-research','--review','--json'],io);
- const report=JSON.parse(output);assert.equal(report.executable,true,output);assert.equal(code,3);
- output='';assert.equal(await runCli(['update','--apply',report.previewId,'--sessions-ended','--json'],io),0,output);
+ let output='',guidedId:string|undefined;
+ const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
+ const selection=['init','--agents','claude,omp','--sdd','superpowers','--tools','none','--defer-research'];
+ const code=interactive?await runCli(selection,{...io,isTTY:true,ask:async question=>question.choices.includes('Save preview, apply later')?['Save preview, apply later']:question.defaults??[],
+  services:{...io.services,report:result=>{if(result.executable&&typeof result.previewId==='string')guidedId=result.previewId;}}}):
+  await runCli([...selection,'--review','--json'],io);
+ assert.equal(code,3,output);
+ const previewId=interactive?guidedId:JSON.parse(output).previewId;
+ assert.match(previewId??'',/^[a-f0-9]{64}$/,output);
+ if(!interactive)assert.equal(JSON.parse(output).executable,true,output);
+ output='';assert.equal(await runCli(['update','--apply',previewId!,'--sessions-ended','--json'],io),0,output);
  assert.equal(JSON.parse(output).status,'complete');
  for(const host of ['.claude','.omp'])for(const stage of ['prepare','ready','deliver']){
   const content=await readFile(join(root,host,'skills','change-'+stage,'references/project.md'),'utf8');

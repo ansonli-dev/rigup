@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile,readFile,readdir,rm,lstat,access} from 'node:fs/promises';
 import {delimiter,join} from 'node:path';
 import {prepareToolFixture,writeNativeToolFixture} from './native-tool-fixture.js';
-import {project,testEnvironment} from './helpers.js';
+import {openspecFixturePath,project,testEnvironment,writeOpenSpecCodexEntries} from './helpers.js';
 import {executeLifecycle} from '../src/lifecycle.js';
 import {runCli} from '../src/cli.js';
 import {scanRepository,repositoryReader} from '../src/analyzer/repository.js';
@@ -31,7 +31,7 @@ test('public lifecycle preserves unresolved Codex identity when ordinary cache i
   await writeFile(join(pkg,'bin','codex.js'),script);
   await writeFile(join(bin,'codex.cmd'),'@echo off\r\nexit /b 91\r\n');
  }else await writeFile(join(bin,'codex'),'#!'+process.execPath+'\n'+script,{mode:0o755});
- const old=process.env.PATH;process.env.PATH=[bin,old].filter(Boolean).join(delimiter);
+ const old=process.env.PATH;process.env.PATH=await openspecFixturePath(root,control);
  const options:SetupOptions={agents:['codex'],backend:'codex',sdd:'openspec',researchBudget:{maxCalls:1,maxTokens:10000}};
  try{
   await assert.rejects(()=>executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state}));
@@ -42,10 +42,14 @@ test('public lifecycle preserves unresolved Codex identity when ordinary cache i
   assert.equal((await readdir(state+'/codex')).filter(p=>p.endsWith('.usage.json')).length,1);
  }finally{if(old===undefined)delete process.env.PATH;else process.env.PATH=old;}
 }));
-test('explicit Anthropic CLI flags select their provider after default resolution',()=>fixture(async(root,cache,state)=>{
+test('explicit Anthropic CLI flags select their provider after default resolution',t=>fixture(async(root,cache,state,control)=>{
+ await writeOpenSpecCodexEntries(root);
+ testEnvironment(t,{PATH:await openspecFixturePath(root,control)});
  const old=process.env.ANTHROPIC_MODEL;process.env.ANTHROPIC_MODEL='environment-choice';
  try{for(const [flags,model,reference] of [[['--model','explicit-choice'],'explicit-choice','ANTHROPIC_API_KEY'],[['--api-key-env','TEAM_KEY'],'environment-choice','TEAM_KEY']] as const){
-  let seen:any;await runCli(['init','--sdd','openspec','--backend','native','--dry-run',...flags],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async request=>{seen=request;throw Error('stop before model');}}}});
+  let seen:any,output='';
+  const code=await runCli(['init','--agents','codex','--sdd','openspec','--backend','native','--dry-run','--json',...flags],{cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot:cache,stateRoot:state,backend:{run:async request=>{seen=request;throw Error('stop before model');}}}});
+  assert.equal(code,1,output);assert.ok(seen,output);
   assert.equal(seen.options.backend,'native');assert.deepEqual(seen.effectiveModel,{provider:'anthropic',model,apiKeyEnv:reference});
  }}finally{if(old===undefined)delete process.env.ANTHROPIC_MODEL;else process.env.ANTHROPIC_MODEL=old;}
 }));

@@ -1,7 +1,8 @@
 import {scanNativeEntries} from './analyzer/repository.js';
 import {agents,projectCommandRoots} from './integrations/agents/index.js';
 import {resolveSddBinding,sddDiscoveryNames,unqualifiedSkillName} from './integrations/sdd/binding.js';
-import {consumerPath,externalExecutable,npmPathDirectories,resolveExternalTool} from './npm-command.mjs';
+import {consumerPath,externalExecutable,npmPathDirectories} from './npm-command.mjs';
+import {detectExternalTool} from './integrations/tools/global-npm.js';
 import {inspectProjectToolInstall} from './integrations/tools/software.js';
 import type {ToolInstallReceipt} from './integrations/tools/installed-state.js';
 import type {NativeTool} from './integrations/tools/recipes.js';
@@ -20,10 +21,10 @@ export async function detectCommands(root:string){
  return {agents:hosts.filter((_,index)=>installed[index])};
 }
 
-export async function detectToolInstallation(root:string,id:NativeTool,receipt?:ToolInstallReceipt){
+export async function detectToolInstallation(root:string,id:NativeTool,receipt?:ToolInstallReceipt,stateRoot?:string){
  const local=await inspectProjectToolInstall(root,id,receipt);
  if('identity' in local)return {state:'project' as const,version:local.identity.version};
- const external=await resolveExternalTool(root,id,consumerPath());
+ const external=await detectExternalTool(root,id,consumerPath(),stateRoot);
  if(external.state!=='missing')return external;
  return 'pending' in local?{state:'blocked-project' as const,reason:local.pending}:external;
 }

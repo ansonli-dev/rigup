@@ -29,7 +29,8 @@ export function terminalText(text:string,multiline=false):string {
 function operationDetails(operation:PreviewData['preview']['operations'][number]):string {
  return operation.id+' '+operation.query.name+'@'+operation.version+
   (operation.kind==='install'?' registry '+(operation.registry??defaultNpmRegistry):'')+
-  ' scope '+(operation.global?operation.global.prefix:operation.declaredWrites.join(', '));
+  ' scope '+(operation.global?operation.global.prefix:operation.declaredWrites.join(', '))+
+  (operation.kind==='install'&&operation.query.integrity?' integrity '+operation.query.integrity:'');
 }
 
 function fileDetails(data:PreviewData):string {

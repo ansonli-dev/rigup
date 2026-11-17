@@ -346,7 +346,8 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    setupExit=3;
    return 'stop';
   };
-  const checkSelectedWorkflow=firstWorkflow||!flags.dryRun&&!savedApplyOptions&&command==='update'&&(flags.configure||!!values['--sdd']);
+  const checkSelectedWorkflow=firstWorkflow||!flags.dryRun&&!savedApplyOptions&&command==='update'&&
+   !flags.request&&!flags.response&&!flags.continuation&&(flags.configure||!!values['--sdd']);
   if(wizard){
    const provided={agents:resumed||!!values['--agents'],sdd:resumed||!!values['--sdd'],tools:!!values['--tools']};
    presentation.progress({stage:'detect',completed:0});
@@ -371,7 +372,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
      if(agents.length)choices.push({...tool,agents});
      continue;
     }
-    const detected=await detectToolInstallation(root,tool.id,manifest?.installedTools?.[tool.id]);
+    const detected=await detectToolInstallation(root,tool.id,manifest?.installedTools?.[tool.id],services.stateRoot);
     if(detected.state==='project')io.write(tool.id+': reuse project installation '+detected.version+'\n');
     if(detected.state==='available')io.write(tool.id+': reuse existing PATH installation\n');
     if(detected.state==='repair')io.write(tool.id+': '+detected.reason+'\n');

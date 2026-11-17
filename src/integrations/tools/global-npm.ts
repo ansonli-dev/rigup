@@ -2,13 +2,14 @@ import {createHash} from 'node:crypto';
 import {readFile,lstat,realpath,mkdtemp,rm} from 'node:fs/promises';
 import {constants,createReadStream} from 'node:fs';
 import {normalizeNpmIntegrity} from '../../npm-integrity.mjs';
-import {verifyCodeGraphPayload} from '../../npm-command.mjs';
-import {join} from 'node:path';
+import {resolveExternalTool,verifyCodeGraphPayload} from '../../npm-command.mjs';
+import {basename,dirname,join} from 'node:path';
 import {signature,privateDirectory} from '../../generator/cache.js';
 import {isRecord,readDurableRecord,saveDurable} from '../../private-record.js';
 import {acquireLock,defaultStateRoot} from '../../installer/lock.js';
 import {targetPath} from '../../installer/ownership.js';
 import {selectedNpmRegistry} from '../../runtime-inputs.js';
+import {quoteShell} from '../../shell-command.js';
 import {assertNpmNode,isStableNpmVersion,defaultNpmRegistry,resolveNpmLatest,type NpmView,type ResolvedNpmPackage} from './npm-resolution.js';
 import {available,consumerPath,findProgram,globalPackage,npmPrefix,userNode,programIdentity,prefixIdentity,packageDirectory,windowsNpmCommand,commandEnvironment,type GlobalTool} from './global-npm-runtime.js';
 import type {SetupOperation} from '../../types.js';
@@ -70,6 +71,7 @@ export async function queryGlobalNpmInstall(approval:GlobalNpmApproval,stateRoot
  }catch{return {status:'unknown',message:'Global installation cannot be verified; preserve files and resume original approval'};}
 }
 interface GlobalRecord {controllerLockId?:string;approval:GlobalNpmApproval;authorizationRef:string;stage:'prepared'|'dispatching'|'terminal';identity?:Parameters<typeof writerAlive>[0];result?:OperationResult}
+const globalRecordsPath=(stateRoot:string,prefix:string)=>join(stateRoot,'global-npm-'+signature({prefix})+'.operations.json');
 function readGlobalRecords(path:string,prefix:string){
  return readDurableRecord<{records:GlobalRecord[]}>(path,'Global npm operations',value=>{
   if(!Array.isArray(value.records))return false;
@@ -87,10 +89,28 @@ function readGlobalRecords(path:string,prefix:string){
   });
  });
 }
+export async function managedGlobalNpmProblem(id:GlobalTool,launcher:string,stateRoot=defaultStateRoot()){
+ const bin=dirname(launcher),windows=process.platform==='win32';
+ if(!windows&&basename(bin)!=='bin')return;
+ const prefix=await realpath(windows?bin:dirname(bin));
+ try{
+  const journal=await readGlobalRecords(globalRecordsPath(stateRoot,prefix),prefix);
+  const prior=journal?.records.findLast(record=>record.approval.id===id&&record.stage!=='prepared');
+  if(!prior)return;
+  if((await queryGlobalNpmInstall(prior.approval,stateRoot)).status==='done')return;
+  return id+' global installation is unverified at '+quoteShell(prefix)+'. Resume the original approval in '+quoteShell(prior.approval.root)+' or reconcile the prefix.';
+ }catch{return 'Cannot safely read the global npm operation record at '+quoteShell(prefix)+'. Reconcile the prefix before using '+id+'.';}
+}
+export async function detectExternalTool(root:string,id:Exclude<GlobalTool,'openspec'>,path:string,stateRoot?:string){
+ const tool=await resolveExternalTool(root,id,path);
+ if(tool.state!=='available')return tool;
+ const reason=await managedGlobalNpmProblem(id,tool.program.launcher,stateRoot);
+ return reason?{state:'repair' as const,reason}:tool;
+}
 export async function runGlobalNpmInstall(operation:SetupOperation,input:{stateRoot?:string;signal?:AbortSignal;authorizationRef:string;recover?:boolean;beforeInstall?:()=>Promise<void>}):Promise<OperationResult>{
  const approval=operation.global!;assertGlobalOperation(approval.root,operation);
  const stateRoot=await privateDirectory(input.stateRoot??defaultStateRoot(),approval.root);
- const path=join(stateRoot,'global-npm-'+signature({prefix:approval.prefix})+'.operations.json');
+ const path=globalRecordsPath(stateRoot,approval.prefix);
  if(input.recover){
   const previousLock=await readDurableRecord<{id:string}>(join(stateRoot,signature({resource:'openspec:'+approval.prefix})+'.lock'),'Global npm lock');
   const previous=previousLock&&await readGlobalRecords(path,approval.prefix);
@@ -113,6 +133,7 @@ export async function runGlobalNpmInstall(operation:SetupOperation,input:{stateR
    const setup=await inspectGlobalNpm(approval.root,approval.id,input.signal);
    if(setup.prefix!==approval.prefix||await prefixIdentity(setup.prefix)!==approval.prefixIdentity||await programIdentity(setup.npm,approval.root,setup.path)!==approval.npmIdentity)throw Error('Global installation scope or npm launcher changed after approval');
    if((await selectedNpmRegistry(approval.root)??defaultNpmRegistry)!==approval.install.registry)throw Error('Npm registry selection changed after approval');
+   if(await findProgram(approval.bin,approval.root,setup.path))throw Error('A PATH installation appeared after approval; review the existing '+approval.id+' launcher before installing');
    assertNpmNode(approval.name,approval.install.version,approval.install.enginesNode,setup.node.version);return setup;
   };
   await validate();

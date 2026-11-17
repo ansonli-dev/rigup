@@ -1,4 +1,4 @@
-import {planGlobalNpmInstall,globalNpmInstallOperation} from './tools/global-npm.js';
+import {detectExternalTool,planGlobalNpmInstall,globalNpmInstallOperation} from './tools/global-npm.js';
 import {prepareQuality} from './tools/quality.js';
 import {prepareCustomer} from './gitlab/customer.js';
 import {inspectProjectToolInstall} from './tools/software.js';
@@ -22,7 +22,7 @@ import {digest,safePath} from '../analyzer/evidence.js';
 import {openspecPreparationCommand} from './sdd/openspec.js';
 import {RIGUP_VERSION} from '../version.js';
 import {runtimeSetupSummary,selectedNpmRegistry} from '../runtime-inputs.js';
-import {consumerPath,resolveExternalTool} from '../npm-command.mjs';
+import {consumerPath} from '../npm-command.mjs';
 import {targetPath} from '../installer/ownership.js';
 import {localIgnoreContent,localIgnoreOwnership} from './sdd/openspec-project.js';
 export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVersion,type Recipe} from './upstream.js';
@@ -150,7 +150,7 @@ export async function prepareProjectToolOperations(plan:SetupPlan,profile:Projec
   const receipt=profile.installedTools?.[id];
   let initialize=id==='codegraph'&&selection.initialize;
   if(!selection.install&&(!selection.initialize||receipt===undefined)){
-   const external=await resolveExternalTool(root,id,consumerPath());
+   const external=await detectExternalTool(root,id,consumerPath(),input.stateRoot);
    if(initialize&&external.state!=='available')pending(id,'Initialization requires a verified project installation; enable project installation first');
    if(external.state==='repair')pending(id,external.reason);
    if(external.state==='missing')warnings.push(id+': command unavailable on the terminal PATH. Fix the agent PATH or run rigup update --configure --tools '+options.tools.map(tool=>tool.id).join(','));

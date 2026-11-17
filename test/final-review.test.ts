@@ -1,4 +1,4 @@
-import{test}from'node:test';import assert from'node:assert/strict';import{mkdir,writeFile,readFile,readdir,rm,rename}from'node:fs/promises';import{join}from'node:path';import{execFile}from'node:child_process';import{promisify}from'node:util';import{project}from'./helpers.js';
+import{test}from'node:test';import assert from'node:assert/strict';import{mkdir,writeFile,readFile,readdir,rm,rename}from'node:fs/promises';import{join}from'node:path';import{execFile}from'node:child_process';import{promisify}from'node:util';import{openspecFixturePath,project,testEnvironment}from'./helpers.js';
 import{scanRepository,repositoryReader}from'../src/analyzer/repository.js';import{hostBackend}from'../src/analyzer/host.js';import{validateOptions}from'../src/config.js';import{prepareIntegrations,prepareProjectToolOperations}from'../src/integrations/registry.js';import{runCli}from'../src/cli.js';import{digest}from'../src/analyzer/evidence.js';
 import{generate,generateFoundation,prepareGeneration}from'../src/generator/generate.js';
 import{preview}from'../src/installer/preview.js';
@@ -58,7 +58,8 @@ test('review_sdd_dependencies_and_conflicting_identities_are_not_name_only_bindi
  for(const name of openspec)await skill(root+'/.agents/skills',name,true);const selected={...opts,sdd:'openspec' as const};let prepared=await prepareIntegrations(await scanRepository(root,selected),selected);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements.map(r=>r.reason).join(' '),/dependency|verification/);
  for(const name of openspec)await skill(root+'/.agents/skills',name);await skill(root+'/.agents/skills/duplicate','openspec-propose');await writeFile(root+'/.agents/skills/duplicate/openspec-propose/SKILL.md','---\nname: openspec-propose\ndescription: Different native implementation\n---\nDifferent behavior.\n');prepared=await prepareIntegrations(await scanRepository(root,selected),selected);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements.map(r=>r.reason).join(' '),/conflict/);
 }));
-test('review_effective_runtime_model_changes_invalidate_consent_and_semantics',()=>project(async root=>project(async cache=>project(async state=>{
+test('review_effective_runtime_model_changes_invalidate_consent_and_semantics',t=>project(async root=>project(async cache=>project(async state=>{
+ testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  for(const name of openspec)await skill(root+'/.agents/skills',name);await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({...opts,backend:'native',sdd:'openspec'}));const seen:string[]=[];const run=async(model:string)=>runCli(['init','--dry-run'],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,credentials:{model},backend:{run:async r=>{seen.push(r.effectiveModel?.model??(r.options as any).model?.model);return backend.run();}}}});
  assert.equal(await run('model-A'),0);const first=seen.length;assert.ok(first);assert.equal(await run('model-B'),0);assert.ok(seen.length>first);assert.ok(seen.slice(first).every(v=>v==='model-B'));
 }))));

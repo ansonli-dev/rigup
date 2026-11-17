@@ -13,6 +13,8 @@ import {promisify} from 'node:util';
 import {runCli,type CliIO} from '../src/cli.js';
 import {inspectOpenSpec,planOpenSpecPreparation,prepareOpenSpec} from '../src/integrations/sdd/openspec-setup.js';
 import {forwardProjectOpenSpec,saveOpenSpecPreparation} from '../src/integrations/sdd/openspec-project.js';
+import {planGlobalNpmInstall} from '../src/integrations/tools/global-npm.js';
+import {saveDurable} from '../src/private-record.js';
 import {project,writeOpenSpecFixture} from './helpers.js';
 const exec=promisify(execFile);
 
@@ -449,9 +451,13 @@ for(const interactive of [false,true])test('OpenSpec receipt failure remains a p
  assert.equal(JSON.parse(await readFile(paths.packageJson,'utf8')).version,'2.0.0');
  await assert.rejects(access(join(root,'openspec')),{code:'ENOENT'});
  const requestCount=registry.requests.length;
+ const plain=terminal(root,control,[]);
+ assert.equal(await runCli([...prepareFlags,'--install-scope','global','--json'],plain.io),3,plain.output());
+ assert.match(JSON.parse(plain.output()).nextCommand,/--install-scope global --resume/);
+ await rm(paths.receipt,{recursive:true});
  const next=terminal(root,control,[]);
- assert.equal(await runCli([...prepareFlags,'--json'],next.io),0,next.output());
- assert.equal(JSON.parse(next.output()).nativePreparation.kind,'existing');
+ assert.equal(await runCli([...prepareFlags,'--install-scope','global','--resume','--json'],next.io),0,next.output());
+ assert.equal(JSON.parse(next.output()).nativePreparation.kind,'install');
  assert.equal(registry.requests.length,requestCount);
 })));
 
@@ -657,3 +663,21 @@ test('OpenSpec resumes existing CLI preparation with the originally requested gl
   await access(join(root,'openspec/config.yaml'));
  }finally{if(previous===undefined)delete process.env.RIGUP_CONSUMER_PATH;else process.env.RIGUP_CONSUMER_PATH=previous;}
 }));
+
+test('OpenSpec never probes a global launcher left by an unverified writer',()=>fixture((root,control)=>openSpecRegistry(control,async(registry,paths)=>{
+ await publishOpenSpec(registry);
+ const stateRoot=join(control,'state'),marker=join(control,'partially-installed-cli-ran');
+ const approval=await planGlobalNpmInstall(root,'openspec',{stateRoot});
+ await saveDurable(join(stateRoot,'global-npm-'+signature({prefix:paths.prefix})+'.operations.json'),JSON.stringify({records:[
+  {approval,authorizationRef:'original-approval',stage:'dispatching',identity:{pid:2147483647,started:'exited'}},
+ ]}));
+ await installFakeOpenSpec(paths.bin,undefined,'2.0.0',undefined,{
+  version:'fs.writeFileSync('+JSON.stringify(marker)+',"unexpected");',
+ });
+ const second=join(control,'another-project');
+ await mkdir(second);
+ const cli=terminal(second,control,[]);
+ assert.equal(await runCli([...prepareFlags,'--install-scope','global','--json'],cli.io),3,cli.output());
+ assert.match(cli.output(),/Resume the original approval/);
+ await assert.rejects(access(marker),{code:'ENOENT'});
+})));
