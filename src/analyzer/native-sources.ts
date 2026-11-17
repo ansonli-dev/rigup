@@ -230,7 +230,7 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
        }
       }
      }
-     records.set(id,claudeProvider?items.filter(item=>item.origin==='omp'||item.project||userClaude):[]);
+     records.set(id,items.filter(item=>item.origin==='omp'||claudeProvider&&(item.project||userClaude)));
     }
    }
    for(const [id,items] of records){

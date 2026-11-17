@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
+import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {homedir, release} from 'node:os';
@@ -23,8 +23,18 @@ const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|HOME|USERPROFILE|LOCALAPPDATA|APPDATA|TEMP|TMP|TMPDIR|SYSTEMROOT|WINDIR|COMSPEC|PROGRAMFILES|LANG|LC_ALL)$/i.test(key)
 ));
 const evidence = resolve(process.argv[2]);
+// The Windows Node addon keeps its .node native image loaded until process exit.
+if(windows&&!process.env.RIGUP_HOST_TEST_WORKER){
+  const location=await mkdtemp(join(homedir(),'rigup-native-terminal-'));
+  let outcome;
+  try{
+    outcome=spawnSync(process.execPath,process.argv.slice(1),{stdio:'inherit',timeout:780_000,
+      env:{...process.env,RIGUP_HOST_TEST_WORKER:location}});
+  }finally{await rm(location,{recursive:true,force:true,maxRetries:4});}
+  process.exit(outcome.status??1);
+}
 const stage = await realpath(await mkdtemp(join(homedir(), 'rigup native host ')));
-const terminal = await mkdtemp(join(homedir(), 'rigup-native-terminal-'));
+const terminal = windows?process.env.RIGUP_HOST_TEST_WORKER:await mkdtemp(join(homedir(), 'rigup-native-terminal-'));
 await mkdir(evidence, {recursive: true});
 const result = {platform: process.platform, arch: process.arch, kernel: release(), node: process.version, sha: process.env.GITHUB_SHA};
 try {
@@ -95,9 +105,13 @@ try {
   console.log(JSON.stringify(result));
 } catch (error) {
   result.error = error.message;
-  throw error;
+  console.error(error.message);
+  process.exitCode=1;
 } finally {
   await writeFile(join(evidence, 'native-hosts.json'), JSON.stringify(result, null, 2) + '\n');
-  await rm(terminal, {recursive: true, force: true, maxRetries: 4});
+  if(!windows)await rm(terminal, {recursive: true, force: true, maxRetries: 4});
   await rm(stage, {recursive: true, force: true, maxRetries: 4});
 }
+
+// libuv handles retained by the native terminal addon must not hold the CI worker open.
+if(windows)process.exit(process.exitCode??0);

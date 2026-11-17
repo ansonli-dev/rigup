@@ -88,7 +88,7 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  }
  assertExit(first.direct('claude,omp','--json'),3);
  assertExit(first.direct('claude,omp'),3);
- const redirected=await run(['-e',String.raw`+
+ const redirected=await run(['-e',String.raw`
   if(!process.stdin.isTTY||!process.stdout.isTTY)process.exit(125);
   const {spawnSync}=require('node:child_process');
   const r=spawnSync(process.execPath,process.argv.slice(1),{stdio:['inherit','pipe','pipe'],encoding:'utf8'});
