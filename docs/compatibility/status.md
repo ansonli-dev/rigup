@@ -1,5 +1,20 @@
 # Validation status
 
+## Native workflow binding in v0.7.0
+
+The macOS ARM64 probes compared the selected source with each host's native catalog after CLI review and independent apply. The probes verified the three generated workflow references without invoking a model. [Sanitized receipts](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-17-integration-setup/native-bindings.json)
+
+| Host | Superpowers 7.0.2 | OpenSpec 1.16.0 | Spec Kit 1.3.2 |
+| --- | --- | --- | --- |
+| Claude Code 2.1.273 | Passed | Passed | Passed |
+| Codex 0.166.0 | Passed | Passed | Passed |
+| OpenCode 1.18.5 | Passed | Passed | Passed |
+| Oh My Pi 18.1.13 | Passed | Passed | Passed |
+
+Oh My Pi 18.1.13 and 18.19.0 also resolved the installed Rigup skills by `skill://` with slash commands hidden. Disabling the skills loader or project skills blocked the Rigup wrappers. Spec Kit still appeared in the native file-command list. OpenCode V2 has fixture coverage and lacked a live executable for this check.
+
+The portable CLI also prepared a project OpenSpec 2.1.0 installation with its bundled runtime. Both installation scopes passed real OpenWiki 0.9.0 and CodeGraph 1.6.2 checks. A second project reused the global tools, including OpenSpec. [Installation receipts](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-17-integration-setup/install-scopes.json)
+
 ## Verified scenarios
 
 - **v0.5.0 integrated fixes.** Codex, OpenCode and Oh My Pi passed native OpenSpec readiness and delivery on macOS, Linux and Windows. All three also completed preparation and developer-feedback verification on macOS. WSL2 passed seven ext4 and drvfs permission and recovery cases. [Validation report](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/open-issues-0.5.0.md)

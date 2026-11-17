@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 · 2026-11-17 · Development preview
+
+- Reuse verified project and PATH installations of OpenSpec, OpenWiki, and CodeGraph. Setup offers project and global scopes when software is missing and pins the approved package identity through recovery. [Issue #71](https://github.com/ansonli-dev/rigup/issues/71)
+- Add project-scoped OpenSpec preparation and `rigup openspec <args>`. Check the CLI, native root, and effective workflow sources before applying or continuing MCP research.
+- Bind Superpowers, OpenSpec, and Spec Kit across Claude Code, Codex, OpenCode, and Oh My Pi. Resolve their actual callable entries and require a fresh preview when approved workflow sources change. [Issue #72](https://github.com/ansonli-dev/rigup/issues/72)
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.7.0) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.7.0)
+
 ## 0.6.0 · 2026-11-16 · Development preview
 
 - Accept user-installed plugins based on their actual sources and required entry points. Freeze the selected npm registry's stable `latest` version and integrity for new OpenWiki, CodeGraph, and OpenSpec installations. Reuse verified project installations offline. [Issue #66](https://github.com/ansonli-dev/rigup/issues/66)
