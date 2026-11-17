@@ -27,10 +27,11 @@ import {LinkedRigupDirectoryError} from './installer/ownership.js';
 import {promptResearchProvider,resolveResearchProvider} from './research/provider-settings.js';
 import {runtimeEnvironment,runtimeSetupSummary,writeRuntimeSummary,type RuntimeSetupSummary} from './runtime-inputs.js';
 import {applyReason,createCliOutput,terminalText} from './cli-output.js';
+import {nativeSetupInteraction} from './integrations/host-setup/index.js';
 import {terminalUI,type TerminalStreams} from './terminal-ui.js';
 export interface CliIO {cwd:string;isTTY:boolean;outputIsTTY?:boolean;write(text:string):void;writeError?(text:string):void;read?(secret?:boolean):Promise<string|null>;ask?:Ask;terminal?:TerminalStreams;services?:LifecycleServices}
 const errorMessage=(error:unknown)=>error instanceof SyntaxError?'input/cache: invalid JSON syntax; inspect the local file without exporting its contents':error instanceof Error?error.message:'operation failed';
-const help='rigup                         Open the interactive project menu (TTY)\nrigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none] [--tools openwiki,codegraph|none] [--defer-research]\nrigup update [path] [--configure] [--dry-run|--review] [--apply previewId] [--sessions-ended] [--resume]\nrigup doctor [path] [--check-host claude] [--run-checks build,lint,test,environment,eval]\nrigup mcp [path] --host claude|codex|opencode|omp\nOptions: --profile path --language auto|language-tag --model modelId --json --verbose\nAdvanced: --retire logicalId,... --prepare-openspec [--install-scope project|global]\nrigup openspec <args>          Run the verified project OpenSpec CLI\nChoose a CLI provider with RIGUP_PROVIDER and its model and API-key environment variables. Without a provider, use Rigup MCP from the installed agent.\nOmit path to use the current directory. A TTY previews changes before Install, Save preview, or Cancel. Use --verbose for preview details. --json never prompts.\n';
+const help='rigup                         Open the interactive project menu (TTY)\nrigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none] [--tools openwiki,codegraph|none] [--defer-research]\nrigup update [path] [--configure] [--dry-run|--review] [--apply previewId] [--sessions-ended] [--resume]\nrigup doctor [path] [--check-host claude] [--run-checks build,lint,test,environment,eval]\nrigup mcp [path] --host claude|codex|opencode|omp\nOptions: --profile path --language auto|language-tag --model modelId --json --verbose\nNative Superpowers: rigup init [path] --agents claude,omp --sdd superpowers --prepare-native [--review|--dry-run]\nAdvanced: --retire logicalId,... --prepare-openspec [--install-scope project|global]\nrigup openspec <args>          Run the verified project OpenSpec CLI\nChoose a CLI provider with RIGUP_PROVIDER and its model and API-key environment variables. Without a provider, use Rigup MCP from the installed agent.\nOmit path to use the current directory. A TTY previews changes before Install, Save preview, or Cancel. Use --verbose for preview details. --json never prompts.\n';
 const listOptions:Record<string,RegExp>={
  '--agents':/^(?:claude|codex|opencode|omp)$/,
  '--tools':/^(?:openwiki|codegraph|none)$/,
@@ -46,7 +47,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
  const ask:Ask=io.ask??(question=>askLine(promptIO,question));
  const services:LifecycleServices={...io.services};
  const flags:LifecycleFlags={};const overrides:SetupOverrides={};const positional:string[]=[];let applyId:string|undefined;
- const boolean=new Set(['--dry-run','--configure','--review','--sessions-ended','--resume','--defer-research','--prepare-openspec']);const valued=new Set(['--sdd','--backend','--profile','--language','--response','--request','--apply','--model','--api-key-env','--continue','--research-tokens','--check-host','--install-scope']);const values:Record<string,string>={};
+ const boolean=new Set(['--dry-run','--configure','--review','--sessions-ended','--resume','--defer-research','--prepare-openspec','--prepare-native']);const valued=new Set(['--sdd','--backend','--profile','--language','--response','--request','--apply','--model','--api-key-env','--continue','--research-tokens','--check-host','--install-scope']);const values:Record<string,string>={};
  for(let i=0;i<argv.length;i++){
   const arg=argv[i];
   const equal=arg.indexOf('=');
@@ -85,6 +86,24 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
  try{manifest=await loadManifest(root);}catch(error){io.write((error instanceof LinkedRigupDirectoryError?error.message:'manifest: damaged metadata; diagnose before setup')+'\n');return 1;}
  let command=positional[0];
  if(!command){const a=await ask({message:'Rigup',choices:[manifest?'update':'init','doctor','exit']});if(!Array.isArray(a)||a[0]==='exit')return 130;command=a[0];}
+ const nativeTTY=io.isTTY===true&&(io.outputIsTTY??io.terminal?.output.isTTY)===true;
+ const nativeInput={...services.nativeSetup,stateRoot:services.nativeSetup?.stateRoot??services.stateRoot,signal:services.signal};
+ if(values['--prepare-native']){
+  if(positional[0]!=='init'||!values['--agents']||values['--sdd']!=='superpowers'||
+     Object.keys(values).some(flag=>!['--agents','--sdd','--prepare-native','--review','--dry-run'].includes(flag))||
+     values['--review']&&values['--dry-run']){
+   io.write('--prepare-native: use init with explicit --agents and --sdd superpowers, with at most one of --review and --dry-run.\n');
+   return 2;
+  }
+  state.root=root;
+  try{
+   const selected=await loadOptions(root,{agents:values['--agents'].split(',') as SetupOptions['agents'],sdd:'superpowers'},
+    undefined,{fallback:manifest?.options});
+   const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:services.report,
+    ask,inspect:!!(values['--review']||values['--dry-run']),canPrompt:nativeTTY&&selected.executionPolicy?.mode!=='review'});
+   return result==='back'?130:result;
+  }catch(error){io.write(errorMessage(error)+'\n');return services.signal?.aborted?130:1;}
+ }
  if(values['--defer-research']){
   if(command!=='init'||manifest||['--apply','--continue','--request','--response','--retire'].some(arg=>values[arg])){
    io.write('--defer-research: use with initial project setup\n');return 2;
@@ -292,6 +311,15 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    }
   }
   const checkWorkflow=async(selected:SetupOptions,back=false):Promise<'ready'|'back'|'stop'>=>{
+   if(selected.sdd==='superpowers'&&selected.agents.length&&firstWorkflow&&wizard&&inlineReview&&!flags.review&&!flags.dryRun&&nativeTTY){
+    const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:value=>{
+     nativePreparation=value.nativePreparation as Record<string,unknown>;
+     if(value.installStatus!=='complete')services.report?.(value);
+    },ask,inspect:false,canPrompt:true,back});
+    if(result==='back'){nativePreparation=undefined;return 'back';}
+    if(result===0)return 'ready';
+    setupExit=result;return 'stop';
+   }
    if(selected.sdd!=='openspec'||!selected.agents.length)return 'ready';
    const nativeState=await readOpenSpecPreparation(root,nativeDeps.stateRoot);
    if(nativeState&&!nativeState.complete){

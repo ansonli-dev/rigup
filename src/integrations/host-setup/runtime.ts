@@ -18,7 +18,7 @@ export interface HostCommand {executable:string;args:string[];env:NodeJS.Process
 export interface NativeProgram {file:string;args:string[];identity:string;paths:string[]}
 const envKey=(windows? (key:string)=>key.toUpperCase() : (key:string)=>key);
 export const consumerEnvironment=(base:NodeJS.ProcessEnv)=>Object.fromEntries(Object.entries(base).map(([key,value])=>[envKey(key),value]));
-const localConfig=/^\.[a-z0-9][a-z0-9._-]{0,62}$/i;
+const localConfig=/^\.?[a-z0-9][a-z0-9._-]{0,62}$/i;
 const validProfile=/^[a-z0-9][a-z0-9._-]{0,63}$/;
 const specialName=/^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\.|$)/i;
 
@@ -156,7 +156,7 @@ export async function inspectHostRuntime(root:string,host:SetupHost,input:Native
  if(host==='omp'){
   if(raw.PI_CONFIG_FILES)throw Error('PI_CONFIG_FILES supplies unsupported OMP settings overlays; prepare manually or remove the overlay before retrying');
   if(raw.PI_CONFIG_DIR){
-   if(!localConfig.test(raw.PI_CONFIG_DIR)||raw.PI_CONFIG_DIR.endsWith('.'))throw Error('PI_CONFIG_DIR must be a supported directory name under HOME');
+   if(!localConfig.test(raw.PI_CONFIG_DIR)||specialName.test(raw.PI_CONFIG_DIR)||raw.PI_CONFIG_DIR.endsWith('.'))throw Error('PI_CONFIG_DIR must be a supported directory name under HOME');
    env.PI_CONFIG_DIR=raw.PI_CONFIG_DIR;
   }
   for(const key of ['OMP_PROFILE','PI_PROFILE']){
@@ -182,21 +182,24 @@ export function nativeChildEnv(runtime:HostRuntime,privateTemp:string):NodeJS.Pr
 
 export async function assertWindowsLaunch(runtime:HostRuntime,writePaths:string[]){
  if(!windows)return;
- for(const path of new Set([...runtime.program.paths,join(runtime.root,'check-cwd'),...writePaths]))
-  await assertSafeWindowsAncestors(path,'Native setup requires trusted Windows directories');
+ for(const path of new Set([...runtime.program.paths,runtime.root,...writePaths])){
+  let current=path,info=await statIfPresent(current);
+  while(!info&&dirname(current)!==current){current=dirname(current);info=await statIfPresent(current);}
+  await assertSafeWindowsAncestors(info?.isDirectory()?join(current,'check-cwd'):current,'Native setup requires trusted Windows directories');
+ }
 }
 
 export async function withHostWriter<T>(
  lock:Pick<ProjectLock,'root'|'stateRoot'>,host:SetupHost,
  work:(runner:{run:typeof run})=>Promise<T>,signal?:AbortSignal,
 ){
- const resource=await acquireLock(lock.root,{stateRoot:lock.stateRoot,resource:'native-host:'+host,recover:true});
+ const resource=await acquireLock(lock.root,{stateRoot:lock.stateRoot,resource:'native-host:'+host,recover:true,trustedProcess:true});
  const record=hostWriterPath(resource.stateRoot,host);
  const clear=async()=>{await rm(record,{force:true});await syncDirectory(resource.stateRoot);};
  try{
   const previous=await readHostWriter(resource.stateRoot,host);
   if(previous){
-   if(await writerAlive(previous.identity))throw Error('Previous '+host+' writing process still active; retry after it exits');
+   if(await writerAlive(previous.identity,true))throw Error('Previous '+host+' writing process still active; retry after it exits');
    await clear();
   }
   return await work({run});
@@ -222,4 +225,17 @@ export async function withHostWriter<T>(
   });
   return {code,cancelled:cancelled||!dispatched&&signal?.aborted===true,dispatched,blocked:result.status==='pending'?result.message:undefined};
  }
+}
+
+export async function trustedHelper(name:string,runtime:HostRuntime){
+ for(const directory of (runtime.env.PATH??'').split(delimiter).filter(Boolean)){
+  const candidate=join(directory,name+(windows?'.exe':''));
+  if(await statIfPresent(candidate)){
+   const binary=await safeBinary(candidate,runtime.root,true);
+   const start=binary.start!.toString('utf8');
+   if(windows&&!start.startsWith('MZ')||!windows&&start.startsWith('#!'))throw Error('Native setup needs a trusted '+name+' binary');
+   return {path:binary.file,identity:binary.identity};
+  }
+ }
+ throw Error('Native setup needs a trusted '+name+' binary on PATH');
 }

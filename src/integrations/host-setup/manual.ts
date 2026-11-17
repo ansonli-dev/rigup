@@ -1,5 +1,5 @@
 import type {ProjectProfile} from '../../analyzer/repository.js';
-import {quoteShell} from '../../shell-command.js';
+import {quoteShell,quoteShellList} from '../../shell-command.js';
 import type {Agent} from '../../types.js';
 import {resolveSddBinding,sddDiscoveryNames,unqualifiedSkillName} from '../sdd/binding.js';
 
@@ -12,7 +12,7 @@ export const superpowersManual:Record<Agent,string>={
  codex:'Open /plugins and install or enable Superpowers',
  opencode:'Configure the official Superpowers plugin and restart OpenCode',
 };
-export const nativePreparationCommand=(root:string,agents:Agent[])=>'rigup init '+quoteShell(root)+' --agents '+agents.join(',')+' --sdd superpowers --prepare-native';
+export const nativePreparationCommand=(root:string,agents:Agent[])=>'rigup init '+quoteShell(root)+' --agents '+quoteShellList(agents)+' --sdd superpowers --prepare-native';
 
 export function superpowersReadiness(profile:ProjectProfile,agent:Agent){
  const sources=profile.skillSources?.[agent]??[];

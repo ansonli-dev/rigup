@@ -58,8 +58,8 @@ export async function pendingOperations(root:string,stateRoot=defaultStateRoot()
  const state=await privateDirectory(stateRoot,root);
  return (await readOperationRecord(join(state,signature(root)+'.operations.json'),root)).operations;
 }
-export async function writerAlive(identity:WriterIdentity):Promise<boolean>{
- if(await isAlive(identity))return true;
+export async function writerAlive(identity:WriterIdentity,trusted=false):Promise<boolean>{
+ if(await isAlive(identity,trusted))return true;
  if(process.platform==='win32'){
   if(!identity.windowsJob)throw Error('Previous Windows writer process tree cannot be verified; reconcile before retrying');
   return windowsJobActive(identity.windowsJob);
@@ -85,7 +85,7 @@ export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateR
  root=await realpath(root);
  for(const host of nativeHosts){
   const record=await readHostWriter(state,host);
-  if(record?.root===root&&await writerAlive(record.identity))throw Error('Previous '+host+' writing process still active; project blocked');
+  if(record?.root===root&&await writerAlive(record.identity,true))throw Error('Previous '+host+' writing process still active; project blocked');
  }
  for(const item of await pendingOperations(root,state)){
   if(item.identity&&await writerAlive(item.identity))throw new Error('previous writing process still active; project blocked');
@@ -259,7 +259,7 @@ export async function protectedOperationCommand(command:{executable:string;args:
   let timeout:ReturnType<typeof setTimeout>|undefined;
   try{
    if(!child.pid)throw Error('Cannot start protected operation process');
-   await markDispatching({...await processIdentity(child.pid),windowsJob:child.job});
+   await markDispatching({...await processIdentity(child.pid,!!dependencies.launcher),windowsJob:child.job});
    const changed=await registryPending();
    if(dependencies.signal?.aborted){child.stop();await child.completed;return restoreUndispatched();}
    if(changed){child.stop();await child.completed;await restoreUndispatched();return changed;}
@@ -279,7 +279,7 @@ export async function protectedOperationCommand(command:{executable:string;args:
  if(dependencies.stdout)child.stdout?.on('data',dependencies.stdout);
  if(!child.pid)throw new Error('Cannot start protected operation process');
  const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>(resolve=>{child.once('error',()=>resolve({code:1,signal:null}));child.once('exit',(code,signal)=>resolve({code,signal}));});
- try{await markDispatching(await processIdentity(child.pid));}catch(e){child.stdin!.end();await completed;throw e;}
+ try{await markDispatching(await processIdentity(child.pid,!!dependencies.launcher));}catch(e){child.stdin!.end();await completed;throw e;}
  let changedBeforeDispatch:OperationResult|undefined;
  try{changedBeforeDispatch=await registryPending();}catch(error){child.stdin!.end();await completed;throw error;}
  if(dependencies.signal?.aborted){child.stdin!.end();await completed;return restoreUndispatched();}
@@ -295,7 +295,7 @@ export async function protectedOperationCommand(command:{executable:string;args:
   // The process-group leader and native worker do not exit at the same instant.
   // Keep the durable intent unresolved until every possible writer is gone.
   const deadline=Date.now()+3000;let alive=true;
-  do {try{alive=await writerAlive(identity()!);}catch{alive=true;}if(!alive)break;if(Date.now()<deadline)await new Promise(done=>setTimeout(done,50));}while(Date.now()<deadline);
+  do {try{alive=await writerAlive(identity()!,!!dependencies.launcher);}catch{alive=true;}if(!alive)break;if(Date.now()<deadline)await new Promise(done=>setTimeout(done,50));}while(Date.now()<deadline);
   if(alive)throw new Error('writing process exit unconfirmed; persistent record keeps project blocked');
  }
  return finish(outcome.code,cancelled||timedOut);
