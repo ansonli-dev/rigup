@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0 · 2026-11-17 · Development preview
+
+- Prepare missing Superpowers for Claude Code and Oh My Pi after explicit terminal approval. Show the project and user destinations, verify the pinned sources and native receipts, and rescan before continuing guided setup. [Issue #75](https://github.com/ansonli-dev/rigup/issues/75)
+- Reuse completed native steps on retry. A verified Claude project plugin can supply OMP's workflow without a separate user-level link. Keep review and redirected invocations read-only for native preparation.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.8.0) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.8.0)
+
 ## 0.7.0 · 2026-11-17 · Development preview
 
 - Reuse verified project and PATH installations of OpenSpec, OpenWiki, and CodeGraph. Setup offers project and global scopes when software is missing and pins the approved package identity through recovery. [Issue #71](https://github.com/ansonli-dev/rigup/issues/71)

@@ -1,3 +1,4 @@
+import {windowsSystemEnvironment,windowsSystemPowerShell} from '../../windows-system-env.mjs';
 import {execFile,spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {statSync} from 'node:fs';
@@ -237,16 +238,12 @@ ${native}
 }
 `,'utf16le').toString('base64');
 
-export function windowsPowerShellExecutable(){
- const root=process.env.SystemRoot;
- if(!root||!/^[a-z]:[\\/]/i.test(root))throw Error('Windows system directory unavailable');
- return path.join(root,'System32','WindowsPowerShell','v1.0','powershell.exe');
-}
+export const windowsPowerShellExecutable=windowsSystemPowerShell;
 
-function supervisorOptions(query){
+function supervisorOptions(query,base){
  const executable=windowsPowerShellExecutable();
  const cwd=path.dirname(executable);
- const env={...process.env,PSModulePath:path.join(cwd,'Modules'),RIGUP_QUERY_JOB:query};
+ const env={...windowsSystemEnvironment(base),RIGUP_QUERY_JOB:query};
  return {executable,args:['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',worker],cwd,env};
 }
 
@@ -279,14 +276,14 @@ function environmentBlock(env){
  return [...entries.keys()].sort().map(key=>entries.get(key)).join('\0')+'\0\0';
 }
 
-/** @param {{executable:string,args:string[],cwd:string,env?:NodeJS.ProcessEnv,captureOutput?:boolean}} spec */
-export function startWindowsProcess({executable,args,cwd,env=process.env,captureOutput=true}){
+/** @param {{executable:string,args:string[],cwd:string,env?:NodeJS.ProcessEnv,captureOutput?:boolean,supervisorEnv?:NodeJS.ProcessEnv}} spec */
+export function startWindowsProcess({executable,args,cwd,env=process.env,captureOutput=true,supervisorEnv}){
  if(process.platform!=='win32'||!path.isAbsolute(cwd))throw Error('Windows process supervision unavailable');
  executable=resolveWindowsExecutable(executable,cwd,env);
  const command=[executable,...args].map(quoteArgument).join(' ');
  if(command.length>=32767)throw Error('Windows command line is too long');
  const job=randomUUID(),block=environmentBlock(env);
- const supervisor=supervisorOptions(undefined);
+ const supervisor=supervisorOptions(undefined,supervisorEnv);
  const child=spawn(supervisor.executable,supervisor.args,{cwd:supervisor.cwd,env:supervisor.env,windowsHide:true,
   stdio:['pipe',captureOutput?'pipe':'ignore',captureOutput?'pipe':'ignore']});
  let started=false,interrupted=false,closed=false,failed=false,force;

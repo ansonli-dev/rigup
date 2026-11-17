@@ -3,6 +3,7 @@ import {Socket} from 'node:net';
 import {win32} from 'node:path';
 import {createInterface} from 'node:readline';
 import {setTimeout as delay} from 'node:timers/promises';
+import {windowsSystemEnvironment} from './windows-system-env.mjs';
 import {windowsPowerShellExecutable} from './windows-powershell.js';
 
 const denialReasons:Record<string,string>={
@@ -66,15 +67,19 @@ function describePath(path:string):string{
 function startWorker(check:string){
  const command=[
   "$ErrorActionPreference = 'Stop'",
+  // Import the inbox cmdlets directly. First-use module discovery can stall
+  // at ConvertFrom-Json even after the request has arrived on the pipe.
+  "$PSModuleAutoLoadingPreference = 'None'",
+  "Import-Module ([IO.Path]::Combine($PSHOME, 'Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1'))",
   '[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)',
   '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)',
-  'function Test-RigupAcl([string]$path, [bool]$directory, [bool]$ancestorsOnly, [bool]$create) {',
+  'function Test-RigupAcl([string]$path, [bool]$directory, [bool]$ancestorsOnly, [bool]$create, [bool]$privateLeaf) {',
   check,
   '}',
   'while ($null -ne ($line = [Console]::ReadLine())) {',
   ' $request = ConvertFrom-Json -InputObject $line',
   ' try {',
-  '  $response = Test-RigupAcl $request.path $request.directory $request.ancestorsOnly $request.create',
+  '  $response = Test-RigupAcl $request.path $request.directory $request.ancestorsOnly $request.create $request.privateLeaf',
   "  if ($null -eq $response) { $response = @{status = 'ok'} }",
   ' } catch {',
   "  $status = 'io-error'",
@@ -94,7 +99,7 @@ function startWorker(check:string){
  ].join('\n');
  const executable=windowsPowerShellExecutable();
  const child=spawn(executable,['-NoLogo','-NoProfile','-NonInteractive','-Command',command],{
-  cwd:win32.dirname(executable),windowsHide:true,stdio:['pipe','pipe','ignore'],
+  cwd:win32.dirname(executable),env:windowsSystemEnvironment(),windowsHide:true,stdio:['pipe','pipe','pipe'],
  });
  // Pending request timers keep Node alive. Once the CLI exits, EOF stops
  // the worker even when the caller is interrupted.
@@ -102,6 +107,10 @@ function startWorker(check:string){
  const reusable=child.stdin instanceof Socket&&child.stdout instanceof Socket;
  if(child.stdin instanceof Socket)child.stdin.unref();
  if(child.stdout instanceof Socket)child.stdout.unref();
+ // With every standard handle redirected, Windows PowerShell can start
+ // from a ConPTY without consulting the attached console. Discard stderr.
+ child.stderr.resume();
+ if(child.stderr instanceof Socket)child.stderr.unref();
  const pending=new Map<number,Request>();
  let sequence=0;
  let idle:NodeJS.Timeout|undefined;
@@ -141,16 +150,17 @@ function startWorker(check:string){
  child.on('error',stop);
  child.stdin.on('error',stop);
  child.stdout.on('error',stop);
+ child.stderr.on('error',stop);
  child.on('exit',()=>stop(new Error('Windows ACL process exited')));
 
  const client={
-  request(path:string,directory:boolean,ancestorsOnly:boolean,create:boolean,timeoutMs:number):Promise<Result>{
+  request(path:string,directory:boolean,ancestorsOnly:boolean,create:boolean,privateLeaf:boolean,timeoutMs:number):Promise<Result>{
    clearTimeout(idle);
    const id=++sequence;
    return new Promise((resolve,reject)=>{
     const timeout=setTimeout(()=>stop(new Error('Windows ACL check timed out')),timeoutMs);
     pending.set(id,{path,ancestorsOnly,resolve,reject,timeout});
-    child.stdin.write(JSON.stringify({id,path,directory,ancestorsOnly,create})+'\n');
+    child.stdin.write(JSON.stringify({id,path,directory,ancestorsOnly,create,privateLeaf})+'\n');
    });
   },
  };
@@ -158,7 +168,7 @@ function startWorker(check:string){
 }
 
 // Every request re-reads the ACL. Reusing the process only avoids PowerShell startup.
-export async function checkWindowsAccess(check:string,path:string,directory:boolean,ancestorsOnly:boolean,create:boolean):Promise<void>{
+export async function checkWindowsAccess(check:string,path:string,directory:boolean,ancestorsOnly:boolean,create:boolean,privateLeaf=true):Promise<void>{
  const deadline=performance.now()+30_000;
  for(const wait of [0,25,50,100]){
   if(performance.now()+wait>=deadline)break;
@@ -168,9 +178,10 @@ export async function checkWindowsAccess(check:string,path:string,directory:bool
   let result:Result;
   try{
    worker??=startWorker(check);
-   result=await worker.request(path,directory,ancestorsOnly,create,remaining);
+   result=await worker.request(path,directory,ancestorsOnly,create,privateLeaf,remaining);
   }catch(cause){
-   throw new WindowsAclCheckError(`Windows ACL worker unavailable checking ${describePath(path)}`,{cause});
+   const known=cause instanceof Error&&['Invalid Windows ACL response','Invalid Windows ACL denial path','Windows ACL process exited','Windows ACL check timed out'].includes(cause.message)?'; '+cause.message:'';
+   throw new WindowsAclCheckError(`Windows ACL worker unavailable checking ${describePath(path)}${known}`,{cause});
   }
   if(result.status==='ok')return;
   if(result.status==='io-error')throw new WindowsAclCheckError(`Windows ACL I/O failed checking ${describePath(path)}`);

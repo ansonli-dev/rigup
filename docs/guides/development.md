@@ -80,6 +80,10 @@ RIGUP_LIVE_GITLAB=1 RIGUP_GITLAB_HOST=http://127.0.0.1:42880 \
 
 The probe checks real include resolution, native JUnit reports, failed checks, wiki push guards, and the missing-model job failure. Validate a target GitLab separately with its own permissions and runner.
 
+## Native Superpowers preparation gate
+
+The **Native Superpowers hosts** workflow runs the npm package with the pinned Claude Code and OMP executables in a POSIX PTY or Windows ConPTY. Review its separate native evidence artifacts before releasing a change to preparation. The suite uses disposable host homes and projects without credentials and does not call a model. An ordinary CI shell with piped streams does not exercise the approval prompt.
+
 ## Release checklist
 
 Build natively with curl and tar available. The example targets Apple Silicon. Use a fresh output directory and the corresponding archive name for another target.

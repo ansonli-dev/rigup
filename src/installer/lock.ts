@@ -10,6 +10,7 @@ import {syncDirectory} from '../sync-directory.js';
 import {runWindowsPowerShell} from '../windows-powershell.js';
 const exec=promisify(execFile);
 const windowsStartPattern=/^win32:[1-9]\d{17,18}$/;
+const portablePosixStart='posix-utc:';
 
 export interface ProcessIdentity {pid:number;started:string}
 
@@ -38,20 +39,24 @@ function windowsStart(pid:number):Promise<string>{
  });
 }
 
-export async function processIdentity(pid:number):Promise<ProcessIdentity>{
+export async function processIdentity(pid:number,trusted=false):Promise<ProcessIdentity>{
  if(!validPid(pid))throw new Error('process identity unavailable');
  const started=process.platform==='win32'
   ?await windowsStart(pid)
-  :(await exec('ps',['-p',String(pid),'-o','lstart='])).stdout.trim();
+  :(await exec(trusted?'/bin/ps':'ps',['-p',String(pid),'-o','lstart='],trusted?{env:{LANG:'C',LC_ALL:'C',TZ:'UTC'}}:{})).stdout.trim();
  if(!started)throw new Error('process identity unavailable');
- return {pid,started};
+ return {pid,started:process.platform!=='win32'&&trusted?portablePosixStart+started:started};
 }
 
-export async function isAlive(identity:ProcessIdentity):Promise<boolean>{
+export async function isAlive(identity:ProcessIdentity,trusted=false):Promise<boolean>{
  if(!validPid(identity?.pid)||typeof identity.started!=='string'||!identity.started.trim()||
     (process.platform==='win32'&&!windowsStartPattern.test(identity.started)))throw new Error('process identity cannot be confirmed');
  try{process.kill(identity.pid,0);}catch(e){if((e as NodeJS.ErrnoException).code==='ESRCH')return false;throw new Error('process exit cannot be confirmed');}
- try{return (await processIdentity(identity.pid)).started===identity.started;}catch{throw new Error('process identity cannot be confirmed');}
+ const portable=identity.started.startsWith(portablePosixStart);
+ // A live legacy PID is conservatively occupied for a native writer: an
+ // older record may have used a different time zone or localized ps output.
+ if(process.platform!=='win32'&&trusted&&!portable)return true;
+ try{return (await processIdentity(identity.pid,portable)).started===identity.started;}catch{throw new Error('process identity cannot be confirmed');}
 }
 export interface ProjectLock {root:string;id:string;stateRoot:string;release():Promise<void>}
 export const defaultStateRoot=()=>join(homedir(),'.local','state','rigup');
@@ -61,9 +66,9 @@ async function readLock(path:string):Promise<{id:string;identity?:ProcessIdentit
  return JSON.parse(await readFile(path,'utf8'));
 }
 
-export async function acquireLock(root:string,options:{stateRoot?:string;recover?:boolean;resource?:string}={}):Promise<ProjectLock>{
+export async function acquireLock(root:string,options:{stateRoot?:string;recover?:boolean;resource?:string;trustedProcess?:boolean}={}):Promise<ProjectLock>{
  root=await realpath(root);const stateRoot=await privateDirectory(options.stateRoot??defaultStateRoot(),root);const path=join(stateRoot,signature(options.resource?{resource:options.resource}:root)+'.lock');
- const identity=await processIdentity(process.pid);const id=randomUUID();
+ const identity=await processIdentity(process.pid,options.trustedProcess);const id=randomUUID();
  const take=async()=>{const handle=await open(path,'wx',0o600);try{await handle.writeFile(JSON.stringify({root,id,identity}));await handle.sync();}finally{await handle.close();}await syncDirectory(stateRoot);};
  try{await take();}catch(e){
   if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;
@@ -77,7 +82,7 @@ export async function acquireLock(root:string,options:{stateRoot?:string;recover
    await guard.writeFile(JSON.stringify({root,id,identity}));
    if((await lstat(path)).isSymbolicLink())throw new Error('lock path symlink denied');
    const existing=await readLock(path);
-   if(!existing?.identity||await isAlive(existing.identity))throw new Error('project locked/occupied; do not steal an active lock');
+   if(!existing?.identity||await isAlive(existing.identity,options.trustedProcess))throw new Error('project locked/occupied; do not steal an active lock');
    // Read and replace under the recovery guard so another recovery cannot unlink a new lock.
    await unlink(path);await take();
   }finally{await guard.close();await unlink(recoveryPath);}

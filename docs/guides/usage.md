@@ -17,7 +17,7 @@ rigup doctor
 
 可执行预览列出受影响路径，接着选择安装、保存预览或取消。保存后用显示的 `--apply` 命令应用同一预览。默认输出报告本轮写入与下一步，完整差异存入私有状态目录，也可加 `--verbose` 查看。`--json` 使用非交互模式，stdout 输出一个对象，文本诊断走 stderr。
 
-`--dry-run` 保存私有候选和预览。已配置 provider 时，生成完整规则的 dry-run 仍会请求模型。首次设置可用 `--defer-research` 明确只准备基础接线。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Superpowers 和 Spec Kit 使用项目已有的官方入口并核对来源和依赖。 [验证范围](../compatibility/status.md) · [最近验证的上游组合](../compatibility/upstream-lock.json)
+`--dry-run` 保存私有候选和预览。已配置 provider 时，生成完整规则的 dry-run 仍会请求模型。首次设置可用 `--defer-research` 明确只准备基础接线。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Rigup 核对工作流入口的来源和依赖。Claude Code 和 Oh My Pi 缺少 Superpowers 时，参见[准备 Superpowers](#准备-superpowers)。 [验证范围](../compatibility/status.md) · [最近验证的上游组合](../compatibility/upstream-lock.json)
 
 首次选择 OpenSpec 后，Rigup 检查已核验的项目 CLI 或安全 PATH 上的 CLI、项目的 OpenSpec 根和所选宿主的入口。已有 CLI 时沿用其版本，可用 `--prepare-openspec` 补齐项目文件。缺少 CLI 时，交互引导默认项目范围。项目范围使用 `.rigup/tools/openspec/`，便携版可使用随附的 Node 和 npm。全局范围使用终端 PATH 上的 Node 和 npm，以及可写的用户前缀。两种范围都在准备前显示并冻结版本、registry、包完整性和目标位置，再核对对应 Node 是否满足包的要求。
 
@@ -97,6 +97,26 @@ projectConventions:
 如果约定移到所选业务范围之外，在对应主题的 `source` 指定新路径，再复核该主题的适用范围。
 
 局部或截断的扫描保留既有全局 GitLab 接线。要调整全局选择，先从完整仓库范围复核。v0.3.5 的已完成安装走同一更新入口。 [Unified Harness V1 兼容验证](../compatibility/unified-harness-v1.md)
+
+## 准备 Superpowers
+
+首次交互式 `rigup init` 选择 Claude Code 或 Oh My Pi 和 Superpowers 后，Rigup 会展示可执行的准备步骤，再询问是否批准。也可以单独准备，包括已配置的项目：
+
+```sh
+rigup init . --agents 'claude,omp' --sdd superpowers --prepare-native --review --json
+rigup init . --agents 'claude,omp' --sdd superpowers --prepare-native
+```
+
+独立准备结束后直接退出。向导准备成功后重新扫描，再生成常规的项目预览。已有的有效入口会复用。自动步骤只对经验证的 Claude Code 2.1.273 和 OMP 18.1.13 启用；其他版本、配置覆盖、禁用项和冲突请按报告手动处理。
+
+| 宿主 | 批准后可能写入 |
+| --- | --- |
+| Claude Code | 项目共享的 `.claude/settings.json`、Claude 用户配置目录中的市场和插件缓存及本机状态。Rigup 核对官方市场中 Superpowers 7.0.2 的固定 Git 提交，再验证该项目的收据。 |
+| Oh My Pi | OMP 用户插件目录中的 `omp-plugins.lock.json`、链接及相关本机状态，以及 Rigup 私有状态中的固定包 `@loneexile/omp-superpowers@7.0.2-omp.3`。Rigup 校验下载的 SHA-512，只链接该包。若此次 Claude 项目安装已为 OMP 提供完整入口，会跳过用户级链接。 |
+
+`--review` 和 `--dry-run` 只检查准备计划，检查成功返回 0；不会启动宿主或下载。配置处于 Review 模式、JSON 输出、终端输出重定向或任一端不是 TTY 时，都不会进入安装确认。普通独立准备仍需手工操作时返回 3，执行或校验失败返回 1，取消返回 130。必须在独立终端明确选择 Approve。TTY 仅防误操作，不能识别输入来源；可在宿主权限中禁止 agent 执行 `rigup init`。Rigup 可能无法识别正在运行的 OMP 会话。
+
+失败后查看报告中的已验证或可能写入的内容，再重跑相同命令。Rigup 会使用已验证的现场状态，跳过成功步骤。若报告无法确认写入进程已退出，应先等待进程退出或手动核对状态。已验证的 Claude 项目安装可用 `claude plugin uninstall superpowers@claude-plugins-official --scope project --keep-data` 移除；共享市场缓存不应随意删除。OMP 链接可用 `omp plugin uninstall @loneexile/omp-superpowers` 解除。有效链接仍使用 Rigup 私有目录中的固定包。
 
 ## 先安装工作流，再生成规则
 

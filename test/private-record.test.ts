@@ -31,7 +31,7 @@ function useAclWorker(t:TestContext,...responses:Record<string,unknown>[]){
    const response=responses.length>1?responses.shift():responses[0];
    process.stdout.write(JSON.stringify({id,...response})+'\\n');
   }
- `],{stdio:['pipe','pipe','ignore']});
+ `],{stdio:['pipe','pipe','pipe']});
  const closed=once(child,'close');
  const replacement=t.mock.method(childProcess,'spawn',()=>child);
  syncBuiltinESMExports();

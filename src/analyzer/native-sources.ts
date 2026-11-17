@@ -10,7 +10,10 @@ import {digest,safePath} from './evidence.js';
 import {agents,projectCommandRoots} from '../integrations/agents/index.js';
 import type {Agent,SetupOptions} from '../types.js';
 import {sddDiscoveryNames,unqualifiedSkillName,type SkillSource} from '../integrations/sdd/binding.js';
-export interface NativeDiscoveryOptions {home?:string;env?:Record<string,string|undefined>;requiredOpenSpecEntriesOnly?:true;managedProjectPaths?:string[];onWarning?:(message:string)=>void}
+import {ompLocations} from '../integrations/host-setup/omp-locations.js';
+import {claudeManagedRoot,claudePlugin,ompPackage} from '../integrations/host-setup/manual.js';
+export interface NativeDiagnostic {agent:Agent;code:'omp-claude-provider-filtered'|'plugin-skipped'|'native-conflict';subject:string;detail:string}
+export interface NativeDiscoveryOptions {home?:string;env?:Record<string,string|undefined>;requiredOpenSpecEntriesOnly?:true;managedProjectPaths?:string[];onWarning?:(message:string)=>void;onDiagnostic?:(diagnostic:NativeDiagnostic)=>void}
 export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean;disabled?:boolean}|undefined {
  const front=text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);if(!front)return;
  const value=parse(front[1]);if(!value||typeof value.name!=='string'||typeof value.description!=='string')return;
@@ -32,18 +35,30 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   if(++metadataFiles>2000||(metadataBytes+=info.size)>8_000_000){metadataExhausted=true;throw Error('Native metadata read budget exceeded');}
   return readFile(canonical,'utf8');
  };
- const json=async(path:string)=>{try{return record(JSON.parse(await metadataText(path,inside(root,path)?root:undefined)));}catch{return {};}};
+ const json=async(path:string,onInvalid?:()=>void)=>{
+  try{
+   const value=JSON.parse(await metadataText(path,inside(root,path)?root:undefined));
+   if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Invalid native metadata');
+   return record(value);
+  }catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')onInvalid?.();return {};}
+ };
  for(const item of options.customSkills??[]){try{const meta=nativeSkillMetadata(await metadataText(join(isAbsolute(item.source)?item.source:join(root,item.source),'SKILL.md')));if(meta)wanted.add(unqualifiedSkillName(meta.name));}catch{}}
  let hooks:any[]=[];
  if(options.sdd==='spec-kit')try{const extension=parse(await metadataText(join(root,'.specify/extensions.yml'),root));hooks=Object.values(extension?.hooks??{}).flat().filter((hook:any)=>hook&&hook.enabled!==false&&hook.optional===false&&!hook.condition);for(const hook of hooks)if(typeof hook.command==='string'){wanted.add(hook.command);wanted.add(hook.command.replaceAll('.','-'));}}catch{}
  const claude=env.CLAUDE_CONFIG_DIR??join(home,'.claude'),codex=env.CODEX_HOME??join(home,'.codex');
- const profileName=env.OMP_PROFILE??env.PI_PROFILE;
- const ompRoot=join(home,env.PI_CONFIG_DIR||'.omp',...(profileName&&profileName!=='default'&&/^[a-z0-9][a-z0-9._-]{0,63}$/.test(profileName)?['profiles',profileName]:[]));
- const omp=env.PI_CODING_AGENT_DIR??join(ompRoot,'agent');
- const xdgRoot=env.XDG_DATA_HOME?join(env.XDG_DATA_HOME,'omp',...(profileName&&profileName!=='default'?['profiles',profileName]:[])):undefined;
- const ompPlugins=join(xdgRoot&&['darwin','linux'].includes(process.platform)&&omp===join(ompRoot,'agent')&&(await stat(xdgRoot).catch(()=>undefined))?.isDirectory()?xdgRoot:ompRoot,'plugins');
+ const {agent:omp,plugins:ompPlugins}=await ompLocations(home,env);
+ const ompProjectPlugins=join(root,'.omp','plugins');
  const claudeSettings:Record<string,boolean>={};
  for(const file of [join(claude,'settings.json'),join(root,'.claude/settings.json'),join(root,'.claude/settings.local.json')])Object.assign(claudeSettings,(await json(file)).enabledPlugins??{});
+ const managedClaude:Record<string,unknown>={};
+ let invalidClaudePolicy=false;
+ if(options.sdd==='superpowers'&&options.agents.includes('claude')){
+  const policy=claudeManagedRoot(env),fragments=join(policy,'managed-settings.d');
+  const files=await readdir(fragments).catch(error=>{if(error.code!=='ENOENT')invalidClaudePolicy=true;return [];});
+  const policies=[join(policy,'managed-settings.json'),...files.filter(name=>name.endsWith('.json')).sort().slice(0,50).map(name=>join(fragments,name))];
+  if(files.length>50)invalidClaudePolicy=true;
+  for(const file of policies){const document=await json(file,()=>{invalidClaudePolicy=true;});Object.assign(managedClaude,document.enabledPlugins??{});}
+ }
  const matchingProject=async(record:any)=>['project','local'].includes(record.scope)&&typeof record.projectPath==='string'&&await realpath(record.projectPath).catch(()=>undefined)===root;
  for(const agent of options.agents){
   const sources:SkillSource[]=[];result[agent]=sources;
@@ -51,7 +66,15 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   const visited=new Set<string>();
   const inlineBodies=new Map<string,string>();
   const commandSources=new Set<string>();
-  const warn=(id:string,error:unknown)=>dependencies.onWarning?.('Native plugin '+(/^[\w.@/-]{1,200}$/.test(id)?id:'invalid identifier')+' skipped: '+((error as NodeJS.ErrnoException)?.code==='ENOENT'?'manifest missing':'invalid or unavailable metadata; repair the enabled installation'));
+  const diag=(code:NativeDiagnostic['code'],subject:string,detail:string)=>{
+   if(options.sdd==='superpowers'&&(agent==='claude'||agent==='omp'))dependencies.onDiagnostic?.({agent,code,subject,detail});
+  };
+  const repair='Repair the enabled installation before retrying';
+  const superpowersId=(id:string)=>/^superpowers@[\w.-]{1,160}$/.test(id);
+  const warn=(id:string,error:unknown)=>{
+   dependencies.onWarning?.('Native plugin '+(/^[\w.@/-]{1,200}$/.test(id)?id:'invalid identifier')+' skipped: '+((error as NodeJS.ErrnoException)?.code==='ENOENT'?'manifest missing':'invalid or unavailable metadata; repair the enabled installation'));
+   if(superpowersId(id)||id===ompPackage)diag('plugin-skipped',id,'Superpowers installation metadata could not be verified; '+repair.toLowerCase());
+  };
   const unavailable=(problem:string)=>{for(const name of wanted)sources.push({name,identity:agent+':unavailable',origin:'unknown',satisfies:false,problem});};
   type Context={origin:SkillSource['origin'];namespace?:string;bound?:string;packageName?:string;sourceFingerprint?:string;project?:boolean;pathNames?:boolean;skillRoot?:string};
   const local=(path:string):Context=>({origin:'local',...(inside(root,path)?{bound:root,project:true}:{})});
@@ -178,12 +201,16 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    }
   }
   if(agent==='claude'||agent==='omp'){
-   const installed=(await json(join(claude,'plugins/installed_plugins.json'))).plugins??{};
+   const installed=(await json(join(claude,'plugins/installed_plugins.json'),()=>{if(agent==='claude')diag('native-conflict',claudePlugin,'Claude installed_plugins.json is invalid or unreadable');})).plugins??{};
+   const imported=new Set<SkillSource>();
+   if(agent==='claude'&&invalidClaudePolicy)diag('native-conflict',claudePlugin,'Claude managed plugin settings could not be read');
+   if(agent==='claude'&&(claudeSettings[claudePlugin]===false||managedClaude[claudePlugin]===false))diag('native-conflict',claudePlugin,'Claude Superpowers is explicitly disabled');
+   if(agent==='claude'&&claudeSettings[claudePlugin]===true&&!Object.hasOwn(installed,claudePlugin))diag('native-conflict',claudePlugin,'Claude Superpowers is enabled without an install receipt; '+repair.toLowerCase());
    const marketplaces=agent==='claude'?await json(join(claude,'plugins/known_marketplaces.json')):{};
    const records=new Map<string,{record:any;origin:'claude'|'omp';project:boolean}[]>();
    for(const [id,items] of Object.entries(installed)){
     if(!Array.isArray(items)){warn(id,undefined);continue;}
-    for(const record of items){if(!record||record.enabled===false||claudeSettings[id]===false||agent==='claude'&&claudeSettings[id]!==true)continue;
+    for(const record of items){if(!record||record.enabled===false||claudeSettings[id]===false||agent==='claude'&&(invalidClaudePolicy||managedClaude[id]===false||claudeSettings[id]!==true))continue;
      const project=await matchingProject(record);if(record.scope!=='user'&&!project)continue;
      records.set(id,[...records.get(id)??[],{record,origin:'claude',project}]);}
    }
@@ -193,15 +220,28 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
      let value=await json(join(base,'settings.json'));for(const name of base===omp?['config.yml','config.yaml']:['config.yml']){try{value=record(parse(await metadataText(join(base,name),inside(root,base)?root:undefined)));break;}catch{}}
      settings={...settings,...value,skills:{...settings.skills,...value.skills}};
     }
-    for(const [registry,isProject] of [[join(ompPlugins,'installed_plugins.json'),false],[join(root,'.omp/plugins/installed_plugins.json'),true]] as const){
+    for(const [registry,isProject] of [[join(ompPlugins,'installed_plugins.json'),false],[join(ompProjectPlugins,'installed_plugins.json'),true]] as const){
      for(const [id,items] of Object.entries((await json(registry)).plugins??{})){
       if(!Array.isArray(items)||!items.length)continue;
       const active=items.filter(record=>record&&record.enabled!==false&&typeof record.installPath==='string').map(record=>({record,origin:'omp' as const,project:isProject}));
       if(!isProject||active.length)records.set(id,active);
      }
     }
-    const userClaude=!array(settings.disabledProviders).includes('claude-plugins')&&array(settings.enabledProviders).some(id=>['claude-plugins','claude','*','all'].includes(id));
-    for(const [id,items] of records)records.set(id,items.filter(item=>item.origin==='omp'||item.project||userClaude));
+    const disabledProviders=array(settings.disabledProviders),enabledProviders=array(settings.enabledProviders);
+    const claudeProvider=!disabledProviders.includes('claude-plugins');
+    const userClaude=claudeProvider&&(enabledProviders.some(id=>['claude-plugins','*','all'].includes(id))||
+     !disabledProviders.includes('claude')&&(enabledProviders.includes('claude')||!!env.CLAUDE_CONFIG_DIR?.trim()));
+    for(const [id,items] of records){
+     if(!userClaude&&options.sdd==='superpowers'&&superpowersId(id)){
+      for(const item of items.filter(item=>item.origin==='claude'&&!item.project).slice(0,5)){
+       if(await recognizableClaudeUserPlugin(claude,item.record.installPath)){
+        diag('omp-claude-provider-filtered',id,'The Claude user Superpowers plugin is installed, but OMP is not importing it; review enabledProviders and disabledProviders for claude-plugins in OMP settings');
+        break;
+       }
+      }
+     }
+     records.set(id,items.filter(item=>item.origin==='omp'||claudeProvider&&(item.project||userClaude)));
+    }
    }
    for(const [id,items] of records){
     const name=id.split('@')[0];
@@ -220,28 +260,55 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
       if(!inside(base,path))throw Error('Local marketplace plugin escapes its root');
       selection=digest(JSON.stringify({base,catalog:await realpath(catalogPath),digest:digest(text),source:marketplace.source,installLocation:marketplace.installLocation}));
      }else if(agent==='claude'&&!inside(await realpath(claude),await realpath(path)))throw Error('Invalid plugin location');
+     const before=sources.length;
      await plugin(path,'.claude-plugin/plugin.json',name,agent==='claude'?name:undefined,undefined,origin==='omp'&&project?'project':'user',[],selection);
+     if(agent==='omp'&&origin==='claude'&&superpowersId(id))for(const source of sources.slice(before))imported.add(source);
     }catch(error){warn(id,error);}}
    }
    if(agent==='omp'){
-    const overrides=await json(join(root,'.omp/plugin-overrides.json'));
+    let overrides:Record<string,any>={};
+    for(const dir of ['.omp','.pi']){
+     const path=join(root,dir,'plugin-overrides.json');
+     try{
+      const file=JSON.parse(await metadataText(path,root));
+      if(!file||typeof file!=='object'||Array.isArray(file))throw Error('Invalid OMP project plugin overrides');
+      overrides=file;break;
+     }catch(error){
+      if((error as NodeJS.ErrnoException)?.code!=='ENOENT')diag('native-conflict',ompPackage,'OMP project plugin overrides are invalid or unreadable');
+     }
+    }
+    const ompDisabled=array(settings.disabledProviders).includes('omp-plugins')||array(overrides.disabled).includes(ompPackage);
+    if(ompDisabled)diag('native-conflict',ompPackage,'The OMP Superpowers plugin or its provider is explicitly disabled');
     const packages=new Map<string,{path:string;entries:string[];scope:'user'|'project'}>();
-    for(const [base,scope] of [[ompPlugins,'user'],[join(root,'.omp/plugins'),'project']] as const){
-     const pkg=await json(join(base,'package.json')),lock=await json(join(base,'omp-plugins.lock.json'));
+    for(const [base,scope] of [[ompPlugins,'user'],[ompProjectPlugins,'project']] as const){
+     const pkg=await json(join(base,'package.json'),()=>diag('native-conflict',ompPackage,'OMP plugin dependencies are invalid or unreadable'));
+     const lock=await json(join(base,'omp-plugins.lock.json'),()=>diag('native-conflict',ompPackage,'OMP plugin lock is invalid or unreadable'));
      const declared=Object.keys(pkg.dependencies??{});
      for(const name of new Set([...declared,...Object.keys(lock.plugins??{})])){
-      if(!/^(?:@[\w.-]+\/)?[\w.-]+$/.test(name)||lock.plugins?.[name]?.enabled===false||overrides.disabled?.includes(name))continue;
+      const disabled=lock.plugins?.[name]?.enabled===false||array(overrides.disabled).includes(name);
+      if(name===ompPackage&&disabled)diag('native-conflict',name,'OMP Superpowers is explicitly disabled in plugin state');
+      if(!/^(?:@[\w.-]+\/)?[\w.-]+$/.test(name)||disabled||name===ompPackage&&ompDisabled)continue;
       const path=join(base,'node_modules',name);
-      if(pkg.dependencies&&!declared.includes(name)&&!(await lstat(path).catch(()=>undefined))?.isSymbolicLink())continue;
+      if(pkg.dependencies&&!declared.includes(name)&&!(await lstat(path).catch(()=>undefined))?.isSymbolicLink()){
+       if(name===ompPackage)diag('native-conflict',name,'OMP Superpowers has an incomplete install; '+repair.toLowerCase());
+       continue;
+      }
       const manifest=await json(join(path,'package.json')),native=manifest.omp??manifest.pi;
-      if(!native||manifest.name!==name)continue;
+      if(!native||manifest.name!==name){
+       if(name===ompPackage)diag('native-conflict',name,'OMP Superpowers has an incomplete install; '+repair.toLowerCase());
+       continue;
+      }
       packages.set(name,{path,entries:array(native.extensions),scope});
      }
     }
     for(const [name,{path,entries,scope}] of packages)try{await plugin(path,'package.json',name,undefined,['skills'],scope,entries);}catch(error){warn(name,error);}
+    // OMP's native packages outrank the matching Claude import; leave other collisions visible.
+    const preferred=new Set(sources.filter(source=>source.packageName===ompPackage&&source.satisfies).map(source=>source.name));
+    for(let i=sources.length-1;i>=0;i--)if(imported.has(sources[i])&&preferred.has(sources[i].name))sources.splice(i,1);
     if(settings.skills?.enabled===false){sources.length=0;unavailable('skills.enabled:false blocks native and Rigup project skills; set skills.enabled to true in OMP settings');}
     else {
      const excluded=(name:string)=>array(settings.skills?.ignoredSkills).some(pattern=>matchesGlob(name,pattern))||array(settings.disabledExtensions).includes('skill:'+name)||array(settings.skills?.includeSkills).length>0&&!array(settings.skills?.includeSkills).some(pattern=>matchesGlob(name,pattern));
+     if(sddDiscoveryNames('superpowers',false).some(excluded))diag('native-conflict',ompPackage,'OMP settings exclude required Superpowers skills');
      for(let i=sources.length-1;i>=0;i--){
       const source=sources[i];
       if(commandSources.has(source.identity))continue;
@@ -336,6 +403,25 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   if(!sources.length)delete result[agent];
  }
  return result;
+}
+
+async function recognizableClaudeUserPlugin(config:string,value:unknown){
+ if(typeof value!=='string'||!isAbsolute(value))return false;
+ try{
+  const path=await realpath(value);
+  if(!inside(await realpath(config),path))return false;
+  const read=async(file:string)=>{
+   const canonical=await realpath(join(path,file));
+   const info=await stat(canonical);
+   if(!inside(path,canonical)||!info.isFile()||info.size>256000)throw Error('Invalid plugin metadata');
+   return readFile(canonical,'utf8');
+  };
+  if(JSON.parse(await read('.claude-plugin/plugin.json')).name!=='superpowers')return false;
+  return (await Promise.all(sddDiscoveryNames('superpowers',false).map(async name=>{
+   const metadata=nativeSkillMetadata(await read('skills/'+name+'/SKILL.md'));
+   return metadata?.name===name&&metadata.satisfies&&!metadata.disabled;
+  }))).every(Boolean);
+ }catch{return false;}
 }
 
 // Recognize the audited upstream registration, without importing or executing a plugin.
