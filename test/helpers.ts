@@ -40,8 +40,15 @@ export async function openspecFixturePath(root:string,control:string){
  await mkdir(join(root,'openspec'));
  await writeFile(join(root,'openspec/config.yaml'),'schema: spec-driven\n');
  const bin=join(control,'bin');
- await writeOpenSpecFixture(bin,'console.log(process.argv.includes("--version")?"1.16.0":JSON.stringify({root:{path:process.cwd(),source:"nearest"}}));\n');
+ await writeOpenSpecFixture(bin,'console.log(process.argv.includes("--version")?"1.16.0":JSON.stringify({root:require("node:fs").existsSync("openspec/config.yaml")?{path:process.cwd(),source:"nearest"}:null}));\n');
  return bin+delimiter+process.env.PATH;
+}
+export async function writeOpenSpecCodexEntries(root:string){
+ for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
+  const dir=join(root,'.agents','skills',name);
+  await mkdir(dir,{recursive:true});
+  await writeFile(join(dir,'SKILL.md'),'---\nname: '+name+'\ndescription: Native fixture\n---\n');
+ }
 }
 export async function project(fn:(root:string)=>Promise<void>) {
  const root=await realpath(await mkdtemp(join(tmpdir(),'rigup-scan-')));

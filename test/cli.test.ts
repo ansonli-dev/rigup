@@ -99,7 +99,7 @@ test('read-only command detection skips project binaries and links back into the
  await symlink(join(bin,'codex'),join(userBin,'codex'));
  testEnvironment(t,{RIGUP_CONSUMER_PATH:['', 'bin',bin,userBin].join(delimiter)});
  const found=await detectCommands(root);
- assert.deepEqual(found.agents,['claude']);assert.equal(found.tools.size,0);
+ assert.deepEqual(found.agents,['claude']);
  await assert.rejects(access(called),{code:'ENOENT'});
 })));
 
@@ -224,7 +224,8 @@ test('init_existing_manifest_uses_update_rules_and_doctor_is_read_only', async (
 });
 import {confirmedHarnessSource,project,testEnvironment,writeOpenSpecFixture} from './helpers.js';
 import {fixedNpmView} from './native-tool-fixture.js';
-test('tools flag keeps OpenWiki generation separate from protected CodeGraph initialization',()=>project(async root=>project(async cache=>project(async state=>{
+test('tools flag keeps OpenWiki generation separate from protected CodeGraph initialization',t=>project(async root=>project(async cache=>project(async state=>{
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:''});
  const calls:string[]=[];
  let output='';const code=await runCli(['init','--tools','openwiki,codegraph','--dry-run','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,npmView:async(args,cwd)=>{
   calls.push(args[1]);return JSON.stringify({...JSON.parse(await fixedNpmView(args,cwd)),version:'2.0.0','dist-tags.latest':'2.0.0'});
@@ -309,12 +310,13 @@ test('OpenSpec preparation reports the required session acknowledgement in JSON'
  const report=JSON.parse(output);
  assert.equal(code,3,output);
  assert.equal(report.nextCommand,report.resumeCommand);
- assert.match(report.nextCommand,/--prepare-openspec --sessions-ended$/);
+ assert.match(report.nextCommand,/--prepare-openspec --install-scope global --sessions-ended$/);
  assert.ok(report.requiredInput.some((item:string)=>item.includes('--sessions-ended')));
  assert.deepEqual(await readdir(root),[]);
 })));
 
-test('CLI list options accept PowerShell array strings, split args and repeated flags',()=>project(root=>project(cache=>project(async state=>{
+test('CLI list options accept PowerShell array strings, split args and repeated flags',t=>project(root=>project(cache=>project(async state=>{
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:''});
  for(const args of [
   ['--agents','claude codex','--tools','openwiki codegraph'],
   ['--agents','claude','codex','--tools','openwiki','codegraph'],
@@ -390,3 +392,104 @@ test('harness CLI reviews restored approved authority without provider or file c
  assert.equal(unchanged.previewId,undefined);
  assert.equal(await readFile(join(root,path),'utf8'),original);
 }))));
+
+for(const interactive of [false,true])test('claude,omp Superpowers produces an executable '+(interactive?'guided':'JSON')+' preview and separate apply',()=>project(async root=>project(async cache=>project(async state=>{
+ const {mkdir,writeFile,readFile}=await import('node:fs/promises');
+ for(const host of ['.claude','.omp'])for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion']){
+  const path=join(root,host,'skills',name);await mkdir(path,{recursive:true});
+  await writeFile(join(path,'SKILL.md'),`---\nname: ${name}\ndescription: Native workflow\n---\nUse native approvals.\n`);
+ }
+ await writeFile(join(root,'user.txt'),'preserve');
+ let output='',guidedId:string|undefined;
+ const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
+ const selection=['init','--agents','claude,omp','--sdd','superpowers','--tools','none','--defer-research'];
+ const code=interactive?await runCli(selection,{...io,isTTY:true,ask:async question=>question.choices.includes('Save preview, apply later')?['Save preview, apply later']:question.defaults??[],
+  services:{...io.services,report:result=>{if(result.executable&&typeof result.previewId==='string')guidedId=result.previewId;}}}):
+  await runCli([...selection,'--review','--json'],io);
+ assert.equal(code,3,output);
+ const previewId=interactive?guidedId:JSON.parse(output).previewId;
+ assert.match(previewId??'',/^[a-f0-9]{64}$/,output);
+ if(!interactive)assert.equal(JSON.parse(output).executable,true,output);
+ output='';assert.equal(await runCli(['update','--apply',previewId!,'--sessions-ended','--json'],io),0,output);
+ assert.equal(JSON.parse(output).status,'complete');
+ for(const host of ['.claude','.omp'])for(const stage of ['prepare','ready','deliver']){
+  const content=await readFile(join(root,host,'skills','change-'+stage,'references/project.md'),'utf8');
+  assert.match(content,/Native prepare: brainstorming, writing-plans/);assert.match(content,/Native deliver: executing-plans, verification-before-completion/);
+ }
+ assert.equal(await readFile(join(root,'user.txt'),'utf8'),'preserve');
+}))));
+
+for(const mutation of ['skill','manifest','entry','path','disable'] as const)for(const interrupted of [false,true])test(`native ${mutation} replacement rejects ${interrupted?'interrupted recovery':'saved apply'} before further project writes`,t=>project(root=>project(cache=>project(state=>project(async home=>{
+ const {mkdir,writeFile,readFile,rename}=await import('node:fs/promises');const {apply}=await import('../src/installer/apply.js');
+ const omp=join(home,'.omp/agent'),plugins=join(home,'.omp/plugins'),plugin=join(plugins,'node_modules/omp-superpowers');
+ testEnvironment(t,{HOME:home,USERPROFILE:home,PI_CODING_AGENT_DIR:omp});
+ await mkdir(join(plugin,'extensions'),{recursive:true});await writeFile(join(plugin,'extensions/superpowers.ts'),'export default function() {}');
+ await writeFile(join(plugin,'package.json'),'{"name":"omp-superpowers","version":"0.1.0","omp":{"extensions":["./extensions/superpowers.ts"]}}');
+ await writeFile(join(plugins,'package.json'),'{"dependencies":{"omp-superpowers":"0.1.0"}}');
+ for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion']){const path=join(plugin,'skills',name);await mkdir(path,{recursive:true});await writeFile(join(path,'SKILL.md'),`---\nname: ${name}\ndescription: Native\n---\nNative gates\n`);}
+ await writeFile(join(root,'user.txt'),'preserve');
+ let output='';const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
+ assert.equal(await runCli(['init','--agents','omp','--sdd','superpowers','--defer-research','--review','--json'],io),3,output);
+ const review=JSON.parse(output);assert.equal(review.executable,true,output);
+ const dependencies={cacheRoot:join(cache,'previews'),stateRoot:state};
+ if(interrupted)await assert.rejects(()=>apply(review.previewId,{...dependencies,hook:async point=>{if(point==='after-file')throw Error('test interrupted after one write');}}),/test interrupted/);
+ const snapshot=async()=>{const paths=await readdir(root,{recursive:true});return Promise.all(paths.sort().map(async path=>[path,await readFile(join(root,path),'base64').catch(()=>null)]));};
+ const before=await snapshot();
+ if(mutation==='skill')await writeFile(join(plugin,'skills/brainstorming/SKILL.md'),'---\nname: brainstorming\ndescription: Changed\n---\n');
+ if(mutation==='manifest')await writeFile(join(plugin,'package.json'),'{"name":"omp-superpowers","version":"0.1.1","omp":{"extensions":["./extensions/superpowers.ts"]}}');
+ if(mutation==='entry')await writeFile(join(plugin,'extensions/superpowers.ts'),'export default function(){return 1;}');
+ if(mutation==='path')await rename(join(plugin,'skills/brainstorming'),join(plugin,'skills/moved'));
+ if(mutation==='disable')await writeFile(join(plugins,'omp-plugins.lock.json'),'{"plugins":{"omp-superpowers":{"enabled":false}}}');
+ await assert.rejects(()=>apply(review.previewId,{...dependencies,recover:interrupted}),/source.*changed|snapshot|input/i);
+ assert.deepEqual(await snapshot(),before);
+})))));
+
+for(const scenario of ['missing-claude','missing-omp','missing-both','conflict','cancel'] as const)test(`claude,omp ${scenario} preserves user files`,()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {mkdir,writeFile,readFile}=await import('node:fs/promises');
+ for(const host of ['claude','omp'])if(scenario!=='missing-both'&&scenario!=='missing-'+host)for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion']){
+  const path=join(root,'.'+host,'skills',name);await mkdir(path,{recursive:true});await writeFile(join(path,'SKILL.md'),`---\nname: ${name}\ndescription: Native workflow\n---\nKeep native approvals.`);
+ }
+ if(scenario==='conflict'){const path=join(root,'.omp/skills/duplicate/brainstorming');await mkdir(path,{recursive:true});await writeFile(join(path,'SKILL.md'),'---\nname: brainstorming\ndescription: Conflicting workflow\n---\nDifferent requirements');}
+ await writeFile(join(root,'user.txt'),'User work');const before=await readdir(root,{recursive:true});
+ let output='';const code=await runCli(['init','--agents','claude,omp','--sdd','superpowers','--tools','none','--defer-research','--language','auto',...(scenario==='cancel'?[]:['--json'])],{cwd:root,isTTY:scenario==='cancel',read:async()=>null,write:s=>output+=s,services:{cacheRoot,stateRoot}});
+ if(scenario==='cancel')assert.equal(code,130,output);
+ else {assert.equal(code,3,output);const report=JSON.parse(output);assert.equal(report.executable,false);assert.match(output,scenario==='conflict'?/omp.*conflict/:/missing native entry:/);}
+ assert.deepEqual(await readdir(root,{recursive:true}),before);assert.equal(await readFile(join(root,'user.txt'),'utf8'),'User work');
+}))));
+
+for(const dependency of ['scripts/bash/setup-plan.sh','templates/plan-template.md'])test(`Spec Kit relative ${dependency} change invalidates interrupted approval`,()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {mkdir,writeFile,readFile}=await import('node:fs/promises');const {apply}=await import('../src/installer/apply.js');
+ const put=async(path:string,text:string)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
+ for(const name of ['constitution','specify','plan','tasks','implement','converge'])await put('.omp/commands/speckit.'+name+'.md','Run .specify/scripts/bash/setup-plan.sh and read .specify/templates/plan-template.md.');
+ await put('.specify/memory/constitution.md','Project governance');await put('.specify/scripts/bash/setup-plan.sh','source "$SCRIPT_DIR/common.sh"');await put('.specify/scripts/bash/common.sh','# Native common helper');await put('.specify/templates/plan-template.md','Native plan template');
+ let output='';assert.equal(await runCli(['init','--agents','omp','--sdd','spec-kit','--defer-research','--review','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot,stateRoot}}),3,output);
+ const review=JSON.parse(output);assert.equal(review.executable,true,output);
+ const dependencies={cacheRoot:join(cacheRoot,'previews'),stateRoot};
+ await assert.rejects(()=>apply(review.previewId,{...dependencies,hook:async point=>{if(point==='after-file')throw Error('interrupted fixture');}}),/interrupted fixture/);
+ await put('.specify/'+dependency,'Changed native dependency');
+ const paths=await readdir(root,{recursive:true});const before=await Promise.all(paths.map(async path=>[path,await readFile(join(root,path),'base64').catch(()=>null)]));
+ await assert.rejects(()=>apply(review.previewId,{...dependencies,recover:true}),/source.*changed|input/i);
+ assert.deepEqual(await readdir(root,{recursive:true}),paths);assert.deepEqual(await Promise.all(paths.map(async path=>[path,await readFile(join(root,path),'base64').catch(()=>null)])),before);
+}))));
+
+for(const mutation of ['skill','catalog'] as const)test(`Claude local Marketplace ${mutation} mutation rejects saved approval`,t=>project(root=>project(cache=>project(state=>project(async home=>{
+ const {mkdir,writeFile}=await import('node:fs/promises');const {apply}=await import('../src/installer/apply.js');
+ const put=async(path:string,text:string)=>{const {dirname}=await import('node:path');await mkdir(dirname(path),{recursive:true});await writeFile(path,text);};
+ const base=join(home,'marketplace'),cached=join(home,'.claude/plugins/cache/dev/superpowers/7');
+ testEnvironment(t,{HOME:home,CLAUDE_CONFIG_DIR:join(home,'.claude')});
+ for(const path of [base,cached]){
+  await put(join(path,'.claude-plugin/plugin.json'),'{"name":"superpowers"}');
+  for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion'])await put(join(path,'skills',name,'SKILL.md'),`---\nname: ${name}\ndescription: Native\n---\nNative gates\n`);
+ }
+ await put(join(home,'.claude/settings.json'),'{"enabledPlugins":{"superpowers@dev":true}}');
+ await put(join(home,'.claude/plugins/installed_plugins.json'),JSON.stringify({plugins:{'superpowers@dev':[{scope:'user',installPath:cached}]}}));
+ await put(join(home,'.claude/plugins/known_marketplaces.json'),JSON.stringify({dev:{source:{source:'directory',path:base},installLocation:base}}));
+ const catalog=join(base,'.claude-plugin/marketplace.json');await put(catalog,JSON.stringify({name:'dev',plugins:[{name:'superpowers',source:'./'}]}));
+ let output='';
+ assert.equal(await runCli(['init','--agents','claude','--sdd','superpowers','--defer-research','--review','--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state}}),3,output);
+ const review=JSON.parse(output);assert.equal(review.executable,true,output);
+ if(mutation==='skill')await put(join(base,'skills/brainstorming/SKILL.md'),'---\nname: brainstorming\ndescription: Changed source\n---\n');
+ else await put(catalog,JSON.stringify({name:'dev',description:'changed',plugins:[{name:'superpowers',source:'./'}]}));
+ await assert.rejects(()=>apply(review.previewId,{cacheRoot:join(cache,'previews'),stateRoot:state}),/source.*changed|snapshot|input/i);
+ assert.deepEqual(await readdir(root),[]);
+})))));

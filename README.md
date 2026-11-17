@@ -59,9 +59,9 @@ rigup init
 
 The guide preselects agents and workflow sources it detects. Review the affected paths, then choose Install, Save preview, or Cancel. First-time interactive setup installs the base workflow and Rigup MCP without model calls. Ask the configured agent to prepare rules, or configure a CLI provider and run `rigup update --review --model MODEL_ID`. Use `--language zh-CN` for Simplified Chinese. The default `auto` follows the project's guidance. [Research and budgets](docs/guides/usage.md#研究后端与预算)
 
-Selecting OpenSpec checks its CLI and project entry points right away. If the CLI is missing, automatic setup shows the registry's current stable `latest` version and installs that exact version into a writable npm prefix on PATH. Rigup uses a working CLI to add missing native files. After manual preparation, rerun `rigup init` to resume your host and OpenSpec selections.
+Selecting OpenSpec checks its CLI, project root, and native entries. Rigup reuses a verified project CLI or an available PATH installation. If the CLI is missing, choose project or global during setup. The project scope uses `.rigup/tools/openspec/` and works with the portable runtime. Run its native commands as `rigup openspec <args>` from the project. Rigup stages native generation and fills missing project files.
 
-OpenWiki and CodeGraph previews record the exact version and package integrity before a project installation. `update` reuses a verified project installation offline. Plugins you installed yourself are checked for usable entry points and dependencies. [Tool setup and recovery](docs/guides/usage.md#应用与恢复)
+OpenWiki and CodeGraph reuse verified project installs and compatible PATH installs. The wizard offers an installation scope when a selected tool is missing. The preview records the destination, version, registry, and package integrity. User-installed workflows are checked against their effective host sources and dependencies. [Tool setup and recovery](docs/guides/usage.md#应用与恢复)
 
 This non-interactive command previews a minimal setup without model calls.
 

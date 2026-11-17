@@ -1,5 +1,5 @@
 import {discoverNativeSources,nativeSkillMetadata,type NativeDiscoveryOptions} from './native-sources.js';
-import {agents} from '../integrations/agents/index.js';
+import {agents,projectCommandRoots} from '../integrations/agents/index.js';
 import type {Agent} from '../types.js';
 import {readdir,readFile,realpath,stat,lstat} from 'node:fs/promises';
 import {join,relative,posix} from 'node:path';
@@ -72,7 +72,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    if(['.git','node_modules','dist','.superpowers'].includes(entry.name)||secretName.test(entry.name)) continue;
    const file=join(dir,entry.name);const path=relative(root,file).split('\\').join('/');
    if(generatedScopes.some(scope=>path===scope||path.startsWith(scope+'/')))continue;
-   if(path==='.rigupignore')continue;
+   if(path==='.rigupignore'||path==='.omp/plugins')continue;
    const outsideBusinessScope=!selectedScope(path)&&!(entry.isDirectory()&&options.scope?.some(scope=>scopeContains(path,scope)));
    const extraSource=extraSources.some(source=>source===path||entry.isDirectory()&&scopeContains(path,source));
    const outsideScope=outsideBusinessScope&&!extraSource;
@@ -95,7 +95,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
     continue;
    }
    if(!entry.isFile()) continue;
-   const discoveryEntry=Object.values(agents).some(host=>path.startsWith(host.skillDirectory+'/')&&path.endsWith('/SKILL.md'))||/^\.(?:claude|opencode|omp)\/commands\/.+\.md$/.test(path);
+   const discoveryEntry=Object.values(agents).some(host=>path.startsWith(host.skillDirectory+'/')&&path.endsWith('/SKILL.md'))||Object.values(projectCommandRoots).flat().some(dir=>path.startsWith(dir+'/')&&path.endsWith('.md'));
    if(excluded&&entry.name==='package.json'&&purpose==='research')profile.checkCoverageIncomplete=true;
    if(excluded&&!discoveryEntry)continue;
    if(profile.files.length>=maxFiles){profile.truncated=true;profile.unknowns.push('file budget reached');return;}
@@ -126,7 +126,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
      profile.declaredSources[path]=sliceEvidence(path,lines,start,Math.min(lines.length,start+47)).evidence;
     }
    }
-   for(const agent of Object.keys(agents) as Agent[]) {
+   for(const agent of options.sdd||options.customSkills?.length?[]:Object.keys(agents) as Agent[]) {
     const host=agents[agent];
     if(path.startsWith(host.skillDirectory+'/') && path.endsWith('/SKILL.md')) {
      try {
@@ -137,7 +137,8 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
       }
      }catch {profile.unknowns.push(path+': native skill metadata invalid');}
     }
-    const commandDir=agent === 'codex' ? undefined : agent === 'claude' ? '.claude/commands/' : agent === 'omp' ? '.omp/commands/' : '.opencode/commands/';
+    const commandRoot=projectCommandRoots[agent].find(dir=>path.startsWith(dir+'/'));
+    const commandDir=commandRoot&&commandRoot+'/';
     if(commandDir && path.startsWith(commandDir) && path.endsWith('.md')) {
      profile.nativeEntries ??= {};profile.nativeEntries[agent] ??= [];const name=path.slice(commandDir.length,-3);profile.nativeEntries[agent]!.push(name);profile.skillSources??={};profile.skillSources[agent]??=[];profile.skillSources[agent]!.push({name,origin:'local',identity:path,digest:digest(raw),satisfies:!/^dependencies:/m.test(visible)});
     }
@@ -185,7 +186,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    job.reason='Command could not be verified against scanned project checks';
   }
  }
- const external=await discoverNativeSources(root,options,{...discovery,onWarning:message=>{profile.unknowns.push(message);discovery?.onWarning?.(message);}});for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,projection,declaredSources,scopes};
+ const external=await discoverNativeSources(root,options,{...discovery,managedProjectPaths:[...managed].filter(([,ownership])=>ownership.some(item=>item.kind==='file')).map(([path])=>path),onWarning:message=>{profile.unknowns.push(message);discovery?.onWarning?.(message);}});for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,projection,declaredSources,scopes};
 }
 
 function projectSource(path:string,raw:string,ownership:Ownership[],selected:string[],registered?:ConventionReceipt,declared?:string[]):ReturnType<typeof readConventionDocument> {

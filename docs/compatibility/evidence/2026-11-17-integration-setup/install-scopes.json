@@ -1,0 +1,96 @@
+{
+  "implementationCommit": "9883a90a9535f7eee86623c9d00099aa6a4fabf2",
+  "platform": "darwin-arm64",
+  "projectOpenSpec": {
+    "status": "passed",
+    "source": {
+      "commit": "9883a90a9535f7eee86623c9d00099aa6a4fabf2",
+      "dirty": false
+    },
+    "version": "0.6.0",
+    "target": "darwin-arm64",
+    "OpenSpec": "2.1.0",
+    "packageIntegrity": "sha512-3mVVOU97QmRsqQQYl0Jb7XvIwWES+Jh6nMbGy1tJiQvKVVI1lD7M0PTB2gH2f/ayX4SEoVJGiLKL51Z1pkTHqw==",
+    "pathNodeNpmAndOpenSpec": false,
+    "gitIgnoredToolScope": true,
+    "workflowReferences": [
+      "change-prepare",
+      "change-ready",
+      "change-deliver"
+    ],
+    "commands": [
+      "new change",
+      "status --json",
+      "instructions apply --json"
+    ],
+    "modelCalls": 0
+  },
+  "projectTools": {
+    "target": "darwin-arm64",
+    "archiveSha256": "4f0b3d5a42baa6bd7cb9890a43cce2242c8b2ce0a3aff075ac6f862a295366f6",
+    "softwareApproved": [
+      {
+        "id": "openwiki",
+        "version": "0.9.0",
+        "packageIntegrity": "sha512-ARArQcKjvBWD56cAl0L5SGNmPfrE957zTPVvY+Hi1wVqBg7FqWWeqquPA4+fkA+iHAWclCScD9Snu7jUB9DCHw=="
+      },
+      {
+        "id": "codegraph",
+        "version": "1.6.2",
+        "packageIntegrity": "sha512-hODH/mGnCf3IUMs6rzktv/zbecJIKJfdZAYHZ9mqecb0G7ZkHaA8CZafDVnswANFEL1YFcG+lfAwc5SIXzUH6Q=="
+      }
+    ],
+    "softwareInstalled": [
+      {
+        "id": "openwiki",
+        "version": "0.9.0",
+        "packageIntegrity": "sha512-ARArQcKjvBWD56cAl0L5SGNmPfrE957zTPVvY+Hi1wVqBg7FqWWeqquPA4+fkA+iHAWclCScD9Snu7jUB9DCHw=="
+      },
+      {
+        "id": "codegraph",
+        "version": "1.6.2",
+        "packageIntegrity": "sha512-hODH/mGnCf3IUMs6rzktv/zbecJIKJfdZAYHZ9mqecb0G7ZkHaA8CZafDVnswANFEL1YFcG+lfAwc5SIXzUH6Q=="
+      }
+    ],
+    "codegraphInitialized": true,
+    "businessQuery": true,
+    "noOpReinitialized": false,
+    "openwikiHandoff": true,
+    "modelCalls": 0
+  },
+  "globalTools": {
+    "status": "passed",
+    "target": "darwin-arm64",
+    "version": "0.6.0",
+    "source": {
+      "commit": "9883a90a9535f7eee86623c9d00099aa6a4fabf2",
+      "dirty": false
+    },
+    "approved": [
+      {
+        "id": "openwiki",
+        "version": "0.9.0",
+        "packageIntegrity": "sha512-ARArQcKjvBWD56cAl0L5SGNmPfrE957zTPVvY+Hi1wVqBg7FqWWeqquPA4+fkA+iHAWclCScD9Snu7jUB9DCHw==",
+        "registry": "https://registry.npmjs.org/"
+      },
+      {
+        "id": "codegraph",
+        "version": "1.6.2",
+        "packageIntegrity": "sha512-hODH/mGnCf3IUMs6rzktv/zbecJIKJfdZAYHZ9mqecb0G7ZkHaA8CZafDVnswANFEL1YFcG+lfAwc5SIXzUH6Q==",
+        "registry": "https://registry.npmjs.org/"
+      }
+    ],
+    "scope": "isolated global npm prefix",
+    "secondProjectOperations": 0,
+    "openWikiMcpHandshake": "openwiki",
+    "codeGraphNativeQuery": true,
+    "openSpec": {
+      "version": "2.1.0",
+      "packageIntegrity": "sha512-3mVVOU97QmRsqQQYl0Jb7XvIwWES+Jh6nMbGy1tJiQvKVVI1lD7M0PTB2gH2f/ayX4SEoVJGiLKL51Z1pkTHqw==",
+      "reusedInSecondProject": true,
+      "nativeProposal": true
+    },
+    "sourcePreserved": true,
+    "modelCalls": 0
+  }
+}

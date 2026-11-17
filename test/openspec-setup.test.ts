@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {access,copyFile,mkdir,readFile,realpath,rename,symlink,writeFile} from 'node:fs/promises';
+import {access,copyFile,mkdir,readFile,realpath,rename,rm,symlink,writeFile} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {writeFileSync} from 'node:fs';
@@ -7,11 +7,16 @@ import {createHash} from 'node:crypto';
 import {privateDirectory,signature} from '../src/generator/cache.js';
 import {npmRegistry} from './npm-registry-fixture.js';
 import {openspecPackage} from '../src/integrations/sdd/openspec.js';
+import {fileURLToPath} from "node:url";
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {runCli,type CliIO} from '../src/cli.js';
-import {inspectOpenSpec,prepareOpenSpec} from '../src/integrations/sdd/openspec-setup.js';
+import {inspectOpenSpec,planOpenSpecPreparation,prepareOpenSpec} from '../src/integrations/sdd/openspec-setup.js';
+import {forwardProjectOpenSpec,saveOpenSpecPreparation} from '../src/integrations/sdd/openspec-project.js';
+import {planGlobalNpmInstall} from '../src/integrations/tools/global-npm.js';
+import {saveDurable} from '../src/private-record.js';
 import {project,writeOpenSpecFixture} from './helpers.js';
+const exec=promisify(execFile);
 
 test('OpenSpec entry inspection does not run project PATH git', {skip:process.platform==='win32'},()=>fixture(async(root,control)=>{
  const bin=join(root,'bin'),marker=join(control,'git-ran');
@@ -152,6 +157,7 @@ test('preflight accepts a declared store and prepares a missing local root with 
  process.env.PATH=bin+delimiter+path;
  try{
   const options={agents:['codex' as const],backend:'host' as const};
+  await mkdir(join(control,'store'));
   await writeFile(join(bin,'root-override.json'),JSON.stringify({root:{path:join(control,'store'),source:'declared'}}));
   let setup=await inspectOpenSpec(root,options);
   assert.equal(setup.needsRoot,false);
@@ -205,7 +211,7 @@ test('portable setup checks the user PATH rather than the bundled runtime PATH',
  process.env.RIGUP_CONSUMER_PATH='';
  try{
   const input=terminal(root,control,[]);
-  const code=await runCli(['init','--agents','codex','--sdd','openspec','--defer-research','--json'],input.io);
+  const code=await runCli([...prepareFlags,'--install-scope','global','--json'],input.io);
   assert.equal(code,3,input.output());
   const report=JSON.parse(input.output());
   assert.ok(report.pending.includes('OpenSpec CLI is missing from PATH'));
@@ -402,7 +408,7 @@ test('OpenSpec reports the verified global CLI if project preparation fails',()=
  assert.equal(status,'partial',cli.output());
  assert.match(cli.output(),/Result: OpenSpec partially prepared/);
  assert.ok(cli.output().includes('OpenSpec CLI 2.0.0 installed and verified in '+paths.prefix+'.'));
- assert.match(cli.output(),/^Next: rigup init .+ --sdd openspec --prepare-openspec$/m);
+ assert.match(cli.output(),/^Next: rigup init .+ --sdd openspec --prepare-openspec --install-scope global --resume$/m);
  assert.equal(JSON.parse(await readFile(paths.receipt,'utf8')).version,'2.0.0');
  await assert.rejects(access(join(root,'openspec')),{code:'ENOENT'});
 })));
@@ -438,16 +444,20 @@ for(const interactive of [false,true])test('OpenSpec receipt failure remains a p
  await publishOpenSpec(registry);
  await privateDirectory(join(control,'state'),root);
  await mkdir(paths.receipt);
- const cli=terminal(root,control,interactive?['2','2','']:[]);
+ const cli=terminal(root,control,interactive?['2','2','2','']:[]);
  assert.equal(await runCli(interactive?['init']:[...prepareFlags,'--json'],cli.io),1,cli.output());
  assert.match(cli.output(),/receipt could not be saved/);
  if(!interactive)assert.equal(JSON.parse(cli.output()).installStatus,'partial');
  assert.equal(JSON.parse(await readFile(paths.packageJson,'utf8')).version,'2.0.0');
  await assert.rejects(access(join(root,'openspec')),{code:'ENOENT'});
  const requestCount=registry.requests.length;
+ const plain=terminal(root,control,[]);
+ assert.equal(await runCli([...prepareFlags,'--install-scope','global','--json'],plain.io),3,plain.output());
+ assert.match(JSON.parse(plain.output()).nextCommand,/--install-scope global --resume/);
+ await rm(paths.receipt,{recursive:true});
  const next=terminal(root,control,[]);
- assert.equal(await runCli([...prepareFlags,'--json'],next.io),0,next.output());
- assert.equal(JSON.parse(next.output()).nativePreparation.kind,'existing');
+ assert.equal(await runCli([...prepareFlags,'--install-scope','global','--resume','--json'],next.io),0,next.output());
+ assert.equal(JSON.parse(next.output()).nativePreparation.kind,'install');
  assert.equal(registry.requests.length,requestCount);
 })));
 
@@ -532,3 +542,167 @@ test('Windows OpenSpec preflight resolves a local npm prefix through its package
   else process.env.RIGUP_CONSUMER_PATH=path;
  }
 }));
+
+test('project OpenSpec prepares a verified CLI without writing to the user prefix',()=>fixture((root,control)=>openSpecRegistry(control,async(registry,paths)=>{
+ await exec('git',['-C',root,'init','-q']);
+ const approved=await publishOpenSpec(registry);
+ const cli=terminal(root,control,[]);
+ assert.equal(await runCli([...prepareFlags,'--install-scope','project','--json'],cli.io),0,cli.output());
+ const report=JSON.parse(cli.output());
+ assert.equal(report.nativeWorkflow,'ready');
+ const pkg=join(root,'.rigup/tools/openspec/node_modules',openspecPackage,'package.json');
+ assert.equal(JSON.parse(await readFile(pkg,'utf8')).version,approved.manifest.version);
+ await assert.rejects(access(paths.packageJson),{code:'ENOENT'});
+ await access(join(root,'openspec/config.yaml'));
+ await exec('git',['-C',root,'check-ignore','--quiet','--no-index','--','.rigup/tools/openspec/node_modules']);
+ const count=registry.requests.length;
+ const rerun=terminal(root,control,[]);
+ assert.equal(await runCli([...prepareFlags,'--install-scope','project','--json'],rerun.io),0,rerun.output());
+ assert.equal(registry.requests.length,count);
+})));
+
+for(const kind of ['negation','tracked'] as const)test('project OpenSpec stops before writing for '+kind,()=>fixture((root,control)=>openSpecRegistry(control,async(registry,paths)=>{
+ await exec('git',['-C',root,'init','-q']);
+ await publishOpenSpec(registry);
+ await mkdir(join(root,'.rigup'),{recursive:true});
+ const rules=join(root,'.rigup/.gitignore');
+ const content=kind==='negation'?'# rigup:start\n/tools/\n# rigup:end\n!/tools/\n':'# user rules\n';
+ await writeFile(rules,content);
+ const tracked=join(root,'.rigup/tools/openspec/user-file');
+ if(kind==='tracked'){
+  await mkdir(dirname(tracked),{recursive:true});
+  await writeFile(tracked,'Already tracked');
+  await exec('git',['-C',root,'add','--','.rigup/tools/openspec/user-file']);
+ }
+ const cli=terminal(root,control,[]);
+ const code=await runCli([...prepareFlags,'--install-scope','project','--json'],cli.io);
+ assert.ok(code===1||code===3,cli.output());
+ assert.match(cli.output(),/ignore|tracked/i);
+ assert.equal(await readFile(rules,'utf8'),content);
+ if(kind==='tracked')assert.equal(await readFile(tracked,'utf8'),'Already tracked');
+ await assert.rejects(access(paths.packageJson),{code:'ENOENT'});
+ await assert.rejects(access(join(root,'.rigup/tools/openspec/node_modules')),{code:'ENOENT'});
+ assert.ok(!registry.requests.some(request=>request.path.endsWith('.tgz')));
+})));
+
+test('the executable forwards project OpenSpec argv, stderr and exit status from a subdirectory',()=>fixture((root,control)=>openSpecRegistry(control,async(registry,paths)=>{
+ const native=nativeProgram.replace('}else process.exitCode=2;',"}else if(process.argv[2]==='argv'){console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(3)}));console.error('native diagnostics');process.exitCode=17;}else process.exitCode=2;");
+ await publishOpenSpec(registry,'2.0.0',{'bin/openspec.js':native});
+ const clientHome=await realpath(await mkdir(join(control,'client-home')).then(()=>join(control,'client-home')));
+ const env={...process.env,HOME:clientHome,...(process.platform==='win32'?{USERPROFILE:clientHome}:{})};
+ const runtime=['--import',import.meta.resolve('tsx'),fileURLToPath(new URL('../src/cli.ts',import.meta.url))];
+ const prepared=await exec(process.execPath,[...runtime,...prepareFlags,'--install-scope','project','--json'],{cwd:root,env,timeout:90_000});
+ assert.equal(JSON.parse(prepared.stdout).nativeWorkflow,'ready');
+ const sub=join(root,'subdirectory with space');
+ await mkdir(sub);
+ const args=['--json','--verbose','--','one argument'];
+ await assert.rejects(exec(process.execPath,[...runtime,'openspec','argv',...args],{cwd:sub,env,timeout:10_000}),error=>{
+  const failure=error as {code:number;stdout:string;stderr:string};
+  assert.equal(failure.code,17);
+  assert.match(failure.stderr,/native diagnostics/);
+  assert.deepEqual(JSON.parse(failure.stdout),{cwd:root,args});
+  return true;
+ });
+ await assert.rejects(access(paths.packageJson),{code:'ENOENT'});
+})));
+
+test('prepared project OpenSpec is advertised and changing its imported payload or dependency blocks execution',()=>fixture((root,control)=>openSpecRegistry(control,async(registry)=>{
+ await registry.publish('openspec-fixture-dependency','1.0.0',{main:'index.js'},{'index.js':'exports.value=1;\n'});
+ await registry.publish(openspecPackage,'2.0.0',{bin:{openspec:'bin/openspec.js'},dependencies:{'openspec-fixture-dependency':'1.0.0'}},{
+  'bin/openspec.js':"#!/usr/bin/env node\nrequire('../dist/cli/index.js');\n",
+  'dist/cli/index.js':nativeProgram.replace("require('../package.json')","require('../../package.json');require('openspec-fixture-dependency')"),
+ });
+ const native=terminal(root,control,[]);
+ assert.equal(await runCli([...prepareFlags,'--install-scope','project','--json'],native.io),0,native.output());
+ const profile=join(control,'profile.yaml');
+ await writeFile(profile,'projectRules: false\n');
+ const base=['--agents','codex','--sdd','openspec','--tools','none','--profile',profile];
+ const review=terminal(root,control,[]);
+ assert.equal(await runCli(['init',...base,'--dry-run','--json'],review.io),0,review.output());
+ const saved=JSON.parse(review.output());
+ assert.equal(saved.executable,true);
+ const applied=terminal(root,control,[]);
+ assert.equal(await runCli(['update','--apply',saved.previewId,'--sessions-ended','--json'],applied.io),0,applied.output());
+ for(const name of ['change-prepare','change-ready','change-deliver']){
+  const context=await readFile(join(root,'.agents/skills',name,'references/project.md'),'utf8');
+  assert.match(context,/rigup openspec/);
+ }
+ const next=terminal(root,control,[]);
+ assert.equal(await runCli(['update',...base,'--dry-run','--json'],next.io),0,next.output());
+ const savedUpdate=JSON.parse(next.output());
+ const marker=join(control,'changed-payload-was-invoked');
+ for(const entry of [openspecPackage+'/dist/cli/index.js','openspec-fixture-dependency/index.js']){
+  const payload=join(root,'.rigup/tools/openspec/node_modules',entry);
+  const original=await readFile(payload,'utf8');
+  await writeFile(payload,original+'\nrequire("node:fs").writeFileSync('+JSON.stringify(marker)+',"unexpected");\n');
+  const stale=terminal(root,control,[]);
+  assert.notEqual(await runCli(['update','--apply',savedUpdate.previewId,'--sessions-ended','--json'],stale.io),0,stale.output());
+  assert.match(stale.output(),/source input changed|OpenSpec CLI changed/i);
+  const unavailable=terminal(root,control,[]);
+  assert.equal(await runCli(['update',...base,'--dry-run','--json'],unavailable.io),3,unavailable.output());
+  assert.match(unavailable.output(),/payload.*receipt/i);
+  await assert.rejects(forwardProjectOpenSpec(root,['--version'],join(control,'state')),/payload.*receipt/i);
+  await assert.rejects(access(marker),{code:'ENOENT'});
+  await writeFile(payload,original);
+ }
+})));
+
+test('OpenSpec resumes existing CLI preparation with the originally requested global scope',()=>fixture(async(root,control)=>{
+ const bin=join(control,'bin'),stateRoot=join(control,'state');
+ await installFakeOpenSpec(bin);
+ await privateDirectory(stateRoot,root);
+ const previous=process.env.RIGUP_CONSUMER_PATH;
+ process.env.RIGUP_CONSUMER_PATH=bin+delimiter+process.env.PATH;
+ try{
+  const options={agents:['codex' as const],backend:'host' as const};
+  const inspection=await inspectOpenSpec(root,options,undefined,undefined,{scope:'global',stateRoot});
+  const {approval}=await planOpenSpecPreparation(root,options,{stateRoot},inspection);
+  assert.ok(approval&&approval.kind==='existing');
+  await saveOpenSpecPreparation({version:1,root,approval,approvalDigest:signature(approval),complete:false},stateRoot);
+  const projectScope=terminal(root,control,[]);
+  assert.equal(await runCli([...prepareFlags,'--install-scope','project','--resume','--json'],projectScope.io),3,projectScope.output());
+  assert.match(JSON.parse(projectScope.output()).nextCommand,/--install-scope global --resume/);
+  const globalScope=terminal(root,control,[]);
+  assert.equal(await runCli([...prepareFlags,'--install-scope','global','--resume','--json'],globalScope.io),0,globalScope.output());
+  await access(join(root,'openspec/config.yaml'));
+ }finally{if(previous===undefined)delete process.env.RIGUP_CONSUMER_PATH;else process.env.RIGUP_CONSUMER_PATH=previous;}
+}));
+
+test('OpenSpec 2.1 native generation uses project scope and an isolated home',()=>fixture(async(root,control)=>{
+ const bin=join(control,'bin'),home=join(control,'user-home');
+ await mkdir(home);
+ await installFakeOpenSpec(bin,undefined,'2.1.0',undefined,{init:`
+  const arg=process.argv.indexOf('--scope');
+  if(arg<0||process.argv[arg+1]!=='project')process.exit(94);
+  const home=require('node:os').homedir();
+  fs.writeFileSync(path.join(home,'isolated-native-sentinel'),'probe');
+  fs.writeFileSync(path.join(process.env.XDG_DATA_HOME,'data-sentinel'),'probe');
+ `});
+ const values={HOME:home,USERPROFILE:home,RIGUP_CONSUMER_PATH:bin+delimiter+process.env.PATH};
+ const original=Object.fromEntries(Object.keys(values).map(key=>[key,process.env[key]]));
+ Object.assign(process.env,values);
+ try{
+  const cli=terminal(root,control,[]);
+  assert.equal(await runCli([...prepareFlags,'--install-scope','global','--json'],cli.io),0,cli.output());
+  await access(join(root,'.agents','skills','openspec-propose','SKILL.md'));
+  await assert.rejects(access(join(home,'isolated-native-sentinel')),{code:'ENOENT'});
+ }finally{for(const [key,value] of Object.entries(original))if(value===undefined)delete process.env[key];else process.env[key]=value;}
+}));
+
+test('OpenSpec never probes a global launcher left by an unverified writer',()=>fixture((root,control)=>openSpecRegistry(control,async(registry,paths)=>{
+ await publishOpenSpec(registry);
+ const stateRoot=join(control,'state'),marker=join(control,'partially-installed-cli-ran');
+ const approval=await planGlobalNpmInstall(root,'openspec',{stateRoot});
+ await saveDurable(join(stateRoot,'global-npm-'+signature({prefix:paths.prefix})+'.operations.json'),JSON.stringify({records:[
+  {approval,authorizationRef:'original-approval',stage:'dispatching',identity:{pid:2147483647,started:'exited'}},
+ ]}));
+ await installFakeOpenSpec(paths.bin,undefined,'2.0.0',undefined,{
+  version:'fs.writeFileSync('+JSON.stringify(marker)+',"unexpected");',
+ });
+ const second=join(control,'another-project');
+ await mkdir(second);
+ const cli=terminal(second,control,[]);
+ assert.equal(await runCli([...prepareFlags,'--install-scope','global','--json'],cli.io),3,cli.output());
+ assert.match(cli.output(),/Resume the original approval/);
+ await assert.rejects(access(marker),{code:'ENOENT'});
+})));

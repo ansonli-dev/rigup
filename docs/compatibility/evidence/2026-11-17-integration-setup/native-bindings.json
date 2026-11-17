@@ -1,0 +1,870 @@
+{
+  "commit": "3541767",
+  "platform": "darwin-arm64",
+  "modelRequests": 0,
+  "scope": "Real isolated host catalogs and source selection after production Rigup CLI review and separate apply. No assistant turns or live SDD gate execution.",
+  "matrix": [
+    {
+      "caseId": "claude-superpowers-marketplace",
+      "host": "claude",
+      "hostVersion": "2.1.273 (Claude Code)",
+      "sdd": "superpowers",
+      "sddVersion": "7.0.2",
+      "nativeProbe": [
+        "SDK control initialize",
+        "repeat SDK control initialize with expected fixture sources hidden, then restore"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "superpowers:brainstorming": "<probe>/superpowers/skills/brainstorming/SKILL.md",
+        "superpowers:executing-plans": "<probe>/superpowers/skills/executing-plans/SKILL.md",
+        "superpowers:verification-before-completion": "<probe>/superpowers/skills/verification-before-completion/SKILL.md",
+        "superpowers:writing-plans": "<probe>/superpowers/skills/writing-plans/SKILL.md"
+      },
+      "hostObservedIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "superpowers:brainstorming",
+        "superpowers:executing-plans",
+        "superpowers:verification-before-completion",
+        "superpowers:writing-plans"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "claude-openspec",
+      "host": "claude",
+      "hostVersion": "2.1.273 (Claude Code)",
+      "sdd": "openspec",
+      "sddVersion": "1.16.0",
+      "nativeProbe": [
+        "SDK control initialize",
+        "repeat SDK control initialize with expected fixture sources hidden, then restore"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "openspec-apply-change": "<project>/.claude/skills/openspec-apply-change/SKILL.md",
+        "openspec-archive-change": "<project>/.claude/skills/openspec-archive-change/SKILL.md",
+        "openspec-propose": "<project>/.claude/skills/openspec-propose/SKILL.md"
+      },
+      "hostObservedIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "openspec-apply-change",
+        "openspec-archive-change",
+        "openspec-propose"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "claude-spec-kit",
+      "host": "claude",
+      "hostVersion": "2.1.273 (Claude Code)",
+      "sdd": "spec-kit",
+      "sddVersion": "1.3.2",
+      "nativeProbe": [
+        "SDK control initialize",
+        "repeat SDK control initialize with expected fixture sources hidden, then restore"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "speckit-constitution": "<project>/.claude/skills/speckit-constitution/SKILL.md",
+        "speckit-converge": "<project>/.claude/skills/speckit-converge/SKILL.md",
+        "speckit-implement": "<project>/.claude/skills/speckit-implement/SKILL.md",
+        "speckit-plan": "<project>/.claude/skills/speckit-plan/SKILL.md",
+        "speckit-specify": "<project>/.claude/skills/speckit-specify/SKILL.md",
+        "speckit-tasks": "<project>/.claude/skills/speckit-tasks/SKILL.md"
+      },
+      "hostObservedIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "speckit-constitution",
+        "speckit-converge",
+        "speckit-implement",
+        "speckit-plan",
+        "speckit-specify",
+        "speckit-tasks"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "codex-superpowers-marketplace",
+      "host": "codex",
+      "hostVersion": "codex-cli 0.166.0",
+      "sdd": "superpowers",
+      "sddVersion": "7.0.2",
+      "nativeProbe": [
+        "app-server initialize",
+        "app-server skills/list"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "superpowers:brainstorming": "<home>/.codex/plugins/cache/superpowers-dev/superpowers/7.0.2/skills/brainstorming/SKILL.md",
+        "superpowers:executing-plans": "<home>/.codex/plugins/cache/superpowers-dev/superpowers/7.0.2/skills/executing-plans/SKILL.md",
+        "superpowers:verification-before-completion": "<home>/.codex/plugins/cache/superpowers-dev/superpowers/7.0.2/skills/verification-before-completion/SKILL.md",
+        "superpowers:writing-plans": "<home>/.codex/plugins/cache/superpowers-dev/superpowers/7.0.2/skills/writing-plans/SKILL.md"
+      },
+      "hostObservedIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "superpowers:brainstorming",
+        "superpowers:executing-plans",
+        "superpowers:verification-before-completion",
+        "superpowers:writing-plans"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "codex-openspec",
+      "host": "codex",
+      "hostVersion": "codex-cli 0.166.0",
+      "sdd": "openspec",
+      "sddVersion": "1.16.0",
+      "nativeProbe": [
+        "app-server initialize",
+        "app-server skills/list"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "openspec-apply-change": "<project>/.agents/skills/openspec-apply-change/SKILL.md",
+        "openspec-archive-change": "<project>/.agents/skills/openspec-archive-change/SKILL.md",
+        "openspec-propose": "<project>/.agents/skills/openspec-propose/SKILL.md"
+      },
+      "hostObservedIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "openspec-apply-change",
+        "openspec-archive-change",
+        "openspec-propose"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "codex-spec-kit",
+      "host": "codex",
+      "hostVersion": "codex-cli 0.166.0",
+      "sdd": "spec-kit",
+      "sddVersion": "1.3.2",
+      "nativeProbe": [
+        "app-server initialize",
+        "app-server skills/list"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "speckit-constitution": "<project>/.agents/skills/speckit-constitution/SKILL.md",
+        "speckit-converge": "<project>/.agents/skills/speckit-converge/SKILL.md",
+        "speckit-implement": "<project>/.agents/skills/speckit-implement/SKILL.md",
+        "speckit-plan": "<project>/.agents/skills/speckit-plan/SKILL.md",
+        "speckit-specify": "<project>/.agents/skills/speckit-specify/SKILL.md",
+        "speckit-tasks": "<project>/.agents/skills/speckit-tasks/SKILL.md"
+      },
+      "hostObservedIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "speckit-constitution",
+        "speckit-converge",
+        "speckit-implement",
+        "speckit-plan",
+        "speckit-specify",
+        "speckit-tasks"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "omp-superpowers-marketplace-provider",
+      "host": "omp",
+      "hostVersion": "omp/18.1.13",
+      "sdd": "superpowers",
+      "sddVersion": "7.0.2",
+      "nativeProbe": [
+        "RPC get_available_commands",
+        "native OMP SDK skill URI resolution and slash command content"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "brainstorming": "<home>/.claude/plugins/cache/official/superpowers/7.0.2/skills/brainstorming/SKILL.md",
+        "executing-plans": "<home>/.claude/plugins/cache/official/superpowers/7.0.2/skills/executing-plans/SKILL.md",
+        "verification-before-completion": "<home>/.claude/plugins/cache/official/superpowers/7.0.2/skills/verification-before-completion/SKILL.md",
+        "writing-plans": "<home>/.claude/plugins/cache/official/superpowers/7.0.2/skills/writing-plans/SKILL.md"
+      },
+      "hostObservedIds": [
+        "brainstorming",
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "executing-plans",
+        "verification-before-completion",
+        "writing-plans"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "omp-openspec",
+      "host": "omp",
+      "hostVersion": "omp/18.1.13",
+      "sdd": "openspec",
+      "sddVersion": "1.16.0",
+      "nativeProbe": [
+        "RPC get_available_commands",
+        "native OMP SDK skill URI resolution and slash command content"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "openspec-apply-change": "<project>/.omp/skills/openspec-apply-change/SKILL.md",
+        "openspec-archive-change": "<project>/.omp/skills/openspec-archive-change/SKILL.md",
+        "openspec-propose": "<project>/.omp/skills/openspec-propose/SKILL.md"
+      },
+      "hostObservedIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "openspec-apply-change",
+        "openspec-archive-change",
+        "openspec-propose"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "omp-spec-kit",
+      "host": "omp",
+      "hostVersion": "omp/18.1.13",
+      "sdd": "spec-kit",
+      "sddVersion": "1.3.2",
+      "nativeProbe": [
+        "RPC get_available_commands",
+        "native OMP SDK skill URI resolution and slash command content"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "speckit.constitution": "<project>/.omp/commands/speckit.constitution.md",
+        "speckit.converge": "<project>/.omp/commands/speckit.converge.md",
+        "speckit.implement": "<project>/.omp/commands/speckit.implement.md",
+        "speckit.plan": "<project>/.omp/commands/speckit.plan.md",
+        "speckit.specify": "<project>/.omp/commands/speckit.specify.md",
+        "speckit.tasks": "<project>/.omp/commands/speckit.tasks.md"
+      },
+      "hostObservedIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "speckit.constitution",
+        "speckit.converge",
+        "speckit.implement",
+        "speckit.plan",
+        "speckit.specify",
+        "speckit.tasks"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "opencode-superpowers-npm-alias-shadowed",
+      "host": "opencode",
+      "hostVersion": "1.18.5",
+      "sdd": "superpowers",
+      "sddVersion": "7.0.2",
+      "nativeProbe": [
+        "GET /skill"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "brainstorming": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/brainstorming/SKILL.md",
+        "executing-plans": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/executing-plans/SKILL.md",
+        "verification-before-completion": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/verification-before-completion/SKILL.md",
+        "writing-plans": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/writing-plans/SKILL.md"
+      },
+      "hostObservedIds": [
+        "brainstorming",
+        "change-ready",
+        "change-deliver",
+        "change-prepare",
+        "verification-before-completion",
+        "writing-plans",
+        "executing-plans"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "opencode-openspec",
+      "host": "opencode",
+      "hostVersion": "1.18.5",
+      "sdd": "openspec",
+      "sddVersion": "1.16.0",
+      "nativeProbe": [
+        "GET /skill"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "openspec-apply-change": "<project>/.opencode/skills/openspec-apply-change/SKILL.md",
+        "openspec-archive-change": "<project>/.opencode/skills/openspec-archive-change/SKILL.md",
+        "openspec-propose": "<project>/.opencode/skills/openspec-propose/SKILL.md"
+      },
+      "hostObservedIds": [
+        "openspec-propose",
+        "change-ready",
+        "openspec-archive-change",
+        "change-deliver",
+        "change-prepare",
+        "openspec-apply-change"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "opencode-spec-kit",
+      "host": "opencode",
+      "hostVersion": "1.18.5",
+      "sdd": "spec-kit",
+      "sddVersion": "1.3.2",
+      "nativeProbe": [
+        "GET /skill",
+        "GET /command"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "speckit.constitution": "<project>/.opencode/commands/speckit.constitution.md",
+        "speckit.converge": "<project>/.opencode/commands/speckit.converge.md",
+        "speckit.implement": "<project>/.opencode/commands/speckit.implement.md",
+        "speckit.plan": "<project>/.opencode/commands/speckit.plan.md",
+        "speckit.specify": "<project>/.opencode/commands/speckit.specify.md",
+        "speckit.tasks": "<project>/.opencode/commands/speckit.tasks.md"
+      },
+      "hostObservedIds": [
+        "change-ready",
+        "change-prepare",
+        "change-deliver",
+        "speckit.tasks",
+        "speckit.specify",
+        "speckit.implement",
+        "speckit.constitution",
+        "speckit.converge",
+        "speckit.plan"
+      ],
+      "nativeSourceMatch": true
+    }
+  ],
+  "additional": [
+    {
+      "caseId": "opencode-superpowers-npm-alias-shadowed-user",
+      "host": "opencode",
+      "hostVersion": "1.18.5",
+      "sdd": "superpowers",
+      "sddVersion": "7.0.2",
+      "nativeProbe": [
+        "GET /skill"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "brainstorming": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/brainstorming/SKILL.md",
+        "executing-plans": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/executing-plans/SKILL.md",
+        "verification-before-completion": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/verification-before-completion/SKILL.md",
+        "writing-plans": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/writing-plans/SKILL.md"
+      },
+      "hostObservedIds": [
+        "brainstorming",
+        "change-ready",
+        "change-deliver",
+        "change-prepare",
+        "executing-plans",
+        "writing-plans",
+        "verification-before-completion"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "omp-superpowers-marketplace-provider-18.19.0",
+      "host": "omp",
+      "hostVersion": "omp/18.19.0",
+      "sdd": "superpowers",
+      "sddVersion": "7.0.2",
+      "nativeProbe": [
+        "RPC get_available_commands",
+        "native OMP SDK skill URI resolution and slash command content"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "brainstorming": "<home>/.claude/plugins/cache/official/superpowers/7.0.2/skills/brainstorming/SKILL.md",
+        "executing-plans": "<home>/.claude/plugins/cache/official/superpowers/7.0.2/skills/executing-plans/SKILL.md",
+        "verification-before-completion": "<home>/.claude/plugins/cache/official/superpowers/7.0.2/skills/verification-before-completion/SKILL.md",
+        "writing-plans": "<home>/.claude/plugins/cache/official/superpowers/7.0.2/skills/writing-plans/SKILL.md"
+      },
+      "hostObservedIds": [
+        "brainstorming",
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "executing-plans",
+        "verification-before-completion",
+        "writing-plans"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "omp-superpowers-omp-marketplace",
+      "host": "omp",
+      "hostVersion": "omp/18.1.13",
+      "sdd": "superpowers",
+      "sddVersion": "7.0.2",
+      "nativeProbe": [
+        "RPC get_available_commands",
+        "native OMP SDK skill URI resolution and slash command content"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "brainstorming": "<home>/.omp/plugins/cache/plugins/superpowers-dev___superpowers___7.0.2/skills/brainstorming/SKILL.md",
+        "executing-plans": "<home>/.omp/plugins/cache/plugins/superpowers-dev___superpowers___7.0.2/skills/executing-plans/SKILL.md",
+        "verification-before-completion": "<home>/.omp/plugins/cache/plugins/superpowers-dev___superpowers___7.0.2/skills/verification-before-completion/SKILL.md",
+        "writing-plans": "<home>/.omp/plugins/cache/plugins/superpowers-dev___superpowers___7.0.2/skills/writing-plans/SKILL.md"
+      },
+      "hostObservedIds": [
+        "brainstorming",
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "executing-plans",
+        "verification-before-completion",
+        "writing-plans"
+      ],
+      "nativeSourceMatch": true
+    },
+    {
+      "caseId": "omp-superpowers-loneexile-18.19.0",
+      "host": "omp",
+      "hostVersion": "omp/18.19.0",
+      "sdd": "superpowers",
+      "sddVersion": "7.0.2-omp.3",
+      "nativeProbe": [
+        "RPC get_available_commands",
+        "native OMP SDK skill URI resolution and slash command content"
+      ],
+      "outcome": "passed",
+      "previewExit": 3,
+      "applyExit": 0,
+      "threeWorkflowReferences": true,
+      "selectedSources": {
+        "brainstorming": "<outside-isolated-fixture>/SKILL.md",
+        "executing-plans": "<outside-isolated-fixture>/SKILL.md",
+        "verification-before-completion": "<outside-isolated-fixture>/SKILL.md",
+        "writing-plans": "<outside-isolated-fixture>/SKILL.md"
+      },
+      "hostObservedIds": [
+        "brainstorming",
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "executing-plans",
+        "verification-before-completion",
+        "writing-plans"
+      ],
+      "nativeSourceMatch": true
+    }
+  ],
+  "negativeControls": [
+    {
+      "caseId": "opencode-superpowers-npm-alias-project-disabled",
+      "commit": "3541767",
+      "host": "opencode",
+      "hostVersion": "1.18.5",
+      "sdd": "superpowers",
+      "modelRequests": 0,
+      "scope": "Rigup production CLI review and independent apply, followed by native host discovery. No assistant turn, remote credential, or SDD gate execution.",
+      "startedAt": "2026-11-16T15:17:43Z",
+      "sddVersion": "7.0.2",
+      "expectedNativeIds": [
+        "brainstorming",
+        "writing-plans",
+        "executing-plans",
+        "verification-before-completion"
+      ],
+      "expectedRigupIds": [
+        "change-prepare",
+        "change-ready",
+        "change-deliver"
+      ],
+      "rigupPreview": {
+        "exit": 3,
+        "phase": "preview",
+        "executable": false,
+        "reason": "[{'integrationId': 'superpowers', 'kind': 'sdd-binding', 'agent': 'opencode', 'reason': 'opencode: OPENCODE_DISABLE_PROJECT_CONFIG prevents Rigup project entries; unset it or set it to false before preparing this project; Configure the official Superpowers plugin and restart OpenCode', 'nextCommand': 'Configure the official Superpowers plugin and restart OpenCode'}]"
+      },
+      "nativeProbe": [
+        "GET /skill"
+      ],
+      "observed": [
+        {
+          "id": "executing-plans",
+          "source": "skill",
+          "expectedSource": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/executing-plans/SKILL.md",
+          "path": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/executing-plans/SKILL.md",
+          "sourceMatch": true
+        },
+        {
+          "id": "writing-plans",
+          "source": "skill",
+          "expectedSource": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/writing-plans/SKILL.md",
+          "path": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/writing-plans/SKILL.md",
+          "sourceMatch": true
+        },
+        {
+          "id": "brainstorming",
+          "source": "skill",
+          "expectedSource": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/brainstorming/SKILL.md",
+          "path": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/brainstorming/SKILL.md",
+          "sourceMatch": true
+        },
+        {
+          "id": "verification-before-completion",
+          "source": "skill",
+          "expectedSource": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/verification-before-completion/SKILL.md",
+          "path": "<home>/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git#v7.0.2/node_modules/superpowers/skills/verification-before-completion/SKILL.md",
+          "sourceMatch": true
+        }
+      ],
+      "missingIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready"
+      ],
+      "nativeSourcesVerified": false,
+      "outcome": "partial",
+      "finishedAt": "2026-11-16T15:17:46Z"
+    },
+    {
+      "caseId": "opencode-spec-kit-project-disabled",
+      "commit": "3541767",
+      "host": "opencode",
+      "hostVersion": "1.18.5",
+      "sdd": "spec-kit",
+      "modelRequests": 0,
+      "scope": "Rigup production CLI review and independent apply, followed by native host discovery. No assistant turn, remote credential, or SDD gate execution.",
+      "startedAt": "2026-11-16T15:17:42Z",
+      "sddVersion": "1.3.2",
+      "expectedNativeIds": [
+        "speckit.constitution",
+        "speckit.specify",
+        "speckit.plan",
+        "speckit.tasks",
+        "speckit.implement",
+        "speckit.converge"
+      ],
+      "expectedRigupIds": [
+        "change-prepare",
+        "change-ready",
+        "change-deliver"
+      ],
+      "rigupPreview": {
+        "exit": 3,
+        "phase": "preview",
+        "executable": false,
+        "reason": "[{'integrationId': 'spec-kit', 'kind': 'sdd-binding', 'agent': 'opencode', 'reason': \"opencode: OPENCODE_DISABLE_PROJECT_CONFIG prevents Rigup project entries; unset it or set it to false before preparing this project; cd '<project>' && specify integration upgrade opencode; if specify is unavailable, use uvx --from git+https://github.com/github/spec-kit.git@v1.3.2 specify, or uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.3.2\", 'nextCommand': \"cd '<project>' && specify integration upgrade opencode\"}]"
+      },
+      "nativeProbe": [
+        "GET /skill",
+        "GET /command"
+      ],
+      "observed": [],
+      "missingIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "speckit.constitution",
+        "speckit.converge",
+        "speckit.implement",
+        "speckit.plan",
+        "speckit.specify",
+        "speckit.tasks"
+      ],
+      "nativeSourcesVerified": false,
+      "outcome": "partial",
+      "finishedAt": "2026-11-16T15:17:46Z"
+    },
+    {
+      "caseId": "omp-superpowers-marketplace",
+      "commit": "3541767",
+      "host": "omp",
+      "hostVersion": "omp/18.1.13",
+      "sdd": "superpowers",
+      "modelRequests": 0,
+      "scope": "Rigup production CLI review and independent apply, followed by native host discovery. No assistant turn, remote credential, or SDD gate execution.",
+      "startedAt": "2026-11-16T15:17:47Z",
+      "sddVersion": "7.0.2",
+      "expectedNativeIds": [
+        "brainstorming",
+        "writing-plans",
+        "executing-plans",
+        "verification-before-completion"
+      ],
+      "expectedRigupIds": [
+        "change-prepare",
+        "change-ready",
+        "change-deliver"
+      ],
+      "rigupPreview": {
+        "exit": 3,
+        "phase": "preview",
+        "executable": false,
+        "reason": "[{'integrationId': 'superpowers', 'kind': 'sdd-binding', 'agent': 'omp', 'reason': 'omp: missing native entry: superpowers:brainstorming; Install or enable Superpowers in the OMP Marketplace or with omp plugin install omp-superpowers', 'nextCommand': 'Install or enable Superpowers in the OMP Marketplace or with omp plugin install omp-superpowers'}]"
+      },
+      "nativeProbe": [
+        "RPC get_available_commands",
+        "native OMP SDK skill URI resolution and slash command content"
+      ],
+      "observed": [],
+      "missingIds": [
+        "brainstorming",
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "executing-plans",
+        "verification-before-completion",
+        "writing-plans"
+      ],
+      "nativeSourcesVerified": false,
+      "outcome": "partial",
+      "finishedAt": "2026-11-16T15:17:54Z"
+    },
+    {
+      "caseId": "omp-superpowers-marketplace-18.19.0",
+      "commit": "3541767",
+      "host": "omp",
+      "hostVersion": "omp/18.19.0",
+      "sdd": "superpowers",
+      "modelRequests": 0,
+      "scope": "Rigup production CLI review and independent apply, followed by native host discovery. No assistant turn, remote credential, or SDD gate execution.",
+      "startedAt": "2026-11-16T15:18:02Z",
+      "sddVersion": "7.0.2",
+      "expectedNativeIds": [
+        "brainstorming",
+        "writing-plans",
+        "executing-plans",
+        "verification-before-completion"
+      ],
+      "expectedRigupIds": [
+        "change-prepare",
+        "change-ready",
+        "change-deliver"
+      ],
+      "rigupPreview": {
+        "exit": 3,
+        "phase": "preview",
+        "executable": false,
+        "reason": "[{'integrationId': 'superpowers', 'kind': 'sdd-binding', 'agent': 'omp', 'reason': 'omp: missing native entry: superpowers:brainstorming; Install or enable Superpowers in the OMP Marketplace or with omp plugin install omp-superpowers', 'nextCommand': 'Install or enable Superpowers in the OMP Marketplace or with omp plugin install omp-superpowers'}]"
+      },
+      "nativeProbe": [
+        "RPC get_available_commands",
+        "native OMP SDK skill URI resolution and slash command content"
+      ],
+      "observed": [],
+      "missingIds": [
+        "brainstorming",
+        "change-deliver",
+        "change-prepare",
+        "change-ready",
+        "executing-plans",
+        "verification-before-completion",
+        "writing-plans"
+      ],
+      "nativeSourcesVerified": false,
+      "outcome": "partial",
+      "finishedAt": "2026-11-16T15:18:09Z"
+    },
+    {
+      "caseId": "claude-superpowers-local-stale-approval",
+      "host": "claude",
+      "hostVersion": "2.1.273",
+      "sddVersion": "7.0.2",
+      "commit": "3541767",
+      "modelRequests": 0,
+      "scope": "Genuine local marketplace and independently saved Rigup preview. After preview only the callable local marketplace skill was edited. Claude SDK initialize confirmed its changed description. Then approved apply was attempted against the saved preview. Disposable fixture only.",
+      "previewExecutable": true,
+      "nativeHostSawChangedSource": true,
+      "installedCacheUnchanged": true,
+      "applyStatus": "failed",
+      "rigupSkillsWritten": []
+    },
+    {
+      "caseId": "claude-superpowers-local-catalog-change",
+      "host": "claude",
+      "hostVersion": "2.1.273",
+      "sddVersion": "7.0.2",
+      "commit": "3541767",
+      "modelRequests": 0,
+      "scope": "Genuine local marketplace and independently saved Rigup preview. After preview the local marketplace catalog selected a different contained plugin directory. Claude SDK initialize confirmed its changed description. Then approved apply was attempted against the saved preview. Disposable fixture only.",
+      "previewExecutable": true,
+      "nativeHostSawChangedSource": true,
+      "installedCacheUnchanged": true,
+      "applyStatus": "failed",
+      "rigupSkillsWritten": []
+    }
+  ],
+  "limitations": [
+    "OpenCode V2 was unavailable in the checked live environment."
+  ],
+  "ompConfigurationControls": [
+    {
+      "caseId": "omp-spec-kit-gate-master",
+      "commit": "b9e784f",
+      "hostVersion": "18.1.13",
+      "sddVersion": "1.3.2",
+      "outcome": "passed",
+      "nativeVisibleSpecKitFileIds": [
+        "speckit.constitution",
+        "speckit.converge",
+        "speckit.implement",
+        "speckit.plan",
+        "speckit.specify",
+        "speckit.tasks"
+      ],
+      "nativeVisibleRigupSlashIds": [],
+      "nativeResolvedRigupSkillUriIds": [],
+      "rigupPreviewExecutable": false
+    },
+    {
+      "caseId": "omp-spec-kit-gate-master",
+      "commit": "b9e784f",
+      "hostVersion": "18.19.0",
+      "sddVersion": "1.3.2",
+      "outcome": "passed",
+      "nativeVisibleSpecKitFileIds": [
+        "speckit.constitution",
+        "speckit.converge",
+        "speckit.implement",
+        "speckit.plan",
+        "speckit.specify",
+        "speckit.tasks"
+      ],
+      "nativeVisibleRigupSlashIds": [],
+      "nativeResolvedRigupSkillUriIds": [],
+      "rigupPreviewExecutable": false
+    },
+    {
+      "caseId": "omp-spec-kit-gate-project",
+      "commit": "b9e784f",
+      "hostVersion": "18.1.13",
+      "sddVersion": "1.3.2",
+      "outcome": "passed",
+      "nativeVisibleSpecKitFileIds": [
+        "speckit.constitution",
+        "speckit.converge",
+        "speckit.implement",
+        "speckit.plan",
+        "speckit.specify",
+        "speckit.tasks"
+      ],
+      "nativeVisibleRigupSlashIds": [],
+      "nativeResolvedRigupSkillUriIds": [],
+      "rigupPreviewExecutable": false
+    },
+    {
+      "caseId": "omp-spec-kit-gate-project",
+      "commit": "b9e784f",
+      "hostVersion": "18.19.0",
+      "sddVersion": "1.3.2",
+      "outcome": "passed",
+      "nativeVisibleSpecKitFileIds": [
+        "speckit.constitution",
+        "speckit.converge",
+        "speckit.implement",
+        "speckit.plan",
+        "speckit.specify",
+        "speckit.tasks"
+      ],
+      "nativeVisibleRigupSlashIds": [],
+      "nativeResolvedRigupSkillUriIds": [],
+      "rigupPreviewExecutable": false
+    },
+    {
+      "caseId": "omp-spec-kit-gate-slash",
+      "commit": "b9e784f",
+      "hostVersion": "18.1.13",
+      "sddVersion": "1.3.2",
+      "outcome": "passed",
+      "nativeVisibleSpecKitFileIds": [
+        "speckit.constitution",
+        "speckit.converge",
+        "speckit.implement",
+        "speckit.plan",
+        "speckit.specify",
+        "speckit.tasks"
+      ],
+      "nativeVisibleRigupSlashIds": [],
+      "nativeResolvedRigupSkillUriIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready"
+      ],
+      "rigupPreviewExecutable": true
+    },
+    {
+      "caseId": "omp-spec-kit-gate-slash",
+      "commit": "b9e784f",
+      "hostVersion": "18.19.0",
+      "sddVersion": "1.3.2",
+      "outcome": "passed",
+      "nativeVisibleSpecKitFileIds": [
+        "speckit.constitution",
+        "speckit.converge",
+        "speckit.implement",
+        "speckit.plan",
+        "speckit.specify",
+        "speckit.tasks"
+      ],
+      "nativeVisibleRigupSlashIds": [],
+      "nativeResolvedRigupSkillUriIds": [
+        "change-deliver",
+        "change-prepare",
+        "change-ready"
+      ],
+      "rigupPreviewExecutable": true
+    }
+  ]
+}

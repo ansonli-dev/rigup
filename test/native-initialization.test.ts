@@ -52,7 +52,9 @@ test('unowned wiki and index remain untouched and are never implicitly adopted',
  await mkdir(root+'/.codegraph');await writeFile(root+'/.codegraph/config.json','Customer index configuration');
  const prepared=await prepareToolFixture(await scanRepository(root,options),options);
  assert.equal(prepared.operations.filter(o=>o.kind==='initialize').length,0);
- assert.equal(prepared.requirements.length,1);
+ assert.deepEqual(prepared.requirements,[]);
+ assert.ok(prepared.operations.some(operation=>operation.id==='install:codegraph'));
+ assert.ok(prepared.warnings.some(warning=>warning.includes('existing index kept')));
  assert.equal(await readFile(root+'/openwiki/quickstart.md','utf8'),'Customer wiki');
  assert.equal(await readFile(root+'/.codegraph/config.json','utf8'),'Customer index configuration');
 }));

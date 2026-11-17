@@ -26,12 +26,6 @@ export interface SddBinding {
  projectSources?:string[];
 }
 
-interface PendingBinding {
- status:'pending';
- id:string;
- reason:string;
-}
-
 export interface SkillSource {
  name:string;
  origin:'plugin'|'local'|'managed'|'unknown';
@@ -39,6 +33,9 @@ export interface SkillSource {
  digest?:string;
  satisfies:boolean;
  nativeName?:string;
+ packageName?:string;
+ sourceFingerprint?:string;
+ problem?:string;
 }
 
 export function unqualifiedSkillName(name:string):string {
@@ -67,9 +64,8 @@ function availableEntry(name:string,id:string,available:string[]):string|undefin
  return [name,base,id+':'+base].find(candidate=>available.includes(candidate));
 }
 
-export function bindSdd(id:string,agent:string,available:string[]):SddBinding|PendingBinding {
+export function bindSdd(id:string,agent:string,available:string[]):SddBinding {
  if(!['claude','codex','opencode','omp'].includes(agent)) throw new Error('unsupported host');
- if(id===superpowers.id && agent==='omp') return {status:'pending',id,reason:'OMP-specific Superpowers binding not verified; Pi support is not evidence for OMP'};
  const descriptor=descriptors.find(candidate=>candidate.id===id);
  if(!descriptor) throw new Error('unsupported SDD');
  const nativeName=(name:string)=>{
@@ -86,21 +82,20 @@ export function resolveSkillSource(name:string,sources:SkillSource[],selectedIde
  const matches=sources.filter(source=>source.name===name && (!selectedIdentity || source.identity===selectedIdentity));
  if(!matches.length) throw new Error('missing skill source: '+name);
  if(matches.some(source=>source.origin==='unknown' || !source.satisfies))
-  throw new Error('skill source unknown or dependency needs verification');
+  throw new Error(matches.find(source=>source.problem)?.problem??'skill source unknown or dependency needs verification');
  if(matches.length>1 && (!matches[0].digest || matches.some(source=>source.digest!==matches[0].digest))){
   throw new Error('skill source conflict: select an explicit identity');
  }
  return matches.find(source=>source.origin==='plugin') ?? matches[0];
 }
 
-export function resolveSddBinding(id:string,agent:string,available:string[],sources:SkillSource[],files:string[]):{binding:SddBinding|PendingBinding;warnings:string[]} {
+export function resolveSddBinding(id:string,agent:string,available:string[],sources:SkillSource[],files:string[]):{binding:SddBinding;warnings:string[]} {
  const binding=bindSdd(id,agent,available);
  const warnings:string[]=[];
- if(binding.status==='pending') return {binding,warnings};
  const descriptor=descriptors.find(candidate=>candidate.id===id)!;
  const resolveEntry=(name:string)=>{
   const base=unqualifiedSkillName(name);
-  const candidates=sources.filter(source=>source.name===name || source.name===base || source.name===id+':'+base);
+  const candidates=sources.filter(source=>source.name===name);
   return resolveSkillSource(base,candidates.map(source=>({...source,name:base,nativeName:source.name})));
  };
  const prepare=binding.prepare.map(resolveEntry);
@@ -112,9 +107,12 @@ export function resolveSddBinding(id:string,agent:string,available:string[],sour
   catch {warnings.push(agent+': '+name+' needs source reconciliation');return [];}
  });
  const revise=optional.find(source=>unqualifiedSkillName(source.nativeName!)===descriptor.revise)?.nativeName;
+ const selected=[...prepare,...deliver];
+ const community=agent==='omp'&&id==='superpowers'&&selected.some(source=>source.packageName==='@loneexile/omp-superpowers');
+ if(community&&selected.some(source=>source.packageName!=='@loneexile/omp-superpowers'))throw Error('skill source conflict: select one complete Superpowers workflow');
  const projectSources=[...prepare,...deliver,...optional].map(source=>source.identity).filter(path=>files.includes(path));
  return {
-  binding:{...binding,prepare:prepare.map(source=>source.nativeName!),deliver:deliver.map(source=>source.nativeName!),revise,projectSources},
+  binding:{...binding,...(community?{artifacts:['docs/specs','docs/plans'],gates:['Retain design approval before planning and explicit approval before implementation','Follow the community native testing, review and verification requirements']}:{}),prepare:prepare.map(source=>source.nativeName!),deliver:deliver.map(source=>source.nativeName!),revise,projectSources},
   warnings,
  };
 }

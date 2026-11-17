@@ -19,6 +19,7 @@ import {loadManifest,sourceReview,trustedBaseline,type Manifest} from '../instal
 import {acquireLock,defaultStateRoot} from '../installer/lock.js';
 import {absentDigest,installationInput,LegacyPreviewError,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
 import {defaultNpmRegistry,type NpmView} from '../integrations/tools/npm-resolution.js';
+import {inspectOpenSpecForSetup,interruptedOpenSpecPreparation,type OpenSpecRuntimeIdentity} from '../integrations/sdd/openspec-setup.js';
 import {selectedNpmRegistry} from '../runtime-inputs.js';
 import {platformFileMode,readFileState,readFileStates,matchesFileState} from '../installer/file-state.js';
 import {equalOwnedContent,ownedContent} from '../installer/ownership.js';
@@ -45,7 +46,7 @@ interface ResearchState {
  accepted:Record<string,string>;inFlight?:{id:string;digest:string};
  result?:{previewId:string;inventory:string;retireIds?:string[]};
 }
-export interface ResearchReply {status:'planning'|'page'|'ready'|'noop'|'preview';runId:string;job?:Job;instructions?:string;previewId?:string;preview?:Preview;nextCommand?:string}
+export interface ResearchReply {status:'planning'|'page'|'ready'|'noop'|'preview'|'pending';runId?:string;job?:Job;instructions?:string;previewId?:string;preview?:Preview;pending?:string[];nextCommand?:string}
 class AwaitingJob extends Error {
  constructor(readonly job:Job){super('Research is waiting for a submitted job');}
 }
@@ -75,7 +76,7 @@ async function previewStillCurrent(root:string,data:PreviewData,stateRoot:string
   const expected=files.get(target)!;
   if(!matchesFileState(state,expected.observedDigest,expected.observedMode))return false;
  }
- return await installationInput(root,data.plan,data.files.map(file=>file.target)).catch(()=>undefined)===data.inputSnapshot;
+ return await installationInput(root,data.plan,data.files.map(file=>file.target),stateRoot).catch(()=>undefined)===data.inputSnapshot;
 }
 
 async function installedAssetsMatch(root:string,manifest:Manifest):Promise<boolean>{
@@ -141,9 +142,17 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
    const fallback=config&&manifest.assets.some(asset=>asset.logicalId==='rigup:configuration')?undefined:manifest.options;
    const options=await loadOptions(root,language?{documentLanguage:language}:{},undefined,{fallback});
    if(!options.projectRules||!options.agents.includes(host))throw Error('Enable project rules and apply the selection for this host before starting research');
+   let openSpecRuntime:OpenSpecRuntimeIdentity|undefined;
+   if(options.sdd==='openspec'){
+    const interrupted=await interruptedOpenSpecPreparation(root,lock.stateRoot);
+    if(interrupted)return {status:'pending',runId:state?.id,pending:interrupted.requirements,nextCommand:interrupted.nextCommand};
+    const native=await inspectOpenSpecForSetup(root,options,lock.stateRoot);
+    if(!native.runtime)return {status:'pending',runId:state?.id,pending:native.requirements,nextCommand:native.steps.join(' && ')||undefined};
+    openSpecRuntime=native.runtime;
+   }
    const profile=await scanRepository(root,options);
    if(profile.researchBlocked)throw Error(profile.researchBlocked);
-   const scope=signature({root,host,options,fingerprint:profile.fingerprint,sourceGuidance:sourceGuidance(profile,options),config:config&&digest(config),policy});
+   const scope=signature({root,host,options,fingerprint:profile.fingerprint,sourceGuidance:sourceGuidance(profile,options),config:config&&digest(config),policy,openSpecRuntime});
    const currentInventory=inventorySignature(manifest.assets);
    const pendingSourceReview=await sourceReview(root,manifest,lock.stateRoot);
    const lastResultApplied=!pendingSourceReview&&state?.scope===scope&&state.result?.inventory===currentInventory&&manifest.projectRules==='ready'&&signature(manifest.options)===signature(options);
@@ -168,6 +177,7 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
     let preview=saved?.preview;
     if(!saved||signature(retireIds??[])!==signature(state.result.retireIds??[])||!await previewStillCurrent(root,saved,lock.stateRoot)){
      const regenerated=await advanceResearch(root,host,state,path,options,profile.fingerprint,undefined,{cacheRoot,stateRoot:lock.stateRoot,npmView:dependencies.npmView},retireIds);
+     if(regenerated.status==='pending')return regenerated;
      if(regenerated.status!=='ready')throw Error('Research generation state could not restore the preview');
      preview=(await load()).preview;
     }
@@ -226,6 +236,8 @@ async function advanceResearch(root:string,host:Agent,state:ResearchState,path:s
   if(consumed){delete state.inFlight;await persist();}
   throw error;
  }
+ if(report?.reason==='openspec-preparation'&&Array.isArray(report.pending))
+  return {status:'pending',runId:state.id,pending:report.pending,nextCommand:typeof report.nextCommand==='string'?report.nextCommand:undefined};
  if(!report||!validDigest(report.previewId))throw Error('Research could not prepare a project preview');
  const stored=await loadPreview(report.previewId,join(paths.cacheRoot,'previews'));
  await settle();

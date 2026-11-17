@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import {join} from 'node:path';import assert from 'node:assert/strict';
-import {openspecFixturePath,project} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
+import {openspecFixturePath,project,testEnvironment,writeOpenSpecCodexEntries} from './helpers.js';import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
 import {runCli} from '../src/cli.js';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {preview} from '../src/installer/preview.js';
@@ -9,11 +9,9 @@ import {loadContinuation} from '../src/lifecycle.js';
 import {CodexTokenLimit} from '../src/analyzer/budget.js';
 import {parse,stringify} from 'smol-toml';
 async function fixture(fn:(root:string,cache:string,state:string)=>Promise<void>){await project(async root=>project(async cache=>project(async state=>fn(root,cache,state))));}
-for(const interactive of [false,true])test('CLI budget handoff retains '+(interactive?'post-preview approval':'dry-run mode'),()=>fixture(async(root,cache,state)=>{
- for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
-  const dir=root+'/.agents/skills/'+name;await mkdir(dir,{recursive:true});
-  await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\n');
- }
+for(const interactive of [false,true])test('CLI budget handoff retains '+(interactive?'post-preview approval':'dry-run mode'),t=>fixture(async(root,cache,state)=>{
+ await writeOpenSpecCodexEntries(root);
+ testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  let output='';const ids:string[]=[];
  const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend:{run:async (request:import('../src/analyzer/backend.js').ResearchRequest)=>{
   ids.push(request.runId);assert.equal(request.budget.maxTokens,1_200_000);
@@ -33,11 +31,9 @@ for(const interactive of [false,true])test('CLI budget handoff retains '+(intera
  assert.equal(new Set(ids).size,1);assert.equal(ids.length,3);assert.equal(JSON.parse(output).phase,interactive?'handoff':'preview');
  await assert.rejects(readFile(root+'/.rigup/manifest.json'),{code:'ENOENT'});
 }));
-test('research continuation keeps its explicit limit and stops at an unrelated interrupted apply',()=>fixture(async(root,cache,state)=>{
- for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
-  const dir=root+'/.agents/skills/'+name;await mkdir(dir,{recursive:true});
-  await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\n');
- }
+test('research continuation keeps its explicit limit and stops at an unrelated interrupted apply',t=>fixture(async(root,cache,state)=>{
+ await writeOpenSpecCodexEntries(root);
+ testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  let output='';
  const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--review','--research-tokens','1','--json'],io),3,output);
@@ -128,7 +124,9 @@ test('research_reader_budget_survives_lifecycle_pause_and_new_cli_instance',()=>
  let output='';const io=()=>({cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}});
  assert.equal(await runCli(['init','--json'],io()),3);output='';assert.equal(await runCli(['update','--json'],io()),1);assert.match(JSON.parse(output).error,/reader.*budget/);
 }));
-test('resume finds the saved OpenSpec research after optional external entries become visible',()=>fixture(async(root,cache,state)=>project(async home=>{
+test('resume finds the saved OpenSpec research after optional external entries become visible',t=>fixture(async(root,cache,state)=>project(async home=>{
+ await writeOpenSpecCodexEntries(root);
+ testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  const previousHome=process.env.CODEX_HOME;
  process.env.CODEX_HOME=home;
  try{
@@ -153,7 +151,9 @@ test('resume finds the saved OpenSpec research after optional external entries b
   if(previousHome===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previousHome;
  }
 })));
-test('failed_native_research_retains_spent_budget_before_retry',()=>fixture(async(root,cache,state)=>{
+test('failed_native_research_retains_spent_budget_before_retry',t=>fixture(async(root,cache,state)=>{
+ await writeOpenSpecCodexEntries(root);
+ testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  const {ResearchFailure}=await import('../src/analyzer/backend.js');await writeFile(root+'/source.txt','source');await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({agents:['codex'],sdd:'openspec',backend:'native',researchBudget:{maxCalls:2,maxTokens:100}}));
  let requests=0;const backend={run:async(r:any)=>{if(r.spent?.calls>=2)throw new ResearchFailure('restored research budget exhausted');requests++;throw new ResearchFailure('provider returned invalid research JSON',undefined,{calls:2,tokens:20});}};
  for(let i=0;i<2;i++)assert.equal(await runCli(['init','--dry-run'],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend}}),1);
@@ -191,16 +191,15 @@ test('upgrade replaces an owned MCP launcher after explicit retirement and prese
  assert.deepEqual({...config.mcp_servers.knowledge},{command:'node',args:['server.mjs'],cwd:root,env_vars:[]});
  assert.equal(config.mcp_servers.customer.url,'https://example.org/mcp');
 }));
-test('model_cli_overrides_update_individual_fields_without_discarding_existing_key_reference',()=>fixture(async(root,cache,state)=>{
+test('model_cli_overrides_update_individual_fields_without_discarding_existing_key_reference',t=>fixture(async(root,cache,state)=>{
+ await writeOpenSpecCodexEntries(root);
+ testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({agents:['codex'],sdd:'openspec',backend:'native',model:{provider:'anthropic',model:'existing-model',apiKeyEnv:'EXISTING_KEY'}}));
- for(const [args,model,ref]of [[['--api-key-env','NEW_KEY'],'existing-model','NEW_KEY'],[['--model','new-model'],'new-model','EXISTING_KEY']]as const){const requests:any[]=[];const code=await runCli(['init','--dry-run',...args],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{requests.push(r);return{status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};}}}});assert.equal(code,3);assert.equal(requests[0].options.model.model,model);assert.equal(requests[0].options.model.apiKeyEnv,ref);}
+ for(const [args,model,ref]of [[['--api-key-env','NEW_KEY'],'existing-model','NEW_KEY'],[['--model','new-model'],'new-model','EXISTING_KEY']]as const){const requests:any[]=[];const code=await runCli(['init','--dry-run',...args],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{requests.push(r);return{status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};}}}});assert.equal(code,0);assert.equal(requests[0].options.model.model,model);assert.equal(requests[0].options.model.apiKeyEnv,ref);}
 }));
-test('deferred setup installs the selected workflow before a separately reviewed rules update',()=>fixture(async(root,cache,state)=>{
- for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
-  const directory=root+'/.agents/skills/'+name;await mkdir(directory,{recursive:true});
-  await writeFile(directory+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\n');
- }
- const fixturePath=await openspecFixturePath(root,cache);
+test('deferred setup installs the selected workflow before a separately reviewed rules update',t=>fixture(async(root,cache,state)=>{
+ await writeOpenSpecCodexEntries(root);
+ testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  await writeFile(root+'/policy.md','Project policy.\n');
  await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml','agents: [codex]\nbackend: host\n');
  const requests:string[]=[];
@@ -217,15 +216,10 @@ test('deferred setup installs the selected workflow before a separately reviewed
   let output='';const code=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:s=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}});
   return {code,...JSON.parse(output)};
  };
- const path=process.env.PATH;
- process.env.PATH=fixturePath;
- let installed;
- try{
-  const base=await cli('init','--agents','codex','--sdd','openspec','--backend','codex','--defer-research');
-  assert.equal(base.code,3);assert.equal(base.phase,'handoff');assert.equal(base.projectRules,'pending');assert.deepEqual(requests,[]);
-  await assert.rejects(()=>readFile(root+'/.agents/skills/change-prepare/SKILL.md'),{code:'ENOENT'});
-  installed=await cli('update','--apply',base.previewId,'--sessions-ended');
- }finally{process.env.PATH=path;}
+ const base=await cli('init','--agents','codex','--sdd','openspec','--backend','codex','--defer-research');
+ assert.equal(base.code,3);assert.equal(base.phase,'handoff');assert.equal(base.projectRules,'pending');assert.deepEqual(requests,[]);
+ await assert.rejects(()=>readFile(root+'/.agents/skills/change-prepare/SKILL.md'),{code:'ENOENT'});
+ const installed=await cli('update','--apply',base.previewId,'--sessions-ended');
  assert.equal(installed.code,0);assert.equal(installed.projectRules,'pending');assert.match(installed.nextCommand,/rigup update .*--review/);
  const reference=root+'/.agents/skills/change-prepare/references/project.md';
  assert.match(await readFile(reference,'utf8'),/Project rules are pending/);

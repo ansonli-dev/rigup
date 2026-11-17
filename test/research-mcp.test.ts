@@ -155,6 +155,23 @@ test('provider-free OpenSpec review resolves retained references after applying 
   const finished=await mcp.call('rigup_finish',{runId});
   const applied=await run(['update','--apply',finished.previewId!,'--sessions-ended'],0);
   assert.equal(applied.projectRules,'ready');
+ assert.equal((await mcp.call('rigup_begin',{root,mode:'update'})).status,'noop');
+
+ const nativeConfig=join(root,'openspec/config.yaml');
+ const originalConfig=await readFile(nativeConfig);
+ await rm(nativeConfig);
+ const missingRoot=await mcp.call('rigup_begin',{root,mode:'update'});
+ assert.equal(missingRoot.status,'pending');
+ assert.match(missingRoot.nextCommand??'',/--prepare-openspec --install-scope project/);
+ await writeFile(nativeConfig,originalConfig);
+
+ const consumerPath=process.env.RIGUP_CONSUMER_PATH;
+ process.env.RIGUP_CONSUMER_PATH=stateRoot;
+ try{
+  const missingCli=await mcp.call('rigup_finish',{runId});
+  assert.equal(missingCli.status,'pending');
+  assert.match(missingCli.nextCommand??'',/--prepare-openspec --install-scope project/);
+ }finally{if(consumerPath===undefined)delete process.env.RIGUP_CONSUMER_PATH;else process.env.RIGUP_CONSUMER_PATH=consumerPath;}
 
   const reference=join(root,'.claude','skills','change-prepare','references','project.md');
   const installed=await readFile(reference,'utf8');

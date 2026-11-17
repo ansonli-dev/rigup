@@ -1,0 +1,70 @@
+{
+  "caseId": "omp/none/customer-mcp-canary-slash-toggle",
+  "rigupCommit": "9883a90",
+  "hostVersion": "omp/18.19.0",
+  "runtime": "Bun 1.4.4",
+  "platform": "darwin-arm64",
+  "rigupApplyStatus": "complete",
+  "modelRequests": 0,
+  "scope": "Exact historical Rigup generated custom skill and optional MCP fixture in an isolated project. OMP RPC only lists commands and reads state; OMP SDK resolves skill and reference URIs. No prompts or real credentials.",
+  "checks": [
+    {
+      "enableSkillCommands": true,
+      "rpcSucceeded": true,
+      "rpcExactSkillMatches": [
+        {
+          "id": "skill:rigup-live-canary",
+          "source": "skill"
+        }
+      ],
+      "historicalSubstringPredicateMatched": true,
+      "mcpMethods": [
+        "initialize",
+        "tools/list"
+      ],
+      "sdkSkillUri": {
+        "id": "skill://rigup-live-canary",
+        "path": "<project>/.omp/skills/rigup-live-canary/SKILL.md",
+        "verified": true,
+        "sha256": "53ebe98211c63a04f40366da01d6384cbfe6475fe0e380c5dbd459e1352792cf"
+      },
+      "sdkReferenceUri": {
+        "id": "skill://rigup-live-canary/references/guide.md",
+        "path": "<project>/.omp/skills/rigup-live-canary/references/guide.md",
+        "verified": true,
+        "expectedMarkerPresent": true
+      }
+    },
+    {
+      "enableSkillCommands": false,
+      "rpcSucceeded": true,
+      "rpcExactSkillMatches": [],
+      "historicalSubstringPredicateMatched": false,
+      "mcpMethods": [
+        "initialize",
+        "tools/list"
+      ],
+      "sdkSkillUri": {
+        "id": "skill://rigup-live-canary",
+        "path": "<project>/.omp/skills/rigup-live-canary/SKILL.md",
+        "verified": true,
+        "sha256": "53ebe98211c63a04f40366da01d6384cbfe6475fe0e380c5dbd459e1352792cf"
+      },
+      "sdkReferenceUri": {
+        "id": "skill://rigup-live-canary/references/guide.md",
+        "path": "<project>/.omp/skills/rigup-live-canary/references/guide.md",
+        "verified": true,
+        "expectedMarkerPresent": true
+      }
+    }
+  ],
+  "historical": {
+    "oldEvidence": "docs/compatibility/evidence/2026-11-04-live/omp-none-customer-mcp.json",
+    "oldReason": "OMP native RPC timeout: get_available_commands",
+    "oldStderrCondition": "No models available",
+    "reproducedStartupConditionWith18_19_0": false,
+    "oldFailureExplanation": "Saved stderr records unavailable models before RPC command discovery; the matching predicate did not run. Exact old OMP version and model/credential registry details were not saved.",
+    "underlyingModelAvailabilityCause": "unresolved"
+  },
+  "outcome": "passed"
+}

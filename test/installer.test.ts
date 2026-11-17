@@ -136,6 +136,22 @@ test('v0.4.0 prompt approvals require a fresh preview unless the same apply is d
  assert.equal((await apply(resumedId,{cacheRoot:cache,lock,recover:true})).status,'complete');
  assert.equal(await readFile(root+'/guide.md','utf8'),'new');
 }));
+test('an older approval explains the version boundary before checking its operation recipe',()=>fixture(async(root,cache,state)=>{
+ const old=await plan(root);
+ old.versions.rigup='0.0.0';
+ const pin=(await loadUpstreamLock()).find(entry=>entry.integrationId==='openwiki')!;
+ const operation=await prepareSoftwareInstall(root,'openwiki',pin.version,pin.packageIntegrity);
+ if('pending' in operation||'reused' in operation)throw Error('fixture');
+ old.operations=[operation];
+ const saved=await preview(old,[],{cacheRoot:cache});
+ assert.equal(saved.executable,true);
+ const {data}=JSON.parse(await readFile(cache+'/'+saved.previewId+'.json','utf8'));
+ for(const [prior] of [data.plan.operations,data.preview.operations])prior.parameters.executable='previous-rigup-runtime';
+ const id=data.preview.previewId=previewIdentity(data);
+ await saveCache(cache+'/'+id+'.json',JSON.stringify({digest:signature(data),data}));
+ await assert.rejects(()=>apply(id,{cacheRoot:cache,stateRoot:state}),/implementation version changed; regenerate preview/i);
+ assert.deepEqual(await readdir(root),[]);
+}));
 for(const [mode,projectRules,directory,file] of [
  ['legacy',undefined,'scripts','setup.sh'],
  ['project rules',true,'workflows','plan.yml'],

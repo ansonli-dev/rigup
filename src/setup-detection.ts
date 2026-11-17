@@ -1,13 +1,15 @@
 import {scanNativeEntries} from './analyzer/repository.js';
-import {agents} from './integrations/agents/index.js';
+import {agents,projectCommandRoots} from './integrations/agents/index.js';
 import {resolveSddBinding,sddDiscoveryNames,unqualifiedSkillName} from './integrations/sdd/binding.js';
-import {codegraph} from './integrations/tools/codegraph.js';
-import {openwiki} from './integrations/tools/openwiki.js';
-import {externalExecutable,npmPathDirectories} from './npm-command.mjs';
+import {consumerPath,externalExecutable,npmPathDirectories} from './npm-command.mjs';
+import {detectExternalTool} from './integrations/tools/global-npm.js';
+import {inspectProjectToolInstall} from './integrations/tools/software.js';
+import type {ToolInstallReceipt} from './integrations/tools/installed-state.js';
+import type {NativeTool} from './integrations/tools/recipes.js';
 import type {Agent,SetupOptions} from './types.js';
 
 export async function detectCommands(root:string){
- const path=process.env.RIGUP_CONSUMER_PATH??process.env.PATH??process.env.Path??'';
+ const path=consumerPath();
  const dirs=await npmPathDirectories(root,process.platform==='win32'?path.replace(/(^|;)"([^"]+)"(?=;|$)/g,'$1$2'):path);
  const found=async(name:string)=>{
   const suffixes=process.platform==='win32'?['.exe','.cmd']:[''];
@@ -15,17 +17,22 @@ export async function detectCommands(root:string){
   return false;
  };
  const hosts=Object.keys(agents) as Agent[];
- const tools=[openwiki,codegraph];
- const [installed,registerable]=await Promise.all([
-  Promise.all(hosts.map(found)),Promise.all(tools.map(tool=>found(tool.software))),
- ]);
- return {agents:hosts.filter((_,index)=>installed[index]),tools:new Set(tools.filter((_,index)=>registerable[index]).map(tool=>tool.id))};
+ const installed=await Promise.all(hosts.map(found));
+ return {agents:hosts.filter((_,index)=>installed[index])};
+}
+
+export async function detectToolInstallation(root:string,id:NativeTool,receipt?:ToolInstallReceipt,stateRoot?:string){
+ const local=await inspectProjectToolInstall(root,id,receipt);
+ if('identity' in local)return {state:'project' as const,version:local.identity.version};
+ const external=await detectExternalTool(root,id,consumerPath(),stateRoot);
+ if(external.state!=='missing')return external;
+ return 'pending' in local?{state:'blocked-project' as const,reason:local.pending}:external;
 }
 
 export async function detectSdd(root:string,options:SetupOptions,write:(text:string)=>void):Promise<SetupOptions['sdd']>{
  const markers={superpowers:['docs/superpowers'],openspec:['openspec/config.yaml','openspec/config.yml'],'spec-kit':['.specify']};
  const ids=['superpowers','openspec','spec-kit'] as const;
- const hostScopes=options.agents.flatMap(agent=>[agents[agent].skillDirectory,agents[agent].skillDirectory.replace(/\/skills$/,'/commands')]);
+ const hostScopes=options.agents.flatMap(agent=>[agents[agent].skillDirectory,...projectCommandRoots[agent]]);
  const candidates=await Promise.all(ids.map(async sdd=>{
   const profile=await scanNativeEntries(root,{agents:options.agents,backend:options.backend,sdd,
    scope:[...hostScopes,...markers[sdd]],readBudget:options.readBudget});
@@ -36,8 +43,8 @@ export async function detectSdd(root:string,options:SetupOptions,write:(text:str
    sources.some(source=>projectFiles.has(source.identity));
   const missing=options.agents.flatMap(agent=>{
    try{
-    const {binding}=resolveSddBinding(sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
-    return binding.status==='pending'?[agent+': '+binding.reason]:[];
+    resolveSddBinding(sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
+    return [];
    }catch(error){return [agent+': '+(error as Error).message];}
   });
   return {sdd,hasProject,hasSources:sources.length>0,missing};

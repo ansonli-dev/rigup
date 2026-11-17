@@ -1,4 +1,4 @@
-import{test}from'node:test';import assert from'node:assert/strict';import{mkdir,writeFile,readFile,readdir,rm,rename}from'node:fs/promises';import{join}from'node:path';import{execFile}from'node:child_process';import{promisify}from'node:util';import{project}from'./helpers.js';
+import{test}from'node:test';import assert from'node:assert/strict';import{mkdir,writeFile,readFile,readdir,rm,rename}from'node:fs/promises';import{join}from'node:path';import{execFile}from'node:child_process';import{promisify}from'node:util';import{openspecFixturePath,project,testEnvironment}from'./helpers.js';
 import{scanRepository,repositoryReader}from'../src/analyzer/repository.js';import{hostBackend}from'../src/analyzer/host.js';import{validateOptions}from'../src/config.js';import{prepareIntegrations,prepareProjectToolOperations}from'../src/integrations/registry.js';import{runCli}from'../src/cli.js';import{digest}from'../src/analyzer/evidence.js';
 import{generate,generateFoundation,prepareGeneration}from'../src/generator/generate.js';
 import{preview}from'../src/installer/preview.js';
@@ -24,7 +24,7 @@ test('review_superpowers_local_unprefixed_native_names_satisfy_binding',()=>proj
 test('review_enabled_global_plugin_sources_are_discovered_with_native_identity',()=>project(async root=>project(async home=>{
  const base=home+'/.codex/plugins/cache/fixture-market/superpowers/7.0.1';await mkdir(base+'/.claude-plugin',{recursive:true});await writeFile(base+'/.claude-plugin/plugin.json',JSON.stringify({name:'superpowers',version:'7.0.1'}));for(const name of powers)await skill(base+'/skills',name);await writeFile(home+'/.codex/config.toml','[plugins."superpowers@fixture-market"]\nenabled = true\n');const selected={...opts,sdd:'superpowers' as const};const profile=await scanRepository(root,selected,{home});const prepared=await prepareIntegrations(profile,selected);assert.deepEqual(prepared.requirements,[]);assert.ok(profile.skillSources?.codex?.some(s=>s.origin==='plugin'));
 })));
-test('Claude Superpowers 7.0.2 previews OpenWiki and changing only plugin version metadata preserves approval',()=>project(async root=>project(async home=>project(async cache=>project(async state=>{
+test('Claude Superpowers 7.0.2 previews OpenWiki and changing plugin manifest metadata invalidates approval',()=>project(async root=>project(async home=>project(async cache=>project(async state=>{
   const version='7.0.2';
   const pluginId='superpowers@fixture-market';
   const claude=join(home,'.claude');
@@ -49,22 +49,17 @@ test('Claude Superpowers 7.0.2 previews OpenWiki and changing only plugin versio
    assert.deepEqual(result.operations.map(operation=>operation.id),['install:openwiki']);
    assert.doesNotMatch(result.warnings.join('\n'),/version.*verified/);
    await writeFile(pluginManifest,JSON.stringify({name:'superpowers'}));
-   assert.deepEqual((await scanRepository(root,options)).skillSources,profile.skillSources);
+   assert.notDeepEqual((await scanRepository(root,options)).skillSources,profile.skillSources);
    const {apply}=await import('../src/installer/apply.js');
-   const applied=await apply(result.previewId,{cacheRoot:cache,stateRoot:state,operation:{launch:async op=>{
-    const {name,version,integrity,packageLock}=op.query;
-    await writeNativeToolFixture(root,'openwiki',version,'commonjs',op.protection.target);
-    await writeFile(join(root,packageLock),JSON.stringify({packages:{'':{dependencies:{[name]:version}},['node_modules/'+name]:{version,integrity}}}));
-    return queryOperation(op);
-   }}});
-   assert.equal(applied.status,'complete');
+   await assert.rejects(()=>apply(result.previewId,{cacheRoot:cache,stateRoot:state}),/source input changed/);
   }finally{if(previous===undefined)delete process.env.CLAUDE_CONFIG_DIR;else process.env.CLAUDE_CONFIG_DIR=previous;}
  })))));
 test('review_sdd_dependencies_and_conflicting_identities_are_not_name_only_bindings',()=>project(async root=>{
  for(const name of openspec)await skill(root+'/.agents/skills',name,true);const selected={...opts,sdd:'openspec' as const};let prepared=await prepareIntegrations(await scanRepository(root,selected),selected);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements.map(r=>r.reason).join(' '),/dependency|verification/);
  for(const name of openspec)await skill(root+'/.agents/skills',name);await skill(root+'/.agents/skills/duplicate','openspec-propose');await writeFile(root+'/.agents/skills/duplicate/openspec-propose/SKILL.md','---\nname: openspec-propose\ndescription: Different native implementation\n---\nDifferent behavior.\n');prepared=await prepareIntegrations(await scanRepository(root,selected),selected);assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements.map(r=>r.reason).join(' '),/conflict/);
 }));
-test('review_effective_runtime_model_changes_invalidate_consent_and_semantics',()=>project(async root=>project(async cache=>project(async state=>{
+test('review_effective_runtime_model_changes_invalidate_consent_and_semantics',t=>project(async root=>project(async cache=>project(async state=>{
+ testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  for(const name of openspec)await skill(root+'/.agents/skills',name);await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({...opts,backend:'native',sdd:'openspec'}));const seen:string[]=[];const run=async(model:string)=>runCli(['init','--dry-run'],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,credentials:{model},backend:{run:async r=>{seen.push(r.effectiveModel?.model??(r.options as any).model?.model);return backend.run();}}}});
  assert.equal(await run('model-A'),0);const first=seen.length;assert.ok(first);assert.equal(await run('model-B'),0);assert.ok(seen.length>first);assert.ok(seen.slice(first).every(v=>v==='model-B'));
 }))));

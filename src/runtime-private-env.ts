@@ -67,7 +67,7 @@ async function safeParents(root:string):Promise<void>{
  await assertSafeWindowsAncestors(join(root,runtimeEnvPath),problem);
 }
 
-async function hasGitMetadata(root:string):Promise<boolean>{
+export async function hasGitMetadata(root:string):Promise<boolean>{
  for(let directory=root;;directory=dirname(directory)){
   try{await lstat(join(directory,'.git'));return true;}
   catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}

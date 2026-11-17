@@ -46,9 +46,10 @@ export interface HarnessSummary {
 }
 
 export interface SetupOperation {
+ global?:import('./integrations/tools/global-npm.js').GlobalNpmApproval;
  registry?:string;
  id:string;integrationId:string;kind:'install'|'initialize'|'check';parameters:CommandSpec;prerequisiteIds:string[];declaredWrites:string[];version:string;timeoutMs:number;
- protection:{kind:'new-empty-scope';target:string}|{kind:'native-staging';target:string;staging:string;control:string};
+ protection:{kind:'global-npm';target:string}|{kind:'new-empty-scope';target:string}|{kind:'native-staging';target:string;staging:string;control:string};
  query:{kind:'npm-package'|'native-initialization';packageJson:string;packageLock:string;name:string;version:string;integrity?:string;enginesNode?:string};
 }
 export interface NativeInitializationReceipt {version:string;target:string;identity:string}
@@ -56,8 +57,8 @@ export interface NativeInitializationReceipt {version:string;target:string;ident
 export interface ManagedAsset {logicalId:string;target:string;ownership:import('./managed-input.js').Ownership;digest:string;baseline?:string;encoding?:'utf8'|'base64';mode?:number;source?:{kind:string;ref:string;digest?:string}}
 export interface AssetDisposition {logicalId:string;action:'retain'|'update'|'retire'|'pending';reason:string}
 export type ProjectRulesStatus='pending'|'ready';
-export interface SetupRequirement {integrationId:string;reason:string;nextCommand?:string;kind?:'npm-resolution'}
-export interface SetupPlan {pendingRuntimeTools?:('openwiki'|'codegraph')[];projectRules?:ProjectRulesStatus;harness?:HarnessSummary;projectDocuments?:{target:string;content:string}[];harnessNavigation?:{targets:string[];conventionPaths:string[];notApplicable?:{path:string;topic:string;topicId:string;scope:string[]}[]};gitlabReviewRequired?:true;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
+export interface SetupRequirement {integrationId:string;reason:string;nextCommand?:string;agent?:Agent;kind?:'npm-resolution'|'sdd-binding'}
+export interface SetupPlan {openSpecRuntime?:import('./integrations/sdd/openspec-setup.js').OpenSpecRuntimeIdentity;pendingRuntimeTools?:('openwiki'|'codegraph')[];projectRules?:ProjectRulesStatus;harness?:HarnessSummary;projectDocuments?:{target:string;content:string}[];harnessNavigation?:{targets:string[];conventionPaths:string[];notApplicable?:{path:string;topic:string;topicId:string;scope:string[]}[]};gitlabReviewRequired?:true;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
 
 export function validateTopicId(value:unknown):string{
  if(typeof value!=='string'||value.length>48||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)||

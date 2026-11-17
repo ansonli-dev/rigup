@@ -1,3 +1,4 @@
+import {detectExternalTool,planGlobalNpmInstall,globalNpmInstallOperation} from './tools/global-npm.js';
 import {prepareQuality} from './tools/quality.js';
 import {prepareCustomer} from './gitlab/customer.js';
 import {inspectProjectToolInstall} from './tools/software.js';
@@ -7,7 +8,8 @@ import {scopesOverlap,type SetupOperation,type SetupOptions,type SetupPlan,type 
 import type {ProjectProfile} from '../analyzer/repository.js';
 import {resolveNpmLatest,type NpmView} from './tools/npm-resolution.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
-import {readFile} from 'node:fs/promises';
+import {lstat,readFile,readdir,stat} from 'node:fs/promises';
+import {quoteShell} from '../shell-command.js';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
 import {projectMcpArgs} from './tools/project-mcp-entry.js';
 import {collectCustomSkill} from './custom-skills.js';
@@ -16,15 +18,18 @@ import {openwiki,openwikiInitializationGuide} from './tools/openwiki.js';
 import {codegraph} from './tools/codegraph.js';
 import type {Ownership} from '../managed-input.js';
 import {resolveSddBinding,resolveSkillSource,type SddBinding} from './sdd/binding.js';
-import {digest} from '../analyzer/evidence.js';
+import {digest,safePath} from '../analyzer/evidence.js';
 import {openspecPreparationCommand} from './sdd/openspec.js';
 import {RIGUP_VERSION} from '../version.js';
 import {runtimeSetupSummary,selectedNpmRegistry} from '../runtime-inputs.js';
+import {consumerPath} from '../npm-command.mjs';
+import {targetPath} from '../installer/ownership.js';
+import {localIgnoreContent,localIgnoreOwnership} from './sdd/openspec-project.js';
 export {loadUpstreamLock,parseUpstreamLock,requireRecipeEvidence,selectUpdateVersion,type Recipe} from './upstream.js';
 export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
-export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
+export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];openSpecProjectCli?:true;skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
 export async function prepareIntegrations(profile:ProjectProfile,options:SetupOptions):Promise<IntegrationPreparation>{
  const [quality,runtime]=await Promise.all([prepareQuality(profile,options),runtimeSetupSummary(profile.root,options)]);
  const assets:PreparedAsset[]=[];const warnings:string[]=[];const requirements:SetupRequirement[]=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
@@ -41,15 +46,28 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
   for(const agent of options.agents) {
    try {
     const {binding,warnings:bindingWarnings}=resolveSddBinding(options.sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
-    if(binding.status==='pending') requirements.push({integrationId:options.sdd,reason:binding.reason});
-    else bindings.push(binding);
+    bindings.push(binding);
     warnings.push(...bindingWarnings);
    }
    catch(error){
     const reason=(error as Error).message;
+    if(agent==='opencode'&&reason.startsWith('OPENCODE_DISABLE_PROJECT_CONFIG')){
+     requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason,
+      nextCommand:'Unset OPENCODE_DISABLE_PROJECT_CONFIG or set it to false before retrying Rigup'});
+     continue;
+    }
+    if((agent==='omp'&&/^(skills\.enabled:false|OMP project skill settings)/.test(reason))||
+       (agent==='opencode'&&reason.startsWith('OpenCode permission.skill'))){
+     requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason,nextCommand:reason});
+     continue;
+    }
     const nextCommand=options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')
      ?openspecPreparationCommand(profile.root,options.agents):undefined;
-    requirements.push({integrationId:options.sdd,reason,...(nextCommand?{nextCommand}:{})});
+    const initialized=options.sdd==='spec-kit'&&(await stat(resolve(profile.root,'.specify')).catch(()=>undefined))?.isDirectory();
+    let registered=false;if(initialized)try{const path=await safePath(profile.root,'.specify/integration.json');if((await stat(path)).size<=256000){const state=JSON.parse(await readFile(path,'utf8'));registered=Array.isArray(state?.installed_integrations)&&state.installed_integrations.includes(agent)||state?.integration===agent||state?.default_integration===agent;}}catch{}
+    const repair=options.sdd==='superpowers'?{claude:'/plugin install superpowers@claude-plugins-official',codex:'Open /plugins and install or enable Superpowers',opencode:'Configure the official Superpowers plugin and restart OpenCode',omp:'Install or enable Superpowers in the OMP Marketplace or with omp plugin install omp-superpowers'}[agent]:options.sdd==='openspec'?'rigup doctor '+quoteShell(profile.root):'cd '+quoteShell(profile.root)+' && specify '+(registered?'integration upgrade '+agent:initialized?'integration install '+agent:'init --here --integration '+agent);
+    const cliHelp=options.sdd==='spec-kit'?'; if specify is unavailable, use uvx --from git+https://github.com/github/spec-kit.git@v1.3.2 specify, or uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.3.2':'';
+    requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason+'; '+(nextCommand??repair)+cliHelp,nextCommand:nextCommand??repair});
    }
   }
  }
@@ -67,17 +85,19 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
    push(prepared.assets);requirements.push(...prepared.requirements);
   }
  }
+ const toolLauncher='.rigup/tool-mcp.mjs';
+ if(options.tools?.length){
+  const content=await readFile(new URL('../npm-command.mjs',import.meta.url),'utf8');
+  push([{logicalId:'rigup:tool-launcher',target:toolLauncher,content,ownership:{kind:'file'},source:{kind:'fixed-template',ref:'tool-mcp',digest:digest(content)}}]);
+ }
  for(const selection of options.tools ?? []) {
   const tool=selection.id === 'openwiki' ? openwiki : selection.id === 'codegraph' ? codegraph : undefined;
   if(!tool) throw new Error('unsupported executable adapter');
   if(selection.agents.some(a=>!options.agents.includes(a))) throw new Error('tool MCP target agent not selected');
   const useProjectTool=selection.install||selection.initialize&&!!profile.installedTools?.[tool.id];
-  const {prefix,name,entry}=toolPackage(selection.id);
   for(const agent of selection.agents) {
-   const executable=useProjectTool?'node':tool.software;
-   const nativeArgs=tool.mcpArgs(agent);
-   const args=useProjectTool?projectMcpArgs(agents[agent].mcpTarget,[prefix,'node_modules',name,entry].join('/'),nativeArgs):nativeArgs;
-   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable,args,cwd:'.',envRefs:[]}},true);push(prepared.assets);requirements.push(...prepared.requirements);
+   const args=projectMcpArgs(agents[agent].mcpTarget,toolLauncher,[tool.id,useProjectTool?'project':'path',...tool.mcpArgs(agent)]);
+   const prepared=await prepareCustomerMcp(profile.root,{id:tool.id,agents:[agent],command:{executable:'node',args,cwd:'.',envRefs:[]}},true);push(prepared.assets);requirements.push(...prepared.requirements);
   }
   warnings.push(tool.id+': binary availability and native connection pending');
   if(selection.id==='openwiki')warnings.push(openwikiInitializationGuide);
@@ -103,14 +123,13 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
  push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
  if(profile.git.available&&(assets.length||bindings.length)||runtime.inputs.some(input=>input.destination==='.rigup/.env')){
-  const ownership={kind:'block' as const,start:'# rigup:start',end:'# rigup:end'};
-  const content=[ownership.start,'/baseline/','/manifest.json','/native/','/tools/','/check-results/','/.env','/.env.rigup-*.tmp',ownership.end,''].join('\n');
+  const ownership=localIgnoreOwnership,content=localIgnoreContent;
   push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
  }
  return {assets,operations:[],warnings,requirements,bindings,skillBindings};
 }
 
-export async function prepareProjectToolOperations(plan:SetupPlan,profile:ProjectProfile,input:{stateRoot:string;signal?:AbortSignal;view?:NpmView}):Promise<SetupPlan>{
+export async function prepareProjectToolOperations(plan:SetupPlan,profile:ProjectProfile,input:{stateRoot:string;signal?:AbortSignal;view?:NpmView;globalTools?:('openwiki'|'codegraph')[]}):Promise<SetupPlan>{
  const {root,options}=plan;
  if(!options.tools?.length)return plan;
  const operations=[...plan.operations],requirements=[...plan.requirements],warnings=[...plan.warnings];
@@ -128,16 +147,33 @@ export async function prepareProjectToolOperations(plan:SetupPlan,profile:Projec
   input.signal?.throwIfAborted();
   const id=selection.id;
   if(!isNativeTool(id))throw Error('Unsupported executable adapter');
+  if(input.globalTools?.includes(id)){
+   try{operations.push(globalNpmInstallOperation(await planGlobalNpmInstall(root,id,input)));}
+   catch(error){input.signal?.throwIfAborted();pending(id,(error as Error).message,'npm-resolution');}
+   continue;
+  }
   const receipt=profile.installedTools?.[id];
-  const initialize=id==='codegraph'&&selection.initialize;
+  let initialize=id==='codegraph'&&selection.initialize;
   if(!selection.install&&(!selection.initialize||receipt===undefined)){
-   if(initialize)pending(id,'Initialization requires a verified project installation; enable project installation first');
+   const external=await detectExternalTool(root,id,consumerPath(),input.stateRoot);
+   if(initialize&&external.state!=='available')pending(id,'Initialization requires a verified project installation; enable project installation first');
+   if(external.state==='repair')pending(id,external.reason);
+   if(external.state==='missing')warnings.push(id+': command unavailable on the terminal PATH. Fix the agent PATH or run rigup update --configure --tools '+options.tools.map(tool=>tool.id).join(','));
+   if(id==='codegraph')warnings.push('codegraph: run codegraph status in the project, then codegraph init if no index exists. Existing indexes are kept.');
    continue;
   }
   const local=await inspectProjectToolInstall(root,id,receipt);
   if('pending' in local){pending(id,local.pending);continue;}
   const {prefix,name}=toolPackage(id);
   const nativeReceipt=profile.initializedTools?.[id];
+  if(initialize&&!nativeReceipt){
+   const index=await targetPath(root,'.codegraph').catch(()=>undefined);
+   const info=index?await lstat(index).catch(()=>undefined):undefined;
+   if(index&&info?.isDirectory()&&(await readdir(index)).length){
+    initialize=false;
+    warnings.push('codegraph: existing index kept. Run codegraph status in the project to inspect it.');
+   }
+  }
   const nativeScopes=initialize&&!nativeReceipt?nativeInitializationPaths(id).declaredWrites:[];
   const writes=[...('root' in local?[prefix]:[]),...nativeScopes];
   if(scopesOverlap(writes,[...targets,...operations.flatMap(op=>op.declaredWrites)])){

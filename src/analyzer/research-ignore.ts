@@ -1,6 +1,6 @@
 import ignore from 'ignore';
 import {lstat,readFile} from 'node:fs/promises';
-import {agents} from '../integrations/agents/index.js';
+import {agents,projectCommandRoots} from '../integrations/agents/index.js';
 import {openspec} from '../integrations/sdd/openspec.js';
 import {specKit} from '../integrations/sdd/spec-kit.js';
 import {digest,safePath} from './evidence.js';
@@ -58,7 +58,8 @@ export function workflowEvidenceKind(path:string,directory:boolean,scope:keyof t
   return !directory&&inside.length===1&&inside[0]==='SKILL.md'?'entry':'generated';
  }
  if(!directory){
-  const command=/^(?:\.claude|\.opencode|\.omp)\/commands\/([^/]+)\.md$/.exec(path)?.[1];
+  const root=Object.values(projectCommandRoots).flat().find(root=>path.startsWith(root+'/'));
+  const command=root&&path.endsWith('.md')?path.slice(root.length+1,-3):undefined;
   const match=command&&prefix.exec(command);
   if(match&&command.length>match[0].length)return 'entry';
  }

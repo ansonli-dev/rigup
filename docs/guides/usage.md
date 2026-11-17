@@ -19,11 +19,18 @@ rigup doctor
 
 `--dry-run` 保存私有候选和预览。已配置 provider 时，生成完整规则的 dry-run 仍会请求模型。首次设置可用 `--defer-research` 明确只准备基础接线。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Superpowers 和 Spec Kit 使用项目已有的官方入口并核对来源和依赖。 [验证范围](../compatibility/status.md) · [最近验证的上游组合](../compatibility/upstream-lock.json)
 
-首次选择 OpenSpec 后，Rigup 检查 PATH 中的 CLI、项目的 OpenSpec 根和所选宿主的工作流入口。需要补齐时，可当场确认或用 `--prepare-openspec` 单独准备。CLI 缺失时，独立审批会冻结 `latest` 指向的稳定版本、包完整性、registry 和 npm 前缀。Rigup 在全局安装前核验 tarball，并用准备用户 CLI 的实际 Node 核对包声明的 `engines.node`。便携版也检查用户终端里的 Node 和 npm。原生文件先在临时目录生成，通过检查后补入项目空缺。
+首次选择 OpenSpec 后，Rigup 检查已核验的项目 CLI 或安全 PATH 上的 CLI、项目的 OpenSpec 根和所选宿主的入口。已有 CLI 时沿用其版本，可用 `--prepare-openspec` 补齐项目文件。缺少 CLI 时，交互引导默认项目范围。项目范围使用 `.rigup/tools/openspec/`，便携版可使用随附的 Node 和 npm。全局范围使用终端 PATH 上的 Node 和 npm，以及可写的用户前缀。两种范围都在准备前显示并冻结版本、registry、包完整性和目标位置，再核对对应 Node 是否满足包的要求。
+
+```sh
+rigup init --agents codex --sdd openspec --prepare-openspec --install-scope project
+rigup openspec status --change my-change --json
+```
+
+使用 `--install-scope global` 可显式选择全局安装。旧式独立准备命令省略 `--install-scope` 时沿用全局默认。项目范围的 `rigup openspec` 可从子目录执行，使用项目根并保留原生参数、输出和退出码。Rigup 在隔离环境中生成所选宿主缺少的原生文件，核对后补入项目。OpenSpec 2.1 起使用原生 `--scope project`。 [OpenSpec 2.1 发布说明](https://github.com/Fission-AI/OpenSpec/releases/tag/v2.1.0)
 
 在显式审阅或非交互设置中，缺少先决条件时可执行报告的 `nextCommand`。其中 `--prepare-openspec` 单独补齐原生依赖，使用同一套保护步骤保留已有项目文件。交互中选择手动准备后，可用报告里的续跑命令，也可回到项目执行 `rigup init` 继续已选择的宿主和 OpenSpec。
 
-首次在项目内安装 OpenWiki 或 CodeGraph 时，预览解析 `latest`，展示精确版本和 registry，并冻结包完整性。registry 不可达或 Node 版本不符合包要求时，预览报告对应的包与原因。应用和中断恢复使用原审批。`update` 和 `doctor` 可离线核验已有回执。用 `RIGUP_NPM_REGISTRY` 选择内部 registry。
+OpenWiki 和 CodeGraph 优先复用项目回执核验通过的安装，也可复用安全 PATH 上已有的安装。缺少软件时，交互引导提供可用范围，默认项目。项目模式与非交互首次自动安装使用 `.rigup/tools/`，全局模式写入当前用户的 npm 前缀。新安装预览展示精确版本、registry、包完整性和目的地。应用和中断恢复使用原审批，后续项目可复用全局 PATH 安装。用 `RIGUP_NPM_REGISTRY` 选择 registry。
 
 在 PowerShell 中，用引号包住逗号分隔列表，也可以为每个值重复选项。
 
@@ -146,9 +153,11 @@ Windows 上，新建的私有缓存和状态目录使用独立的 ACL。若错�
 
 安装前会用空临时文件检查相关目录是否能保存所需普通权限和私有记录权限。WSL 的 drvfs 挂载若未启用 metadata、始终报告 0777，会在写入项目或开始原生安装前停止。将新 checkout 放在 Linux home 文件系统，或修正原挂载的 metadata 和现有权限后在原路径恢复。保留中断日志，不要靠删除日志或放宽私有权限强行继续。
 
-工具安装使用 `.rigup/tools/` 下的专用暂存目录，核验包、依赖树和入口后才提升到正式路径。重试只清理私有记录可验证归属的暂存目录。旧安装残留如果占用了正式路径，先将报告列出的目录移到安全的位置留存，再复核同一预览。
+项目工具安装使用 `.rigup/tools/` 下的专用暂存目录，核验后才移到正式路径。Git 跟踪或忽略规则不符合要求时先保留现场，按报告修正。全局工具按用户前缀串行安装，未核验的残留指向原批准。中断后使用报告里的 `--resume` 命令。独立 OpenSpec 准备也保留原项目和安装范围，已经完成的原生写入会在后续预览取消时继续保留。
 
 升级后，尚未开始应用的 v0.4.0 预览需要重新生成。已开始应用的 v0.4.0 审批可以在 v0.4.1 中按上述流程恢复，Rigup 会核对持久记录。若报告要求原版本，请使用生成预览的可执行文件完成或核对安装。研究续跑遇到中断安装时，会给出待处理的预览 ID。恢复安装后再继续研究。
+
+升级到 v0.7.0 时，尚未应用的 v0.6.0 预览需要重新生成。中断的 v0.6.0 安装先用原版继续或核对现场。旧的 OpenSpec 全局安装锁缺少写入进程的持久证据时，保留锁和前缀中的现有文件，确认旧进程退出后再按报告对账。
 
 Git 项目应用集成后，`.rigup/.gitignore` 会排除本机安装回执、基线、软件和原生工具状态。项目配置仍可跟踪。
 
@@ -164,7 +173,7 @@ Git 项目应用集成后，`.rigup/.gitignore` 会排除本机安装回执、�
 rigup init --agents codex --sdd none --tools openwiki,codegraph --review --json
 ```
 
-- CodeGraph 在隔离暂存区建索引，核验后提升到项目。软件与初始化分别留回执，已有用户状态需要对账。所有平台沿用上游 daemon 策略，最后一个客户端断开后通常保留约五分钟。移动或重装工具目录前，显式停止该项目的 daemon，或等待它自然退出并核实进程已结束。
+- 项目安装的 CodeGraph 在隔离暂存区建索引，核验后提升到项目。软件与初始化分别留回执。已有索引会保留。复用 PATH 安装时，先运行 `codegraph status`，缺少索引时再运行 `codegraph init`。所有平台沿用上游 daemon 策略，最后一个客户端断开后通常保留约五分钟。移动或重装工具目录前，显式停止该项目的 daemon，或等待它自然退出并核实进程已结束。
 - OpenWiki 安装软件、登记 MCP 并提供交接。重载宿主后，在独立会话用 `openwiki_begin` 的 `mode=init` 开始规划和逐页生成。已有运行按 OpenWiki 的进度恢复，完整 wiki 生成单独计时和计费。
 
 ## 工程检查和退出码

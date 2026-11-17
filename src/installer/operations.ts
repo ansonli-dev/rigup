@@ -1,3 +1,4 @@
+import {runGlobalNpmInstall,queryGlobalNpmInstall,type GlobalNpmReceipt} from '../integrations/tools/global-npm.js';
 import {queryInstalledTool,queryToolPackage,type ToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import {isRecord,readDurableRecord,saveDurable} from '../private-record.js';
 import {join,resolve,isAbsolute} from 'node:path';
@@ -8,7 +9,7 @@ import type {SetupOperation} from '../types.js';
 import {privateDirectory,signature} from '../generator/cache.js';
 import {defaultStateRoot,processIdentity,isAlive,type ProcessIdentity} from './lock.js';
 import {assertEmptyToolScopes} from '../integrations/tools/initialization.js';
-import {assertToolOperationRecipe,isNativeTool,toolOperationIdentity,verifiedToolOperationForResume} from '../integrations/tools/recipes.js';
+import {assertToolOperationRecipe,isNativeTool,isSoftwareTool,toolOperationIdentity,verifiedToolOperationForResume} from '../integrations/tools/recipes.js';
 import {queryNativeInitialization,resumableNativeOperation,nativeEnvironment} from '../integrations/tools/native-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {startWindowsProcess,windowsJobActive} from '../integrations/tools/windows-process.mjs';
@@ -17,12 +18,13 @@ import {assertInstallDestination,clearInstallStage,createInstallStage,installDir
 import {essentialEnvironment,selectedNpmRegistry} from '../runtime-inputs.js';
 import {targetPath} from './ownership.js';
 import type {PreviewData} from './preview.js';
-export interface OperationResult {status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
+export interface OperationResult {globalReceipt?:GlobalNpmReceipt;status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 type WriterIdentity=ProcessIdentity&{windowsJob?:string};
 interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult;installStage?:InstallStage}
-export interface OperationDependencies {stateRoot?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
+export interface OperationDependencies {stateRoot?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;verifyInstallScope?:(target:string)=>Promise<void>;verifyInstallPayload?:(target:string)=>Promise<void>;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
 export function operationRoot(operation:SetupOperation):string {if(operation.kind==='initialize'&&isAbsolute(operation.parameters.cwd))return operation.parameters.cwd;const i=operation.parameters.args.indexOf('--prefix');const prefix=operation.parameters.args[i+1];if(i<0||!prefix||!isAbsolute(prefix))throw new Error('operation project root unavailable');return resolve(prefix,'../../..');}
-export async function queryOperation(operation:SetupOperation):Promise<OperationResult>{
+export async function queryOperation(operation:SetupOperation,stateRoot?:string):Promise<OperationResult>{
+ if(operation.global)return queryGlobalNpmInstall(operation.global,stateRoot);
  try{if(operation.kind==='initialize')return await queryNativeInitialization(operation);return await queryInstalledTool(operationRoot(operation),{prefix:operation.protection.target,id:operation.integrationId,name:operation.query.name,version:operation.query.version,integrity:operation.query.integrity});}catch{return {status:'unknown',message:'Cannot prove external operation result; manual reconciliation required'};}
 }
 async function queryPublishedInstall(root:string,operation:SetupOperation,stage?:InstallStage):Promise<OperationResult>{
@@ -56,7 +58,7 @@ export async function pendingOperations(root:string,stateRoot=defaultStateRoot()
  const state=await privateDirectory(stateRoot,root);
  return (await readOperationRecord(join(state,signature(root)+'.operations.json'),root)).operations;
 }
-async function writerAlive(identity:WriterIdentity):Promise<boolean>{
+export async function writerAlive(identity:WriterIdentity):Promise<boolean>{
  if(await isAlive(identity))return true;
  if(process.platform==='win32'){
   if(!identity.windowsJob)throw Error('Previous Windows writer process tree cannot be verified; reconcile before retrying');
@@ -100,11 +102,16 @@ export function operationExecutor(approved:PreviewData,dependencies:OperationDep
  return async(operationId:string):Promise<OperationResult>=>{
   const matches=operations.filter(operation=>operation.id===operationId);
   if(matches.length!==1)return {status:'pending',message:'Operation ID must identify exactly one approved operation'};
+  if(matches[0].global)return runGlobalNpmInstall(matches[0],{...dependencies,authorizationRef,recover:restoringApproval});
   return runOperation(matches[0],{...dependencies,authorizationRef,restoringApproval},actualRoot=>{
    if(actualRoot!==root)throw Error('operation project root differs from approved preview');
    return journal??=openOperationJournal(root,dependencies);
   });
  };
+}
+export async function installStandaloneOpenSpec(root:string,operation:SetupOperation,authorizationRef:string,dependencies:OperationDependencies,restoringApproval=false){
+ if(operation.kind!=='install'||operation.integrationId!=='openspec'||operationRoot(operation)!==root)throw Error('Invalid OpenSpec software operation');
+ return runOperation(operation,{...dependencies,authorizationRef,restoringApproval},()=>openOperationJournal(root,dependencies));
 }
 async function assertInstalledNode(root:string,operation:SetupOperation):Promise<void>{
  const {name,version,packageJson}=operation.query;
@@ -113,7 +120,7 @@ async function assertInstalledNode(root:string,operation:SetupOperation):Promise
  assertNpmNode(name,version,pkg.engines?.node,process.versions.node);
 }
 async function runOperation(operation:SetupOperation,dependencies:OperationDependencies&{authorizationRef:string;restoringApproval:boolean},getJournal:(root:string)=>Promise<OperationJournal>):Promise<OperationResult>{
- if(!['install','initialize'].includes(operation.kind)||!isNativeTool(operation.integrationId))return {status:'pending',message:'No verified executable adapter; manual operation required'};
+ if(!(operation.kind==='install'&&isSoftwareTool(operation.integrationId)||operation.kind==='initialize'&&isNativeTool(operation.integrationId)))return {status:'pending',message:'No verified executable adapter; manual operation required'};
  const root=operationRoot(operation);
  let dispatched=operation;
  try{
@@ -168,8 +175,11 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  };
  const acceptInstall=async(staged:SetupOperation,stage:InstallStage,verified:OperationResult):Promise<OperationResult>=>{
   if(verified.status!=='done')return verified;
+  await dependencies.verifyInstallScope?.(staged.protection.target);
+  await dependencies.verifyInstallScope?.(operation.protection.target);
   try{await assertInstalledNode(root,staged);}
   catch(error){return {status:'pending',message:(error as Error).message+'; resume the original approval with a compatible Node'};}
+  await dependencies.verifyInstallPayload?.(staged.protection.target);
   await publishInstallStage(root,operation,staged,stage);
   const published=await queryPublishedInstall(root,operation,stage);
   if(published.status!=='done'||published.receipt?.packageLockDigest!==verified.receipt?.packageLockDigest)throw Error('Published installation differs from verified staging');
@@ -184,6 +194,8 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   }
   stage={token:randomUUID()};
   dispatched=stagedInstall(root,operation,stage);
+  await dependencies.verifyInstallScope?.(dispatched.protection.target);
+  await dependencies.verifyInstallScope?.(operation.protection.target);
   record.stage='prepared';delete record.identity;delete record.result;record.installStage=stage;
   await persist(); // Reserve a unique scope before touching the project.
   stage.identity=await createInstallStage(root,dispatched.protection.target);
@@ -210,6 +222,14 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  };
  const command=dispatched.parameters.executable==='npm'?await resolveProjectNpm(root,dispatched.parameters.args):
   {...dispatched.parameters,env:operation.kind==='initialize'?nativeEnvironment(dispatched):essentialEnvironment()};
+ return protectedOperationCommand(command,root,operation.timeoutMs,{signal:dependencies.signal,markDispatching,registryPending,restoreUndispatched,finish,identity:()=>record.identity});
+}
+
+export async function protectedOperationCommand(command:{executable:string;args:string[];env?:NodeJS.ProcessEnv},root:string,timeoutMs:number,dependencies:{
+ signal?:AbortSignal;markDispatching:(identity:WriterIdentity)=>Promise<void>;registryPending:()=>Promise<OperationResult|undefined>;
+ restoreUndispatched:()=>Promise<OperationResult>;finish:(code:number|null,cancelled:boolean)=>Promise<OperationResult>;identity:()=>WriterIdentity|undefined;
+}):Promise<OperationResult>{
+ const {markDispatching,registryPending,restoreUndispatched,finish,identity}=dependencies;
  if(process.platform==='win32'){
   const child=startWindowsProcess({...command,cwd:root,captureOutput:false});
   let timeout:ReturnType<typeof setTimeout>|undefined;
@@ -219,7 +239,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
    const changed=await registryPending();
    if(dependencies.signal?.aborted){child.stop();await child.completed;return restoreUndispatched();}
    if(changed){child.stop();await child.completed;await restoreUndispatched();return changed;}
-   timeout=setTimeout(child.stop,operation.timeoutMs);
+   timeout=setTimeout(child.stop,timeoutMs);
    dependencies.signal?.addEventListener('abort',child.stop,{once:true});
    child.start();
    const outcome=await child.completed;
@@ -240,16 +260,16 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  if(changedBeforeDispatch){child.stdin.end();await completed;await restoreUndispatched();return changedBeforeDispatch;}
  let cancelled=false,timedOut=false;let forceTimer:ReturnType<typeof setTimeout>|undefined;
  const terminate=()=>{cancelled=true;try{process.kill(-child.pid!,'SIGTERM');}catch{};forceTimer??=setTimeout(()=>{try{process.kill(-child.pid!,'SIGKILL');}catch{}},3000);};
- const timeout=setTimeout(()=>{timedOut=true;terminate();},operation.timeoutMs);
- const hardKill=setTimeout(()=>{if(cancelled)try{process.kill(-child.pid!,'SIGKILL');}catch{}},operation.timeoutMs+3000);
+ const timeout=setTimeout(()=>{timedOut=true;terminate();},timeoutMs);
+ const hardKill=setTimeout(()=>{if(cancelled)try{process.kill(-child.pid!,'SIGKILL');}catch{}},timeoutMs+3000);
  dependencies.signal?.addEventListener('abort',terminate,{once:true});
  child.stdin.write('go\n');child.stdin.end();
  const outcome=await completed;clearTimeout(timeout);clearTimeout(hardKill);if(forceTimer)clearTimeout(forceTimer);dependencies.signal?.removeEventListener('abort',terminate);
- if(record.identity){
+ if(identity()){
   // The process-group leader and native worker do not exit at the same instant.
   // Keep the durable intent unresolved until every possible writer is gone.
   const deadline=Date.now()+3000;let alive=true;
-  do {try{alive=await writerAlive(record.identity);}catch{alive=true;}if(!alive)break;if(Date.now()<deadline)await new Promise(done=>setTimeout(done,50));}while(Date.now()<deadline);
+  do {try{alive=await writerAlive(identity()!);}catch{alive=true;}if(!alive)break;if(Date.now()<deadline)await new Promise(done=>setTimeout(done,50));}while(Date.now()<deadline);
   if(alive)throw new Error('writing process exit unconfirmed; persistent record keeps project blocked');
  }
  return finish(outcome.code,cancelled||timedOut);

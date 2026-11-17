@@ -29,7 +29,8 @@ export function terminalText(text:string,multiline=false):string {
 function operationDetails(operation:PreviewData['preview']['operations'][number]):string {
  return operation.id+' '+operation.query.name+'@'+operation.version+
   (operation.kind==='install'?' registry '+(operation.registry??defaultNpmRegistry):'')+
-  ' scope '+operation.declaredWrites.join(', ');
+  ' scope '+(operation.global?operation.global.prefix:operation.declaredWrites.join(', '))+
+  (operation.kind==='install'&&operation.query.integrity?' integrity '+operation.query.integrity:'');
 }
 
 function fileDetails(data:PreviewData):string {
@@ -133,6 +134,7 @@ export function createCliOutput(options:{
   if(state.applyId){
    if(install)write(install.written.length+' managed project target(s) changed.\n');
    if(install?.runtimeSetup?.template.state==='written')write('.rigup/.env updated.\n');
+   for(const operation of install?.operations??[])if(operation.status==='done'&&operation.globalReceipt)write(terminalText(operation.message)+'\n');
    if(install?.operations.some(operation=>operation.status==='done'))write('Completed or previously installed tool operations verified.\n');
    if(!complete)write('Some installation changes may have been written.\n');
   }

@@ -115,12 +115,12 @@ test('prepare_plans_protected_tool_initialization_and_rejects_unknown_adapter',(
 test('multi_agent_openwiki_uses_separate_host_arguments_without_collision',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const prepared=await prepareIntegrations(profile,{agents:['claude','codex'],backend:'host',tools:[{id:'openwiki',install:false,initialize:false,agents:['claude','codex']}]});
- assert.equal(prepared.assets.length,2);
+ assert.equal(prepared.assets.filter(a=>a.target==='.rigup/tool-mcp.mjs').length,1);
  const {parse}=await import('smol-toml');
  const claude=prepared.assets.find(a=>a.target==='.mcp.json')!;
  const codex=prepared.assets.find(a=>a.target==='.codex/config.toml')!;
- assert.deepEqual(JSON.parse(claude.content).args,['mcp','--host','claude']);
- assert.deepEqual((parse(codex.content) as any).mcp_servers.openwiki.args,['mcp','--host','codex']);
+ assert.deepEqual(JSON.parse(claude.content).args.slice(-5),['openwiki','path','mcp','--host','claude']);
+ assert.deepEqual((parse(codex.content) as any).mcp_servers.openwiki.args.slice(-5),['openwiki','path','mcp','--host','codex']);
 }));
 test('software_install_requires_new_empty_owned_scope',()=>project(async root=>{
  const profile=await scanRepository(root,{agents:[],backend:'host'});
@@ -142,7 +142,9 @@ test('selected_project_install_is_the_executable_used_by_mcp after relocation',(
  const root=join(workspace,'project with spaces');await mkdir(root);
  const profile=await scanRepository(root,{agents:[],backend:'host'});
  const prepared=await prepareToolFixture(profile,{agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:false,agents:['codex']}]});
- const entry=(parse(prepared.assets[0].content) as any).mcp_servers.codegraph;
+ const mcp=prepared.assets.find(asset=>asset.target==='.codex/config.toml')!;
+ const launcher=prepared.assets.find(asset=>asset.target==='.rigup/tool-mcp.mjs')!;
+ const entry=(parse(mcp.content) as any).mcp_servers.codegraph;
  const local=join(workspace,'package with spaces');await mkdir(local);
  await writeFile(join(local,'package.json'),JSON.stringify({name:'@colbymchenry/codegraph',version:'1.6.2',bin:{codegraph:'npm-shim.js'}}));
  await writeFile(join(local,'npm-shim.js'),'#!/usr/bin/env node\nrequire("node:fs").writeFileSync("used-project-tool",JSON.stringify({args:process.argv.slice(2),addedEnvironment:Object.keys(process.env).filter(key=>!globalThis.initialEnvKeys.has(key))}));\n');
@@ -151,8 +153,8 @@ test('selected_project_install_is_the_executable_used_by_mcp after relocation',(
  await exec(npm.executable,npm.args,{cwd:root});
  assert.equal(entry.command,'node');
  assert.equal(entry.cwd,'.');
- assert.deepEqual(entry.args.slice(2),['--','.codex/config.toml','.rigup/tools/codegraph/node_modules/@colbymchenry/codegraph/npm-shim.js','serve','--mcp']);
- await mkdir(join(root,'.codex'));await writeFile(join(root,'.codex/config.toml'),prepared.assets[0].content);
+ assert.deepEqual(entry.args.slice(2),['--','.codex/config.toml','.rigup/tool-mcp.mjs','codegraph','project','serve','--mcp']);
+ await mkdir(join(root,'.codex'));await writeFile(join(root,mcp.target),mcp.content);await writeFile(join(root,launcher.target),launcher.content);
  await mkdir(join(root,'nested'));
  const moved=join(workspace,'迁移 project');await rename(root,moved);
  const preload=join(workspace,'windows-branch.cjs');
@@ -227,4 +229,66 @@ test('mcp_environment_references_use_native_host_expansion_or_require_setup',()=
  assert.equal(prepared.requirements[0].integrationId,'mcp:codex:environment-fixture');
  assert.match(prepared.requirements[0].reason,/reads environment variables directly/);
  await assert.rejects(prepareCustomerMcp(root,{id:'environment-fixture',agents:['claude'],command:{...command,envRefs:[]}}),/declare each environment reference/);
+}));
+
+const nativeMatrix={
+ superpowers:{claude:['superpowers:brainstorming','superpowers:writing-plans','superpowers:executing-plans','superpowers:verification-before-completion'],codex:['brainstorming','writing-plans','executing-plans','verification-before-completion'],opencode:['brainstorming','writing-plans','executing-plans','verification-before-completion'],omp:['brainstorming','writing-plans','executing-plans','verification-before-completion']},
+ openspec:{claude:['openspec-propose','openspec-apply-change','openspec-archive-change'],codex:['openspec-propose','openspec-apply-change','openspec-archive-change'],opencode:['openspec-propose','openspec-apply-change','openspec-archive-change'],omp:['openspec-propose','openspec-apply-change','openspec-archive-change']},
+ 'spec-kit':{claude:['speckit-constitution','speckit-specify','speckit-plan','speckit-tasks','speckit-implement','speckit-converge'],codex:['speckit-constitution','speckit-specify','speckit-plan','speckit-tasks','speckit-implement','speckit-converge'],opencode:['speckit.constitution','speckit.specify','speckit.plan','speckit.tasks','speckit.implement','speckit.converge'],omp:['speckit.constitution','speckit.specify','speckit.plan','speckit.tasks','speckit.implement','speckit.converge']},
+} as const;
+for(const [sdd,hosts] of Object.entries(nativeMatrix))for(const [agent,entries] of Object.entries(hosts)){
+ test(`${agent} × ${sdd} binds all native stages and renders three host references`,()=>project(async root=>{
+  const {renderFixed}=await import('../src/generator/render.js');
+  const {setNativeEntries}=await import('./helpers.js');
+  const options={agents:[agent as import('../src/types.js').Agent],backend:'host' as const,sdd:sdd as import('../src/types.js').SetupOptions['sdd']};
+  const profile=await scanRepository(root,{agents:[],backend:'host'});
+  setNativeEntries(profile,{[agent]:[...entries]});
+  const binding=bindSdd(sdd,agent,[...entries]);
+  assert.equal(binding.status,'source-bound');
+  assert.deepEqual([...binding.prepare,...binding.deliver],entries);
+  const prepared=await prepareIntegrations(profile,options);
+  assert.deepEqual(prepared.requirements,[]);
+  const assets=await renderFixed(profile,options,prepared,[],[]);
+  const refs=assets.filter(asset=>/change-(prepare|ready|deliver)\/references\/project.md$/.test(asset.target));
+  assert.equal(refs.length,3);
+  for(const reference of refs)for(const entry of entries)assert.ok(reference.content.includes(entry),`${reference.target}: ${entry}`);
+ }));
+ test(`${agent} × ${sdd} reports missing native entry for an empty installation`,()=>{
+  assert.throws(()=>bindSdd(sdd,agent,[]),/missing native entry:/);
+ });
+}
+test('multi-host binding requirements identify the failing host and a repair action',()=>project(async root=>{
+ const {setNativeEntries}=await import('./helpers.js');
+ const options={agents:['claude','omp'] as const,backend:'host' as const,sdd:'superpowers' as const};
+ const profile=await scanRepository(root,{agents:[],backend:'host'});
+ setNativeEntries(profile,{claude:[...nativeMatrix.superpowers.claude]});
+ const prepared=await prepareIntegrations(profile,{...options,agents:[...options.agents]});
+ assert.equal(prepared.bindings.length,1);
+ assert.equal(prepared.requirements.length,1);
+ assert.equal(prepared.requirements[0].kind,'sdd-binding');
+ assert.equal(prepared.requirements[0].agent,'omp');
+ assert.match(prepared.requirements[0].reason,/omp.*missing native entry:/);
+ assert.ok(prepared.requirements[0].nextCommand);
+}));
+
+test('Spec Kit repair distinguishes first initialization, host addition and broken native project files',()=>project(async root=>{
+ const options={agents:['omp' as const],backend:'host' as const,sdd:'spec-kit' as const};
+ let prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ assert.match(prepared.requirements[0].nextCommand!,/specify init --here --integration omp/);
+ assert.match(prepared.requirements[0].reason,/uvx|uv tool install/);
+ await mkdir(join(root,'.specify/memory'),{recursive:true});await writeFile(join(root,'.specify/memory/constitution.md'),'User governance');
+ prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ assert.match(prepared.requirements[0].nextCommand!,/specify integration install omp/);
+ for(const name of ['constitution','specify','plan','tasks','implement','converge']){await mkdir(join(root,'.omp/commands'),{recursive:true});await writeFile(join(root,'.omp/commands','speckit.'+name+'.md'),'Read .specify/scripts/bash/setup-plan.sh');}
+ prepared=await prepareIntegrations(await scanRepository(root,options),options);
+ assert.match(prepared.requirements[0].reason,/restore|repair/i);assert.match(prepared.requirements[0].reason,/setup-plan.sh/);
+}));
+
+test('registered damaged Spec Kit uses native upgrade and OpenSpec source conflict never suggests specify',()=>project(async root=>{
+ await mkdir(join(root,'.specify'),{recursive:true});await writeFile(join(root,'.specify/integration.json'),JSON.stringify({version:'1.3.2',integration_state_schema:1,installed_integrations:['omp'],integration:'omp',default_integration:'omp'}));
+ const options={agents:['omp' as const],backend:'host' as const,sdd:'spec-kit' as const};
+ const repair=await prepareIntegrations(await scanRepository(root,options),options);assert.match(repair.requirements[0].nextCommand!,/specify integration upgrade omp/);
+ const osOptions={...options,sdd:'openspec' as const};const profile=await scanRepository(root,{agents:[],backend:'host'});
+ const {setNativeEntries}=await import('./helpers.js');setNativeEntries(profile,{omp:['openspec-propose','openspec-apply-change','openspec-archive-change']});profile.skillSources!.omp!.push({...profile.skillSources!.omp![0],identity:'different',digest:'different'});
+ const conflict=await prepareIntegrations(profile,osOptions);assert.match(conflict.requirements[0].reason,/conflict/);assert.doesNotMatch(JSON.stringify(conflict.requirements),/specify/);
 }));
