@@ -314,7 +314,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    if(selected.sdd==='superpowers'&&selected.agents.length&&firstWorkflow&&wizard&&inlineReview&&!flags.review&&!flags.dryRun&&nativeTTY){
     const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:value=>{
      nativePreparation=value.nativePreparation as Record<string,unknown>;
-     if(value.installStatus!=='complete')services.report?.(value);
+     if(value.installStatus!=='complete'&&value.installStatus!=='up-to-date')services.report?.(value);
     },ask,inspect:false,canPrompt:true,back});
     if(result==='back'){nativePreparation=undefined;return 'back';}
     if(result===0)return 'ready';

@@ -116,6 +116,11 @@ export function createCliOutput(options:{
   options.stop?.();
   const root=state.root;
   if(json||!root)return;
+  if(report.phase==='native-preparation'){
+   const label=code===130?'Cancelled':code===3?'Needs action':code===1?'Preparation failed':
+    report.installStatus==='not-applicable'?'Native preparation preview':report.installStatus==='up-to-date'?'Native workflow already ready':'Native preparation complete';
+   write('\nResult: '+label+'\n');return;
+  }
   const install=report.phase==='apply'?report as unknown as InstallReport:undefined;
   const complete=install?.status==='complete';
   const result=code===130?'Cancelled':complete?(code===0?'Install complete':'Install complete, needs attention'):
@@ -123,7 +128,9 @@ export function createCliOutput(options:{
    code===1||code===2?'Not installed':code===3?'Needs action':report.installStatus==='up-to-date'?'Up to date':
    report.nativeWorkflow==='ready'?'OpenSpec ready':'Preview only';
   write('\nResult: '+result+'\n');
-  if(!state.native&&!state.applyId)write('Nothing was written to the project.\n');
+  const preparation=report.nativePreparation as {kind?:string;progress?:{step?:string;status?:string}[]}|undefined;
+  const nativeChanges=preparation?.kind==='superpowers'&&preparation.progress?.some(item=>item.step||item.status==='uncertain');
+  if(!state.native&&!state.applyId&&!nativeChanges)write('Nothing was written to the project.\n');
   if(state.native){
    const native=state.native;
   if(native.ready)write('OpenSpec '+terminalText(native.version??'CLI')+' and selected project entries are ready.\n');

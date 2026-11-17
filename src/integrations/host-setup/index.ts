@@ -1,6 +1,6 @@
 import {mkdir,mkdtemp,readdir,rm} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {join,relative} from 'node:path';
+import {join} from 'node:path';
 import {scanNativeEntries,type ProjectProfile} from '../../analyzer/repository.js';
 import {privateDirectory,signature} from '../../generator/cache.js';
 import {interruptedInstallApplyId,interruptedSeedApplyId} from '../../installer/apply.js';
@@ -13,7 +13,7 @@ import {claudeArgs,claudeCommand,claudeGitIdentity,claudeRecognized,inspectClaud
 import {checkedFile,stamp,statIfPresent} from './host-files.js';
 import {claudePlugin,ompPackage,superpowersManual,superpowersReadiness,supportedHost} from './manual.js';
 import {downloadOmp,inspectOmp,installOmpStore,ompArgs,ompCommand,ompRecognized} from './omp.js';
-import {claudeCliVersion,claudeMarket,claudeSha,claudeVersion,ompCliVersion,ompIntegrity,ompTarball,ompVersion} from './pins.js';
+import {claudeCliVersion,claudeSha,claudeVersion,ompCliVersion,ompIntegrity,ompTarball,ompVersion} from './pins.js';
 import {bindingFrom} from './receipt.js';
 import {assertWindowsLaunch,consumerEnvironment,inspectHostRuntime,nativeChildEnv,withHostWriter,type HostCommand,type HostRuntime,type NativeInputs,type SetupHost} from './runtime.js';
 
@@ -97,7 +97,7 @@ export type NativeProgress={host:Agent;status:'recognized'|'ready'|'manual'|'sto
 type RunResult={exitCode:0|1|3|130;progress:NativeProgress[]};
 const versionMatches=(host:SetupHost,text:string)=>{
  const version=host==='claude'?claudeCliVersion:ompCliVersion;
- return text.trim()===version||host==='claude'&&text.trim()===version+' (Claude Code)';
+ return text.trim()===version||text.trim()===(host==='claude'?version+' (Claude Code)':'omp/'+version);
 };
 const identity=(action:Planned)=>signature([action.runtime.approved,action.recipe.snapshot,
  action.host==='claude'?action.git:action.recipe.stored]);
@@ -160,6 +160,7 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
        if(input.signal?.aborted)return 'Native preparation canceled before dispatch.';
        try{
         const trusted=await fresh();
+        if(superpowersReadiness(await scan(root,[host],input),host).status!=='missing')return 'Native entry sources changed after approval; review a fresh plan.';
         if(identity(trusted)!==identity(state))return 'Native prerequisites changed after approval; review a fresh plan.';
         if(host==='claude'&&(!await checkedFile(join(scratch,'git-config'),{limit:0})||(await readdir(join(scratch,'empty-hooks'))).length))
          return 'The private Git settings changed; review a fresh plan.';
@@ -247,7 +248,7 @@ export async function nativeSetupInteraction(root:string,hosts:Agent[],input:Nat
  const nextCommand=nativePreparationCommand(root,hosts);
  const write=(message:string)=>ui.write(message+'\n');
  const report=(exitCode:0|1|3|130,progress:NativeProgress[]=[],pending:string[]=[])=>
-  ui.report?.({phase:'native-preparation',installStatus:ui.inspect?'not-applicable':exitCode===0?'complete':exitCode===3?'pending':'failed',
+  ui.report?.({phase:'native-preparation',installStatus:ui.inspect?'not-applicable':exitCode===0?(ready?'up-to-date':'complete'):exitCode===3?'pending':'failed',
    nativePreparation:{...description,progress},pending,...(!ready&&exitCode!==0&&hasAction?{nextCommand}:{})});
  for(const entry of description.hosts){
   write(entry.host+': '+(entry.status==='ready'?'Native Superpowers sources are already recognized; no setup needed.':entry.reason??entry.status));

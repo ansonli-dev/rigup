@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {chmod, mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {homedir, release} from 'node:os';
 import {delimiter, join, resolve} from 'node:path';
 import {createRequire} from 'node:module';
+import {npmCommand} from '../src/npm-command.mjs';
+import {smokeNativeHosts} from './native-host-smoke-cases.mjs';
 
 const cliVersion = '2.1.273';
 const ompVersion = '18.1.13';
@@ -21,24 +23,32 @@ const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|HOME|USERPROFILE|LOCALAPPDATA|APPDATA|TEMP|TMP|TMPDIR|SYSTEMROOT|WINDIR|COMSPEC|PROGRAMFILES|LANG|LC_ALL)$/i.test(key)
 ));
 const evidence = resolve(process.argv[2]);
-const stage = await mkdtemp(join(homedir(), 'rigup native host '));
+const stage = await realpath(await mkdtemp(join(homedir(), 'rigup native host ')));
 const terminal = await mkdtemp(join(homedir(), 'rigup-native-terminal-'));
 await mkdir(evidence, {recursive: true});
 const result = {platform: process.platform, arch: process.arch, kernel: release(), node: process.version, sha: process.env.GITHUB_SHA};
 try {
   const [asset, digest] = assets[process.platform + '-' + process.arch] ?? [];
   assert.ok(asset, 'This gate needs a supported native runner');
-  const npmBin = windows ? 'npm.cmd' : 'npm';
   const claude = join(stage, 'Claude tools');
   const home = join(stage, 'clean home');
   const binaries = join(stage, 'OMP tools');
   const tmp = join(stage, 'clean temp');
   await Promise.all([claude, home, binaries, tmp].map(path => mkdir(path, {mode: 0o700})));
   const toolEnv = {...env, HOME: home, ...(windows ? {USERPROFILE: home, TMP: tmp, TEMP: tmp} : {TMPDIR: tmp})};
-  // npm.cmd is used only for trusted runner provisioning, before Rigup runs.
-  const npm = args => execFileSync(npmBin, args, {shell: windows, stdio: 'inherit', env: {...env, HOME: terminal, ...(windows ? {USERPROFILE: terminal} : {})}, cwd: terminal});
-  npm(['install', '--prefix', '"' + terminal + '"', '--no-save', '--no-audit', '--no-fund', 'node-pty@1.1.0'].map(x => windows ? x : x.replace(/^"|"$/g, '')));
-  npm(['install', '--global', '--prefix', '"' + claude + '"', '--no-audit', '--no-fund', '@anthropic-ai/claude-code@' + cliVersion].map(x => windows ? x : x.replace(/^"|"$/g, '')));
+  const npm = (args, cwd=terminal) => {
+    const command = npmCommand(args);
+    return execFileSync(command.executable, command.args, {stdio: 'inherit', timeout: 180_000, env: {...env, HOME: terminal, ...(windows ? {USERPROFILE: terminal} : {})}, cwd});
+  };
+  console.log('Provisioning the terminal driver');
+  npm(['install', '--prefix', terminal, '--no-save', '--no-audit', '--no-fund', 'node-pty@1.1.0']);
+  if(process.platform==='darwin'){
+    for(const relative of ['prebuilds/darwin-'+process.arch+'/spawn-helper','build/Release/spawn-helper'])
+      await chmod(join(terminal,'node_modules','node-pty',relative),0o755).catch(error=>{if(error.code!=='ENOENT')throw error;});
+  }
+  console.log('Provisioning pinned Claude Code');
+  npm(['install', '--global', '--prefix', claude, '--no-audit', '--no-fund', '@anthropic-ai/claude-code@' + cliVersion]);
+  console.log('Provisioning the pinned OMP release binary');
   const response = await fetch('https://github.com/can1357/oh-my-pi/releases/download/v' + ompVersion + '/' + asset, {signal: AbortSignal.timeout(120_000)});
   assert.equal(response.status, 200, 'Pinned OMP binary must be available');
   const bytes = Buffer.from(await response.arrayBuffer());
@@ -71,6 +81,17 @@ try {
       else reject(new Error('Terminal probe failed: ' + exitCode));
     });
   });
+  if(windows)result.powershell=execFileSync('pwsh.exe',['-NoProfile','-Command','$PSVersionTable.PSVersion.ToString()'],{encoding:'utf8',env:toolEnv,cwd:home,timeout:20_000}).trim();
+  if(!process.argv.includes('--preflight-only')){
+    console.log('Verifying the packaged Rigup CLI in a native terminal');
+    const cwd=process.cwd(),prefix=join(stage,'packaged Rigup');
+    const pkg=JSON.parse(await readFile(join(cwd,'package.json'),'utf8'));
+    const archive=join(stage,'ansonli.dev-rigup-'+pkg.version+'.tgz');
+    npm(['pack','--pack-destination',stage],cwd);
+    npm(['install','--prefix',prefix,'--no-save','--no-audit','--no-fund',archive]);
+    await smokeNativeHosts({pty,stage,toolEnv,entry:join(prefix,'node_modules','@ansonli.dev','rigup','dist','cli.js'),result});
+    result.rigup=pkg.version;
+  }
   console.log(JSON.stringify(result));
 } catch (error) {
   result.error = error.message;

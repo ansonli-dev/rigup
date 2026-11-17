@@ -217,7 +217,10 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
       if(!isProject||active.length)records.set(id,active);
      }
     }
-    const userClaude=!array(settings.disabledProviders).includes('claude-plugins')&&array(settings.enabledProviders).some(id=>['claude-plugins','claude','*','all'].includes(id));
+    const disabledProviders=array(settings.disabledProviders),enabledProviders=array(settings.enabledProviders);
+    const claudeProvider=!disabledProviders.includes('claude-plugins');
+    const userClaude=claudeProvider&&(enabledProviders.some(id=>['claude-plugins','*','all'].includes(id))||
+     !disabledProviders.includes('claude')&&(enabledProviders.includes('claude')||!!env.CLAUDE_CONFIG_DIR?.trim()));
     for(const [id,items] of records){
      if(!userClaude&&options.sdd==='superpowers'&&superpowersId(id)){
       for(const item of items.filter(item=>item.origin==='claude'&&!item.project).slice(0,5)){
@@ -227,7 +230,7 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
        }
       }
      }
-     records.set(id,items.filter(item=>item.origin==='omp'||item.project||userClaude));
+     records.set(id,claudeProvider?items.filter(item=>item.origin==='omp'||item.project||userClaude):[]);
     }
    }
    for(const [id,items] of records){
