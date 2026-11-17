@@ -61,7 +61,7 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    const text=await metadataText(path,ctx.bound);if(++count>2000||(bytes+=Buffer.byteLength(text))>8_000_000)throw Error('native discovery budget exceeded');
    const meta=commandName?{name:commandName,satisfies:!/^dependencies:/m.test(text)}:nativeSkillMetadata(text);
    if(!meta)return;
-   if(ctx.pathNames&&ctx.skillRoot)meta.name=relative(ctx.skillRoot,path).replace(/(?:\/SKILL)?\.md$/i,'').split('\\').join('/');
+   if(ctx.pathNames&&ctx.skillRoot)meta.name=relative(ctx.skillRoot,path).replaceAll('\\','/').replace(/(?:\/SKILL)?\.md$/i,'');
    const name=ctx.namespace&&!meta.name.includes(':')?ctx.namespace+':'+meta.name:meta.name;
    if(!wanted.has(unqualifiedSkillName(name)))return;
    const sourceIdentity=await identity(path,ctx);if(commandName)commandSources.add(sourceIdentity);
@@ -242,7 +242,13 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
     if(settings.skills?.enabled===false){sources.length=0;unavailable('skills.enabled:false blocks native and Rigup project skills; set skills.enabled to true in OMP settings');}
     else {
      const excluded=(name:string)=>array(settings.skills?.ignoredSkills).some(pattern=>matchesGlob(name,pattern))||array(settings.disabledExtensions).includes('skill:'+name)||array(settings.skills?.includeSkills).length>0&&!array(settings.skills?.includeSkills).some(pattern=>matchesGlob(name,pattern));
-     for(let i=sources.length-1;i>=0;i--){const source=sources[i];if(commandSources.has(source.identity))continue;const nativeProject=source.identity.startsWith('.omp/skills/'),nativeUser=source.identity.startsWith(join(omp,'skills')+'/');if(excluded(source.name)||nativeProject&&settings.skills?.enablePiProject===false||nativeUser&&settings.skills?.enablePiUser===false)sources.splice(i,1);}
+     for(let i=sources.length-1;i>=0;i--){
+      const source=sources[i];
+      if(commandSources.has(source.identity))continue;
+      const nativeProject=source.identity.startsWith('.omp/skills/');
+      const nativeUser=isAbsolute(source.identity)&&inside(join(omp,'skills'),source.identity);
+      if(excluded(source.name)||nativeProject&&settings.skills?.enablePiProject===false||nativeUser&&settings.skills?.enablePiUser===false)sources.splice(i,1);
+     }
      if(settings.skills?.enablePiProject===false||['change-prepare','change-ready','change-deliver'].some(excluded))unavailable('OMP project skill settings prevent Rigup project entries; enable skills.enablePiProject and allow change-prepare, change-ready and change-deliver in ignoredSkills/includeSkills/disabledExtensions');
     }
    }

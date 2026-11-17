@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {writeFile,readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {join,sep} from 'node:path';
 import {createHash} from 'node:crypto';
 import {project} from './helpers.js';
 import {readEvidence} from '../src/analyzer/evidence.js';
@@ -71,7 +71,7 @@ test('Codex chooses local before versions and never falls back from its invalid 
  await nativePut(join(home,'.codex/config.toml'),'[plugins."superpowers@official"]\nenabled=true\n');
  let profile=await scanRepository(root,nativeOptions('codex'),{home});
  assert.equal(profile.skillSources?.codex?.length,4);
- assert.ok(profile.skillSources?.codex?.every(source=>source.identity.includes('/7.0.10/')));
+ assert.ok(profile.skillSources?.codex?.every(source=>source.identity.includes(sep+'7.0.10'+sep)));
  await mkdir(join(cache,'local'),{recursive:true});
  profile=await scanRepository(root,nativeOptions('codex'),{home});
  assert.ok(!profile.nativeEntries?.codex?.length);
@@ -121,10 +121,15 @@ test('OMP Marketplace override, provider opt-in and project-disabled fallback ma
  assert.match(disabled.requirements[0].nextCommand??'',/set skills\.enabled to true/);
 })));
 
+function openCodeGitFixture(cache:string,version:number,spec:string,generation:number){
+ const v1Package=process.platform==='win32'?spec.replaceAll(':','_'):spec;
+ return version===1?join(cache,'packages',v1Package,'node_modules','superpowers'):
+  join(cache,'npm','git-superpowers-'+createHash('sha256').update(spec).digest('hex').slice(0,12),String(generation),'node_modules','superpowers');
+}
 for(const version of [1,2])test(`OpenCode V${version} only binds enabled current official plugin and freezes its entry`,()=>project(root=>project(async home=>{
  const spec='git+https://github.com/obra/superpowers.git#v7.0.2';
  const cache=join(home,'.cache/opencode');
- const packageRoot=version===1?join(cache,'packages',spec,'node_modules/superpowers'):join(cache,'npm','git-superpowers-'+createHash('sha256').update(spec).digest('hex').slice(0,12),'20/node_modules/superpowers');
+ const packageRoot=openCodeGitFixture(cache,version,spec,20);
  await nativeSkills(join(packageRoot,'skills'));
  await nativePut(join(packageRoot,'package.json'),JSON.stringify({name:'superpowers',version:'7.0.2',main:'.opencode/plugins/superpowers.js'}));
  await nativePut(join(packageRoot,'.opencode/plugins/superpowers.js'),officialOpenCodePlugin);
@@ -272,8 +277,10 @@ for(const filter of [{enablePiProject:false},{ignoredSkills:['change-*']},{inclu
  assert.match(prepared.requirements[0].nextCommand??'',/enable skills\.enablePiProject/);
 })));
 test('OMP native user toggle and glob filters apply before enabled project source precedence',()=>project(root=>project(async home=>{
- await nativeSkills(join(home,'.omp/agent/skills'),'user');await nativeSkills(join(root,'.omp/skills'),'project');
+ await nativeSkills(join(home,'.omp/agent/skills'),'user');
  await nativePut(join(home,'.omp/agent/config.yml'),'skills:\n  enablePiUser: false\n  ignoredSkills: ["brain*"]\n');
+ assert.ok(!(await scanRepository(root,nativeOptions('omp'),{home})).nativeEntries?.omp?.length);
+ await nativeSkills(join(root,'.omp/skills'),'project');
  let profile=await scanRepository(root,nativeOptions('omp'),{home});
  assert.ok(!profile.skillSources?.omp?.some(source=>source.identity.startsWith(home)||source.name==='brainstorming'));
  await nativePut(join(root,'.omp/config.yml'),'skills:\n  ignoredSkills: []\n');
@@ -328,7 +335,7 @@ test('Spec Kit freezes enabled preset composition and extension fallback instead
 
 for(const version of [1,2])test(`OpenCode V${version} accepts the official named git package spec`,()=>project(root=>project(async home=>{
  const spec='superpowers@git+https://github.com/obra/superpowers.git#v7.0.2',cache=join(home,'.cache/opencode');
- const base=version===1?join(cache,'packages',spec,'node_modules/superpowers'):join(cache,'npm','git-superpowers-'+createHash('sha256').update(spec).digest('hex').slice(0,12),'12/node_modules/superpowers');
+ const base=openCodeGitFixture(cache,version,spec,12);
  await nativeSkills(join(base,'skills'));await nativePut(join(base,'package.json'),'{"name":"superpowers","main":".opencode/plugins/superpowers.js"}');await nativePut(join(base,'.opencode/plugins/superpowers.js'),officialOpenCodePlugin);
  await nativePut(join(home,'.config/opencode/opencode.json'),JSON.stringify(version===1?{plugin:[spec]}:{plugins:[spec]}));
  assert.equal((await scanRepository(root,nativeOptions('opencode'),{home})).nativeEntries?.opencode?.length,4);
@@ -350,7 +357,7 @@ test('native manager metadata shares a bounded read budget and cannot authorize 
 
 for(const version of [1,2])test(`OpenCode V${version} selects its effective plugin versus project collision`,()=>project(root=>project(async home=>{
  const spec='superpowers@git+https://github.com/obra/superpowers.git#v7.0.2';
- const base=version===1?join(home,'.cache/opencode/packages',spec,'node_modules/superpowers'):join(home,'.cache/opencode/npm','git-superpowers-'+createHash('sha256').update(spec).digest('hex').slice(0,12),'20/node_modules/superpowers');
+ const base=openCodeGitFixture(join(home,'.cache','opencode'),version,spec,20);
  await nativeSkills(join(base,'skills'),'plugin');
  await nativePut(join(base,'package.json'),JSON.stringify({name:'superpowers',main:'.opencode/plugins/superpowers.js'}));
  await nativePut(join(base,'.opencode/plugins/superpowers.js'),officialOpenCodePlugin);
@@ -380,7 +387,7 @@ test('Claude local Marketplace selects the verified catalog source and freezes c
  await nativePut(catalog,JSON.stringify({name:'dev',plugins:[{name:'superpowers',source:'./'}]}));
  const before=await scanRepository(root,nativeOptions('claude'),{home});
  assert.equal((await prepareIntegrations(before,nativeOptions('claude'))).bindings.length,1);
- assert.ok(before.skillSources?.claude?.every(source=>source.identity.startsWith(base+'/')));
+ assert.ok(before.skillSources?.claude?.every(source=>source.identity.startsWith(base+sep)));
  await nativePut(catalog,JSON.stringify({name:'dev',description:'catalog changed',plugins:[{name:'superpowers',source:'./'}]}));
  assert.notEqual((await scanRepository(root,nativeOptions('claude'),{home})).fingerprint,before.fingerprint);
  await nativePut(catalog,JSON.stringify({name:'dev',plugins:[{name:'superpowers',source:'../escape'}]}));

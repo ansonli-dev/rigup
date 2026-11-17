@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {join,sep} from 'node:path';
 import {project} from './helpers.js';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
@@ -50,5 +50,5 @@ test('Codex ignores disabled records and accepts a usable older enabled plugin',
  const current=await prepareIntegrations(await scanRepository(root,options,{home}),options);
  assert.equal(current.bindings.length,1);
  assert.deepEqual(current.requirements,[]);
- assert.ok((await scanRepository(root,options,{home})).skillSources?.codex?.every(source=>source.identity.includes('/7.0.2/')));
+ assert.ok((await scanRepository(root,options,{home})).skillSources?.codex?.every(source=>source.identity.includes(sep+'7.0.2'+sep)));
 })));

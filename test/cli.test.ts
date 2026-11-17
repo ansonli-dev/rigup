@@ -422,7 +422,7 @@ for(const interactive of [false,true])test('claude,omp Superpowers produces an e
 for(const mutation of ['skill','manifest','entry','path','disable'] as const)for(const interrupted of [false,true])test(`native ${mutation} replacement rejects ${interrupted?'interrupted recovery':'saved apply'} before further project writes`,t=>project(root=>project(cache=>project(state=>project(async home=>{
  const {mkdir,writeFile,readFile,rename}=await import('node:fs/promises');const {apply}=await import('../src/installer/apply.js');
  const omp=join(home,'.omp/agent'),plugins=join(home,'.omp/plugins'),plugin=join(plugins,'node_modules/omp-superpowers');
- testEnvironment(t,{HOME:home,PI_CODING_AGENT_DIR:omp});
+ testEnvironment(t,{HOME:home,USERPROFILE:home,PI_CODING_AGENT_DIR:omp});
  await mkdir(join(plugin,'extensions'),{recursive:true});await writeFile(join(plugin,'extensions/superpowers.ts'),'export default function() {}');
  await writeFile(join(plugin,'package.json'),'{"name":"omp-superpowers","version":"0.1.0","omp":{"extensions":["./extensions/superpowers.ts"]}}');
  await writeFile(join(plugins,'package.json'),'{"dependencies":{"omp-superpowers":"0.1.0"}}');
