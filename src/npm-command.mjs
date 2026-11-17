@@ -1,7 +1,9 @@
 import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {constants,statSync} from 'node:fs';
-import {access,lstat,readFile,realpath} from 'node:fs/promises';
+import {access,lstat,open,readFile,realpath} from 'node:fs/promises';
+import {homedir} from 'node:os';
 import {basename,delimiter,dirname,isAbsolute,join,relative,resolve,sep} from 'node:path';
 
 /** @param {string[]} args */
@@ -55,6 +57,45 @@ const platformCodeGraph='@colbymchenry/codegraph-'+process.platform+'-'+process.
 
 export function consumerPath(){
  return process.env.RIGUP_CONSUMER_PATH??process.env.PATH??process.env.Path??'';
+}
+
+/** @param {string} path */
+async function readGlobalInstallRecord(path){
+ let file;
+ try{file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);}
+ catch(error){if(error.code==='ENOENT')return;throw error;}
+ try{
+  const stat=await file.stat();
+  const limit=4_000_000;
+  if(!stat.isFile()||stat.size>limit||await realpath(path)!==path||
+     process.platform!=='win32'&&((stat.mode&0o077)!==0||stat.uid!==process.getuid()))
+   throw Error('Global npm publication record is not private or exceeds its read limit');
+  const bytes=Buffer.alloc(stat.size);
+  if((await file.read(bytes)).bytesRead!==stat.size)throw Error('Global npm publication record changed');
+  return JSON.parse(bytes.toString('utf8'));
+ }finally{await file.close();}
+}
+
+/** @param {ToolId|'openspec'} id @param {string} launcher @param {string} [stateRoot] */
+export async function readManagedGlobalInstall(id,launcher,stateRoot=join(homedir(),'.local','state','rigup')){
+ const directory=dirname(launcher),windows=process.platform==='win32';
+ if(!windows&&basename(directory)!=='bin')return;
+ const prefix=await realpath(windows?directory:dirname(directory));
+ const name=id==='openspec'?'@fission-ai/openspec':toolNames[id];
+ const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+ const journal=await readGlobalInstallRecord(join(stateRoot,'global-npm-'+hash({prefix})+'.operations.json'));
+ if(!journal)return;
+ if(!Array.isArray(journal.records)||journal.records.some(record=>!record?.approval||record.approval.prefix!==prefix))
+  throw Error('Global npm journal is damaged. Reconcile the prefix before using '+id+'.');
+ const record=journal.records.findLast(record=>record.approval.id===id&&record.stage!=='prepared');
+ if(!record)return;
+ const approval=record.approval;
+ const receipt=await readGlobalInstallRecord(join(stateRoot,'global-npm-'+hash({name,prefix})+'.json'));
+ const published=record.stage==='terminal'&&record.result?.status==='done'&&approval.name===name&&approval.bin===id&&
+  receipt?.prefix===prefix&&receipt.version===approval.install?.version&&receipt.packageIntegrity===approval.install?.packageIntegrity&&
+  receipt.registry===approval.install?.registry&&/^[a-f0-9]{64}$/.test(receipt.launcherIdentity)&&
+  ['approval','version','packageIntegrity','registry','prefix','launcherIdentity'].every(key=>receipt[key]===record.result.globalReceipt?.[key]);
+ return {prefix,approval,published,receipt:published?receipt:undefined};
 }
 
 /** @param {string} path */
@@ -181,6 +222,11 @@ async function launchToolMcp(id,root,mode,args){
  const path=process.env.PATH??process.env.Path??'';
  const external=mode==='path'?await resolveExternalTool(root,id,path):undefined;
  if(external&&external.state!=='available')throw Error(external.state==='repair'?external.reason:id+' is missing from the host PATH. Reconfigure the integration.');
+ if(external){
+  const managed=await readManagedGlobalInstall(id,external.program.launcher);
+  if(managed&&(!managed.published||managed.receipt.version!==external.program.version))
+   throw Error(id+' global installation is unverified. Resume the original approval in '+managed.approval.root+' or reconcile the prefix.');
+ }
  const safePath=external?.path??(await npmPathDirectories(root,unquotePath(path))).join(delimiter);
  let program=external?.program;
  if(mode==='project'){

@@ -350,9 +350,12 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   const {cli,cliIdentity}=setup;
   stage??=await mkdtemp(join(lock.stateRoot,'openspec-'));
   const staged=join(stage,'project');await mkdir(staged);
-  const env={XDG_CONFIG_HOME:join(stage,'config')};
+  const home=join(stage,'home');
+  const env={HOME:home,USERPROFILE:home,XDG_CONFIG_HOME:join(home,'config'),XDG_DATA_HOME:join(home,'data'),
+   XDG_CACHE_HOME:join(home,'cache'),XDG_STATE_HOME:join(home,'state'),APPDATA:join(home,'roaming'),LOCALAPPDATA:join(home,'local')};
+  await Promise.all([...new Set(Object.values(env))].map(path=>mkdir(path,{recursive:true,mode:0o700})));
   await assertCliIdentity(cli,root,setup.path,cliIdentity,lock.stateRoot);
-  await writingCommand(cli,openspecInitArgs(setup.needsEntries),staged,setup.path,signal,env);
+  await writingCommand(cli,openspecInitArgs(setup.needsEntries,setup.cliVersion),staged,setup.path,signal,env);
   if(setup.needsRoot){
    await assertCliIdentity(cli,root,setup.path,cliIdentity,lock.stateRoot);
    const list=await listOpenSpec(cli,staged,setup.path,signal,env).catch(()=>undefined);

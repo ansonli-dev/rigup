@@ -2,8 +2,8 @@ import {createHash} from 'node:crypto';
 import {readFile,lstat,realpath,mkdtemp,rm} from 'node:fs/promises';
 import {constants,createReadStream} from 'node:fs';
 import {normalizeNpmIntegrity} from '../../npm-integrity.mjs';
-import {resolveExternalTool,verifyCodeGraphPayload} from '../../npm-command.mjs';
-import {basename,dirname,join} from 'node:path';
+import {readManagedGlobalInstall,resolveExternalTool,verifyCodeGraphPayload} from '../../npm-command.mjs';
+import {join} from 'node:path';
 import {signature,privateDirectory} from '../../generator/cache.js';
 import {isRecord,readDurableRecord,saveDurable} from '../../private-record.js';
 import {acquireLock,defaultStateRoot} from '../../installer/lock.js';
@@ -90,16 +90,11 @@ function readGlobalRecords(path:string,prefix:string){
  });
 }
 export async function managedGlobalNpmProblem(id:GlobalTool,launcher:string,stateRoot=defaultStateRoot()){
- const bin=dirname(launcher),windows=process.platform==='win32';
- if(!windows&&basename(bin)!=='bin')return;
- const prefix=await realpath(windows?bin:dirname(bin));
  try{
-  const journal=await readGlobalRecords(globalRecordsPath(stateRoot,prefix),prefix);
-  const prior=journal?.records.findLast(record=>record.approval.id===id&&record.stage!=='prepared');
-  if(!prior)return;
-  if((await queryGlobalNpmInstall(prior.approval,stateRoot)).status==='done')return;
-  return id+' global installation is unverified at '+quoteShell(prefix)+'. Resume the original approval in '+quoteShell(prior.approval.root)+' or reconcile the prefix.';
- }catch{return 'Cannot safely read the global npm operation record at '+quoteShell(prefix)+'. Reconcile the prefix before using '+id+'.';}
+  const state=await readManagedGlobalInstall(id,launcher,stateRoot);
+  if(!state||state.published&&(await queryGlobalNpmInstall(state.approval,stateRoot)).status==='done')return;
+  return id+' global installation is unverified at '+quoteShell(state.prefix)+'. Resume the original approval in '+quoteShell(state.approval.root)+' or reconcile the prefix.';
+ }catch{return 'Cannot safely read the global npm operation record for '+id+'. Reconcile the prefix before using it.';}
 }
 export async function detectExternalTool(root:string,id:Exclude<GlobalTool,'openspec'>,path:string,stateRoot?:string){
  const tool=await resolveExternalTool(root,id,path);
@@ -127,7 +122,16 @@ export async function runGlobalNpmInstall(operation:SetupOperation,input:{stateR
    const result=await queryGlobalNpmInstall(prior.approval,stateRoot);
    if(result.status!=='done')await assertGlobalDestination(prior.approval);
   }
-  const complete=await queryGlobalNpmInstall(approval,stateRoot);if(complete.status==='done')return complete;
+  const complete=await queryGlobalNpmInstall(approval,stateRoot);
+  if(complete.status==='done'){
+   const prior=state.records.find(record=>signature(record.approval)===signature(approval));
+   if(!prior)throw Error('Global receipt has no original operation record. Reconcile the prefix.');
+   if(prior.result?.status!=='done'){
+    prior.stage='terminal';prior.result=complete;
+    await saveDurable(path,JSON.stringify(state));
+   }
+   return complete;
+  }
   await assertGlobalDestination(approval);
   const validate=async()=>{
    const setup=await inspectGlobalNpm(approval.root,approval.id,input.signal);

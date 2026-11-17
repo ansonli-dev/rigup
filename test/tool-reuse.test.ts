@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {access, mkdir, readFile, symlink, writeFile} from 'node:fs/promises';
+import {homedir} from 'node:os';
 import {delimiter, dirname, join} from 'node:path';
 import {promisify} from 'node:util';
 import {runCli} from '../src/cli.js';
@@ -82,6 +83,25 @@ test('generated external MCP launches the trusted PATH entry from the project ro
  const launched=await exec(process.execPath,openwiki.args,{cwd:subdirectory,env:{...process.env,PATH:childPath}});
  assert.deepEqual(JSON.parse(launched.stdout),{marker:'trusted',cwd:root,args:['mcp','--host','claude']});
 }))));
+
+test('an installed PATH MCP entry refuses a global launcher with no publication receipt',t=>project(root=>project(async outside=>{
+ const prefix=join(outside,'prefix'),bin=process.platform==='win32'?prefix:join(prefix,'bin');
+ const stateRoot=join(homedir(),'.local','state','rigup'),path=[bin,nodeDir,process.env.PATH].join(delimiter);
+ await openWikiCommand(bin,'pending');
+ testEnvironment(t,{PATH:path,RIGUP_CONSUMER_PATH:path});
+ await mkdir(join(root,'.rigup'));
+ await writeFile(join(root,'.rigup/config.yaml'),JSON.stringify({agents:['claude'],projectRules:false,tools:[
+  {id:'openwiki',install:false,initialize:false,agents:['claude']},
+ ]}));
+ assert.equal(await runCli(['init','--sessions-ended','--json'],{cwd:root,isTTY:false,write:()=>{}}),0);
+ const mcp=JSON.parse(await readFile(join(root,'.mcp.json'),'utf8')).mcpServers.openwiki;
+ await saveDurable(join(stateRoot,'global-npm-'+signature({prefix})+'.operations.json'),JSON.stringify({records:[{
+  approval:{root:outside,id:'openwiki',name:'openwiki',bin:'openwiki',prefix,prefixIdentity:'approved',npmIdentity:'approved',
+   install:{version:'0.9.0',packageIntegrity:'approved',registry:'https://registry.npmjs.org/'}},
+  authorizationRef:'original-approval',stage:'dispatching',identity:{pid:2147483647,started:'exited'},
+ }]}));
+ await assert.rejects(exec(process.execPath,mcp.args,{cwd:root,env:process.env}),/resume the original approval/i);
+})));
 
 test('doctor detects a project Node ahead of the host interpreter and missing PATH wiring',t=>project(root=>project(outside=>project(async stateRoot=>{
  const trusted=join(outside,'user bin');

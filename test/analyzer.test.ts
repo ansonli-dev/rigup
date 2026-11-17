@@ -118,6 +118,7 @@ test('OMP Marketplace override, provider opt-in and project-disabled fallback ma
  await nativePut(join(home,'.omp/agent/settings.json'),'{"skills":{"enabled":false}}');
  const disabled=await prepareIntegrations(await scanRepository(root,nativeOptions('omp'),{home}),nativeOptions('omp'));
  assert.match(disabled.requirements[0].reason,/skills.enabled/);
+ assert.match(disabled.requirements[0].nextCommand??'',/set skills\.enabled to true/);
 })));
 
 for(const version of [1,2])test(`OpenCode V${version} only binds enabled current official plugin and freezes its entry`,()=>project(root=>project(async home=>{
@@ -268,6 +269,7 @@ for(const filter of [{enablePiProject:false},{ignoredSkills:['change-*']},{inclu
  await nativePut(join(root,'.omp/config.yml'),'skills: '+JSON.stringify(filter));
  const prepared=await prepareIntegrations(await scanRepository(root,nativeOptions('omp'),{home}),nativeOptions('omp'));
  assert.equal(prepared.bindings.length,0);assert.match(prepared.requirements[0].reason,/OMP.*(?:project|skill|change-)/);
+ assert.match(prepared.requirements[0].nextCommand??'',/enable skills\.enablePiProject/);
 })));
 test('OMP native user toggle and glob filters apply before enabled project source precedence',()=>project(root=>project(async home=>{
  await nativeSkills(join(home,'.omp/agent/skills'),'user');await nativeSkills(join(root,'.omp/skills'),'project');

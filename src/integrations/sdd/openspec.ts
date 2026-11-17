@@ -1,3 +1,4 @@
+import {gte,valid} from 'semver';
 import type {Agent} from '../../types.js';
 import {quoteShell,quoteShellList} from '../../shell-command.js';
 
@@ -5,6 +6,10 @@ export const openspec={id:'openspec',prepare:['openspec-propose'],revise:'opensp
 export const openspecPackage='@fission-ai/openspec';
 export type OpenSpecInstallScope='project'|'global';
 const toolNames:Record<Agent,string>={codex:'codex',claude:'claude',opencode:'opencode',omp:'oh-my-pi'};
-export const openspecInitArgs=(hosts:Agent[])=>['init','--tools',hosts.map(agent=>toolNames[agent]).join(',')||'none','--profile','core','--no-copilot-cloud'];
+export function openspecInitArgs(hosts:Agent[],version?:string){
+ const stable=version&&valid(version);
+ const scope=stable&&gte(stable,'2.1.0')?['--scope','project']:[];
+ return ['init',...scope,'--tools',hosts.map(agent=>toolNames[agent]).join(',')||'none','--profile','core','--no-copilot-cloud'];
+}
 export const openspecPreparationCommand=(root:string,hosts:Agent[],scope:OpenSpecInstallScope='project')=>
  'rigup init '+quoteShell(root)+' --agents '+quoteShellList(hosts)+' --sdd openspec --prepare-openspec --install-scope '+scope;

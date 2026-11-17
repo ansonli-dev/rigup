@@ -44,23 +44,24 @@ export function saveOpenSpecPreparation(record:OpenSpecPreparationRecord,stateRo
  return saveDurable(preparationPath(record.root,stateRoot),JSON.stringify(record));
 }
 
-async function projectPayloadDigest(packageRoot:string){
- // The launcher imports the package payload. Verify its bytes before invoking it.
+async function projectPayloadDigest(modules:string){
+ // OpenSpec can execute code from both its package and installed dependencies.
  const hash=createHash('sha256');
  let entries=0,bytes=0;
  async function visit(directory:string){
-  const children=await readdir(join(packageRoot,directory),{withFileTypes:true});
+  const children=await readdir(join(modules,directory),{withFileTypes:true});
   children.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   for(const child of children){
    const target=directory+child.name;
-   if(++entries>4096)throw Error('OpenSpec package exceeds verification budget');
+   if(child.name==='.bin'&&(!directory||directory.endsWith('/node_modules/')))continue;
+   if(++entries>16_000)throw Error('OpenSpec package exceeds verification budget');
    if(child.isDirectory()){await visit(target+'/');continue;}
    if(!child.isFile())throw Error('OpenSpec package contains an unexpected file type');
-   const handle=await open(await targetPath(packageRoot,target),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+   const handle=await open(await targetPath(modules,target),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
    try{
     const {size}=await handle.stat();
     bytes+=size;
-    if(bytes>32_000_000)throw Error('OpenSpec package exceeds verification budget');
+    if(bytes>128_000_000)throw Error('OpenSpec package exceeds verification budget');
     const data=Buffer.alloc(size);
     if((await handle.read(data)).bytesRead!==size||(await handle.stat()).size!==size)throw Error('OpenSpec package changed during verification');
     hash.update(JSON.stringify([target,digest(data)]));
@@ -71,8 +72,8 @@ async function projectPayloadDigest(packageRoot:string){
  return hash.digest('hex');
 }
 
-function openSpecPackageRoot(root:string,prefix=projectTool.prefix){
- return targetPath(root,prefix+'/node_modules/'+projectTool.name);
+function openSpecModules(root:string,prefix=projectTool.prefix){
+ return targetPath(root,prefix+'/node_modules');
 }
 
 export async function verifiedProjectOpenSpec(root:string,stateRoot?:string){
@@ -80,9 +81,10 @@ export async function verifiedProjectOpenSpec(root:string,stateRoot?:string){
  if(!record?.projectReceipt)return;
  const identity=await readVerifiedToolInstall(root,'openspec',record.projectReceipt);
  if(!identity)throw Error('Project OpenSpec installation differs from its receipt. Reconcile .rigup/tools/openspec before continuing.');
- const packageRoot=await openSpecPackageRoot(root);
- const payload=await projectPayloadDigest(packageRoot);
+ const modules=await openSpecModules(root);
+ const payload=await projectPayloadDigest(modules);
  if(payload!==record.projectPayloadDigest)throw Error('Project OpenSpec payload differs from its receipt. Reconcile .rigup/tools/openspec before continuing.');
+ const packageRoot=await targetPath(modules,projectTool.name);
  const metadata=JSON.parse(await readFile(await targetPath(packageRoot,'package.json'),'utf8'));
  const relative=typeof metadata.bin==='string'?metadata.bin:metadata.bin?.openspec;
  if(typeof relative!=='string'||!/^[\w./-]+\.(?:c|m)?js$/i.test(relative))throw Error('Invalid OpenSpec CLI entry');
@@ -135,7 +137,7 @@ export async function installProjectOpenSpec(root:string,record:OpenSpecPreparat
    if(!rules)throw Error('OpenSpec tool ignore file disappeared');
    await gitIgnoreCheck(root,target,rules.toString('utf8'));
   },verifyInstallPayload:async target=>{
-   const payload=await projectPayloadDigest(await openSpecPackageRoot(root,target));
+   const payload=await projectPayloadDigest(await openSpecModules(root,target));
    if(record.projectPayloadDigest&&record.projectPayloadDigest!==payload)throw Error('Staged OpenSpec payload changed after verification');
    if(!record.projectPayloadDigest){
     record.projectPayloadDigest=payload;
@@ -144,7 +146,7 @@ export async function installProjectOpenSpec(root:string,record:OpenSpecPreparat
   },
  },recover);
  if(result.status!=='done'||!result.receipt)throw Error(result.message);
- if(!record.projectPayloadDigest||await projectPayloadDigest(await openSpecPackageRoot(root))!==record.projectPayloadDigest)
+ if(!record.projectPayloadDigest||await projectPayloadDigest(await openSpecModules(root))!==record.projectPayloadDigest)
   throw Error('Project OpenSpec payload differs from the verified staging');
  record.projectReceipt=result.receipt;
  await saveOpenSpecPreparation(record,stateRoot);

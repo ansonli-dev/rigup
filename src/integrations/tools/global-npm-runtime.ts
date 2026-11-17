@@ -115,4 +115,3 @@ export async function prefixIdentity(prefix:string){
  if(!stat.isDirectory()||await realpath(prefix)!==prefix)throw Error('OpenSpec npm prefix changed after approval');
  return stat.dev+':'+stat.ino;
 }
-

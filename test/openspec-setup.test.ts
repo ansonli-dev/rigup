@@ -606,10 +606,11 @@ test('the executable forwards project OpenSpec argv, stderr and exit status from
  await assert.rejects(access(paths.packageJson),{code:'ENOENT'});
 })));
 
-test('prepared project OpenSpec is advertised and changing its imported payload invalidates apply, update and passthrough',()=>fixture((root,control)=>openSpecRegistry(control,async(registry)=>{
- await publishOpenSpec(registry,'2.0.0',{
+test('prepared project OpenSpec is advertised and changing its imported payload or dependency blocks execution',()=>fixture((root,control)=>openSpecRegistry(control,async(registry)=>{
+ await registry.publish('openspec-fixture-dependency','1.0.0',{main:'index.js'},{'index.js':'exports.value=1;\n'});
+ await registry.publish(openspecPackage,'2.0.0',{bin:{openspec:'bin/openspec.js'},dependencies:{'openspec-fixture-dependency':'1.0.0'}},{
   'bin/openspec.js':"#!/usr/bin/env node\nrequire('../dist/cli/index.js');\n",
-  'dist/cli/index.js':nativeProgram.replace("require('../package.json')","require('../../package.json')"),
+  'dist/cli/index.js':nativeProgram.replace("require('../package.json')","require('../../package.json');require('openspec-fixture-dependency')"),
  });
  const native=terminal(root,control,[]);
  assert.equal(await runCli([...prepareFlags,'--install-scope','project','--json'],native.io),0,native.output());
@@ -629,18 +630,21 @@ test('prepared project OpenSpec is advertised and changing its imported payload 
  const next=terminal(root,control,[]);
  assert.equal(await runCli(['update',...base,'--dry-run','--json'],next.io),0,next.output());
  const savedUpdate=JSON.parse(next.output());
- const payload=join(root,'.rigup/tools/openspec/node_modules',openspecPackage,'dist/cli/index.js');
- const original=await readFile(payload,'utf8');
  const marker=join(control,'changed-payload-was-invoked');
- await writeFile(payload,original+'\nfs.writeFileSync('+JSON.stringify(marker)+',"unexpected");\n');
- const stale=terminal(root,control,[]);
- assert.notEqual(await runCli(['update','--apply',savedUpdate.previewId,'--sessions-ended','--json'],stale.io),0,stale.output());
- assert.match(stale.output(),/source input changed|OpenSpec CLI changed/i);
- const unavailable=terminal(root,control,[]);
- assert.equal(await runCli(['update',...base,'--dry-run','--json'],unavailable.io),3,unavailable.output());
- assert.match(unavailable.output(),/payload.*receipt/i);
- await assert.rejects(forwardProjectOpenSpec(root,['--version'],join(control,'state')),/payload.*receipt/i);
- await assert.rejects(access(marker),{code:'ENOENT'});
+ for(const entry of [openspecPackage+'/dist/cli/index.js','openspec-fixture-dependency/index.js']){
+  const payload=join(root,'.rigup/tools/openspec/node_modules',entry);
+  const original=await readFile(payload,'utf8');
+  await writeFile(payload,original+'\nrequire("node:fs").writeFileSync('+JSON.stringify(marker)+',"unexpected");\n');
+  const stale=terminal(root,control,[]);
+  assert.notEqual(await runCli(['update','--apply',savedUpdate.previewId,'--sessions-ended','--json'],stale.io),0,stale.output());
+  assert.match(stale.output(),/source input changed|OpenSpec CLI changed/i);
+  const unavailable=terminal(root,control,[]);
+  assert.equal(await runCli(['update',...base,'--dry-run','--json'],unavailable.io),3,unavailable.output());
+  assert.match(unavailable.output(),/payload.*receipt/i);
+  await assert.rejects(forwardProjectOpenSpec(root,['--version'],join(control,'state')),/payload.*receipt/i);
+  await assert.rejects(access(marker),{code:'ENOENT'});
+  await writeFile(payload,original);
+ }
 })));
 
 test('OpenSpec resumes existing CLI preparation with the originally requested global scope',()=>fixture(async(root,control)=>{
@@ -662,6 +666,27 @@ test('OpenSpec resumes existing CLI preparation with the originally requested gl
   assert.equal(await runCli([...prepareFlags,'--install-scope','global','--resume','--json'],globalScope.io),0,globalScope.output());
   await access(join(root,'openspec/config.yaml'));
  }finally{if(previous===undefined)delete process.env.RIGUP_CONSUMER_PATH;else process.env.RIGUP_CONSUMER_PATH=previous;}
+}));
+
+test('OpenSpec 2.1 native generation uses project scope and an isolated home',()=>fixture(async(root,control)=>{
+ const bin=join(control,'bin'),home=join(control,'user-home');
+ await mkdir(home);
+ await installFakeOpenSpec(bin,undefined,'2.1.0',undefined,{init:`
+  const arg=process.argv.indexOf('--scope');
+  if(arg<0||process.argv[arg+1]!=='project')process.exit(94);
+  const home=require('node:os').homedir();
+  fs.writeFileSync(path.join(home,'isolated-native-sentinel'),'probe');
+  fs.writeFileSync(path.join(process.env.XDG_DATA_HOME,'data-sentinel'),'probe');
+ `});
+ const values={HOME:home,USERPROFILE:home,RIGUP_CONSUMER_PATH:bin+delimiter+process.env.PATH};
+ const original=Object.fromEntries(Object.keys(values).map(key=>[key,process.env[key]]));
+ Object.assign(process.env,values);
+ try{
+  const cli=terminal(root,control,[]);
+  assert.equal(await runCli([...prepareFlags,'--install-scope','global','--json'],cli.io),0,cli.output());
+  await access(join(root,'.agents','skills','openspec-propose','SKILL.md'));
+  await assert.rejects(access(join(home,'isolated-native-sentinel')),{code:'ENOENT'});
+ }finally{for(const [key,value] of Object.entries(original))if(value===undefined)delete process.env[key];else process.env[key]=value;}
 }));
 
 test('OpenSpec never probes a global launcher left by an unverified writer',()=>fixture((root,control)=>openSpecRegistry(control,async(registry,paths)=>{
