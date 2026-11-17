@@ -100,7 +100,7 @@ flowchart TD
 ## Integrations
 
 - Agent adapters cover Codex, Claude Code, OpenCode, and Oh My Pi. [Tested combinations](docs/compatibility/status.md)
-- The first-run guide can set up OpenSpec. Superpowers and Spec Kit use the project's existing official entry points. [Workflow prerequisites](docs/guides/usage.md#命令与引导)
+- The first-run guide can prepare missing Superpowers for Claude Code and Oh My Pi after terminal approval, and can prepare OpenSpec. Existing verified workflow sources are reused. [Superpowers preparation](docs/guides/usage.md#准备-superpowers)
 - Rigup builds the CodeGraph index in staging and verifies it before promotion. It connects OpenWiki over MCP and hands off wiki generation to a separate session. [Tool setup](docs/guides/usage.md#openwiki-和-codegraph)
 
 After setup, agents use their native workflow and MCP configuration, along with the project’s existing tools and checks. Project-local Node MCP entries need Node.js on the host agent's PATH, including when the CLI itself comes from the portable bundle. [Platform and runtime requirements](docs/guides/releases.md)

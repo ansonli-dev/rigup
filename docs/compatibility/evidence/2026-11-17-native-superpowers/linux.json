@@ -1,0 +1,53 @@
+{
+  "platform": "linux",
+  "arch": "x64",
+  "kernel": "7.0.0-1014-aws",
+  "node": "v24.22.2",
+  "sha": "0450fba85e5912ccce7fbb5e716735038ca07df6",
+  "git": "git version 2.56.1",
+  "claude": "2.1.273 (Claude Code)",
+  "omp": "omp/18.1.13",
+  "terminal": "PTY",
+  "cases": [
+    {
+      "name": "read-only, piped, real stdout redirection, cancellation and EOF",
+      "status": "passed"
+    },
+    {
+      "name": "post-preview project canaries and Windows cwd helper checks",
+      "status": "passed",
+      "windows": false
+    },
+    {
+      "name": "Claude project registration and install, conditional OMP import and no-op",
+      "status": "passed",
+      "claude": {
+        "projectScope": true,
+        "gitCommitSha": "22f0b463e7a5e579904dd6211a520321035526f7",
+        "version": "7.0.2"
+      },
+      "ompUserWrite": false
+    },
+    {
+      "name": "install Git environment denies official marketplace refresh",
+      "status": "passed"
+    },
+    {
+      "name": "OMP verified link, real Claude install, native OMP source precedence and no-op",
+      "status": "passed",
+      "omp": {
+        "version": "7.0.2-omp.3",
+        "integrity": "sha512-e0iw1xbuH8F678WCuMT+ZN4b08WfCNEf3kranIqdFva7Hbkuy1v6mgrbP7miVd6r9qzS9/e/ZaQPiXYwQw8BZQ==",
+        "enabled": true,
+        "linked": true
+      },
+      "claudeCommit": "22f0b463e7a5e579904dd6211a520321035526f7"
+    },
+    {
+      "name": "named OMP profile overrides custom agent folder and uses applicable XDG data",
+      "status": "passed"
+    }
+  ],
+  "modelCalls": 0,
+  "rigup": "0.7.0"
+}

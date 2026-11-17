@@ -1,5 +1,11 @@
 # Validation status
 
+## Native Superpowers preparation
+
+The packaged CLI ran with genuine Claude Code 2.1.273 and Oh My Pi 18.1.13 in real terminals on Ubuntu x64, native Windows x64 (PowerShell 7.6.9, ConPTY), and macOS arm64. It verified the Claude project receipt at Git commit `22f0b463e7a5e579904dd6211a520321035526f7` and the enabled, pinned OMP link. The two mixed cases verified the Claude-import shortcut and OMP package priority. Windows covered npm shim resolution and paths with spaces for this preparation flow. Redirection, cancellation, and project canaries checked for no unintended writes. [Test run](https://github.com/ansonli-dev/rigup/actions/runs/44076981293) · [Sanitized receipts](https://github.com/ansonli-dev/rigup/tree/main/docs/compatibility/evidence/2026-11-17-native-superpowers)
+
+An isolated macOS OMP 18.1.13 SDK query confirmed that all four required skills came from `claude-plugins` when only the Claude project plugin was installed and `omp-plugins` when both were installed. Model-backed invocation of the prepared workflow is not live-tested.
+
 ## Native workflow binding in v0.7.0
 
 The macOS ARM64 probes compared the selected source with each host's native catalog after CLI review and independent apply. The probes verified the three generated workflow references without invoking a model. [Sanitized receipts](https://github.com/ansonli-dev/rigup/blob/main/docs/compatibility/evidence/2026-11-17-integration-setup/native-bindings.json)

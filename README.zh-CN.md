@@ -98,7 +98,7 @@ flowchart TD
 ## 接入范围
 
 - Agent 配置适配覆盖 Codex、Claude Code、OpenCode 和 Oh My Pi。[已验证场景](docs/compatibility/status.md)
-- OpenSpec 可在首次引导中准备。Superpowers 和 Spec Kit 使用项目已有的官方入口。[流程接入前置条件](docs/guides/usage.md#命令与引导)
+- 首次引导可在终端确认后为 Claude Code 和 Oh My Pi 准备缺失的 Superpowers，也可准备 OpenSpec。已验证的工作流来源会直接复用。[准备 Superpowers](docs/guides/usage.md#准备-superpowers)
 - Rigup 在暂存区构建并验证 CodeGraph 索引，随后将索引移入项目。OpenWiki 通过 MCP 接通，由用户在独立会话生成 wiki。[工具设置](docs/guides/usage.md#openwiki-和-codegraph)
 
 安装结束后，agent 使用宿主原生工作流、MCP 配置和项目已有工具。[平台与运行时要求](docs/guides/releases.md)
