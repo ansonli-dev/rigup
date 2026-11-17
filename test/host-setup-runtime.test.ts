@@ -111,7 +111,7 @@ test('rejects a project-independent executable leaf that other users can modify'
  const {execFileSync}=await import('node:child_process');
  execFileSync(join(process.env.SystemRoot!,'System32','icacls.exe'),[exe,'/grant','*S-1-1-0:(M)']);
  const value=await runtime.inspectHostRuntime(root,'claude',config(home,bin));
- await assert.rejects(runtime.assertWindowsLaunch(value,[]),/untrusted grant/);
+ await assert.rejects(runtime.assertWindowsLaunch(value,[]),/Windows ACL denied untrusted access grant.*\(S-1-1-0\).*claude\.exe/);
 })));
 
 test('a plain executable text file is no native launcher',{skip:windows},()=>project(root=>project(async home=>{
