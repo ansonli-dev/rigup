@@ -12,6 +12,7 @@ const windows = process.platform === 'win32';
 const assets = {
   'win32-x64': ['omp-windows-x64.exe', '5d75a584acd1d8775d2ea6a14c3ea0dbdf8eb71a54bdab6ae7f38ab971aef877'],
   'linux-x64': ['omp-linux-x64', '3be5a308cc91e6f6bba148175fbe651d3583ff6d32ae221cb931dc08a64e1f39'],
+  'darwin-x64': ['omp-darwin-x64', '224ee40faaff907359504749942d0df47860b96ba8098ca5127384554707f48a'],
   'darwin-arm64': ['omp-darwin-arm64', 'a4c5c9cc5b8222184d0d7429b0bb6ac2a92bbe45dd11bf68e4b1360050791909'],
 };
 const version = /(^|[^\d])18\.1\.13([^\d]|$)/;
@@ -21,21 +22,21 @@ const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
 ));
 const evidence = resolve(process.argv[2]);
 const stage = await mkdtemp(join(homedir(), 'rigup native host '));
+const terminal = await mkdtemp(join(homedir(), 'rigup-native-terminal-'));
 await mkdir(evidence, {recursive: true});
 const result = {platform: process.platform, arch: process.arch, kernel: release(), node: process.version, sha: process.env.GITHUB_SHA};
 try {
   const [asset, digest] = assets[process.platform + '-' + process.arch] ?? [];
   assert.ok(asset, 'This gate needs a supported native runner');
   const npmBin = windows ? 'npm.cmd' : 'npm';
-  const terminal = join(stage, 'terminal tools');
   const claude = join(stage, 'Claude tools');
   const home = join(stage, 'clean home');
   const binaries = join(stage, 'OMP tools');
   const tmp = join(stage, 'clean temp');
-  await Promise.all([terminal, claude, home, binaries, tmp].map(path => mkdir(path, {mode: 0o700})));
+  await Promise.all([claude, home, binaries, tmp].map(path => mkdir(path, {mode: 0o700})));
   const toolEnv = {...env, HOME: home, ...(windows ? {USERPROFILE: home, TMP: tmp, TEMP: tmp} : {TMPDIR: tmp})};
   // npm.cmd is used only for trusted runner provisioning, before Rigup runs.
-  const npm = args => execFileSync(npmBin, args, {shell: windows, stdio: 'inherit', env: toolEnv, cwd: stage});
+  const npm = args => execFileSync(npmBin, args, {shell: windows, stdio: 'inherit', env: {...env, HOME: terminal, ...(windows ? {USERPROFILE: terminal} : {})}, cwd: terminal});
   npm(['install', '--prefix', '"' + terminal + '"', '--no-save', '--no-audit', '--no-fund', 'node-pty@1.1.0'].map(x => windows ? x : x.replace(/^"|"$/g, '')));
   npm(['install', '--global', '--prefix', '"' + claude + '"', '--no-audit', '--no-fund', '@anthropic-ai/claude-code@' + cliVersion].map(x => windows ? x : x.replace(/^"|"$/g, '')));
   const response = await fetch('https://github.com/can1357/oh-my-pi/releases/download/v' + ompVersion + '/' + asset, {signal: AbortSignal.timeout(120_000)});
@@ -76,5 +77,6 @@ try {
   throw error;
 } finally {
   await writeFile(join(evidence, 'native-hosts.json'), JSON.stringify(result, null, 2) + '\n');
+  await rm(terminal, {recursive: true, force: true, maxRetries: 4});
   await rm(stage, {recursive: true, force: true, maxRetries: 4});
 }
