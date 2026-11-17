@@ -71,8 +71,8 @@ try {
     ? join(claude, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')
     : join(claude, 'bin', 'claude');
   const pathKey = Object.keys(toolEnv).find(key => key.toUpperCase() === 'PATH') ?? 'PATH';
+  // The hosted Node executable is invoked by absolute path. Its shared tool cache is not a trusted child PATH entry.
   const systemPath=windows?[
-    dirname(process.execPath),
     dirname(resolveWindowsExecutable('git',stage,env)),
     dirname(resolveWindowsExecutable('pwsh',stage,env)),
     join(process.env.SystemRoot,'System32'),process.env.SystemRoot,
