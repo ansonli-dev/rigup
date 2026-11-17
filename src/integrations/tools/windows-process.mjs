@@ -243,10 +243,12 @@ export function windowsPowerShellExecutable(){
  return path.join(root,'System32','WindowsPowerShell','v1.0','powershell.exe');
 }
 
-function supervisorOptions(query){
+function supervisorOptions(query,base=process.env){
  const executable=windowsPowerShellExecutable();
  const cwd=path.dirname(executable);
- const env={...process.env,PSModulePath:path.join(cwd,'Modules'),RIGUP_QUERY_JOB:query};
+ const system=path.join(path.dirname(path.dirname(cwd)));
+ const env={...Object.fromEntries(Object.entries(base).filter(([key])=>/^(?:SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|LOCALAPPDATA|APPDATA)$/i.test(key))),
+  PATH:system,NoDefaultCurrentDirectoryInExePath:'1',PSModulePath:path.join(cwd,'Modules'),RIGUP_QUERY_JOB:query};
  return {executable,args:['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',worker],cwd,env};
 }
 
@@ -279,14 +281,14 @@ function environmentBlock(env){
  return [...entries.keys()].sort().map(key=>entries.get(key)).join('\0')+'\0\0';
 }
 
-/** @param {{executable:string,args:string[],cwd:string,env?:NodeJS.ProcessEnv,captureOutput?:boolean}} spec */
-export function startWindowsProcess({executable,args,cwd,env=process.env,captureOutput=true}){
+/** @param {{executable:string,args:string[],cwd:string,env?:NodeJS.ProcessEnv,captureOutput?:boolean,supervisorEnv?:NodeJS.ProcessEnv}} spec */
+export function startWindowsProcess({executable,args,cwd,env=process.env,captureOutput=true,supervisorEnv}){
  if(process.platform!=='win32'||!path.isAbsolute(cwd))throw Error('Windows process supervision unavailable');
  executable=resolveWindowsExecutable(executable,cwd,env);
  const command=[executable,...args].map(quoteArgument).join(' ');
  if(command.length>=32767)throw Error('Windows command line is too long');
  const job=randomUUID(),block=environmentBlock(env);
- const supervisor=supervisorOptions(undefined);
+ const supervisor=supervisorOptions(undefined,supervisorEnv);
  const child=spawn(supervisor.executable,supervisor.args,{cwd:supervisor.cwd,env:supervisor.env,windowsHide:true,
   stdio:['pipe',captureOutput?'pipe':'ignore',captureOutput?'pipe':'ignore']});
  let started=false,interrupted=false,closed=false,failed=false,force;

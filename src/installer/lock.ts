@@ -42,7 +42,7 @@ export async function processIdentity(pid:number):Promise<ProcessIdentity>{
  if(!validPid(pid))throw new Error('process identity unavailable');
  const started=process.platform==='win32'
   ?await windowsStart(pid)
-  :(await exec('ps',['-p',String(pid),'-o','lstart='])).stdout.trim();
+  :(await exec('/bin/ps',['-p',String(pid),'-o','lstart='],{env:{LANG:process.env.LANG,LC_ALL:process.env.LC_ALL,LC_TIME:process.env.LC_TIME,TZ:process.env.TZ}})).stdout.trim();
  if(!started)throw new Error('process identity unavailable');
  return {pid,started};
 }

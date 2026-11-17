@@ -2,7 +2,7 @@ import {runGlobalNpmInstall,queryGlobalNpmInstall,type GlobalNpmReceipt} from '.
 import {queryInstalledTool,queryToolPackage,type ToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import {isRecord,readDurableRecord,saveDurable} from '../private-record.js';
 import {join,resolve,isAbsolute} from 'node:path';
-import {readFile} from 'node:fs/promises';
+import {lstat,readFile,realpath} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import type {SetupOperation} from '../types.js';
@@ -19,7 +19,7 @@ import {essentialEnvironment,selectedNpmRegistry} from '../runtime-inputs.js';
 import {targetPath} from './ownership.js';
 import type {PreviewData} from './preview.js';
 export interface OperationResult {globalReceipt?:GlobalNpmReceipt;status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
-type WriterIdentity=ProcessIdentity&{windowsJob?:string};
+export type WriterIdentity=ProcessIdentity&{windowsJob?:string};
 interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult;installStage?:InstallStage}
 export interface OperationDependencies {stateRoot?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;verifyInstallScope?:(target:string)=>Promise<void>;verifyInstallPayload?:(target:string)=>Promise<void>;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
 export function operationRoot(operation:SetupOperation):string {if(operation.kind==='initialize'&&isAbsolute(operation.parameters.cwd))return operation.parameters.cwd;const i=operation.parameters.args.indexOf('--prefix');const prefix=operation.parameters.args[i+1];if(i<0||!prefix||!isAbsolute(prefix))throw new Error('operation project root unavailable');return resolve(prefix,'../../..');}
@@ -65,8 +65,29 @@ export async function writerAlive(identity:WriterIdentity):Promise<boolean>{
   return windowsJobActive(identity.windowsJob);
  }
  try{process.kill(-identity.pid,0);throw new Error('writer process group exit cannot be confirmed');}catch(e){if((e as NodeJS.ErrnoException).code==='ESRCH')return false;throw e;}}
+const nativeHosts=['claude','omp'] as const;
+type NativeHost=typeof nativeHosts[number];
+export const hostWriterPath=(stateRoot:string,host:NativeHost)=>join(stateRoot,'native-'+host+'.writer.json');
+
+export async function readHostWriter(stateRoot:string,host:NativeHost){
+ const path=hostWriterPath(stateRoot,host);
+ const info=await lstat(path).catch(error=>{if(error.code==='ENOENT')return;throw error;});
+ if(!info)return;
+ if(!info.isFile()||info.nlink!==1||info.size>4096)throw Error('Invalid native host writer record; reconciliation required');
+ return readDurableRecord<{host:NativeHost;root:string;identity:WriterIdentity}>(path,'Native host writer record',item=>
+  item.host===host&&typeof item.root==='string'&&isAbsolute(item.root)&&isRecord(item.identity)&&
+  Number.isSafeInteger(item.identity.pid)&&item.identity.pid>0&&typeof item.identity.started==='string'&&!!item.identity.started&&
+  (item.identity.windowsJob===undefined||typeof item.identity.windowsJob==='string'));
+}
+
 export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateRoot()):Promise<void>{
- for(const item of await pendingOperations(root,stateRoot)){
+ const state=await privateDirectory(stateRoot,root);
+ root=await realpath(root);
+ for(const host of nativeHosts){
+  const record=await readHostWriter(state,host);
+  if(record?.root===root&&await writerAlive(record.identity))throw Error('Previous '+host+' writing process still active; project blocked');
+ }
+ for(const item of await pendingOperations(root,state)){
   if(item.identity&&await writerAlive(item.identity))throw new Error('previous writing process still active; project blocked');
   if(item.stage==='prepared'&&!item.installStage||item.result?.status==='done')continue;
   const operation=item.operation;
@@ -79,7 +100,7 @@ export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateR
   }else if((await queryOperation(operation)).status!=='done'&&!await resumableNativeOperation(operation))throw new Error('Unresolved native operation. Resume from the Rigup installation that prepared it, or reconcile the protected scope before preparing a new preview.');
  }
 }
-const bootstrap=`const {spawn}=require('node:child_process');let started=false,child;for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{if(!started)process.exit(1);if(child)child.kill(signal);});process.stdin.once('data',()=>{started=true;const spec=JSON.parse(process.argv[1]);child=spawn(spec.executable,spec.args,{cwd:spec.cwd,stdio:'ignore',shell:false,env:spec.env??process.env});child.once('error',()=>process.exit(1));child.once('exit',(code)=>process.exit(code??1));});process.stdin.once('end',()=>{if(!started)process.exit(1)});`;
+const bootstrap=`const {spawn}=require('node:child_process');let started=false,child;for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{if(!started)process.exit(1);if(child)child.kill(signal);});process.stdin.once('data',()=>{started=true;const spec=JSON.parse(process.argv[1]);child=spawn(spec.executable,spec.args,{cwd:spec.cwd,stdio:spec.captureOutput?['ignore','inherit','ignore']:'ignore',shell:false,env:spec.env??process.env});child.once('error',()=>process.exit(1));child.once('exit',(code)=>process.exit(code??1));});process.stdin.once('end',()=>{if(!started)process.exit(1)});`;
 async function openOperationJournal(root:string,dependencies:OperationDependencies){
  const stateRoot=await privateDirectory(dependencies.stateRoot??defaultStateRoot(),root);
  const path=join(stateRoot,signature(root)+'.operations.json');
@@ -226,12 +247,15 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
 }
 
 export async function protectedOperationCommand(command:{executable:string;args:string[];env?:NodeJS.ProcessEnv},root:string,timeoutMs:number,dependencies:{
+ launcher?:{cwd:string;env:NodeJS.ProcessEnv};stdout?:(chunk:Buffer)=>void;
  signal?:AbortSignal;markDispatching:(identity:WriterIdentity)=>Promise<void>;registryPending:()=>Promise<OperationResult|undefined>;
  restoreUndispatched:()=>Promise<OperationResult>;finish:(code:number|null,cancelled:boolean)=>Promise<OperationResult>;identity:()=>WriterIdentity|undefined;
 }):Promise<OperationResult>{
  const {markDispatching,registryPending,restoreUndispatched,finish,identity}=dependencies;
  if(process.platform==='win32'){
-  const child=startWindowsProcess({...command,cwd:root,captureOutput:false});
+  const child=startWindowsProcess({...command,cwd:root,captureOutput:!!dependencies.stdout,supervisorEnv:dependencies.launcher?.env});
+  if(dependencies.stdout)child.stdout?.on('data',dependencies.stdout);
+  child.stderr?.resume();
   let timeout:ReturnType<typeof setTimeout>|undefined;
   try{
    if(!child.pid)throw Error('Cannot start protected operation process');
@@ -251,19 +275,21 @@ export async function protectedOperationCommand(command:{executable:string;args:
    child.stop();await child.completed;
   }
  }
- const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...command,cwd:root})],{detached:true,stdio:['pipe','ignore','ignore']});
+ const child=spawn(process.execPath,['-e',bootstrap,JSON.stringify({...command,cwd:root,captureOutput:!!dependencies.stdout})],{...dependencies.launcher,detached:true,stdio:['pipe',dependencies.stdout?'pipe':'ignore','ignore']});
+ if(dependencies.stdout)child.stdout?.on('data',dependencies.stdout);
  if(!child.pid)throw new Error('Cannot start protected operation process');
  const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>(resolve=>{child.once('error',()=>resolve({code:1,signal:null}));child.once('exit',(code,signal)=>resolve({code,signal}));});
- try{await markDispatching(await processIdentity(child.pid));}catch(e){child.stdin.end();await completed;throw e;}
- const changedBeforeDispatch=await registryPending();
- if(dependencies.signal?.aborted){child.stdin.end();await completed;return restoreUndispatched();}
- if(changedBeforeDispatch){child.stdin.end();await completed;await restoreUndispatched();return changedBeforeDispatch;}
+ try{await markDispatching(await processIdentity(child.pid));}catch(e){child.stdin!.end();await completed;throw e;}
+ let changedBeforeDispatch:OperationResult|undefined;
+ try{changedBeforeDispatch=await registryPending();}catch(error){child.stdin!.end();await completed;throw error;}
+ if(dependencies.signal?.aborted){child.stdin!.end();await completed;return restoreUndispatched();}
+ if(changedBeforeDispatch){child.stdin!.end();await completed;await restoreUndispatched();return changedBeforeDispatch;}
  let cancelled=false,timedOut=false;let forceTimer:ReturnType<typeof setTimeout>|undefined;
  const terminate=()=>{cancelled=true;try{process.kill(-child.pid!,'SIGTERM');}catch{};forceTimer??=setTimeout(()=>{try{process.kill(-child.pid!,'SIGKILL');}catch{}},3000);};
  const timeout=setTimeout(()=>{timedOut=true;terminate();},timeoutMs);
  const hardKill=setTimeout(()=>{if(cancelled)try{process.kill(-child.pid!,'SIGKILL');}catch{}},timeoutMs+3000);
  dependencies.signal?.addEventListener('abort',terminate,{once:true});
- child.stdin.write('go\n');child.stdin.end();
+ child.stdin!.write('go\n');child.stdin!.end();
  const outcome=await completed;clearTimeout(timeout);clearTimeout(hardKill);if(forceTimer)clearTimeout(forceTimer);dependencies.signal?.removeEventListener('abort',terminate);
  if(identity()){
   // The process-group leader and native worker do not exit at the same instant.
