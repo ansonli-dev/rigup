@@ -19,6 +19,7 @@ export interface SetupOptions {
   templates?: {source:string;target:string;values?:Record<string,string|number|boolean>}[];
   mcp?: {id:string;agents?:Agent[];url?:string;command?:CommandSpec;envRefs?:string[];bearerTokenEnv?:string}[];
 }
+export type ProviderEnvImport=Pick<NonNullable<SetupOptions['model']>,'provider'|'apiKeyEnv'>;
 export type StepResult<T> =
   | { status: 'complete'; value: T }
   | { status: 'pending-host'; requestId: string; requestPath: string; nextCommand: string };
@@ -58,7 +59,7 @@ export interface ManagedAsset {logicalId:string;target:string;ownership:import('
 export interface AssetDisposition {logicalId:string;action:'retain'|'update'|'retire'|'pending';reason:string}
 export type ProjectRulesStatus='pending'|'ready';
 export interface SetupRequirement {integrationId:string;reason:string;nextCommand?:string;agent?:Agent;kind?:'npm-resolution'|'sdd-binding'}
-export interface SetupPlan {openSpecRuntime?:import('./integrations/sdd/openspec-setup.js').OpenSpecRuntimeIdentity;pendingRuntimeTools?:('openwiki'|'codegraph')[];projectRules?:ProjectRulesStatus;harness?:HarnessSummary;projectDocuments?:{target:string;content:string}[];harnessNavigation?:{targets:string[];conventionPaths:string[];notApplicable?:{path:string;topic:string;topicId:string;scope:string[]}[]};gitlabReviewRequired?:true;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
+export interface SetupPlan {providerEnvImport?:ProviderEnvImport;openSpecRuntime?:import('./integrations/sdd/openspec-setup.js').OpenSpecRuntimeIdentity;pendingRuntimeTools?:('openwiki'|'codegraph')[];projectRules?:ProjectRulesStatus;harness?:HarnessSummary;projectDocuments?:{target:string;content:string}[];harnessNavigation?:{targets:string[];conventionPaths:string[];notApplicable?:{path:string;topic:string;topicId:string;scope:string[]}[]};gitlabReviewRequired?:true;root:string;fingerprint:string;options:SetupOptions;runChecks?:CheckKind[];assets:import('./integrations/registry.js').PreparedAsset[];operations:SetupOperation[];dispositions:AssetDisposition[];warnings:string[];requirements:SetupRequirement[];versions:Record<string,string>}
 
 export function validateTopicId(value:unknown):string{
  if(typeof value!=='string'||value.length>48||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)||

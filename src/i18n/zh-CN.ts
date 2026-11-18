@@ -318,6 +318,7 @@ rigup openspec <args>          运行已验证的项目 OpenSpec CLI
  'runtime.summary':"运行时输入: {status}（{path}）",
  'runtime.pending':"待处理: {reason}",
  'runtime.imported':"已从{source}导入 {name}",
+ 'runtime.providerImported':"已从调用环境导入 {name} 到 .rigup/.env（git 已忽略）",
  'runtime.missing':"{capability}: {name} {status}，请在 {path} 中提供",
  'runtime.unverified':"{capability}: {status}，尚待验证：{reason}",
  'runtime.source.project-file':"项目文件",

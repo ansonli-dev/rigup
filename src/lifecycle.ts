@@ -10,7 +10,7 @@ import {quoteShell as quote} from './shell-command.js';
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
-import type {SetupOptions,CheckKind,SetupPlan} from './types.js';
+import type {SetupOptions,CheckKind,ProviderEnvImport,SetupPlan} from './types.js';
 import type {AnalysisBackend,ResearchResult} from './analyzer/backend.js';
 import {scanRepository,repositoryReader} from './analyzer/repository.js';
 import {hostBackend} from './analyzer/host.js';
@@ -39,7 +39,7 @@ import {inspectOpenSpecForSetup,interruptedOpenSpecPreparation,type OpenSpecRunt
 import {openspecPreparationCommand} from './integrations/sdd/openspec.js';
 import type {NpmView} from './integrations/tools/npm-resolution.js';
 import type {LifecyclePresentation} from './cli-output.js';
-export interface LifecycleFlags {globalTools?:('openwiki'|'codegraph')[];deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
+export interface LifecycleFlags {providerEnvImport?:ProviderEnvImport;globalTools?:('openwiki'|'codegraph')[];deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
 export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:(preview:Preview)=>Promise<'install'|'save'|'cancel'>;report?:(value:Record<string,unknown>)=>void;researchSessionId?:string;expectedFingerprint?:string;npmView?:NpmView;nativeSetup?:import('./integrations/host-setup/index.js').NativeSetupServices;presentation?:LifecyclePresentation}
 interface Run {
  root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;
@@ -55,7 +55,8 @@ async function readRun(path:string,root:string,consent:string):Promise<Run|undef
 }
 export async function executeLifecycle(root:string,options:SetupOptions,flags:LifecycleFlags,write:(s:string)=>void,services:LifecycleServices={}):Promise<number>{
  const display=services.presentation,notice=display?.notice??write;
- const runtimeSetup=await runtimeSetupSummary(root,options);
+ const {providerEnvImport}=flags;
+ const runtimeSetup=await runtimeSetupSummary(root,options,{providerEnvImport});
  const report=services.report;
  services={...services,report:value=>report?.({runtimeSetup,...value})};
  if(!options.agents.length){notice(t('cli.selectAgents')+'\n');services.report?.({phase:'preflight',installStatus:'pending',requiredInput:[{field:'agents',sources:['project configuration','selected profile','CLI overrides'],provide:'--agents codex (or another supported host)'}]});return 3;}
@@ -172,7 +173,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(flags.deferResearch&&old)throw Error('Deferred research is available for initial setup only');
   const authorityReview=await sourceReview(root,old,lock.stateRoot);
   if(old?.projectRules==='pending'||authorityReview)review=true;
-  const prepared=await prepareGeneration(profile,options);
+  const prepared=await prepareGeneration(profile,options,providerEnvImport);
   if(openSpecRuntime?.scope==='project')prepared.integration.openSpecProjectCli=true;
   const recovery=prepared.integration.requirements.find(requirement=>requirement.nextCommand);
   const nativeSetup=recovery?.nextCommand?{nativeSetupCommand:recovery.nextCommand,nativeRequirements:prepared.integration.requirements}:{};
@@ -214,7 +215,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const authority=sourceGuidance(profile,options);
    const scopedAuthority=authority.length?{sourceGuidance:authority}:{};
    const reviewRun=review||!!services.confirmPreview;
-   const input={root,options,globalTools:flags.globalTools??[],effectiveModel,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,researchSessionId};
+   const input={root,options,globalTools:flags.globalTools??[],effectiveModel,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,researchSessionId,providerEnvImport};
    const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
    const consent=signature(input);
    const savedRun=async(id:string)=>await readRun(join(runs,id+'.json'),root,id)??await readRun(join(base,'runs',id+'.json'),root,id);
@@ -224,7 +225,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     signature(prior.effectiveModel??null)===signature(effectiveModel??null)&&
     signature(prior.mode.globalTools??[])===signature(input.globalTools)&&
     signature(prior.mode.retireIds??[])===signature(input.retireIds)&&signature(prior.mode.runChecks??[])===signature(input.runChecks)&&
-    !!prior.mode.configure===input.configure;
+    !!prior.mode.configure===input.configure&&
+    signature(prior.mode.providerEnvImport??null)===signature(providerEnvImport??null);
    if(flags.continuation){
     const original=await savedRun(flags.continuation);
     if(!original||!matchesSelection(original))throw Error('continuation input/configuration changed; restart preparation');
@@ -246,7 +248,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     const applied=await readApplyRecord(applyRecordPath(root,lock.stateRoot));
     if(applied?.previewId===run.completed.previewId&&applied.installId===old?.installId)run=undefined;
    }
-   if(!run)run={root,options,effectiveModel,mode:{globalTools:flags.globalTools,dryRun:flags.dryRun,yes:!reviewRun&&flags.yes,review:reviewRun,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent,versions};
+   if(!run)run={root,options,effectiveModel,mode:{providerEnvImport,globalTools:flags.globalTools,dryRun:flags.dryRun,yes:!reviewRun&&flags.yes,review:reviewRun,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent,versions};
    if(!matchesSelection(run))throw Error('durable research options changed; reconciliation required');
    run.consent=consent;
    if(flags.researchTokens!==undefined)run.researchTokens=flags.researchTokens;
@@ -309,6 +311,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const nextCommand=openspecPreparationCommand(root,options.agents,openSpecPending.scope);
    plan.requirements.push(...openSpecPending.requirements.map(reason=>({integrationId:'openspec',kind:'sdd-binding' as const,reason,nextCommand})));
   }
+  if(providerEnvImport)plan.providerEnvImport=providerEnvImport;
   plan.runChecks=flags.runChecks??[];
   if(authorityReview&&profile.truncated)plan.projectRules='pending';
   plan=await prepareProjectToolOperations(plan,profile,{stateRoot:lock.stateRoot,signal:services.signal,view:services.npmView,globalTools:flags.globalTools});
@@ -324,7 +327,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     notice(t('lifecycle.rulesNext')+'\n');
     return 3;
    }
-   services.report?.({...summary,phase:'preview',installStatus:'up-to-date',runtimeSetup:await runtimeSetupSummary(root,options,{configured:['*']})});
+   services.report?.({...summary,phase:'preview',installStatus:'up-to-date',runtimeSetup:await runtimeSetupSummary(root,options,{configured:['*'],providerEnvImport})});
    notice(t('lifecycle.upToDate')+'\n');
    return 0;
   }
