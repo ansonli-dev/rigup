@@ -436,12 +436,14 @@ switch(process.argv[2]){
  try{
   process.chdir(root);
   let output='',diagnostic='';
-  const code=await runCli(['init','--agents','codex','--sdd','openspec','--prepare-openspec','--json'],{
+  const code=await runCli(['init','--agents','codex','--sdd','openspec','--prepare-openspec','--json','--verbose'],{
    cwd:root,isTTY:false,write:s=>output+=s,writeError:s=>diagnostic+=s,
    services:{stateRoot:join(control,'state'),cacheRoot:join(control,'cache')},
   });
   assert.equal(code,0,output+diagnostic);
   assert.equal(JSON.parse(output).nativeWorkflow,'ready');
+  assert.match(diagnostic,/^  openspec\/config\.yaml$/m);
+  assert.match(diagnostic,/^  \.agents\/skills\/openspec-propose\/SKILL\.md$/m);
   assert.match(diagnostic,/reload.*host session/i);
   assert.ok(diagnostic.indexOf('OpenSpec CLI 1.16.0') < diagnostic.search(/reload.*host session/i),diagnostic);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/schema: spec-driven/);
