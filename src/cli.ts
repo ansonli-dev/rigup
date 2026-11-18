@@ -256,7 +256,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    if(reload)io.write(t('cli.restartHost')+'\n',reload+'\n');
    presentation.progress({stage:'apply',completed:0});
    presentation.applying(applyId);
-   const report=await apply(applyId,{cacheRoot,stateRoot:services.stateRoot,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});
+   const report=await apply(applyId,{cacheRoot,stateRoot:services.stateRoot,recover:flags.resume,signal:services.signal,runChecks:services.runChecks,onProviderImport:services.onProviderImport});
    services.report?.({phase:'apply',installStatus:report.status,...report});
    return report.exitCode;
   }catch(e){start();state.error=errorMessage(e);return services.signal?.aborted?130:1;}
@@ -549,14 +549,14 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     if(manifest&&!flags.dryRun){flags.review=true;flags.yes=false;}
    }
   }else if(explicitResearch&&guided&&wantsRules&&!flags.deferResearch&&!flags.foundationOnly&&options.backend==='native'){
-   const environment=await runtimeEnvironment(root,options,'provider');
-   const credentials=await promptNativeCredentials(options,promptIO,services.credentials,
-    {...environment,RIGUP_API_KEY_ENV:values['--api-key-env']??environment.RIGUP_API_KEY_ENV});
+   const environment=await runtimeEnvironment(root,options,'provider',undefined,values['--api-key-env']);
+   const credentials=await promptNativeCredentials(options,promptIO,services.credentials,environment);
    if(!credentials)return 130;
    services.credentials=credentials;
   }
+  if(values['--api-key-env'])services.apiKeyEnvOverride=values['--api-key-env'];
   if(!savedApplyOptions&&!flags.continuation&&!deferredProvider&&!flags.providerEnvImport){
-   flags.providerEnvImport=await selectProviderEnvImport(root,options,values['--model']);
+   flags.providerEnvImport=await selectProviderEnvImport(root,options,values['--model'],values['--api-key-env']);
   }
   if(flags.researchTokens&&(!options.sdd||options.backend!=='codex'))throw Error('--research-tokens requires the Codex backend and a development workflow');
   if(flags.configure&&values['--review'])options.executionPolicy={mode:'review'};
@@ -590,11 +590,15 @@ async function runLocalizedCli(argv:string[],io:CliIO):Promise<number>{
  },io.services?.signal):undefined);
  const display=createCliOutput({write,json,verbose,stateRoot:io.services?.stateRoot,stage:ui?.stage,stop:ui?.stop});
  let actual:Record<string,unknown>={},last='';
+ let importedProviderKey:string|undefined;
  const report=(value:Record<string,unknown>)=>{actual=value;io.services?.report?.(value);};
  const code=await runCliInternal(argv.filter(arg=>arg!=='--json'&&arg!=='--verbose'),{
   ...io,...(json?{isTTY:false,ask:undefined,read:undefined}:{ask:io.ask??ui?.ask,read}),
   write:(text,english=text)=>{last=english;write(text);},
-  services:{...io.services,report,presentation:display.presentation},
+  services:{...io.services,report,presentation:display.presentation,onProviderImport:name=>{
+   importedProviderKey=name;
+   io.services?.onProviderImport?.(name);
+  }},
  },display);
  if(actual.phase==='apply'&&actual.status==='complete'&&display.state.root&&display.state.data?.plan.options.sdd==='openspec'){
   try{
@@ -605,9 +609,9 @@ async function runLocalizedCli(argv:string[],io:CliIO):Promise<number>{
    if(draft?.root===root&&signature(draft.agents)===signature(data.plan.options.agents))await rm(path,{force:true});
   }catch{if(verbose)write(t('cli.removeDraftFailed')+'\n');}
  }
- if(actual.runtimeSetup)writeRuntimeSummary(actual.runtimeSetup as RuntimeSetupSummary,write,{
-  verbose,providerApiKeyEnv:!json&&actual.phase==='apply'?display.state.data?.plan.providerEnvImport?.apiKeyEnv:undefined,
- });
+ const announcedProviderKey=json?undefined:importedProviderKey;
+ if(announcedProviderKey)write(t('runtime.providerImported',{name:announcedProviderKey})+'\n');
+ if(verbose&&actual.runtimeSetup)writeRuntimeSummary(actual.runtimeSetup as RuntimeSetupSummary,write,announcedProviderKey);
  await display.finish(code,actual);
  if(json){
   const error=display.state.error??applyReason(actual)??actual.error??last.trim();

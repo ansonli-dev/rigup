@@ -56,25 +56,29 @@ async function remoteTarget(root:string,options:SetupOptions):Promise<{value?:st
  return targets.size===1?{value:[...targets][0],source:'repository-remote'}:{};
 }
 
-function providerEnvironment(file:RuntimeFile):NodeJS.ProcessEnv{
+function providerEnvironment(file:RuntimeFile,apiKeyEnvOverride?:string):NodeJS.ProcessEnv{
  const environment={...process.env};
  for(const name of providerVariables){const value=file.entries.get(name)?.value;if(value)environment[name]=value;}
+ if(apiKeyEnvOverride!==undefined)environment.RIGUP_API_KEY_ENV=apiKeyEnvOverride;
  return environment;
 }
 
-export async function selectProviderEnvImport(root:string,options:SetupOptions,modelOverride?:string):Promise<ProviderEnvImport|undefined>{
+export async function selectProviderEnvImport(root:string,options:SetupOptions,modelOverride?:string,apiKeyEnvOverride?:string):Promise<ProviderEnvImport|undefined>{
  if(options.backend!=='native'&&options.projectRules!==true)return;
  const selected=process.env.RIGUP_PROVIDER?.trim(),explicitModel=!!modelOverride?.trim();
  if(!explicitModel&&selected!=='anthropic'&&selected!=='openai-compatible')return;
  const file=await readRuntimeFile(root);
  if(file.problem)return;
- const metadata=await researchProviderMetadata(root,modelOverride,options.model,providerEnvironment(file)).catch(()=>undefined);
+ const metadata=await researchProviderMetadata(root,modelOverride,options.model,providerEnvironment(file,apiKeyEnvOverride)).catch(()=>undefined);
  if(!metadata)return;
  const {provider,apiKeyEnv}=metadata.identity;
- if(explicitModel||selected===provider)return {provider,apiKeyEnv};
+ if(explicitModel||selected===provider)return apiKeyEnvOverride===undefined?{provider,apiKeyEnv}:{provider,apiKeyEnv,explicitApiKeyEnv:true};
 }
 
-async function declarations(root:string,options:SetupOptions,file:RuntimeFile,modelOverride?:string,onProviderError?:(reason:string)=>void,approval?:ProviderEnvImport):Promise<Declaration[]>{
+async function declarations(root:string,options:SetupOptions,file:RuntimeFile,context:{
+ modelOverride?:string;apiKeyEnvOverride?:string;onProviderError?:(reason:string)=>void;approval?:ProviderEnvImport;
+}={}):Promise<Declaration[]>{
+ const {modelOverride,apiKeyEnvOverride,onProviderError,approval}=context;
  const inputs:Declaration[]=[];
  const locale=artifactLocale(options.documentLanguage);
  const add=(name:string,capability:string,required:boolean,note:InputNote|{key:InputNote;params:MessageParams},consumer?:Consumer,destination=local,seed?:string,seedSource?:Source)=>{
@@ -99,12 +103,13 @@ async function declarations(root:string,options:SetupOptions,file:RuntimeFile,mo
  }
  if(options.sdd==='openspec'||options.tools?.some(tool=>tool.install))add('RIGUP_NPM_REGISTRY','npm',false,'artifact.envRegistry','npm');
  if(options.backend==='native'||options.projectRules===true){
-  const environment=providerEnvironment(file);
+  const environment=providerEnvironment(file,apiKeyEnvOverride);
   if(approval){
    const {provider,apiKeyEnv}=approval;
    if((provider!=='anthropic'&&provider!=='openai-compatible')||typeof apiKeyEnv!=='string'||!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))return inputs;
    const providers=[environment.RIGUP_PROVIDER?.trim(),process.env.RIGUP_PROVIDER?.trim()];
-   const references=[environment.RIGUP_API_KEY_ENV,process.env.RIGUP_API_KEY_ENV];
+   const projectReference=file.entries.get('RIGUP_API_KEY_ENV')?.value;
+   const references=[projectReference,approval.explicitApiKeyEnv===true?undefined:process.env.RIGUP_API_KEY_ENV];
    if(providers.some(value=>value&&value!==provider)||references.some(value=>value&&value!==apiKeyEnv))return inputs;
    environment.RIGUP_PROVIDER=provider;
    environment.RIGUP_API_KEY_ENV=apiKeyEnv;
@@ -124,7 +129,7 @@ async function declarations(root:string,options:SetupOptions,file:RuntimeFile,mo
    add('RIGUP_PROVIDER','provider',true,'artifact.envProvider','provider',local,provider,seedSource('RIGUP_PROVIDER'));
    add(key,'provider',true,'artifact.envApiKey','provider');
    add('RIGUP_MODEL_ID','provider',true,'artifact.envModel','provider',local,metadata.identity.model,seedSource('RIGUP_MODEL_ID',prefix+'_MODEL'));
-   add('RIGUP_API_KEY_ENV','provider',false,'artifact.envKeyName','provider',local,key,seedSource('RIGUP_API_KEY_ENV'));
+   add('RIGUP_API_KEY_ENV','provider',false,'artifact.envKeyName','provider',local,key,key===process.env.RIGUP_API_KEY_ENV?seedSource('RIGUP_API_KEY_ENV'):'configuration');
    add('RIGUP_BASE_URL','provider',false,'artifact.envGateway','provider',local,metadata.baseURL,seedSource('RIGUP_BASE_URL',prefix+'_BASE_URL'));
    add('RIGUP_MAX_OUTPUT_TOKENS','provider',false,'artifact.envMaxTokens','provider',local,metadata.maxOutputTokens===undefined?undefined:String(metadata.maxOutputTokens),seedSource('RIGUP_MAX_OUTPUT_TOKENS'));
    for(const suffix of ['MODEL','BASE_URL'])if(effective(file,prefix+'_'+suffix).value)add(prefix+'_'+suffix,'provider',false,suffix==='MODEL'?'artifact.envProviderModel':'artifact.envProviderBaseUrl','provider');
@@ -136,7 +141,7 @@ async function declarations(root:string,options:SetupOptions,file:RuntimeFile,mo
 async function state(root:string,options:SetupOptions,context:RuntimeInputContext={}){
  let providerDiagnostic:string|undefined;
  const file=await readRuntimeFile(root);
- const declared=await declarations(root,options,file,undefined,reason=>{providerDiagnostic=reason;},context.providerEnvImport);
+ const declared=await declarations(root,options,file,{onProviderError:reason=>{providerDiagnostic=reason;},approval:context.providerEnvImport});
  const inputs:RuntimeInput[]=declared.map(input=>{
   const {name,capability,destination,required,reason}=input;
   if(destination!==local)return {name,capability,destination,required,reason,state:'unverified'};
@@ -171,14 +176,17 @@ export async function applyRuntimeInputs(root:string,options:SetupOptions,contex
  return summary;
 }
 
-export async function runtimeEnvironment(root:string,options:SetupOptions,consumer:Consumer,modelOverride?:string):Promise<NodeJS.ProcessEnv>{
+export async function runtimeEnvironment(root:string,options:SetupOptions,consumer:Consumer,modelOverride?:string,apiKeyEnvOverride?:string):Promise<NodeJS.ProcessEnv>{
  const file=await readRuntimeFile(root);
  if(file.problem)throw Error(file.problem);
- const inputs=await declarations(root,options,file,consumer==='provider'?modelOverride:undefined,consumer==='provider'?undefined:()=>{}),environment=essentialEnvironment();
+ const provider=consumer==='provider';
+ const inputs=await declarations(root,options,file,provider?{modelOverride,apiKeyEnvOverride}:{onProviderError:()=>{}});
+ const environment=essentialEnvironment();
  for(const input of inputs.filter(input=>input.consumer===consumer)){
   const {value}=effective(file,input.name,input.seed,input.seedSource);
   if(value!==undefined)environment[input.name]=value;
  }
+ if(provider&&apiKeyEnvOverride!==undefined)environment.RIGUP_API_KEY_ENV=apiKeyEnvOverride;
  return environment;
 }
 
@@ -196,18 +204,14 @@ export async function operationNpmRegistry(root:string,name:string,signal?:Abort
  return effectiveNpmRegistry(root,name,await selectedNpmRegistry(root),signal);
 }
 
-export function writeRuntimeSummary(summary:RuntimeSetupSummary,write:(text:string)=>void,{verbose=true,providerApiKeyEnv}:{verbose?:boolean;providerApiKeyEnv?:string}={}):void{
- if(verbose){
-  if(summary.providerDiagnostic)write(t('runtime.provider',{reason:summary.providerDiagnostic})+'\n');
-  write(t('runtime.summary',{status:t(`status.${summary.template.state}`),path:summary.template.path})+'\n');
-  if(summary.template.reason)write(t('runtime.pending',{reason:summary.template.reason})+'\n');
- }
+export function writeRuntimeSummary(summary:RuntimeSetupSummary,write:(text:string)=>void,announcedProviderKey?:string):void{
+ if(summary.providerDiagnostic)write(t('runtime.provider',{reason:summary.providerDiagnostic})+'\n');
+ write(t('runtime.summary',{status:t(`status.${summary.template.state}`),path:summary.template.path})+'\n');
+ if(summary.template.reason)write(t('runtime.pending',{reason:summary.template.reason})+'\n');
  for(const input of summary.template.imported){
-  if(summary.template.state==='written'&&input.name===providerApiKeyEnv&&input.source==='calling-environment'){
-   write(t('runtime.providerImported',{name:input.name})+'\n');
-  }else if(verbose)write(t('runtime.imported',{name:input.name,source:t(`runtime.source.${input.source}`)})+'\n');
+  if(input.name===announcedProviderKey&&input.source==='calling-environment')continue;
+  write(t('runtime.imported',{name:input.name,source:t(`runtime.source.${input.source}`)})+'\n');
  }
- if(!verbose)return;
  for(const input of summary.inputs)if(input.state==='missing'||input.state==='unverified')write(t('runtime.missing',{
   capability:input.capability,name:input.name,status:t(`status.${input.state}`),path:input.destination,
  })+'\n');

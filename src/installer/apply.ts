@@ -36,7 +36,7 @@ import {queryGlobalNpmInstall} from '../integrations/tools/global-npm.js';
 import {consumerPath,findProgram,programIdentity} from '../integrations/tools/global-npm-runtime.js';
 export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;durationMs?:number;diagnostic?:{rule:string;path:string;relatedPath:string};environment?:{node:string;platform:string};exitCode?:number}
 export interface InstallReport {runtimeSetup?:RuntimeSetupSummary;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];sourceReview?:SourceReview;researchNextStep?:string;nextCommand?:string;status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
-export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
+export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;onProviderImport?:(apiKeyEnv:string)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
 function previewFileTransitions(data:PreviewData):Transaction['files']{
  return Object.fromEntries(data.files.map(file=>{
   const after=file.next===undefined?absentDigest:digest(Buffer.from(file.next,file.encoding));
@@ -242,11 +242,18 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   };
   // Private inputs can change independently of the saved approval and check history.
   let checksRunThisApply=false;
-  const runtimeContext={configured:['*'],providerEnvImport:data.plan.providerEnvImport};
+  const {providerEnvImport}=data.plan;
+  const applyPrivateInputs=async(verified?:string[])=>{
+   const runtime=await applyRuntimeInputs(root,data.plan.options,{configured:['*'],providerEnvImport,verified});
+   if(providerEnvImport&&runtime.template.state==='written'&&runtime.template.imported.some(input=>input.name===providerEnvImport.apiKeyEnv&&input.source==='calling-environment')){
+    dependencies.onProviderImport?.(providerEnvImport.apiKeyEnv);
+   }
+   return runtime;
+  };
   const finishCommitted=async(transaction:Transaction)=>{
    await verifyGlobalInstalls(true);
    const checks=transaction.checks??[];
-   const runtime=await applyRuntimeInputs(root,data.plan.options,{...runtimeContext,verified:checksRunThisApply?checks.filter(check=>check.status==='passed').map(check=>'customer:'+check.name):[]});
+   const runtime=await applyPrivateInputs(checksRunThisApply?checks.filter(check=>check.status==='passed').map(check=>'customer:'+check.name):[]);
    if(report.runtimeSetup?.template.state==='written'){
     const imported=[...report.runtimeSetup.template.imported,...runtime.template.imported];
     runtime.template={...runtime.template,state:'written',imported:[...new Map(imported.map(input=>[input.name+':'+input.source,input])).values()]};
@@ -318,7 +325,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     }
     throw new Error('installed target content or mode changed; prepare a new update preview: '+f.target);
    }
-   const runtimeSetup=report.runtimeSetup??await applyRuntimeInputs(root,data.plan.options,runtimeContext);
+   const runtimeSetup=report.runtimeSetup??await applyPrivateInputs();
    completed=total;step('verified completed installation','reused');return {...tx.report!,runtimeSetup,written:[]};
   }
   if((currentManifest?digest(currentManifest):absentDigest)!==data.manifestDigest)throw new Error('manifest changed since preview');
@@ -341,7 +348,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    if(!dependencies.runChecks&&unchangedInstallation(data)){
     for(const asset of data.oldManifest!.assets){const bytes=await readTarget(root,asset.baseline!);if(!bytes||digest(bytes)!==asset.digest)throw Error('installed baseline changed since preview');}
     completed=total;step('verified unchanged installation','reused');
-    return {...report,...pendingRules,runtimeSetup:await applyRuntimeInputs(root,data.plan.options,runtimeContext),status:'complete',exitCode:0};
+    return {...report,...pendingRules,runtimeSetup:await applyPrivateInputs(),status:'complete',exitCode:0};
    }
    tx={previewId,installId:randomUUID(),status:'prepared',files,receipts:{...(data.oldManifest?.installedTools??{})},initialized:{...(data.oldManifest?.initializedTools??{})},preview:{digest:signature(data),data},
     ...(data.sourceReview&&priorReport?{report:priorReport}:{})};
@@ -454,7 +461,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(dependencies.signal?.aborted)return cancelled();
   const verifyFiles=async()=>{for await(const {target,state} of readFileStates(root,data.files.map(f=>f.target))){const expected=tx!.files[target];if(!matchesFileState(state,expected.after,afterMode(expected)))throw new Error('written configuration differs from preview (content or mode); baseline not committed');}};
   await verifyFiles();
-  report.runtimeSetup=await applyRuntimeInputs(root,data.plan.options,runtimeContext);
+  report.runtimeSetup=await applyPrivateInputs();
   if(!tx.checks){
    if(dependencies.runChecks||data.plan.runChecks?.length)await assertSources();
    if(dependencies.runChecks)tx.checks=await dependencies.runChecks();
