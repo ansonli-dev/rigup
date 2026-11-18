@@ -22,6 +22,7 @@ import {probeRigupProjectMcp} from '../integrations/agents/rigup-health.js';
 import {RIGUP_VERSION} from '../version.js';
 import {checkHostNode,consumerPath} from '../npm-command.mjs';
 import {detectExternalTool} from '../integrations/tools/global-npm.js';
+import {inspectProjectSetup} from './project-setup.js';
 export interface DoctorOptions {checkHost?:'claude';runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
 export interface Diagnostic {category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
 
@@ -69,7 +70,25 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
   add('config','installation','pending','An approved installation was interrupted. Review the saved preview before resuming.');
   report.nextCommand='rigup update '+quoteShell(root)+' --resume --review';
  }
- if(!manifest){add('config','manifest','pending','No installation manifest; no setup performed');return report;}
+ if(!manifest){
+  if(interrupted){
+   add('config','manifest','pending','No installation manifest; no setup performed');
+   return report;
+  }
+  const setup=await inspectProjectSetup(root);
+  if(setup.kind==='uninitialized'){
+   add('config','manifest','pending','Project is not initialized. Run rigup init.');
+   report.nextCommand='rigup init '+quoteShell(root);
+  }else if(setup.kind==='claimable'){
+   add('config','manifest','pending','Existing Rigup project configuration has no local installation record');
+   report.nextCommand='rigup update '+quoteShell(root)+' --review';
+  }else{
+   const reason=setup.kind==='ambiguous'?'Choose agents explicitly with --agents to prepare setup':'Review the incomplete Rigup project configuration at these targets';
+   add('config','manifest','pending',reason);
+   if(setup.kind==='incomplete')for(const path of setup.paths)add('config',path,'pending',reason);
+  }
+  return report;
+ }
  add('config','manifest','configured','Manifest schema readable');const selected:SetupOptions=manifest.options??{agents:[],backend:'native'};
  if(pendingReview){
   report.projectRules='pending';

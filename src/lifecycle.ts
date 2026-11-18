@@ -28,6 +28,7 @@ import {privateDirectory,signature,readCache,saveCache} from './generator/cache.
 import {applyRecordPath,loadManifest,readApplyRecord,sourceReview} from './installer/baseline.js';
 import {acquireLock,defaultStateRoot} from './installer/lock.js';
 import {assertNoUnknownWriters} from './installer/operations.js';
+import {prepareClaimPlan} from './installer/claim.js';
 import {approvalInputChange,preview,loadPreview,restoredReviewMatches,type Preview,type PreviewData} from './installer/preview.js';
 import {sessionReloadNotice} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
@@ -53,6 +54,30 @@ async function readRun(path:string,root:string,consent:string):Promise<Run|undef
  if(run.researchTokens!==undefined&&(!Number.isSafeInteger(run.researchTokens)||run.researchTokens<1))throw Error('Durable research token limit invalid; reconciliation required');
  return run;
 }
+export async function executeProjectClaim(root:string,options:SetupOptions,flags:Pick<LifecycleFlags,'dryRun'|'resume'>,
+ write:(text:string)=>void,services:LifecycleServices):Promise<number>{
+ const lock=await acquireLock(root,{stateRoot:services.stateRoot,recover:flags.resume});
+ try{
+  const pendingOpenSpec=await interruptedOpenSpecPreparation(root,lock.stateRoot);
+  const interrupted=await interruptedApplyId(root,lock.stateRoot);
+  if(pendingOpenSpec||interrupted){
+   const nextCommand=pendingOpenSpec?.nextCommand??'rigup update '+quote(root)+' --resume --review';
+   const pending=pendingOpenSpec?.requirements??['An approved installation was interrupted. Review the saved preview before resuming.'];
+   services.report?.({phase:'preflight',installStatus:'pending',nextCommand,pending});
+   return 3;
+  }
+  await assertNoUnknownWriters(root,lock.stateRoot);
+  if(services.signal?.aborted)return 130;
+  const cacheRoot=join(services.cacheRoot??join(homedir(),'.cache','rigup'),'previews');
+  const result=await preview(await prepareClaimPlan(root,options),[],{cacheRoot,stateRoot:lock.stateRoot});
+  const nextCommand=result.executable&&!flags.dryRun?'rigup update '+quote(root)+' --apply '+result.previewId:null;
+  if(services.presentation)await services.presentation.preview(await loadPreview(result.previewId,cacheRoot));
+  else write(t('lifecycle.preview',{id:result.previewId})+'\n');
+  services.report?.({phase:nextCommand?'handoff':'preview',installStatus:nextCommand?'pending':result.executable?'not-installed':'failed',...result,nextCommand});
+  return result.executable?flags.dryRun?0:3:1;
+ }finally{await lock.release();}
+}
+
 export async function executeLifecycle(root:string,options:SetupOptions,flags:LifecycleFlags,write:(s:string)=>void,services:LifecycleServices={}):Promise<number>{
  const display=services.presentation,notice=display?.notice??write;
  const runtimeSetup=await runtimeSetupSummary(root,options);

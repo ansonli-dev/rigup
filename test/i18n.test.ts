@@ -96,7 +96,7 @@ test('applying a saved preview starts in the preview language and rejects an ove
 
 test('profile language applies before the header and project configuration takes precedence',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
  await mkdir(join(root,'.rigup'));
- await writeFile(join(root,'profile.yaml'),'documentLanguage: zh-CN\n');
+ await writeFile(join(root,'profile.yaml'),'documentLanguage: zh-CN\nagents: [codex]\n');
  const settings=join(root,'.rigup','config.yaml');
  await writeFile(settings,'profile: profile.yaml\n');
  let output='';
@@ -157,7 +157,7 @@ test('doctor localizes the header and diagnoses while its JSON and fallback erro
 
 test('update preview localizes the rendered details and retains stable paths',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
  let output='';
- const exit=await runCli(['update','--language','zh-CN','--dry-run','--verbose'],{
+ const exit=await runCli(['update','--agents','codex','--language','zh-CN','--dry-run','--verbose'],{
   cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot,stateRoot},
  });
  assert.equal(exit,0,output);

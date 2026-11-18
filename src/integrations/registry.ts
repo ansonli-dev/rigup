@@ -12,6 +12,7 @@ import {lstat,readFile,readdir,stat} from 'node:fs/promises';
 import {quoteShell} from '../shell-command.js';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
 import {projectMcpArgs} from './tools/project-mcp-entry.js';
+import {prepareRigupResearchMcp,rigupLauncherTarget,rigupLauncherTemplate} from './agents/rigup-config.js';
 import {collectCustomSkill} from './custom-skills.js';
 import {renderCustomerTemplate} from './custom-templates.js';
 import {openwiki,openwikiInitializationGuide} from './tools/openwiki.js';
@@ -31,8 +32,8 @@ export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
 export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];openSpecProjectCli?:true;skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
-export async function prepareIntegrations(profile:ProjectProfile,options:SetupOptions,nativeInput?:import('./host-setup/runtime.js').NativeInputs):Promise<IntegrationPreparation>{
- const [quality,runtime]=await Promise.all([prepareQuality(profile,options),runtimeSetupSummary(profile.root,options)]);
+export async function prepareIntegrations(profile:ProjectProfile,options:SetupOptions,nativeInput?:import('./host-setup/runtime.js').NativeInputs,mode?:'claim'):Promise<IntegrationPreparation>{
+ const [quality,runtime]=await Promise.all([prepareQuality(profile,options),mode==='claim'?undefined:runtimeSetupSummary(profile.root,options)]);
  const assets:PreparedAsset[]=[];const warnings:string[]=[];const requirements:SetupRequirement[]=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
  for(const agent of options.agents)if(!Object.hasOwn(agents,agent))throw Error('unknown agent');
  const push=(added:PreparedAsset[])=>{
@@ -43,7 +44,7 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
    assets.push(asset);
   }
  };
- if(options.sdd) {
+ if(options.sdd&&mode!=='claim') {
   for(const agent of options.agents) {
    try {
     const {binding,warnings:bindingWarnings}=resolveSddBinding(options.sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
@@ -81,14 +82,9 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
   const prepared=await prepareCustomerMcp(profile.root,{...input,agents:hosts});push(prepared.assets);warnings.push(...prepared.warnings);requirements.push(...prepared.requirements);
  }
  if(options.projectRules&&options.agents.length){
-  const target='.rigup/rigup-mcp.mjs';
-  const content=(await readFile(new URL('../../templates/rigup-mcp.mjs',import.meta.url),'utf8')).replace('__RIGUP_VERSION__',RIGUP_VERSION);
-  push([{logicalId:'rigup:research-launcher',target,content,ownership:{kind:'file'},source:{kind:'fixed-template',ref:'rigup-mcp',digest:digest(content)}}]);
-  for(const agent of options.agents){
-   const args=projectMcpArgs(agents[agent].mcpTarget,target,[agent]);
-   const prepared=await prepareCustomerMcp(profile.root,{id:'rigup',agents:[agent],command:{executable:'node',args,cwd:'.',envRefs:[]}},true);
-   push(prepared.assets);requirements.push(...prepared.requirements);
-  }
+  const content=(await rigupLauncherTemplate()).replace('__RIGUP_VERSION__',RIGUP_VERSION);
+  push([{logicalId:'rigup:research-launcher',target:rigupLauncherTarget,content,ownership:{kind:'file'},source:{kind:'fixed-template',ref:'rigup-mcp',digest:digest(content)}}]);
+  for(const agent of options.agents)push([await prepareRigupResearchMcp(profile.root,agent)]);
  }
  const toolLauncher='.rigup/tool-mcp.mjs';
  if(options.tools?.length){
@@ -110,7 +106,7 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
  for(const skill of options.customSkills ?? []) for(const agent of options.agents) {
   const copies=await collectCustomSkill(resolve(profile.root,skill.source),agents[agent].skillDirectory);
   const entry=copies.find(a=>a.target.endsWith('/SKILL.md'))!;const name=entry.target.split('/').at(-2)!;
-  const existing=(profile.skillSources?.[agent]??[]).filter(s=>s.name===name||s.name.split(':').at(-1)===name);
+  const existing=mode==='claim'?[]:(profile.skillSources?.[agent]??[]).filter(s=>s.name===name||s.name.split(':').at(-1)===name);
   const resolved=existing.length?resolveSkillSource(name,existing.map(s=>({...s,name,nativeName:s.name}))):undefined;
   if(resolved){
    const bundle=(items:Awaited<ReturnType<typeof collectCustomSkill>>)=>digest(JSON.stringify(items.map(a=>({target:a.target,digest:a.source.digest,mode:a.mode,encoding:a.encoding}))));
@@ -127,7 +123,7 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
  if(options.projectConventions?.tracker) warnings.push('Tracker convention recorded; executable tracker adapter is pending');
  push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
- if(profile.git.available&&(assets.length||bindings.length)||runtime.inputs.some(input=>input.destination==='.rigup/.env')){
+ if(profile.git.available&&(assets.length||bindings.length)||runtime?.inputs.some(input=>input.destination==='.rigup/.env')){
   const ownership=localIgnoreOwnership,content=localIgnoreContent;
   push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
  }

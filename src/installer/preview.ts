@@ -5,7 +5,8 @@ import {lstat,realpath} from 'node:fs/promises';
 import {join,posix,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
-import type {SetupPlan,ManagedAsset} from '../types.js';
+import type {Agent,SetupPlan,ManagedAsset} from '../types.js';
+import {assertClaimStorage} from './claim.js';
 import type {Ownership} from '../managed-input.js';
 import type {PreparedAsset} from '../integrations/registry.js';
 import {assertEmptyToolScopes} from '../integrations/tools/initialization.js';
@@ -30,7 +31,7 @@ import {approvedAuthorityPaths,approvedInputs,resolveAuthorityTarget} from './ap
 import type {ResolvedProjectCheck} from '../integrations/tools/quality.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
-export interface Preview {noChanges?:true;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];projectDocuments?:{target:string;action:'create'|'preserve';reason:string}[];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
+export interface Preview {claim?:{agents:Agent[]};noChanges?:true;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];projectDocuments?:{target:string;action:'create'|'preserve';reason:string}[];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number;seed?:ConventionReceipt}
 export interface PreviewData {schemaVersion:1;approvalNonce?:string;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2|3|4;inputs?:Record<string,string>;resolvedChecks?:ResolvedProjectCheck[];resolutions?:PreviewResolution[];reviewEntryBlocks?:boolean;sourceReview?:SourceReview;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
@@ -82,6 +83,11 @@ type PreviewDependencies={cacheRoot?:string;stateRoot?:string;skipUnchanged?:boo
 async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],dependencies:PreviewDependencies):Promise<PreviewData>{
  const root=await realpath(plan.root);if(root!==plan.root)throw new Error('plan root must be canonical');
  const oldManifest=await loadManifest(root);const old=oldManifest?.assets??[];
+ if(plan.claim){
+  if(oldManifest||resolutions.length||plan.dispositions.length||plan.operations.length||plan.projectDocuments?.length||
+     plan.runChecks?.length||plan.openSpecRuntime||plan.pendingRuntimeTools?.length)throw Error('Claim requires a project without local installation and no project writes');
+  await assertClaimStorage(root);
+ }
  const pendingReview=await sourceReview(root,oldManifest,dependencies.stateRoot??defaultStateRoot());
  if(pendingReview){
   const selected=plan.options.scope?.length?plan.options.scope:['.'];
@@ -273,7 +279,7 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
  }
  if(plan.gitlabReviewRequired){
   if(plan.assets.some(a=>isGitlabWiring(a.logicalId))||plan.dispositions.some(d=>isGitlabWiring(d.logicalId)&&d.action!=='retain'))throw Error('Complete a root review before changing GitLab wiring');
- }else if(plan.options.quality?.gitlab){
+ }else if(!plan.claim&&plan.options.quality?.gitlab){
   try{
    const text=fileMap.get('.gitlab-ci.yml')?.text??(await readTarget(root,'.gitlab-ci.yml'))?.toString('utf8');const doc=parseDocument(text??'');if(doc.errors.length)throw new Error('CI YAML invalid');
    const include=doc.toJS()?.include;const includes=Array.isArray(include)?include:[include];
@@ -283,9 +289,12 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
    for(const [name,job] of Object.entries(expected??{}))for(const [key,value] of Object.entries(job as object))if(signature(actual?.[name]?.[key])!==signature(value))throw new Error('required CI job binding changed');
   }catch{blockers.push('.gitlab-ci.yml: required CI include/job binding invalid or unavailable; preserve local content and re-prepare');}
  }
- const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId:'',root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
+ const publicPreview:Preview={...(plan.claim?{claim:{agents:plan.options.agents}}:{}),...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId:'',root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644,...(creates.has(target)?{seed:creates.get(target)}:{})}));
+ if(plan.claim&&files.some(file=>file.next===undefined||file.observedDigest!==digest(Buffer.from(file.next,file.encoding))||
+   platformFileMode(file.mode)!==file.observedMode))throw Error('Claim cannot change a project target');
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
+ if(plan.claim&&manifestRaw)throw Error('Local installation records changed while preparing the claim');
  const {values:inputs,checks:resolvedChecks}=await approvedInputs(root,plan,allTargets,dependencies.stateRoot);
  const inputSnapshot=signature(inputs);
  if(dependencies.restoredReview&&plan.projectRules==='ready'&&

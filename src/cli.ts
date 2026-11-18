@@ -13,11 +13,13 @@ import {loadOptions,normalizeDocumentLanguage,readProjectConfig,validateOptions,
 import type {SetupOptions} from './types.js';
 import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
-import {apply,interruptedApplyOptions,interruptedInstallApplyId,interruptedSeedApplyId} from './installer/apply.js';
+import {apply,interruptedApplyId,interruptedApplyOptions,interruptedInstallApplyId,interruptedSeedApplyId} from './installer/apply.js';
+import {inspectProjectSetup} from './installer/project-setup.js';
+import {rigupLauncherTarget} from './integrations/agents/rigup-config.js';
 import {doctor} from './installer/doctor.js';
 import {sessionReloadNotice} from './installer/session.js';
 import {defaultStateRoot} from './installer/lock.js';
-import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
+import {executeLifecycle,executeProjectClaim,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
 import {inspectOpenSpec,openSpecProjectScopes,OpenSpecReceiptError,planOpenSpecPreparation,preparationScope,prepareOpenSpec,reportOpenSpecPending,type OpenSpecPreparation} from './integrations/sdd/openspec-setup.js';
 import {openspecPackage,openspecPreparationCommand,type OpenSpecInstallScope} from './integrations/sdd/openspec.js';
 import {forwardProjectOpenSpec,readOpenSpecPreparation} from './integrations/sdd/openspec-project.js';
@@ -240,7 +242,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    state.data=prepared;
    if(!prepared.preview.executable)throw new Error('preview is blocked; prepare a new preview');
    if(flags.runChecks&&JSON.stringify([...flags.runChecks].sort())!==JSON.stringify([...(prepared.plan.runChecks??[])].sort()))throw new Error('apply checks differ from approved preview; prepare a new preview with --run-checks');
-   if(!manifest&&prepared.plan.options.sdd==='openspec'){
+   if(!manifest&&!prepared.plan.claim&&prepared.plan.options.sdd==='openspec'){
     const setup=await inspectOpenSpec(root,prepared.plan.options,services.signal,undefined,{stateRoot:services.stateRoot,scope:'project'});
     if(services.signal?.aborted)return 130;
     if(setup.requirements.length){
@@ -282,23 +284,57 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
  let draftPath:string|undefined;
  try {
   const hasProjectConfig=!!config;
-  if(resumeApply&&command==='update'&&!savedApplyOptions&&!manifest&&!hasProjectConfig&&!configError&&Object.keys(values).every(flag=>['--resume','--review','--dry-run','--sessions-ended'].includes(flag))){
-   start();
-   const nextCommand='rigup init '+quoteShell(root)+' --review';
-   presentation.notice(t('cli.noSavedSelection'));
-   services.report?.({phase:'preflight',installStatus:'not-installed',nextCommand});
-   return 3;
-  }
   if(savedApplyOptions&&(flags.configure||flags.runChecks||flags.retireIds||overrides.profile))throw Error('Interrupted installation retains its approved plan. Finish it before changing the selection or checks.');
   const approvedOptions=savedApplyOptions??(manifest?.projectRules==='pending'&&!manifest.options?.projectRules&&!flags.configure&&!overrides.profile?manifest.options:undefined);
   const legacyResearch=['--backend','--api-key-env','--request','--response','--continue','--research-tokens'].some(flag=>values[flag]);
   const newSetup=!manifest&&!legacyResearch&&(!flags.resume||flags.deferResearch||!!values['--model']||!!process.env.RIGUP_PROVIDER);
   const managedConfig=manifest?.assets.some(asset=>asset.logicalId==='rigup:configuration');
   const useInstalledDefaults=manifest&&(!hasProjectConfig||manifest.options?.projectRules&&!managedConfig);
-  const fallback=manifest&&useInstalledDefaults?(manifest.options??{agents:[],backend:'host' as const}):undefined;
+  const disabledRules=manifest?.options?.projectRules===false&&manifest.assets.some(asset=>asset.target===rigupLauncherTarget)?manifest.options:undefined;
+  const fallback=manifest&&useInstalledDefaults?(manifest.options??{agents:[],backend:'host' as const}):
+   disabledRules&&{agents:disabledRules.agents,backend:disabledRules.backend,profile:disabledRules.profile,projectRules:false};
   let configured={agents:false,sdd:false};
   options=await loadSelections(overrides,approvedOptions,{projectRules:newSetup||manifest?.options?.backend==='host'&&manifest.options.projectRules!==undefined,
    fallback,onSelections:value=>{configured=value;}});
+  const unapproved=!manifest&&!savedApplyOptions&&!flags.request&&!flags.response&&!values['--continue']&&!values['--prepare-openspec'];
+  const ordinary=Object.keys(values).every(flag=>['--review','--dry-run','--resume','--sessions-ended','--language','--profile'].includes(flag));
+  if(unapproved&&(ordinary||!configured.agents)){
+   const needsAgents={field:'agents',provide:'Specify --agents with one or more supported hosts'};
+   const pending=(key:MessageKey,params?:MessageParams,nextCommand?:string,requireAgents=false)=>{
+    start(options.documentLanguage??initialLanguage);
+    const reason=translate('en',key,params);
+    io.write(t(key,params)+'\n',reason+'\n');
+    const installStatus=key==='cli.initRequired'?'not-installed':'pending';
+    services.report?.({phase:'preflight',installStatus,pending:[reason],...(nextCommand?{nextCommand}:{}),
+     ...(requireAgents?{requiredInput:[needsAgents]}:{})});
+    return 3;
+   };
+   if(ordinary&&await interruptedApplyId(root,services.stateRoot??defaultStateRoot())){
+    return pending('doctor.interrupted',undefined,'rigup update '+quoteShell(root)+' --resume --review');
+   }
+   const existing=await inspectProjectSetup(root);
+   if(existing.kind==='claimable'){
+    if(ordinary&&configured.agents&&[...new Set(options.agents)].sort().join()!==[...existing.agents].sort().join()){
+     const next=options.agents.length?'rigup init '+quoteShell(root)+' --agents '+quoteShellList(options.agents)+' --review':undefined;
+     return pending('cli.claimSelectionMismatch',undefined,next,!next);
+    }
+    if(!configured.agents){options.agents=existing.agents;configured.agents=true;}
+    if(ordinary){
+     start(options.documentLanguage??initialLanguage);
+     return await executeProjectClaim(root,options,flags,io.write,services);
+    }
+   }else if(existing.kind==='incomplete'){
+    return pending('cli.claimIncomplete',{paths:existing.paths.map(path=>terminalText(path)).join(', ')},undefined,!configured.agents);
+   }else if(!configured.agents&&existing.kind==='ambiguous'){
+    return pending('cli.claimAgentsRequired',undefined,undefined,true);
+   }else if(!configured.agents&&command==='update'){
+    return pending('cli.initRequired',undefined,'rigup init '+quoteShell(root)+(flags.resume?' --review':''));
+   }else if(!configured.agents&&command==='init'&&!io.isTTY){
+    const detected=await detectCommands(root);
+    if(!detected.agents.length)return pending('cli.pathAgentsRequired',undefined,undefined,true);
+    options.agents=detected.agents;
+   }
+  }
   if(manifest&&flags.configure&&!legacyResearch&&!savedApplyOptions&&options.projectRules===undefined)options.projectRules=true;
   const modernResearch=options.projectRules===true&&!legacyResearch&&!savedApplyOptions;
   const configuredTools=new Map(options.tools?.map(tool=>[tool.id,tool]));

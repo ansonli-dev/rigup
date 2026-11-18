@@ -31,6 +31,7 @@ export function terminalText(text:string,multiline=false):string {
 const reasonKeys=[
  'cli.invalidLanguage','cli.invalidJson','cli.operationFailed','cli.applySavedPreview','cli.providerRequired',
  'cli.interruptedSeed','cli.interruptedTool','openspec.resume','openspec.resumeScope',
+ 'doctor.initRequired','doctor.claimUnrecorded','doctor.claimSelectionRequired','doctor.claimIncomplete',
  'doctor.manifestMissing','doctor.manifestReadable','doctor.manifestDamaged','doctor.recoveryDamaged',
  'doctor.interrupted','doctor.rulesPending','doctor.selectionMissing','doctor.baselineMissing','doctor.targetMissing',
  'doctor.modeChanged','doctor.contentPresent','doctor.modified','doctor.ownershipInvalid','doctor.binaryFound','doctor.binaryMissing',
@@ -129,6 +130,7 @@ export function createCliOutput(options:{
    if(!json){
     const changes=previewPaths(data);
     write(t('lifecycle.preview',{id:data.preview.previewId})+'\n');
+    if(data.preview.claim)write(t('preview.claim',{agents:data.preview.claim.agents.join(', ')})+'\n');
     for(const action of ['Create','Update','Delete'] as const){
      const paths=changes.filter(change=>change.action===action);
      if(paths.length)write(t('preview.fileCount',{action:t(`preview.action.${action}`),count:paths.length})+'\n');
@@ -139,7 +141,7 @@ export function createCliOutput(options:{
     for(const change of shown)write('  '+t(`preview.action.${change.action}`)+' '+terminalText(change.target)+'\n');
     if(shown.length<sorted.length)write('  '+t('preview.more',{count:sorted.length-shown.length})+'\n');
     for(const operation of data.preview.operations)write('  '+terminalText(operationDetails(operation))+'\n');
-    if(data.preview.executable)write(t('preview.applyMetadata')+'\n');
+    if(data.preview.executable&&!data.preview.claim)write(t('preview.applyMetadata')+'\n');
     write((state.details?t('preview.details',{path:terminalText(state.details)}):t('preview.detailsUnavailable'))+'\n');
    }
    if(verbose)write(details);
