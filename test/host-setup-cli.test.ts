@@ -567,8 +567,8 @@ test('native blocker advice is localized and the machine report is independent o
  const english=await invoke('en');
  assert.equal(await invoke('zh-CN'),english);
  assert.deepEqual(JSON.parse(english).nativePreparation.blockers.map((blocker:{code:string})=>blocker.code),['cli-not-runnable']);
- assert.match(output.join(''),/omp 阻塞项 cli-not-runnable/);
- assert.match(output.join(''),/这是 Rigup 生成的阻塞报告/);
- assert.match(output.join(''),/请核实证据文件并起草修复命令/);
+ assert.match(output.join(''),/omp 需要先解决的问题（cli-not-runnable）/);
+ assert.match(output.join(''),/Rigup 找到了需要先解决的问题/);
+ assert.match(output.join(''),/请核实相关文件和链接并起草修复命令/);
  assert.equal(questions.length,0);
 })));

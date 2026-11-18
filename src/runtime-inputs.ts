@@ -1,3 +1,4 @@
+import {makeReason,ReasonError,reasonDetail,reasonFallback,renderReason,type ReasonInput,type WithReasonDetail} from './i18n/reasons.js';
 import {artifactLocale,t,translate,type MessageKey,type MessageParams} from './i18n/index.js';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -10,14 +11,15 @@ import {essentialEnvironment,PrivateInputWriteError,readRuntimeFile,renderRuntim
 type Consumer='provider'|'npm'|`customer:${string}`;
 type Source='project-file'|'calling-environment'|'configuration'|'repository-remote';
 type Evidence={configured?:string[];verified?:string[]};
-export interface RuntimeInput {name:string;capability:string;destination:string;required:boolean;state:'present'|'missing'|'optional'|'unverified';source?:Source;reason:string}
+export const runtimeDestination:unique symbol=Symbol('runtimeDestination');
+export interface RuntimeInput extends WithReasonDetail {[runtimeDestination]?:ReasonInput;name:string;capability:string;destination:string;required:boolean;state:'present'|'missing'|'optional'|'unverified';source?:Source;reason:string}
 export interface RuntimeSetupSummary {
  inputs:RuntimeInput[];
- template:{path:string;state:'not-needed'|'available'|'pending'|'written';needsUpdate:boolean;imported:{name:string;source:Source}[];reason?:string};
- capabilities:{capability:string;configuration:'configured'|'pending';verification:'passed'|'not-run';reason:string}[];
+ template:WithReasonDetail&{path:string;state:'not-needed'|'available'|'pending'|'written';needsUpdate:boolean;imported:{name:string;source:Source}[];reason?:string};
+ capabilities:(WithReasonDetail&{capability:string;configuration:'configured'|'pending';verification:'passed'|'not-run';reason:string})[];
  providerDiagnostic?:string;
 }
-interface Declaration {name:string;capability:string;destination:string;required:boolean;reason:string;comment:string;consumer?:Consumer;seed?:string;seedSource?:Source}
+interface Declaration extends WithReasonDetail {[runtimeDestination]?:ReasonInput;name:string;capability:string;destination:string;required:boolean;reason:string;comment:string;consumer?:Consumer;seed?:string;seedSource?:Source}
 type InputNote=Extract<MessageKey,`artifact.env${string}`>;
 const exec=promisify(execFile);
 const local=runtimeEnvPath;
@@ -59,21 +61,24 @@ async function remoteTarget(root:string,options:SetupOptions):Promise<{value?:st
 async function declarations(root:string,options:SetupOptions,file:RuntimeFile,modelOverride?:string,onProviderError?:(reason:string)=>void):Promise<Declaration[]>{
  const inputs:Declaration[]=[];
  const locale=artifactLocale(options.documentLanguage);
- const add=(name:string,capability:string,required:boolean,note:InputNote|{key:InputNote;params:MessageParams},consumer?:Consumer,destination=local,seed?:string,seedSource?:Source)=>{
+ const add=(name:string,capability:string,required:boolean,note:InputNote|{key:InputNote;params:MessageParams},consumer?:Consumer,where:ReasonInput=local,seed?:string,seedSource?:Source)=>{
+  const destination=reasonFallback(where);
   if(inputs.some(input=>input.name===name&&input.capability===capability&&input.destination===destination))return;
   const {key,params}=typeof note==='string'?{key:note,params:undefined}:note;
-  inputs.push({name,capability,required,reason:translate('en',key,params),comment:translate(locale,key,params),consumer,destination,seed,seedSource});
+  const reason=makeReason(key,params);
+  inputs.push({name,capability,required,reason:reason.fallback,[reasonDetail]:reason,[runtimeDestination]:where,
+   comment:translate(locale,key,params),consumer,destination,seed,seedSource});
  };
  for(const [name,command] of Object.entries(options.customer?.commands??{}))for(const reference of command.envRefs)
   add(reference,'customer:'+name,true,{key:'artifact.envCustomerCommand',params:{name}},`customer:${name}`);
- for(const reference of options.customer?.envRefs??[])add(reference,'customer',true,'artifact.envCustomerWorkflow',undefined,'agent host ('+options.agents.join(', ')+')');
+ for(const reference of options.customer?.envRefs??[])add(reference,'customer',true,'artifact.envCustomerWorkflow',undefined,makeReason('reason.runtime.agentDestination',{agents:options.agents.join(', ')}));
  for(const mcp of options.mcp??[]){
   const hosts=(mcp.agents??options.agents).filter(agent=>options.agents.includes(agent));
   if(hosts.length)for(const reference of [...(mcp.envRefs??[]),...(mcp.command?.envRefs??[]),...(mcp.bearerTokenEnv?[mcp.bearerTokenEnv]:[])])
-   add(reference,'mcp:'+mcp.id,true,'artifact.envMcp',undefined,'agent host ('+hosts.join(', ')+')');
+   add(reference,'mcp:'+mcp.id,true,'artifact.envMcp',undefined,makeReason('reason.runtime.agentDestination',{agents:hosts.join(', ')}));
  }
  for(const reference of options.quality?.gitlab?.openwiki?.envRefs??[])
-  add(reference,'gitlab:openwiki',true,'artifact.envCi',undefined,'GitLab CI variables');
+  add(reference,'gitlab:openwiki',true,'artifact.envCi',undefined,makeReason('reason.runtime.ciDestination'));
  const remoteCommands=['issue','mr','ci'].filter(name=>options.customer?.commands?.[name]);
  if(remoteCommands.length&&['gitlab','github'].includes(options.projectConventions?.tracker?.system??'')){
   const target=await remoteTarget(root,options);
@@ -108,10 +113,14 @@ async function state(root:string,options:SetupOptions,evidence:Evidence={}){
  const file=await readRuntimeFile(root),declared=await declarations(root,options,file,undefined,reason=>{providerDiagnostic=reason;});
  const inputs:RuntimeInput[]=declared.map(input=>{
   const {name,capability,destination,required,reason}=input;
-  if(destination!==local)return {name,capability,destination,required,reason,state:'unverified'};
-  if(file.problem)return {name,capability,destination,required,state:required?'missing':'optional',reason:'Correct the private runtime input file before consuming this value'};
+  const base={name,capability,destination,required,reason,[reasonDetail]:input[reasonDetail],[runtimeDestination]:input[runtimeDestination]};
+  if(destination!==local)return {...base,state:'unverified'};
+  if(file.problem){
+   const detail=makeReason('reason.runtime.fixPrivateInput');
+   return {...base,state:required?'missing':'optional',reason:detail.fallback,[reasonDetail]:detail};
+  }
   const value=effective(file,name,input.seed,input.seedSource);
-  return {name,capability,destination,required,reason,state:value.value?'present':required?'missing':'optional',...(value.source?{source:value.source}:{})};
+  return {...base,state:value.value?'present':required?'missing':'optional',...(value.source?{source:value.source}:{})};
  });
  const localInputs=declared.filter(input=>input.destination===local);
  const values=[...new Map(localInputs.map(input=>[input.name,{...input,...effective(file,input.name,input.seed,input.seedSource)}])).values()];
@@ -119,10 +128,12 @@ async function state(root:string,options:SetupOptions,evidence:Evidence={}){
  const capabilities=[...new Set([...declared.map(input=>input.capability),...options.agents.map(agent=>'host:'+agent),...(options.quality?.gitlab?['gitlab']:[])])].map(capability=>{
   const configured=!!(evidence.configured?.includes('*')||evidence.configured?.includes(capability));
   const verified=evidence.verified?.includes(capability)??false;
+  const reason=makeReason(verified?'reason.runtime.verified':capability.startsWith('host:')?'reason.runtime.verifyAgent':
+   capability.startsWith('gitlab')?'reason.runtime.verifyCi':'reason.runtime.verifyConnection');
   return {capability,configuration:configured?'configured' as const:'pending' as const,verification:verified?'passed' as const:'not-run' as const,
-   reason:verified?'Explicit verification completed':capability.startsWith('host:')?'Approve or reload the selected host and run its explicit host check':capability.startsWith('gitlab')?'Run the configured jobs in the target CI runner':'Configuration and input presence do not verify a connection or successful execution'};
+   reason:reason.fallback,[reasonDetail]:reason};
  });
- const summary:RuntimeSetupSummary={inputs,template:{path:local,state:file.problem?'pending':localInputs.length?'available':'not-needed',needsUpdate:!file.problem&&text!==file.text,imported:[],...(file.problem?{reason:file.problem}:{})},capabilities,...(providerDiagnostic?{providerDiagnostic}:{})};
+ const summary:RuntimeSetupSummary={inputs,template:{path:local,state:file.problem?'pending':localInputs.length?'available':'not-needed',needsUpdate:!file.problem&&text!==file.text,imported:[],...(file.problem?{reason:file.problem,[reasonDetail]:file[reasonDetail]}:{})},capabilities,...(providerDiagnostic?{providerDiagnostic}:{})};
  return {file,values,text,summary};
 }
 
@@ -134,7 +145,11 @@ export async function applyRuntimeInputs(root:string,options:SetupOptions,eviden
  const {file,values,text,summary}=await state(root,options,evidence);
  if(!summary.template.needsUpdate)return summary;
  try{await writeRuntimeFile(root,file,text);}
- catch(error){summary.template.state='pending';summary.template.reason=error instanceof PrivateInputWriteError?error.message:'Keep .rigup/.env unchanged; verify the target and effective ignore for .env and .env.rigup-*.tmp, then retry.';return summary;}
+ catch(error){
+  const reason=error instanceof PrivateInputWriteError?error.reason:makeReason('reason.runtime.writeFailed');
+  summary.template.state='pending';summary.template.reason=reasonFallback(reason);summary.template[reasonDetail]=reason;
+  return summary;
+ }
  summary.template.state='written';summary.template.needsUpdate=false;
  summary.template.imported=values.flatMap(input=>input.value&&input.source&&input.source!=='project-file'?[{name:input.name,source:input.source}]:[]);
  return summary;
@@ -142,7 +157,7 @@ export async function applyRuntimeInputs(root:string,options:SetupOptions,eviden
 
 export async function runtimeEnvironment(root:string,options:SetupOptions,consumer:Consumer,modelOverride?:string):Promise<NodeJS.ProcessEnv>{
  const file=await readRuntimeFile(root);
- if(file.problem)throw Error(file.problem);
+ if(file.problem)throw new ReasonError(file[reasonDetail]??file.problem);
  const inputs=await declarations(root,options,file,consumer==='provider'?modelOverride:undefined,consumer==='provider'?undefined:()=>{}),environment=essentialEnvironment();
  for(const input of inputs.filter(input=>input.consumer===consumer)){
   const {value}=effective(file,input.name,input.seed,input.seedSource);
@@ -153,7 +168,7 @@ export async function runtimeEnvironment(root:string,options:SetupOptions,consum
 
 export async function selectedNpmRegistry(root:string):Promise<string|undefined>{
  const file=await readRuntimeFile(root);
- if(file.problem)throw Error(file.problem);
+ if(file.problem)throw new ReasonError(file[reasonDetail]??file.problem);
  const value=effective(file,'RIGUP_NPM_REGISTRY').value;
  if(!value)return;
  try{
@@ -168,12 +183,12 @@ export async function operationNpmRegistry(root:string,name:string,signal?:Abort
 export function writeRuntimeSummary(summary:RuntimeSetupSummary,write:(text:string)=>void):void{
  if(summary.providerDiagnostic)write(t('runtime.provider',{reason:summary.providerDiagnostic})+'\n');
  write(t('runtime.summary',{status:t(`status.${summary.template.state}`),path:summary.template.path})+'\n');
- if(summary.template.reason)write(t('runtime.pending',{reason:summary.template.reason})+'\n');
+ if(summary.template.reason)write(t('runtime.pending',{reason:renderReason(summary.template[reasonDetail]??summary.template.reason)})+'\n');
  for(const input of summary.template.imported)write(t('runtime.imported',{name:input.name,source:t(`runtime.source.${input.source}`)})+'\n');
  for(const input of summary.inputs)if(input.state==='missing'||input.state==='unverified')write(t('runtime.missing',{
-  capability:input.capability,name:input.name,status:t(`status.${input.state}`),path:input.destination,
+  capability:input.capability,name:input.name,status:t(`status.${input.state}`),path:renderReason(input[runtimeDestination]??input.destination),
  })+'\n');
  for(const capability of summary.capabilities)if(capability.verification==='not-run')write(t('runtime.unverified',{
-  capability:capability.capability,status:t(`status.${capability.configuration}`),reason:capability.reason,
+  capability:capability.capability,status:t(`status.${capability.configuration}`),reason:renderReason(capability[reasonDetail]??capability.reason),
  })+'\n');
 }

@@ -15,6 +15,7 @@ import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
 import {apply,interruptedApplyOptions,interruptedInstallApplyId,interruptedSeedApplyId} from './installer/apply.js';
 import {doctor} from './installer/doctor.js';
+import {doctorLegacyLastLine} from './i18n/doctor.js';
 import {sessionReloadNotice} from './installer/session.js';
 import {defaultStateRoot} from './installer/lock.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
@@ -27,13 +28,13 @@ import {quoteShell,quoteShellList} from './shell-command.js';
 import {LinkedRigupDirectoryError} from './installer/ownership.js';
 import {promptResearchProvider,resolveResearchProvider} from './research/provider-settings.js';
 import {runtimeEnvironment,runtimeSetupSummary,writeRuntimeSummary,type RuntimeSetupSummary} from './runtime-inputs.js';
-import {applyReason,createCliOutput,terminalReason,terminalText,writeDoctor} from './cli-output.js';
+import {applyReason,createCliOutput,terminalText,writeDoctor} from './cli-output.js';
 import {supportedHost} from './integrations/host-setup/manual.js';
 import {nativeSetupInteraction} from './integrations/host-setup/index.js';
 import {terminalUI,type TerminalStreams} from './terminal-ui.js';
 import {resolveLocale,setLocale,t,translate,withLocale,type MessageKey,type MessageParams} from './i18n/index.js';
+import {makeReason,nextStepReasonDetail,ReasonError,reasonDetail,reasonFallback,reasonFromError,renderReason,type ReasonInput,type ReasonedReport} from './i18n/reasons.js';
 export interface CliIO {cwd:string;isTTY:boolean;outputIsTTY?:boolean;write(text:string):void;writeError?(text:string):void;read?(secret?:boolean):Promise<string|null>;ask?:Ask;terminal?:TerminalStreams;services?:LifecycleServices}
-const errorMessage=(error:unknown)=>error instanceof SyntaxError?'input/cache: invalid JSON syntax; inspect the local file without exporting its contents':error instanceof Error?error.message:'operation failed';
 const listOptions:Record<string,RegExp>={
  '--agents':/^(?:claude|codex|opencode|omp)$/,
  '--tools':/^(?:openwiki|codegraph|none)$/,
@@ -48,12 +49,12 @@ function validLanguage(value:unknown):string|undefined{
 }
 const activateLanguage=(language:string|undefined)=>setLocale(resolveLocale(language,process.env));
 
-async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:string,english?:string):void},display:ReturnType<typeof createCliOutput>):Promise<number>{
+async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:string,english?:string):void},display:ReturnType<typeof createCliOutput>,verbose:boolean):Promise<number>{
  const {state,presentation}=display;
  const fail=(code:number,key:MessageKey,params?:MessageParams)=>{
   io.write(t(key,params)+'\n',translate('en',key,params)+'\n');return code;
  };
- const failRaw=(code:number,message:string)=>{io.write(terminalReason(message)+'\n',message+'\n');return code;};
+ const failRaw=(code:number,reason:ReasonInput)=>{io.write(renderReason(reason)+'\n',reasonFallback(reason)+'\n');return code;};
  const configWarnings:string[]=[];
  const configWarning=(message:string)=>configWarnings.push(message);
  const writeConfigWarnings=()=>{
@@ -183,7 +184,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:services.report,
     ask,inspect:!!(values['--review']||values['--dry-run']),canPrompt:nativeTTY&&selected.executionPolicy?.mode!=='review'});
    return result==='back'?130:result;
-  }catch(error){return failRaw(services.signal?.aborted?130:1,errorMessage(error));}
+  }catch(error){return failRaw(services.signal?.aborted?130:1,reasonFromError(error));}
  }
  if(values['--defer-research']){
   if(command!=='init'||manifest||['--apply','--continue','--request','--response','--retire'].some(arg=>values[arg])){
@@ -202,16 +203,17 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
   start();
   if(values['--research-tokens'])return fail(2,'cli.researchDoctor');
   if(explicitLanguage&&!languageOverride){
-   try{normalizeDocumentLanguage(explicitLanguage);}catch(error){return failRaw(2,errorMessage(error));}
+   try{normalizeDocumentLanguage(explicitLanguage);}catch(error){return failRaw(2,reasonFromError(error));}
   }
   try{
    const runChecks=values['--run-checks']?.split(',') as import('./types.js').CheckKind[]|undefined;
    const report=await doctor(root,{checkHost:values['--check-host']?'claude':undefined,runChecks,
     stateRoot:services.stateRoot,signal:services.signal});
    services.report?.({phase:'doctor',installStatus:report.nextCommand?'pending':'not-applicable',...report});
-   writeDoctor(report,io.write);
+   state.doctorJsonError=doctorLegacyLastLine(report);
+   writeDoctor(report,io.write,verbose);
    return report.exitCode;
-  }catch(error){return failRaw(1,errorMessage(error));}
+  }catch(error){return failRaw(1,reasonFromError(error));}
  }
  state.root=root;
  if(values['--agents'])overrides.agents=values['--agents'].split(',') as SetupOptions['agents'];
@@ -244,7 +246,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     const setup=await inspectOpenSpec(root,prepared.plan.options,services.signal,undefined,{stateRoot:services.stateRoot,scope:'project'});
     if(services.signal?.aborted)return 130;
     if(setup.requirements.length){
-     for(const requirement of setup.requirements)io.write(t('openspec.prefix',{requirement})+'\n');
+     for(const requirement of setup.requirementReasons)io.write(t('openspec.prefix',{requirement:renderReason(requirement)})+'\n');
      const resume=setup.needsProject
       ?'rigup init '+quoteShell(root)+' --agents '+quoteShellList(prepared.plan.options.agents)+' --sdd openspec'+(prepared.plan.projectRules==='pending'?' --defer-research':'')+' --review'
       :'rigup update '+quoteShell(root)+' --apply '+applyId+(flags.resume?' --resume':'');
@@ -259,7 +261,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    const report=await apply(applyId,{cacheRoot,stateRoot:services.stateRoot,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});
    services.report?.({phase:'apply',installStatus:report.status,...report});
    return report.exitCode;
-  }catch(e){start();state.error=errorMessage(e);return services.signal?.aborted?130:1;}
+  }catch(e){start();state.error=reasonFromError(e);return services.signal?.aborted?130:1;}
  }
  const resumeApply=flags.resume&&!flags.request&&!flags.response&&!flags.researchTokens&&!values['--prepare-openspec']&&!values['--continue'];
  let savedApplyOptions:SetupOptions|undefined;
@@ -271,13 +273,13 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    if(interruptedPreviewId){
     start();
     const nextCommand='rigup update '+quoteShell(root)+' --resume --review';
-    const message=seedApply?'Reconcile the interrupted customer document creation using the original approval.':'Resume the interrupted tool installation using the original approval.';
-    services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId,pending:[message],nextCommand});
+    const reason=makeReason(seedApply?'cli.interruptedSeed':'cli.interruptedTool');
+    services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId,pending:[reason.fallback],nextCommand,[reasonDetail]:reason});
     return 3;
    }
   }
  }
- catch(error){start();return failRaw(1,errorMessage(error));}
+ catch(error){start();return failRaw(1,reasonFromError(error));}
  let options:SetupOptions;
  let draftPath:string|undefined;
  try {
@@ -304,16 +306,16 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
   const configuredTools=new Map(options.tools?.map(tool=>[tool.id,tool]));
   if(values['--tools']){
    const ids=values['--tools'].split(',');
-   if(ids.includes('none')&&ids.length!==1)throw Error('tools: none cannot be combined with a tool');
+   if(ids.includes('none')&&ids.length!==1)throw new ReasonError(makeReason('reason.cli.toolsNone',undefined,'tools: none cannot be combined with a tool'));
    if(ids[0]==='none'){if(flags.configure||options.tools)options.tools=[];}
    else options.tools=ids.map(raw=>{
     const id=raw as 'openwiki'|'codegraph';
     return configuredTools.get(id)??{id,install:true,initialize:id==='codegraph',agents:[...options.agents]};
    });
   }
-  if(values['--continue']){if(Object.keys(overrides).length||['--tools','--model','--api-key-env','--review','--dry-run','--configure','--retire','--run-checks'].some(k=>values[k]))throw new Error('continuation cannot change explicit selections or execution mode');const continuation=await loadContinuation(root,values['--continue'],io.services);options=continuation.options;Object.assign(flags,{...continuation.flags,response:flags.response,sessionsEnded:flags.sessionsEnded,resume:flags.resume});}
+  if(values['--continue']){if(Object.keys(overrides).length||['--tools','--model','--api-key-env','--review','--dry-run','--configure','--retire','--run-checks'].some(k=>values[k]))throw new ReasonError(makeReason('reason.cli.continueOptions',undefined,'continuation cannot change explicit selections or execution mode'));const continuation=await loadContinuation(root,values['--continue'],io.services);options=continuation.options;Object.assign(flags,{...continuation.flags,response:flags.response,sessionsEnded:flags.sessionsEnded,resume:flags.resume});}
   if(options.documentLanguage!==undefined)activateLanguage(options.documentLanguage);
-  if(!modernResearch&&(values['--model']||values['--api-key-env'])){if(values['--backend']==='codex')throw Error('model/API-key flags select the native backend; Codex model overrides are not supported');if(!values['--backend'])options.backend='native';const model=values['--model']??options.model?.model??process.env.ANTHROPIC_MODEL;const apiKeyEnv=values['--api-key-env']??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';if(!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))throw new Error('model.apiKeyEnv: environment reference required');if(!model&&!(io.isTTY&&io.read))throw new Error('model.model: required when changing the API-key reference');if(model)options.model={provider:options.model?.provider??'anthropic',model,apiKeyEnv};}
+  if(!modernResearch&&(values['--model']||values['--api-key-env'])){if(values['--backend']==='codex')throw Error('model/API-key flags select the native backend; Codex model overrides are not supported');if(!values['--backend'])options.backend='native';const model=values['--model']??options.model?.model??process.env.ANTHROPIC_MODEL;const apiKeyEnv=values['--api-key-env']??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';if(!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))throw new ReasonError(makeReason('reason.config.apiKeyEnv',{field:'--api-key-env'},'model.apiKeyEnv: environment reference required'));if(!model&&!(io.isTTY&&io.read))throw new Error('model.model: required when changing the API-key reference');if(model)options.model={provider:options.model?.provider??'anthropic',model,apiKeyEnv};}
   if((flags.request||flags.response)&&options.backend!=='host')throw new Error('request/response: select the host backend');
   const firstWorkflow=!savedApplyOptions&&command==='init'&&!flags.dryRun&&!flags.request&&!flags.response&&!flags.continuation&&!flags.researchTokens;
   const interactive=io.isTTY&&!values['--continue'];
@@ -350,24 +352,25 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     state.native.installed=true;state.native.receiptFailed=true;
    }
    if(services.signal?.aborted)return 130;
-   const message=errorMessage(error);
-   state.error=message;
-   services.report?.({phase:'preflight',installStatus:state.native?.installed?'partial':'failed',error:message,pending:[message],
+   const reason=reasonFromError(error);
+   const message=reasonFallback(reason);
+   state.error=reason;
+   services.report?.({phase:'preflight',installStatus:state.native?.installed?'partial':'failed',error:message,pending:[message],[reasonDetail]:reason,
     ...(state.native?{nextCommand:openspecPreparationCommand(root,selected.agents,scope)+' --resume'}:{})});
    return 1;
   };
   if(values['--prepare-openspec']){
    start();
    runtimeSetup=await runtimeSetupSummary(root,options);
-   if(options.sdd!=='openspec'||!options.agents.length)throw Error('--prepare-openspec requires --sdd openspec and at least one agent');
+   if(options.sdd!=='openspec'||!options.agents.length)throw new ReasonError(makeReason('reason.openspec.selection'));
    const saved=await readOpenSpecPreparation(root,nativeDeps.stateRoot);
    const ongoing=saved&&!saved.complete?saved:undefined;
    const originalScope=ongoing?preparationScope(ongoing.approval):undefined;
    const requested=values['--install-scope'] as OpenSpecInstallScope|undefined;
    if(ongoing&&originalScope&&(!flags.resume||requested&&requested!==originalScope)){
     const nextCommand=openspecPreparationCommand(root,ongoing.approval.agents,originalScope)+' --resume'+(flags.sessionsEnded?' --sessions-ended':'');
-    const message='Resume the original OpenSpec preparation with its approved scope.';
-    services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[message],nextCommand});io.write(t('openspec.resumeScope')+'\n'+nextCommand+'\n');return 3;
+    const reason=makeReason('openspec.resumeScope');
+    services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[reason.fallback],nextCommand,[reasonDetail]:reason});io.write(t('openspec.resumeScope')+'\n'+nextCommand+'\n');return 3;
    }
    const scope=originalScope??requested??'global';
    let setup=await inspectOpenSpec(root,options,services.signal,undefined,{scope,stateRoot:nativeDeps.stateRoot});
@@ -379,7 +382,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    }
    if(services.signal?.aborted)return 130;
    if(setup.requirements.length){
-    for(const requirement of setup.requirements)io.write(t('openspec.prefix',{requirement})+'\n');
+    for(const requirement of setup.requirementReasons)io.write(t('openspec.prefix',{requirement:renderReason(requirement)})+'\n');
     reportOpenSpecPending(setup,openspecPreparationCommand(root,options.agents,scope),presentation.notice,services.report);
     return 3;
    }
@@ -420,8 +423,8 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    if(nativeState&&!nativeState.complete){
     const scope=preparationScope(nativeState.approval);
     const nextCommand=openspecPreparationCommand(root,nativeState.approval.agents,scope)+' --resume';
-    const message='Resume the original OpenSpec preparation.';
-    services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[message],nextCommand});
+    const reason=makeReason('openspec.resume');
+    services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[reason.fallback],nextCommand,[reasonDetail]:reason});
     io.write(t('openspec.resume')+'\n'+nextCommand+'\n');setupExit=3;return 'stop';
    }
    let scope=selectedOpenSpecScope??'project';
@@ -443,11 +446,11 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     selectedOpenSpecScope=scope;
     if(setup.scope!==scope)setup=await inspect();
    }
-   for(const requirement of setup.requirements)io.write(t('openspec.prefix',{requirement})+'\n');
+   for(const requirement of setup.requirementReasons)io.write(t('openspec.prefix',{requirement:renderReason(requirement)})+'\n');
    if(setup.canPrepare&&guided&&inlineReview){
     try{
      const planned=await planOpenSpecPreparation(root,selected,nativeDeps,setup);
-     for(const requirement of planned.inspection.requirements.slice(setup.requirements.length))io.write(t('openspec.prefix',{requirement})+'\n');
+     for(const requirement of planned.inspection.requirementReasons.slice(setup.requirements.length))io.write(t('openspec.prefix',{requirement:renderReason(requirement)})+'\n');
      setup=planned.inspection;
      if(planned.approval){
       describePreparation(planned.approval);
@@ -536,8 +539,9 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    }
    if(!services.provider){
     if(values['--model']&&!later){
-     const message='Configure a CLI provider and its credentials before requesting research with --model.';
-     services.report?.({phase:'research',installStatus:'pending',projectRules:manifest?.projectRules,requiredInput:[message],researchNextStep:message});
+     const reason=makeReason('cli.providerRequired');
+     services.report?.({phase:'research',installStatus:'pending',projectRules:manifest?.projectRules,
+      requiredInput:[reason.fallback],researchNextStep:reason.fallback,[nextStepReasonDetail]:reason});
      presentation.notice(t('cli.providerRequired'));
      return 3;
     }
@@ -559,11 +563,11 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    const answer=await ask({message:t('wizard.continue'),choices,defaults:['Install']});
    return Array.isArray(answer)&&answer[0]==='Install'?'install':Array.isArray(answer)&&answer[0]==='Save preview, apply later'?'save':'cancel';
   };
- }catch(e){start();state.error=errorMessage(e);return services.signal?.aborted?130:2;}
+ }catch(e){start();state.error=reasonFromError(e);return services.signal?.aborted?130:2;}
  try{
   const code=await executeLifecycle(root,options,flags,io.write,{...services,isTTY:io.isTTY});
   return code;
- }catch(e){state.error=errorMessage(e);return io.services?.signal?.aborted?130:1;}
+ }catch(e){state.error=reasonFromError(e);return io.services?.signal?.aborted?130:1;}
 }
 export function runCli(argv:string[],io:CliIO):Promise<number>{
  const at=argv.lastIndexOf('--language');
@@ -572,7 +576,7 @@ export function runCli(argv:string[],io:CliIO):Promise<number>{
 }
 async function runLocalizedCli(argv:string[],io:CliIO):Promise<number>{
  if(argv[0]==='openspec')try{return await forwardProjectOpenSpec(io.cwd,argv.slice(1),io.services?.stateRoot,io.services?.signal);}
- catch(error){(io.writeError??io.write)(terminalReason(errorMessage(error))+'\n');return io.services?.signal?.aborted?130:1;}
+ catch(error){(io.writeError??io.write)(renderReason(reasonFromError(error))+'\n');return io.services?.signal?.aborted?130:1;}
  const json=argv.includes('--json'),verbose=argv.includes('--verbose');
  const redirected=io.isTTY&&(io.outputIsTTY??io.terminal?.output.isTTY)===false;
  const ui=!json&&io.isTTY&&!redirected&&io.terminal?terminalUI(io.terminal,io.services?.signal):undefined;
@@ -582,13 +586,13 @@ async function runLocalizedCli(argv:string[],io:CliIO):Promise<number>{
   ui?.stop();writeText?.(text);
  },io.services?.signal):undefined);
  const display=createCliOutput({write,json,verbose,stateRoot:io.services?.stateRoot,stage:ui?.stage,stop:ui?.stop});
- let actual:Record<string,unknown>={},last='';
- const report=(value:Record<string,unknown>)=>{actual=value;io.services?.report?.(value);};
+ let actual:ReasonedReport={},last='';
+ const report=(value:ReasonedReport)=>{actual=value;io.services?.report?.(value);};
  const code=await runCliInternal(argv.filter(arg=>arg!=='--json'&&arg!=='--verbose'),{
   ...io,...(json?{isTTY:false,ask:undefined,read:undefined}:{ask:io.ask??ui?.ask,read}),
   write:(text,english=text)=>{last=english;write(text);},
   services:{...io.services,report,presentation:display.presentation},
- },display);
+ },display,verbose);
  if(actual.phase==='apply'&&actual.status==='complete'&&display.state.root&&display.state.data?.plan.options.sdd==='openspec'){
   try{
    const {root,data}=display.state;
@@ -601,7 +605,7 @@ async function runLocalizedCli(argv:string[],io:CliIO):Promise<number>{
  if(verbose&&actual.runtimeSetup)writeRuntimeSummary(actual.runtimeSetup as RuntimeSetupSummary,write);
  await display.finish(code,actual);
  if(json){
-  const error=display.state.error??applyReason(actual)??actual.error??last.trim();
+  const error=(display.state.error===undefined?undefined:reasonFallback(display.state.error))??applyReason(actual)??actual.error??display.state.doctorJsonError?.trim()??last.trim();
   const result={phase:actual.phase??'preflight',installStatus:actual.installStatus??(code===0?'complete':code===3?'pending':'failed'),checks:[],pending:[],conflicts:[],requiredInput:[],nextCommand:null,...actual,exitCode:code,...((code===1||code===2)?{error}:{})};
   io.write(JSON.stringify(result)+'\n');
  }
@@ -613,7 +617,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(await realpath(resolve(proce
   try{
    const {serveResearchMcp}=await import('./research/mcp-stdio.js');
    await serveResearchMcp(argv.slice(1),{cwd:process.cwd(),input:process.stdin,output:process.stdout});
-  }catch(error){process.stderr.write(errorMessage(error)+'\n');process.exitCode=1;}
+  }catch(error){process.stderr.write(reasonFallback(reasonFromError(error))+'\n');process.exitCode=1;}
  }else{
   const controller=new AbortController();process.once('SIGINT',()=>controller.abort());
   process.exitCode=await runCli(argv,{cwd:process.cwd(),isTTY:!!process.stdin.isTTY,outputIsTTY:!!process.stdout.isTTY,

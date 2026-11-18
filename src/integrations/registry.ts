@@ -1,3 +1,4 @@
+import {makeReason,nextStepReasonDetail,reasonDetail,reasonFallback,reasonFromError} from '../i18n/reasons.js';
 import {detectExternalTool,planGlobalNpmInstall,globalNpmInstallOperation} from './tools/global-npm.js';
 import {prepareQuality} from './tools/quality.js';
 import {prepareCustomer} from './gitlab/customer.js';
@@ -51,27 +52,35 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
     warnings.push(...bindingWarnings);
    }
    catch(error){
-    const reason=(error as Error).message;
-    if(agent==='opencode'&&reason.startsWith('OPENCODE_DISABLE_PROJECT_CONFIG')){
-     requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason,
-      nextCommand:'Unset OPENCODE_DISABLE_PROJECT_CONFIG or set it to false before retrying Rigup'});
-     continue;
-    }
-    if((agent==='omp'&&/^(skills\.enabled:false|OMP project skill settings)/.test(reason))||
-       (agent==='opencode'&&reason.startsWith('OpenCode permission.skill'))){
-     requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason,nextCommand:reason});
+    const reason=reasonFromError(error);
+    const code=typeof reason==='string'?undefined:reason.code;
+    if(code==='reason.sdd.openCodeProjectOff'||code==='reason.sdd.openCodeProjectDenied'||
+       code==='reason.sdd.ompSkillsOff'||code==='reason.sdd.ompProjectSkills'){
+     const detail=makeReason('reason.identified',{id:agent,reason});
+     const instruction=code==='reason.sdd.openCodeProjectOff'?makeReason('reason.sdd.openCodeRestoreProject'):reason;
+     requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:detail.fallback,
+      [reasonDetail]:detail,nextCommand:reasonFallback(instruction),[nextStepReasonDetail]:instruction});
      continue;
     }
     const native=options.sdd==='superpowers'&&supportedHost(agent)?superpowersReadiness(profile,agent):undefined;
     const problem=native?.status==='missing'&&supportedHost(agent)?
      await (await import('./host-setup/index.js')).nativePreparationProblem(profile.root,agent,nativeInput):undefined;
     const nextCommand=native?.status==='missing'&&!problem?nativePreparationCommand(profile.root,options.agents):
-     options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')?openspecPreparationCommand(profile.root,options.agents):undefined;
+     options.sdd==='openspec'&&typeof reason!=='string'&&reason.code==='reason.sdd.missingNativeEntry'&&String(reason.params.entry).startsWith('openspec-')?openspecPreparationCommand(profile.root,options.agents):undefined;
     const initialized=options.sdd==='spec-kit'&&(await stat(resolve(profile.root,'.specify')).catch(()=>undefined))?.isDirectory();
     let registered=false;if(initialized)try{const path=await safePath(profile.root,'.specify/integration.json');if((await stat(path)).size<=256000){const state=JSON.parse(await readFile(path,'utf8'));registered=Array.isArray(state?.installed_integrations)&&state.installed_integrations.includes(agent)||state?.integration===agent||state?.default_integration===agent;}}catch{}
     const repair=options.sdd==='superpowers'?superpowersManual[agent]:options.sdd==='openspec'?'rigup doctor '+quoteShell(profile.root):'cd '+quoteShell(profile.root)+' && specify '+(registered?'integration upgrade '+agent:initialized?'integration install '+agent:'init --here --integration '+agent);
-    const cliHelp=options.sdd==='spec-kit'?'; if specify is unavailable, use uvx --from git+https://github.com/github/spec-kit.git@v1.3.2 specify, or uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.3.2':'';
-    requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+(native?.reason??reason)+(problem?'; '+problem:'')+'; '+(native?repair:nextCommand??repair)+cliHelp,nextCommand:nextCommand??repair});
+    const manualKey=agent==='omp'?'native.manualOmp':agent==='codex'?'native.manualCodex':agent==='opencode'?'native.manualOpenCode':undefined;
+    const manual=options.sdd==='superpowers'&&manualKey?makeReason(manualKey):undefined;
+    let detail=makeReason('reason.identified',{id:agent,reason:native?.[reasonDetail]??reason});
+    if(problem)detail=makeReason('reason.withDetail',{reason:detail,detail:problem});
+    detail=makeReason('reason.withDetail',{reason:detail,detail:native?manual??repair:nextCommand??manual??repair});
+    if(options.sdd==='spec-kit')detail=makeReason('reason.withDetail',{reason:detail,detail:makeReason('reason.sdd.specKitInstall',{
+     run:'uvx --from git+https://github.com/github/spec-kit.git@v1.3.2 specify',
+     install:'uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.3.2',
+    })});
+    requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:detail.fallback,[reasonDetail]:detail,
+     nextCommand:nextCommand??repair,...(!nextCommand&&manual?{[nextStepReasonDetail]:manual}:{})});
    }
   }
  }

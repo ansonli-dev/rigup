@@ -1,5 +1,6 @@
 import {realpath,access,constants,stat,lstat} from 'node:fs/promises';
 import {delimiter,join} from 'node:path';
+import {makeReason,reasonDetail,reasonFallback,reasonFromError,type ReasonInput,type WithReasonDetail} from '../i18n/reasons.js';
 import type {CheckKind,SetupOptions} from '../types.js';
 import {interruptedApplyId,interruptedSeedApplyId,type InstallReport} from './apply.js';
 import {quoteShell} from '../shell-command.js';
@@ -17,13 +18,14 @@ import {readVerifiedToolInstall} from '../integrations/tools/installed-state.js'
 import {verifyToolInitializationReceipt} from '../integrations/tools/native-state.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {probeClaudeProjectMcp} from '../integrations/agents/claude-health.js';
-import {runtimeSetupSummary} from '../runtime-inputs.js';
+import {runtimeDestination,runtimeSetupSummary} from '../runtime-inputs.js';
 import {probeRigupProjectMcp} from '../integrations/agents/rigup-health.js';
 import {RIGUP_VERSION} from '../version.js';
 import {checkHostNode,consumerPath} from '../npm-command.mjs';
 import {detectExternalTool} from '../integrations/tools/global-npm.js';
 export interface DoctorOptions {checkHost?:'claude';runChecks?:CheckKind[];stateRoot?:string;signal?:AbortSignal}
-export interface Diagnostic {category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
+export const diagnosticTarget:unique symbol=Symbol('diagnosticTarget');
+export interface Diagnostic extends WithReasonDetail {[diagnosticTarget]?:string;category:'config'|'environment'|'host'|'tools'|'tests'|'eval';id:string;state:'configured'|'available'|'initialized'|'reload-required'|'passed'|'failed'|'pending';reason:string}
 
 async function hostExecutableAvailable(name:string):Promise<boolean>{
  const extensions=process.platform==='win32'
@@ -54,51 +56,54 @@ async function completedOpenWikiBaseline(root:string):Promise<boolean>{
 
 export async function doctor(root:string,options:DoctorOptions={}):Promise<InstallReport&{diagnostics:Diagnostic[]}>{
  root=await realpath(root);const diagnostics:Diagnostic[]=[];const report:InstallReport&{diagnostics:Diagnostic[]}={status:'pending',exitCode:3,previewId:'doctor',written:[],operations:[],checks:[],warnings:[],diagnostics};
- const add=(category:Diagnostic['category'],id:string,state:Diagnostic['state'],reason:string)=>diagnostics.push({category,id,state,reason});
+ const add=(category:Diagnostic['category'],id:string,state:Diagnostic['state'],reason:ReasonInput,target?:string)=>{
+  diagnostics.push({category,id,state,reason:reasonFallback(reason),[reasonDetail]:reason,[diagnosticTarget]:target});
+ };
  let manifest:Awaited<ReturnType<typeof loadManifest>>;
  try{manifest=await loadManifest(root);}catch(error){
-  add('config','manifest','failed',error instanceof LinkedRigupDirectoryError?error.message:'Damaged ownership metadata; no repair or initialization performed');
+  add('config','manifest','failed',error instanceof LinkedRigupDirectoryError?reasonFromError(error):makeReason('doctor.manifestDamaged'));
   return {...report,status:'failed',exitCode:1};
  }
  let interrupted:string|undefined;
  let pendingReview:SourceReview|undefined;
  const stateRoot=options.stateRoot??defaultStateRoot();
  try{interrupted=await interruptedApplyId(root,stateRoot);pendingReview=await sourceReview(root,manifest,stateRoot);}
- catch{add('config','installation','failed','Installation recovery record is unavailable or damaged');return {...report,status:'failed',exitCode:1};}
+ catch{add('config','installation','failed',makeReason('doctor.recoveryDamaged'));return {...report,status:'failed',exitCode:1};}
  if(interrupted){
-  add('config','installation','pending','An approved installation was interrupted. Review the saved preview before resuming.');
+  add('config','installation','pending',makeReason('doctor.interrupted'));
   report.nextCommand='rigup update '+quoteShell(root)+' --resume --review';
  }
- if(!manifest){add('config','manifest','pending','No installation manifest; no setup performed');return report;}
- add('config','manifest','configured','Manifest schema readable');const selected:SetupOptions=manifest.options??{agents:[],backend:'native'};
+ if(!manifest){add('config','manifest','pending',makeReason('doctor.manifestMissing'));return report;}
+ add('config','manifest','configured',makeReason('doctor.manifestReadable'));const selected:SetupOptions=manifest.options??{agents:[],backend:'native'};
  if(pendingReview){
   report.projectRules='pending';
   report.sourceReview=pendingReview;
   report.nextCommand??='rigup update '+quoteShell(root)+' --review';
-  add('config','project-rules','pending','Approved rule sources changed. Review current sources before relying on project rules.');
+  add('config','project-rules','pending',makeReason('result.reviewWait'));
  }else if(manifest.projectRules){
   report.projectRules=manifest.projectRules;
-  if(manifest.projectRules==='pending')add('config','project-rules','pending','Foundation installed. Run rigup update --review to prepare project rules.');
+  if(manifest.projectRules==='pending')add('config','project-rules','pending',makeReason('doctor.rulesPending'));
  }
- if(!manifest.options)add('config','selection','pending','Installed selection unavailable; cannot infer capabilities');
+ if(!manifest.options)add('config','selection','pending',makeReason('doctor.selectionMissing'));
  for(const asset of manifest.assets){
-  const baseline=await trustedBaseline(root,asset);if(baseline===undefined){add('config',asset.logicalId,'failed','Trusted generated baseline unavailable');continue;}
+  const addAsset=(state:Diagnostic['state'],reason:ReasonInput)=>add('config',asset.logicalId,state,reason,asset.target);
+  const baseline=await trustedBaseline(root,asset);if(baseline===undefined){addAsset('failed',makeReason('doctor.baselineMissing'));continue;}
   try{
    const actual=await readFileState(root,asset.target);
    const local=ownedContent(actual.bytes?.toString(asset.encoding==='base64'?'base64':'utf8'),asset.ownership);
-   if(local===undefined)add('config',asset.logicalId,'failed','Owned target or selector missing');
-   else if(asset.mode!==undefined&&actual.mode!==platformFileMode(asset.effectiveMode??asset.mode))add('config',asset.logicalId,'pending','Local file mode differs from the managed baseline; user chmod preserved, review actual executable permissions');
-   else if(equalOwnedContent(asset.ownership,local,baseline))add('config',asset.logicalId,'configured','Owned content present');
-   else add('config',asset.logicalId,'pending','Local modification preserved; capability needs review');
+   if(local===undefined)addAsset('failed',makeReason('doctor.targetMissing'));
+   else if(asset.mode!==undefined&&actual.mode!==platformFileMode(asset.effectiveMode??asset.mode))addAsset('pending',makeReason('doctor.modeChanged'));
+   else if(equalOwnedContent(asset.ownership,local,baseline))addAsset('configured',makeReason('doctor.contentPresent'));
+   else addAsset('pending',makeReason('doctor.modified'));
   }
-  catch{add('config',asset.logicalId,'failed','Configuration or ownership markers cannot be parsed safely');}
+  catch{addAsset('failed',makeReason('doctor.ownershipInvalid'));}
  }
  for(const agent of selected.agents){
   const available=await hostExecutableAvailable(agent);
-  add('host',agent+':binary',available?'available':'pending',available?'Executable found on current PATH':'Executable not found on current PATH');
+  add('host',agent+':binary',available?'available':'pending',available?makeReason('doctor.binaryFound'):makeReason('doctor.binaryMissing'));
   const host=agents[agent];const wired=manifest.assets.some(a=>a.target.startsWith(host.skillDirectory+'/')||a.target===host.mcpTarget||a.target===host.entry);
   let state:Diagnostic['state']=wired?'reload-required':'pending';
-  let reason=wired?'Reload affected sessions and verify loading in the host':'No native assets configured for this selected host';
+  let reason=wired?makeReason('doctor.hostReload'):makeReason('doctor.hostUnconfigured');
   if(agent==='claude'&&wired){
    const servers=manifest.assets.filter(asset=>asset.target===host.mcpTarget&&asset.logicalId.startsWith('mcp:claude:'));
    if(options.checkHost===agent&&servers.length){
@@ -107,35 +112,35 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
      const connected=await probeClaudeProjectMcp(root,ids,options.signal);
      if(connected.length===ids.length){
       state='passed';
-      reason='A fresh Claude Code probe connected to the managed project MCP servers: '+connected.join(', ');
+      reason=makeReason('reason.doctor.claudeConnected',{servers:connected.join(', ')});
       if(ids.includes('rigup')){
        const expected=manifest.versions?.rigup??RIGUP_VERSION,observed=await probeRigupProjectMcp(root,options.signal);
        const matches=observed===expected;
-       add('host','rigup:version',matches?'passed':'failed',observed?'Rigup MCP serverInfo.version '+observed+'; project requires '+expected:'Rigup MCP version could not be verified through the managed project launcher. Check the first Rigup installation on PATH and regenerate setup with the matching version.');
-       if(!matches){state='reload-required';reason='Rigup responding version is stale or unavailable; review PATH and reload the project MCP server.';}
+       add('host','rigup:version',matches?'passed':'failed',observed?makeReason('reason.doctor.mcpVersion',{observed,expected}):makeReason('reason.doctor.mcpVersionUnverified'));
+       if(!matches){state='reload-required';reason=makeReason('doctor.hostVersion');}
       }
-     }else reason='Claude Code did not confirm project-scoped connections for: '+ids.filter(id=>!connected.includes(id)).join(', ')+'. Check approvals and connection status in /mcp.';
-    }else reason='Review the managed MCP configuration before probing Claude Code';
-   }else if(servers.length)reason+=' or run rigup doctor --check-host claude for a fresh MCP probe';
+     }else reason=makeReason('reason.doctor.claudeUnconfirmed',{servers:ids.filter(id=>!connected.includes(id)).join(', ')});
+    }else reason=makeReason('doctor.hostProbe');
+   }else if(servers.length)reason=makeReason('doctor.hostReloadClaude');
   }
   add('host',agent+':load',state,reason);
  }
  const toolPath=consumerPath();
  if(selected.tools?.length){
   const nodeIssue=await checkHostNode(root,toolPath);
-  add('tools','tools:host-node',nodeIssue?'pending':'available',nodeIssue??'Node.js found on the filtered terminal PATH. Reload the host with a trusted Node.js PATH.');
+  add('tools','tools:host-node',nodeIssue?'pending':'available',nodeIssue?makeReason('reason.doctor.nodeIssue',undefined,nodeIssue):makeReason('doctor.nodeFound'));
  }
  for(const tool of selected.tools??[]){
   const installed=manifest.installedTools?.[tool.id];
   const useProject=tool.install||tool.initialize&&!!installed;
   const verified=useProject?await readVerifiedToolInstall(root,tool.id,installed):undefined;
   const external=useProject?undefined:await detectExternalTool(root,tool.id,toolPath,stateRoot);
-  const repair='Fix the host PATH or run rigup update '+quoteShell(root)+' --configure --tools '+selected.tools!.map(tool=>tool.id).join(',');
-  add('tools',tool.id+':binary',verified||external?.state==='available'?'available':'pending',verified?'Installed '+verified.version+' verified by package, dependency tree, launcher and receipt':external?.state==='available'?'Existing external installation located on the filtered PATH':external?.state==='repair'?external.reason:external?'Command unavailable on PATH. '+repair:'Project installation unavailable or needs receipt reconciliation');
+  const configure='rigup update '+quoteShell(root)+' --configure --tools '+selected.tools!.map(tool=>tool.id).join(',');
+  add('tools',tool.id+':binary',verified||external?.state==='available'?'available':'pending',verified?makeReason('reason.doctor.toolVersion',{version:verified.version}):external?.state==='available'?makeReason('doctor.externalFound'):external?.state==='repair'?external.reason:external?makeReason('reason.doctor.toolMissing',{configure}):makeReason('doctor.receipt'));
   const nativeReceipt=manifest.initializedTools?.[tool.id];
   const native=verified&&await verifyToolInitializationReceipt(root,tool.id,verified,nativeReceipt);
   const externalWiki=!native&&tool.id==='openwiki'&&await completedOpenWikiBaseline(root);
-  const initializationReason=native?native.message:externalWiki?'Completed native OpenWiki baseline observed outside Rigup ownership':tool.id==='openwiki'?(nativeReceipt?'Existing native ownership/state needs reconciliation. ':'')+openwikiInitializationGuide:'Native initialization unavailable or ownership/state changed; no initialization or repair executed';
+  const initializationReason=native?native.message:externalWiki?makeReason('doctor.wikiBaseline'):tool.id==='openwiki'?makeReason(nativeReceipt?'reason.doctor.wikiReconcile':'reason.doctor.wikiInitialize',undefined,(nativeReceipt?'Existing native ownership/state needs reconciliation. ':'')+openwikiInitializationGuide):makeReason('doctor.nativeUnavailable');
   add('tools',tool.id+':initialization',native||externalWiki?'initialized':'pending',initializationReason);
  }
  let profile:Awaited<ReturnType<typeof scanRepository>>|undefined;
@@ -159,9 +164,12 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
  report.runtimeSetup=await runtimeSetupSummary(root,selected,{configured:['*'],verified:report.checks.filter(check=>check.status==='passed').map(check=>'customer:'+check.name)});
  for(const input of report.runtimeSetup.inputs){
   if(input.state==='optional')continue;
-  add('environment','env:'+input.name,input.state==='present'?'available':'pending',input.reason+'; destination: '+input.destination+(input.source?'; source: '+input.source:'')+(input.state==='unverified'?'; verify in its host or CI runner':''));
+  let reason=makeReason('reason.doctor.envDestination',{reason:input[reasonDetail]??input.reason,destination:input[runtimeDestination]??input.destination});
+  if(input.source)reason=makeReason('reason.doctor.envSource',{reason,source:makeReason(`runtime.source.${input.source}`,undefined,input.source)});
+  if(input.state==='unverified')reason=makeReason('reason.doctor.envUnverified',{reason});
+  add('environment','env:'+input.name,input.state==='present'?'available':'pending',reason);
  }
- if(report.runtimeSetup.template.state==='pending')add('environment','runtime-template','pending',report.runtimeSetup.template.reason??'Private runtime inputs need attention');
- for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??'Actual selected command result; separate from installation status');
+ if(report.runtimeSetup.template.state==='pending')add('environment','runtime-template','pending',report.runtimeSetup.template[reasonDetail]??report.runtimeSetup.template.reason??makeReason('doctor.runtimePending'));
+ for(const check of report.checks)add(check.name==='eval'?'eval':check.name==='environment'?'environment':'tests',check.name,check.status,check.message??makeReason('doctor.checkResult'));
  const failed=diagnostics.some(d=>d.state==='failed');const pending=diagnostics.some(d=>d.state==='pending'||d.state==='reload-required');report.status=diagnostics.some(d=>d.category==='config'&&d.state==='failed')?'failed':interrupted?'pending':'complete';report.exitCode=options.signal?.aborted?130:failed?1:pending?3:0;return report;
 }

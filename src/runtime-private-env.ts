@@ -10,13 +10,14 @@ import {withinPath} from './npm-command.mjs';
 import {renameWithRetry} from './atomic-rename.js';
 import {syncDirectory} from './sync-directory.js';
 import {translate,type Locale} from './i18n/index.js';
+import {makeReason,ReasonError,reasonDetail,reasonFallback,type WithReasonDetail} from './i18n/reasons.js';
 
 const exec=promisify(execFile),limit=256_000;
 export const runtimeEnvPath='.rigup/.env';
 interface Entry {value:string;start:number;end:number}
-export interface RuntimeFile {text:string;entries:Map<string,Entry>;exists?:boolean;path?:string;problem?:string}
-const problem='Keep .rigup/.env unchanged; it must be an untracked, effectively ignored regular file inside the project.';
-export class PrivateInputWriteError extends Error {}
+export interface RuntimeFile extends WithReasonDetail {text:string;entries:Map<string,Entry>;exists?:boolean;path?:string;problem?:string}
+const unsafeFile=makeReason('reason.runtime.unsafeFile');
+export class PrivateInputWriteError extends ReasonError {}
 
 
 export function essentialEnvironment(environment:NodeJS.ProcessEnv=process.env):NodeJS.ProcessEnv{
@@ -27,7 +28,7 @@ export function essentialEnvironment(environment:NodeJS.ProcessEnv=process.env):
 function parse(text:string):Map<string,Entry>{
  const entries=new Map<string,Entry>();
  let at=0;
- const invalid=()=>Error('Invalid .rigup/.env syntax or duplicate key; correct the local file without exporting its contents.');
+ const invalid=()=>new ReasonError(makeReason('reason.runtime.fileSyntax'));
  while(at<text.length){
   while(/[ \t\r\n]/.test(text[at]??'')&&at<text.length)at++;
   if(at===text.length)break;
@@ -64,17 +65,17 @@ function parse(text:string):Map<string,Entry>{
 
 async function runtimeDirectory(root:string){
  const directory=await directoryLocation(join(root,'.rigup'));
- if(!withinPath(root,directory)||directory===root)throw Error(problem);
+ if(!withinPath(root,directory)||directory===root)throw new ReasonError(unsafeFile);
  return directory;
 }
 
 async function runtimeBytes(path:string,beforeRead?:()=>Promise<void>){
  const info=await lstat(path).catch(error=>{if(error.code!=='ENOENT')throw error;});
  if(!info)return;
- if(!info.isFile()||info.size>limit)throw Error(problem);
+ if(!info.isFile()||info.size>limit)throw new ReasonError(unsafeFile);
  await beforeRead?.();
  const bytes=await readFile(path);
- if(bytes.length>limit)throw Error(problem);
+ if(bytes.length>limit)throw new ReasonError(unsafeFile);
  return bytes;
 }
 
@@ -118,13 +119,17 @@ export async function readRuntimeFile(root:string):Promise<RuntimeFile>{
   root=await realpath(root);
   const path=join(await runtimeDirectory(root),'.env');
   const raw=await runtimeBytes(path,async()=>{
-   if(!await isPrivateGitPath(root,'.env',path))throw Error(problem);
+   if(!await isPrivateGitPath(root,'.env',path))throw new ReasonError(unsafeFile);
   });
   if(!raw)return {...empty(),path};
   const text=raw.toString('utf8');
-  if(!raw.equals(Buffer.from(text)))throw Error('Invalid .rigup/.env UTF-8 encoding.');
+  if(!raw.equals(Buffer.from(text)))throw new ReasonError(makeReason('reason.runtime.fileEncoding'));
   return {text,entries:parse(text),exists:true,path};
- }catch(error){return {...empty(),problem:error instanceof Error&&error.message.startsWith('Invalid .rigup/.env')?error.message:problem};}
+ }catch(error){
+  const detail=error instanceof ReasonError?error.reason:undefined;
+  const reason=detail&&typeof detail!=='string'&&(detail.code==='reason.runtime.fileSyntax'||detail.code==='reason.runtime.fileEncoding')?detail:unsafeFile;
+  return {...empty(),problem:reasonFallback(reason),[reasonDetail]:reason};
+ }
 }
 
 export function renderRuntimeFile(file:RuntimeFile,values:{name:string;value?:string;comment:string;required:boolean}[],locale:Locale):string{
@@ -148,13 +153,13 @@ export async function writeRuntimeFile(root:string,before:RuntimeFile,text:strin
  const directory=await runtimeDirectory(root),path=join(directory,'.env');
  const name='.env.rigup-'+randomUUID()+'.tmp',temporary=join(directory,name);
  const verifyIgnore=async()=>{
-  if(!await isPrivateGitPath(root,'.env',path)||!await isPrivateGitPath(root,name,temporary))throw Error(problem);
+  if(!await isPrivateGitPath(root,'.env',path)||!await isPrivateGitPath(root,name,temporary))throw new ReasonError(unsafeFile);
  };
  const verify=async()=>{
-  if(await runtimeDirectory(root)!==directory||before.problem||before.path&&before.path!==path)throw Error(problem);
+  if(await runtimeDirectory(root)!==directory||before.problem||before.path&&before.path!==path)throw new ReasonError(unsafeFile);
   await verifyIgnore();
   const current=await runtimeBytes(path);
-  if(!!current!==!!before.exists||current&&!current.equals(Buffer.from(before.text)))throw Error(problem);
+  if(!!current!==!!before.exists||current&&!current.equals(Buffer.from(before.text)))throw new ReasonError(unsafeFile);
  };
  await verifyIgnore();
  const handle=await open(temporary,'wx',0o600);
@@ -164,7 +169,7 @@ export async function writeRuntimeFile(root:string,before:RuntimeFile,text:strin
     if(process.platform==='win32')await protectWindowsPrivateFile(temporary);
     else if(((await handle.stat()).mode&0o777)!==0o600)throw Error('Private permissions unavailable');
    }catch{
-    throw new PrivateInputWriteError('Keep '+path+' unchanged. This filesystem could not protect the staged credential file. Use the declared process environment variable.');
+    throw new PrivateInputWriteError(makeReason('reason.runtime.privatePermissions',{path}));
    }
    await verifyIgnore();
    await handle.writeFile(text);await handle.sync();
