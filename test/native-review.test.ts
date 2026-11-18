@@ -58,9 +58,20 @@ test('explicit Anthropic CLI flags select their provider after default resolutio
   assert.equal(seen.options.backend,'native');assert.deepEqual(seen.effectiveModel,{provider:'anthropic',model,apiKeyEnv:reference});
  }}finally{if(old===undefined)delete process.env.ANTHROPIC_MODEL;else process.env.ANTHROPIC_MODEL=old;}
 }));
-test('conflicting Codex model configuration is rejected before dispatch',()=>fixture(async(root,cache,state)=>{
- let calls=0;const code=await runCli(['init','--sdd','openspec','--backend','codex','--model','anthropic-choice'],{cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async()=>{calls++;throw Error('must not call');}}}});
- assert.equal(code,2);assert.equal(calls,0);
+test('conflicting Codex model flags are rejected before agent detection or dispatch',t=>fixture(async(root,cache,state,control)=>{
+ const emptyBin=join(control,'empty-bin');await mkdir(emptyBin);
+ testEnvironment(t,{PATH:emptyBin});
+ let calls=0;
+ for(const modelFlags of [['--model','anthropic-choice'],['--api-key-env','TEAM_KEY']]){
+  let output='';
+  const code=await runCli(['init','--sdd','openspec','--backend','codex','--language','zh-CN',...modelFlags],{
+   cwd:root,isTTY:false,write:text=>output+=text,
+   services:{cacheRoot:cache,stateRoot:state,backend:{run:async()=>{calls++;throw Error('must not call');}}},
+  });
+  assert.equal(code,2,output);
+  assert.match(output,/Codex 后端不支持/);
+ }
+ assert.equal(calls,0);
  assert.throws(()=>validateOptions({backend:'codex',model:{provider:'anthropic',model:'choice',apiKeyEnv:'TEAM_KEY'}}),/model|backend/);
 }));
 test('default lifecycle applies with an active host and advises a reload',()=>fixture(async(root,cache,state)=>{

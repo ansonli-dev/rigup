@@ -35,7 +35,7 @@ import {supportedHost} from './integrations/host-setup/manual.js';
 import {nativeSetupInteraction} from './integrations/host-setup/index.js';
 import {terminalUI,type TerminalStreams} from './terminal-ui.js';
 import {resolveLocale,setLocale,t,translate,withLocale,type MessageKey,type MessageParams} from './i18n/index.js';
-import {makeReason,nextStepReasonDetail,ReasonError,reasonDetail,reasonFallback,reasonFromError,renderReason,type ReasonInput,type ReasonedReport} from './i18n/reasons.js';
+import {makeReason,nextStepReasonDetail,ReasonError,reasonDetail,reasonFallback,reasonFromError,renderReason,type ReasonCode,type ReasonInput,type ReasonedReport} from './i18n/reasons.js';
 export interface CliIO {cwd:string;isTTY:boolean;outputIsTTY?:boolean;write(text:string):void;writeError?(text:string):void;read?(secret?:boolean):Promise<string|null>;ask?:Ask;terminal?:TerminalStreams;services?:LifecycleServices}
 const listOptions:Record<string,RegExp>={
  '--agents':/^(?:claude|codex|opencode|omp)$/,
@@ -326,18 +326,19 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
   if(toolIds?.includes('none')&&toolIds.length!==1)
    throw new ReasonError(makeReason('reason.cli.toolsNone',undefined,'tools: none cannot be combined with a tool'));
   const explicitKeyEnv=values['--api-key-env'];
-  if(explicitKeyEnv&&values['--backend']!=='codex'&&!/^[A-Z_][A-Z0-9_]*$/.test(explicitKeyEnv))
+  if(values['--backend']==='codex'&&(values['--model']||explicitKeyEnv))
+   throw new ReasonError(makeReason('reason.cli.codexModelFlags',undefined,'model/API-key flags select the native backend; Codex model overrides are not supported'));
+  if(explicitKeyEnv&&!/^[A-Z_][A-Z0-9_]*$/.test(explicitKeyEnv))
    throw new ReasonError(makeReason('reason.config.apiKeyEnv',{field:'--api-key-env'},'model.apiKeyEnv: environment reference required'));
   const unapproved=!manifest&&!savedApplyOptions&&!flags.request&&!flags.response&&!values['--continue']&&!values['--prepare-openspec'];
   const ordinary=Object.keys(values).every(flag=>['--review','--dry-run','--resume','--sessions-ended','--language','--profile'].includes(flag));
   if(unapproved&&(ordinary||!configured.agents)){
    const needsAgents={field:'agents',provide:'Specify --agents with one or more supported hosts'};
-   const pending=(key:MessageKey,params?:MessageParams,nextCommand?:string,requireAgents=false)=>{
+   const pending=(key:ReasonCode,params?:MessageParams,nextCommand?:string,requireAgents=false)=>{
     start(options.documentLanguage??initialLanguage);
-    const reason=translate('en',key,params);
-    io.write(t(key,params)+'\n',reason+'\n');
+    const reason=makeReason(key,params);
     const installStatus=key==='cli.initRequired'?'not-installed':'pending';
-    services.report?.({phase:'preflight',installStatus,pending:[reason],...(nextCommand?{nextCommand}:{}),
+    services.report?.({phase:'preflight',installStatus,pending:[reason.fallback],[reasonDetail]:reason,...(nextCommand?{nextCommand}:{}),
      ...(requireAgents?{requiredInput:[needsAgents]}:{})});
     return 3;
    };
@@ -379,7 +380,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
   }
   if(values['--continue']){if(Object.keys(overrides).length||['--tools','--model','--api-key-env','--review','--dry-run','--configure','--retire','--run-checks'].some(k=>values[k]))throw new ReasonError(makeReason('reason.cli.continueOptions',undefined,'continuation cannot change explicit selections or execution mode'));const continuation=await loadContinuation(root,values['--continue'],io.services);options=continuation.options;Object.assign(flags,{...continuation.flags,response:flags.response,sessionsEnded:flags.sessionsEnded,resume:flags.resume});}
   if(options.documentLanguage!==undefined)activateLanguage(options.documentLanguage);
-  if(!modernResearch&&(values['--model']||values['--api-key-env'])){if(values['--backend']==='codex')throw Error('model/API-key flags select the native backend; Codex model overrides are not supported');if(!values['--backend'])options.backend='native';const model=values['--model']??options.model?.model??process.env.ANTHROPIC_MODEL;const apiKeyEnv=values['--api-key-env']??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';if(!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))throw new ReasonError(makeReason('reason.config.apiKeyEnv',{field:'--api-key-env'},'model.apiKeyEnv: environment reference required'));if(!model&&!(io.isTTY&&io.read))throw new Error('model.model: required when changing the API-key reference');if(model)options.model={provider:options.model?.provider??'anthropic',model,apiKeyEnv};}
+  if(!modernResearch&&(values['--model']||values['--api-key-env'])){if(!values['--backend'])options.backend='native';const model=values['--model']??options.model?.model??process.env.ANTHROPIC_MODEL;const apiKeyEnv=values['--api-key-env']??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';if(!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))throw new ReasonError(makeReason('reason.config.apiKeyEnv',{field:'--api-key-env'},'model.apiKeyEnv: environment reference required'));if(!model&&!(io.isTTY&&io.read))throw new Error('model.model: required when changing the API-key reference');if(model)options.model={provider:options.model?.provider??'anthropic',model,apiKeyEnv};}
   if((flags.request||flags.response)&&options.backend!=='host')throw new Error('request/response: select the host backend');
   const firstWorkflow=!savedApplyOptions&&command==='init'&&!flags.dryRun&&!flags.request&&!flags.response&&!flags.continuation&&!flags.researchTokens;
   const interactive=io.isTTY&&!values['--continue'];

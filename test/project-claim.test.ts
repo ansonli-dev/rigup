@@ -134,6 +134,12 @@ test('fresh noninteractive init uses PATH only when agent selection is absent',t
  const noAgent=await command(workspace,root,['init','--review'],3);
  assert.equal(noAgent.result.previewId,undefined);
  assert.match(JSON.stringify(noAgent.result.requiredInput),/--agents/);
+ let output='';
+ assert.equal(await runCli(['init','--review','--language','zh-CN'],{
+  cwd:root,isTTY:false,write:text=>output+=text,services:cliServices(workspace),
+ }),3);
+ assert.equal(output.match(/在 PATH 中未找到受支持的智能体/g)?.length,1,output);
+ assert.doesNotMatch(output,/No supported agents were found/,output);
  await writeFile(join(bin,process.platform==='win32'?'claude.cmd':'claude'),'',{mode:0o755});
  for(const [args,agent] of [[[], 'claude'],[['--agents','omp'],'omp']] as const){
   const {result}=await command(workspace,root,['init','--review',...args],3);

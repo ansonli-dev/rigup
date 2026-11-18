@@ -4,6 +4,7 @@ import {currentLocale,translate,type Locale,type MessageKey,type MessageParams} 
 const reusedReasonCodes=[
  'cli.invalidLanguage','cli.invalidJson','cli.operationFailed',
  'cli.applySavedPreview','cli.providerRequired','cli.interruptedSeed','cli.interruptedTool',
+ 'cli.claimSelectionMismatch','cli.claimIncomplete','cli.claimAgentsRequired','cli.initRequired','cli.pathAgentsRequired',
  'cli.interruptedResearch','openspec.resume','openspec.resumeScope','lifecycle.rulesNext','result.reviewWait',
  'native.manualOmp','native.manualCodex','native.manualOpenCode',
  'doctor.initRequired','doctor.claimUnrecorded','doctor.claimSelectionRequired','doctor.claimIncomplete',

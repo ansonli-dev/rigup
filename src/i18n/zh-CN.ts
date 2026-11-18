@@ -404,6 +404,7 @@ rigup openspec <args>          运行已验证的项目 OpenSpec CLI
  'reason.config.backend':"backend 请选择以下值之一：{values}。",
  'reason.config.executionMode':"executionPolicy.mode 请选择以下值之一：{values}。",
  'reason.cli.toolsNone':"--tools 的 none 必须单独使用。",
+ 'reason.cli.codexModelFlags':"Codex 后端不支持 --model 或 --api-key-env。请移除这些参数，或选择 native 后端。",
  'reason.cli.continueOptions':"请沿用原来的选项和执行模式继续。",
  'reason.cli.continueId':"继续操作的 ID 无效。",
  'reason.cli.continueMissing':"找不到已保存的继续记录。请重新准备。",

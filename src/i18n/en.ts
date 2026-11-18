@@ -402,6 +402,7 @@ Omit path to use the current directory. A TTY previews changes before Install, S
  'reason.config.backend':"Choose {values} for backend.",
  'reason.config.executionMode':"Choose {values} for executionPolicy.mode.",
  'reason.cli.toolsNone':"Use none on its own with --tools.",
+ 'reason.cli.codexModelFlags':"The Codex backend does not accept --model or --api-key-env. Remove these options or select the native backend.",
  'reason.cli.continueOptions':"Continue with the original selections and execution mode.",
  'reason.cli.continueId':"The continuation ID is invalid.",
  'reason.cli.continueMissing':"The saved continuation is missing. Restart preparation.",
