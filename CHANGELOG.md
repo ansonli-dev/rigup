@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.1 · 2026-11-19 · Development preview
+
+- Keep source files readable when a credential-like assignment can be redacted on its own line. Evidence retains its original line numbers. Ambiguous multiline values and sensitive files remain protected. [Issue #92](https://github.com/ansonli-dev/rigup/issues/92)
+- Seed MCP analysis with root guidance, build manifests, and representative paths across directories. The job explains how to find other eligible sources. [Issue #93](https://github.com/ansonli-dev/rigup/issues/93)
+- Report the cited repository path and a safe reason when evidence cannot be read, so the host can correct the citation and retry. [Issue #94](https://github.com/ansonli-dev/rigup/issues/94)
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.11.1) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.11.1)
+
 ## 0.11.0 · 2026-11-19 · Development preview
 
 - Group setup previews by what changes and show the exact command to apply a saved preview. Doctor highlights items that need attention. Chinese diagnostics explain common option and setup errors, and native approval shows the commands and destinations needed for the decision. [Issue #85](https://github.com/ansonli-dev/rigup/issues/85)
