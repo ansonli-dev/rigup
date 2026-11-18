@@ -80,13 +80,14 @@ async function acceptedResult(request:ResearchRequest,reader:RepositoryReader,te
  if(typeof model!=='string'||!model.trim())throw new ResearchFailure('provider did not identify the research model');
  let data:unknown;
  try{data=selectResearchOutput(request,JSON.parse(text));}catch{throw new ResearchValidationError('provider returned invalid research JSON');}
- try{await validateResearch(data,reader,undefined,exportedSourceEvidence);}catch(error){
+ let warnings:string[];
+ try{({warnings}=await validateResearch(data,reader,undefined,exportedSourceEvidence));}catch(error){
   if(error instanceof ResearchValidationError)throw error;
   throw new ResearchValidationError('provider returned invalid research evidence or structure');
  }
  const unknowns=providerObject(data)?.unknowns;
  if(!Array.isArray(unknowns)||unknowns.some(x=>typeof x!=='string'))throw new ResearchValidationError('unknowns: string array required');
- return {data,model,unknowns};
+ return {data,model,unknowns:[...new Set([...unknowns,...warnings])]};
 }
 
 async function dispatch<T>(send:()=>Promise<T>):Promise<T> {

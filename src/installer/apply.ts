@@ -154,7 +154,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    if(approved===undefined||approved===value)continue;
    // These prompt revisions preserve the writes in a matching durable approval.
    if(restoringApproval&&(key==='prompt'&&(approved==='10'||approved==='12')||
-      key==='rigup'&&approved==='0.8.0'&&data.inputSnapshotVersion===3))continue;
+      (key==='rigup'&&approved==='0.8.0'||key==='read'&&approved==='7')&&data.inputSnapshotVersion===3))continue;
    throw new Error(restoringApproval&&tx?.status==='prepared'?upgradeReconciliation:'implementation version changed; regenerate preview');
   }
   const interruptedInstall=await interruptedInstallApplyId(root,lock.stateRoot);

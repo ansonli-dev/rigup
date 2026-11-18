@@ -96,53 +96,66 @@ test('worktree_root_is_not_common_git_dir',()=>project(async root=>{
  const p=await scanRepository(work,{agents:[],backend:'host'});
  assert.equal(p.root,await realpath(work));assert.equal(p.git.available,true);
 }));
-test('reader_and_search_share_cumulative_budget_and_scope',()=>project(async root=>{
+test('more than two thousand reads and searches retain the inventory scope',()=>project(async root=>{
  const {repositoryReader}=await import('../src/analyzer/repository.js');
  await mkdir(join(root,'selected'));await writeFile(join(root,'selected/a.ts'),'four');await writeFile(join(root,'outside.ts'),'x');
  const reader=await repositoryReader(root,{agents:[],backend:'host',scope:['selected'],readBudget:{maxFiles:10,maxBytes:5}});
  assert.deepEqual(await reader.list(),['selected/a.ts']);
- assert.equal((await reader.read('selected/a.ts',1,1)).content,'four');
- await assert.rejects(reader.search('four'),/budget/);
+ for(let call=0;call<2001;call++)assert.equal((await reader.read('selected/a.ts',1,1)).content,'four');
+ assert.equal((await reader.search('four'))[0].content,'four');
  await assert.rejects(reader.read('outside.ts',1,1),/inventory/);
+}));
+
+test('in-root links must obey the resolved file format, scope and ignore rules',()=>project(async root=>{
+ await mkdir(join(root,'selected/actual'),{recursive:true});
+ await mkdir(join(root,'outside'));
+ await writeFile(join(root,'selected','actual','config.json'),'{"password":"fixture-redact-me","name":"allowed-name"}');
+ await writeFile(join(root,'selected','actual','ignored.txt'),'fixture-ignored-sentinel');
+ await writeFile(join(root,'outside','note.txt'),'fixture-outside-sentinel');
+ await writeFile(join(root,'.rigupignore'),'/selected/actual/ignored.txt\n');
+ const type=process.platform==='win32'?'junction':'dir';
+ await symlink(join(root,'selected','actual'),join(root,'selected','visible'),type);
+ await symlink(join(root,'outside'),join(root,'selected','denied'),type);
+ await symlink(join(root,'selected'),join(root,'selected','loop'),type);
+ const reader=await repositoryReader(root,{agents:[],backend:'host',scope:['selected']});
+ assert.deepEqual(await reader.list(),['selected/actual/config.json','selected/visible/config.json']);
+ const linked=await reader.read('selected/visible/config.json',1,1);
+ assert.match(linked.content,/allowed-name/);
+ assert.doesNotMatch(linked.content,/fixture-redact-me/);
+ assert.deepEqual(await reader.search('sentinel'),[]);
+ await assert.rejects(reader.read('selected/visible/ignored.txt',1),/inventory/);
+ await assert.rejects(reader.read('selected/denied/note.txt',1),/inventory/);
 }));
 test('verification reads a source once per pass and rereads it at the next checkpoint',()=>project(async root=>{
  const path='source.ts';
  await writeFile(join(root,path),'first\nsecond');
- const budget={calls:0,bytes:0};
- const reader=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:2,maxBytes:24}},{budget});
+ const reader=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:2,maxBytes:24}});
  const research={observations:[],citations:[
   {path,startLine:1,endLine:1,digest:digest('first')},
   {path,startLine:2,endLine:2,digest:digest('second')}
  ]};
  await validateResearch(research,reader);
- assert.deepEqual(budget,{calls:1,bytes:12});
  await writeFile(join(root,path),'first\nedited');
  await assert.rejects(validateResearch(research,reader),/digest mismatch/);
- assert.deepEqual(budget,{calls:2,bytes:24});
 }));
-test('different counterexample queries share one budgeted corpus scan',()=>project(async root=>{
+test('different counterexample searches and a direct read share the selected inventory',()=>project(async root=>{
  const {repositoryReader}=await import('../src/analyzer/repository.js');
  await writeFile(join(root,'a.ts'),'first\nsecond');
- const budget={calls:0,bytes:0};
- const reader=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:1,maxBytes:12}},{budget});
+ const reader=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:1,maxBytes:12}});
  const [first,second]=await Promise.all([reader.search('first'),reader.search('second')]);
  assert.equal(first[0].evidence.startLine,1);assert.equal(second[0].evidence.startLine,2);
- assert.deepEqual(budget,{calls:1,bytes:12});
- await assert.rejects(reader.read('a.ts',1),/budget/);
+ assert.match((await reader.read('a.ts',1)).content,/second/);
 }));
 test('scoped literal search stops at its match limit',()=>project(async root=>{
  const {repositoryReader}=await import('../src/analyzer/repository.js');
  await writeFile(join(root,'outside.ts'),'match outside\n');
  await writeFile(join(root,'selected.ts'),'match one\nmatch two\nmatch three\n');
  await writeFile(join(root,'z-later.ts'),'match later\n');
- const budget={calls:0,bytes:0};
- const reader=await repositoryReader(root,{agents:[],backend:'host'},{budget});
+ const reader=await repositoryReader(root,{agents:[],backend:'host'});
  const selection={paths:new Set(['selected.ts','z-later.ts']),limit:2};
  const matches=await reader.search('match',selection);
  assert.deepEqual(matches.map(match=>[match.evidence.path,match.evidence.startLine]),[['selected.ts',1],['selected.ts',2]]);
- assert.deepEqual(budget,{calls:1,bytes:32});
  assert.equal((await reader.search('match')).length,5);
- assert.equal(budget.calls,3);
 }));
 test('missing_baseline_disables_cache_and_is_not_silent',()=>project(async root=>{
  await mkdir(join(root,'.rigup'));

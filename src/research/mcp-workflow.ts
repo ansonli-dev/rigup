@@ -5,21 +5,17 @@ import {join,resolve} from 'node:path';
 import {selectResearchOutput,validateResearch,type AnalysisBackend,type RepositoryReader,type ResearchRequest} from '../analyzer/backend.js';
 import {digest,type EvidenceRead} from '../analyzer/evidence.js';
 import {stageSourceGuidance} from '../analyzer/stage-context.js';
-import {PROMPT_VERSION,researchPrompt} from '../analyzer/prompts.js';
-import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
+import {researchPrompt} from '../analyzer/prompts.js';
 import {scanRepository} from '../analyzer/repository.js';
 import {loadOptions,normalizeDocumentLanguage} from '../config.js';
 import {privateDirectory,signature} from '../generator/cache.js';
-import {DOCUMENT_POLICY_VERSION} from '../generator/document-policy.js';
 import {inventorySignature} from '../generator/generate.js';
-import {sourceGuidance} from '../generator/harness.js';
-import {TEMPLATE_VERSION} from '../generator/render.js';
 import {interruptedApplyId} from '../installer/apply.js';
 import {loadManifest,sourceReview,trustedBaseline,type Manifest} from '../installer/baseline.js';
 import {acquireLock,defaultStateRoot} from '../installer/lock.js';
 import {absentDigest,approvalInputChange,LegacyPreviewError,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
 import {defaultNpmRegistry,type NpmView} from '../integrations/tools/npm-resolution.js';
-import {inspectOpenSpecForSetup,interruptedOpenSpecPreparation,type OpenSpecRuntimeIdentity} from '../integrations/sdd/openspec-setup.js';
+import {inspectOpenSpecForSetup,interruptedOpenSpecPreparation} from '../integrations/sdd/openspec-setup.js';
 import {operationNpmRegistry} from '../runtime-inputs.js';
 import {platformFileMode,readFileState,readFileStates,matchesFileState} from '../installer/file-state.js';
 import {equalOwnedContent,ownedContent} from '../installer/ownership.js';
@@ -30,7 +26,6 @@ import type {Agent,SetupOptions} from '../types.js';
 
 const jobDigest=/^[a-f0-9]{64}$/;
 const idPattern=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
-const policy={prompt:PROMPT_VERSION,read:READ_POLICY_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION};
 const hostPrompt=researchPrompt
  .replace('using ONLY the supplied read tools','using your authorized native read tools for this project')
  .replace('Cite only the supplied ranges','Cite only the repository path and line ranges')
@@ -42,13 +37,14 @@ type JobStage='analysis'|'plan'|'page'|'acceptance';
 interface Job {id:string;stage:JobStage;expectedOutput:'analysis'|'plan'|'content'|'acceptance';options:{documentLanguage:string};artifact?:string;input?:unknown;seedPaths?:string[];sourceGuidance?:ResearchRequest['sourceGuidance'];sourceEvidence?:EvidenceRead[]}
 interface Submission {id:string;digest:string;stage:JobStage|'planning';data:Record<string,unknown>}
 interface ResearchState {
- version:1;id:string;scope:string;startingInventory:string;language?:string;
+ version:1;id:string;scope:string;startingInventory:string;language?:string;stableScope?:true;
  accepted:Record<string,string>;inFlight?:{id:string;digest:string};
- result?:{previewId:string;inventory:string;retireIds?:string[]};
+ pendingJob?:{key:string;id:string;fingerprint:string};
+ result?:{previewId:string;inventory:string;fingerprint?:string;retireIds?:string[]};
 }
 export interface ResearchReply {status:'planning'|'page'|'ready'|'noop'|'preview'|'pending';runId?:string;job?:Job;instructions?:string;previewId?:string;preview?:Preview;pending?:string[];nextCommand?:string}
 class AwaitingJob extends Error {
- constructor(readonly job:Job){super('Research is waiting for a submitted job');}
+ constructor(readonly job:Job,readonly refresh=false){super('Research is waiting for a submitted job');}
 }
 const validDigest=(value:unknown):value is string=>typeof value==='string'&&jobDigest.test(value);
 const validIds=(value:unknown):value is string[]=>Array.isArray(value)&&value.length<=128&&value.every(id=>typeof id==='string'&&id.length>0&&id.length<=256)&&new Set(value).size===value.length;
@@ -57,7 +53,10 @@ const validState=(state:ResearchState)=>state.version===1&&typeof state.id==='st
  (state.language===undefined||typeof state.language==='string')&&isRecord(state.accepted)&&
  Object.entries(state.accepted).every(([id,digest])=>validDigest(id)&&validDigest(digest))&&
  (state.inFlight===undefined||isRecord(state.inFlight)&&validDigest(state.inFlight.id)&&validDigest(state.inFlight.digest))&&
- (state.result===undefined||isRecord(state.result)&&validDigest(state.result.previewId)&&validDigest(state.result.inventory)&&(state.result.retireIds===undefined||validIds(state.result.retireIds)));
+ (state.stableScope===undefined||state.stableScope===true)&&
+ (state.pendingJob===undefined||isRecord(state.pendingJob)&&validDigest(state.pendingJob.key)&&validDigest(state.pendingJob.id)&&validDigest(state.pendingJob.fingerprint))&&
+ (state.result===undefined||isRecord(state.result)&&validDigest(state.result.previewId)&&validDigest(state.result.inventory)&&
+  (state.result.fingerprint===undefined||validDigest(state.result.fingerprint))&&(state.result.retireIds===undefined||validIds(state.result.retireIds)));
 
 async function previewStillCurrent(root:string,data:PreviewData,stateRoot:string):Promise<boolean>{
  if(data.plan.requirements.some(requirement=>requirement.kind==='npm-resolution'))return false;
@@ -118,6 +117,18 @@ function readSubmission(name:string,args:Record<string,unknown>):Submission|unde
  return {id:args.jobId,data:args.data,digest:signature(args.data),stage:name==='rigup_submit_page'?'page':'planning'};
 }
 
+function explicitCitations(data:unknown):boolean{
+ let found=false;
+ function visit(node:unknown,depth=0):boolean{
+  if(depth>48)return false;
+  if(Array.isArray(node))return node.every(value=>visit(value,depth+1));
+  if(!isRecord(node))return true;
+  if('path' in node&&('startLine' in node||'endLine' in node)){found=true;return validDigest(node.digest);}
+  return Object.values(node).every(value=>visit(value,depth+1));
+ }
+ return visit(data)&&found;
+}
+
 export async function openResearchMcp(project:string,host:Agent,dependencies:{stateRoot?:string;cacheRoot?:string;npmView?:NpmView}={}){
  const root=await realpath(project);
  const stateRoot=dependencies.stateRoot??defaultStateRoot();
@@ -141,30 +152,39 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
    const fallback=config&&manifest.assets.some(asset=>asset.logicalId==='rigup:configuration')?undefined:manifest.options;
    const options=await loadOptions(root,language?{documentLanguage:language}:{},undefined,{fallback});
    if(!options.projectRules||!options.agents.includes(host))throw Error('Enable project rules and apply the selection for this host before starting research');
-   let openSpecRuntime:OpenSpecRuntimeIdentity|undefined;
    if(options.sdd==='openspec'){
     const interrupted=await interruptedOpenSpecPreparation(root,lock.stateRoot);
     if(interrupted)return {status:'pending',runId:state?.id,pending:interrupted.requirements,nextCommand:interrupted.nextCommand};
     const native=await inspectOpenSpecForSetup(root,options,lock.stateRoot);
     if(!native.runtime)return {status:'pending',runId:state?.id,pending:native.requirements,nextCommand:native.steps.join(' && ')||undefined};
-    openSpecRuntime=native.runtime;
    }
    const profile=await scanRepository(root,options);
    if(profile.researchBlocked)throw Error(profile.researchBlocked);
-   const scope=signature({root,host,options,fingerprint:profile.fingerprint,sourceGuidance:sourceGuidance(profile,options),config:config&&digest(config),policy,openSpecRuntime});
+   const fingerprint=profile.fingerprint,scope=signature({root,host,options});
    const currentInventory=inventorySignature(manifest.assets);
    const pendingSourceReview=await sourceReview(root,manifest,lock.stateRoot);
-   const lastResultApplied=!pendingSourceReview&&state?.scope===scope&&state.result?.inventory===currentInventory&&manifest.projectRules==='ready'&&signature(manifest.options)===signature(options);
+   const sameSelection=signature(manifest.options)===signature(options);
+   if(state&&!state.stableScope&&sameSelection){state.scope=scope;state.stableScope=true;await saveDurable(path,JSON.stringify(state));}
+   const applied=state?.scope===scope&&state.result?.inventory===currentInventory&&manifest.projectRules==='ready'&&sameSelection;
+   const lastResultApplied=applied&&!pendingSourceReview&&state?.result?.fingerprint===fingerprint;
    if(lastResultApplied&&['rigup_begin','rigup_finish'].includes(name)&&await installedAssetsMatch(root,manifest).catch(()=>false))return {status:'noop',runId:state!.id};
    if(name==='rigup_begin'){
-    if(lastResultApplied||state?.scope!==scope||state.startingInventory!==currentInventory){
-     state={version:1,id:randomUUID(),scope,startingInventory:currentInventory,language,accepted:{}};
+    if(applied||state?.scope!==scope||state.startingInventory!==currentInventory){
+     state={version:1,id:randomUUID(),scope,stableScope:true,startingInventory:currentInventory,language,accepted:{}};
      await saveDurable(path,JSON.stringify(state));
     }
    }
    if(!state||state.scope!==scope||state.startingInventory!==currentInventory)throw Error('Project source, settings or installation changed. Begin a new research run.');
    const submission=readSubmission(name,args);
    if(submission&&state.accepted[submission.id]&&state.accepted[submission.id]!==submission.digest)throw Error('The completed job was submitted with different data');
+   const paths={cacheRoot,stateRoot:lock.stateRoot,npmView:dependencies.npmView};
+   if(state.result&&state.result.fingerprint!==fingerprint){
+    const retireIds=state.result.retireIds;
+    delete state.result;
+    await saveDurable(path,JSON.stringify(state));
+    const refreshed=await advanceResearch(root,host,state,path,options,fingerprint,submission,paths,retireIds);
+    if(name!=='rigup_finish'||refreshed.status!=='ready')return refreshed;
+   }
    if(name==='rigup_finish'&&!state.result)throw Error('Research jobs are pending. Submit them before finish.');
    if(state.result){
     if(submission&&state.accepted[submission.id]!==submission.digest)throw Error('The submitted job does not belong to the completed run');
@@ -175,16 +195,16 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
     const saved=await load().catch(error=>{if(!(error instanceof LegacyPreviewError)&&(error as Error).message!=='private preview missing or corrupted')throw error;});
     let preview=saved?.preview;
     if(!saved||signature(retireIds??[])!==signature(state.result.retireIds??[])||!await previewStillCurrent(root,saved,lock.stateRoot)){
-     const regenerated=await advanceResearch(root,host,state,path,options,profile.fingerprint,undefined,{cacheRoot,stateRoot:lock.stateRoot,npmView:dependencies.npmView},retireIds);
+     const regenerated=await advanceResearch(root,host,state,path,options,fingerprint,undefined,paths,retireIds);
      if(regenerated.status==='pending')return regenerated;
      if(regenerated.status!=='ready')throw Error('Research generation state could not restore the preview');
      preview=(await load()).preview;
     }
     if(!preview)throw Error('Research preview is unavailable');
-    const nextCommand=preview.executable?'rigup update '+quoteShell(root)+' --apply '+preview.previewId+' --sessions-ended':undefined;
+    const nextCommand=preview.executable?'rigup update '+quoteShell(root)+' --apply '+preview.previewId:undefined;
     return {status:'preview',runId:state.id,previewId:preview.previewId,preview,nextCommand};
    }
-   return await advanceResearch(root,host,state,path,options,profile.fingerprint,submission,{cacheRoot,stateRoot:lock.stateRoot,npmView:dependencies.npmView});
+   return await advanceResearch(root,host,state,path,options,fingerprint,submission,paths);
   }finally{await lock.release();}
  }};
 }
@@ -192,35 +212,41 @@ export async function openResearchMcp(project:string,host:Agent,dependencies:{st
 async function advanceResearch(root:string,host:Agent,state:ResearchState,path:string,options:SetupOptions,fingerprint:string,submission:Submission|undefined,paths:{cacheRoot:string;stateRoot:string;npmView?:NpmView},retireIds?:string[]):Promise<ResearchReply>{
  const persist=()=>saveDurable(path,JSON.stringify(state));
  let consumed=false;
- const settle=async(next?:string)=>{
+ const settle=async(next?:string,refresh=false)=>{
   if(state.inFlight&&state.inFlight.id!==next){
    state.accepted[state.inFlight.id]=state.inFlight.digest;
    delete state.inFlight;
    await persist();
   }
-  if(submission&&state.accepted[submission.id]!==submission.digest)throw Error('The submitted job is not the pending research job');
+  if(!refresh&&submission&&state.accepted[submission.id]!==submission.digest)throw Error('The submitted job is not pending for this research run');
  };
  const backend:AnalysisBackend={artifactContextVersion:'mcp-3',run:async(request:ResearchRequest,reader)=>{
   const model='host-agent/'+host;
   const expectedOutput=request.expectedOutput??'analysis';
   const stage:JobStage=expectedOutput==='content'?'page':expectedOutput;
-  const id=signature({run:state.id,stage,artifact:request.artifact,input:request.input,sourceGuidance:request.sourceGuidance});
+  const key=signature({run:state.id,stage,artifact:request.artifact,input:request.input,sourceGuidance:request.sourceGuidance});
+  const pending=state.pendingJob,previousId=pending?.key===key?pending.id:pending?undefined:key;
+  const older=!!submission&&submission.id===previousId&&pending?.fingerprint!==fingerprint;
+  const explicit=older&&explicitCitations(submission.data);
+  const id=explicit?previousId!:signature({key,fingerprint});
   const sourceEvidence=await stageSourceGuidance(reader,request.sourceGuidance);
   if(submission&&!consumed&&submission.id===id){
    if((stage==='page'||stage==='acceptance')!==(submission.stage==='page'))throw Error('Use the submission tool for this job stage');
    if(state.inFlight?.id===id&&state.inFlight.digest!==submission.digest)throw Error('Retry the in-flight job with the same data');
    const data=selectResearchOutput(request,await hydrateEvidence(submission.data,reader));
-   await validateResearch(data,reader,undefined,sourceEvidence);
+   const {warnings}=await validateResearch(data,reader,undefined,sourceEvidence);
    const unknowns=(data as {unknowns?:unknown}).unknowns;
    if(!Array.isArray(unknowns)||unknowns.some(item=>typeof item!=='string'))throw Error('unknowns: string array required');
    state.inFlight={id,digest:submission.digest};
    await persist();
    consumed=true;
-   return {status:'complete',value:{model,data,unknowns,usage:{calls:1,tokens:'unknown'}}};
+   return {status:'complete',value:{model,data,unknowns:[...new Set([...unknowns,...warnings])],usage:{calls:1,tokens:'unknown'}}};
   }
+  state.pendingJob={key,id,fingerprint};
+  await persist();
   throw new AwaitingJob({id,stage,expectedOutput,options:{documentLanguage:options.documentLanguage??'auto'},artifact:request.artifact,input:request.input,
    ...(request.sourceGuidance?.length?{sourceGuidance:request.sourceGuidance,sourceEvidence}:{}),
-   ...(stage==='analysis'?{seedPaths:(await reader.list()).slice(0,200)}:{})});
+   ...(stage==='analysis'?{seedPaths:(await reader.list()).slice(0,200)}:{})},older&&!explicit);
  }};
  let report:Record<string,unknown>|undefined;
  try{
@@ -229,8 +255,9 @@ async function advanceResearch(root:string,host:Agent,state:ResearchState,path:s
   });
  }catch(error){
   if(error instanceof AwaitingJob){
-   await settle(error.job.id);
-   return {status:['page','acceptance'].includes(error.job.stage)?'page':'planning',runId:state.id,job:error.job,instructions:hostPrompt};
+   await settle(error.job.id,error.refresh);
+   return {status:['page','acceptance'].includes(error.job.stage)?'page':'planning',runId:state.id,job:error.job,
+    instructions:hostPrompt+(error.refresh?'\nProject files changed after this job was sent. Re-read the current evidence before submitting this job.':'')};
   }
   if(consumed){delete state.inFlight;await persist();}
   throw error;
@@ -240,7 +267,8 @@ async function advanceResearch(root:string,host:Agent,state:ResearchState,path:s
  if(!report||!validDigest(report.previewId))throw Error('Research could not prepare a project preview');
  const stored=await loadPreview(report.previewId,join(paths.cacheRoot,'previews'));
  await settle();
- state.result={previewId:report.previewId,inventory:inventorySignature(stored.assets),retireIds};
+ delete state.pendingJob;
+ state.result={previewId:report.previewId,inventory:inventorySignature(stored.assets),fingerprint,retireIds};
  await persist();
  return {status:'ready',runId:state.id};
 }

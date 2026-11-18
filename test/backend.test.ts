@@ -122,10 +122,9 @@ test('Anthropic generation caps honor defaults, overrides, and remaining tokens'
  assert.deepEqual(limits,[16384,32_000,500,990]);
 });
 
-test('EOF recovery retries the same authorized file within its read budget',()=>project(async root=>{
+test('EOF recovery retries the same authorized file while preserving redaction',()=>project(async root=>{
  await writeFile(join(root,'config.yaml'),'token: fixture-secret\nname: visible');
- const budget={calls:0,bytes:0};
- const repo=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:3,maxBytes:1000}},{budget});
+ const repo=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:3,maxBytes:1000}});
  let turns=0;
  const backend=nativeBackend({apiKey:'fixture',model:'claude-auto[1m]',fetch:async(url,init)=>{
   if(String(url).endsWith('/count_tokens'))return new Response(null,{status:405});
@@ -143,16 +142,17 @@ test('EOF recovery retries the same authorized file within its read budget',()=>
  }});
  const result=await backend.run({...request,root,budget:{maxCalls:4,maxTokens:50_000}},repo);
  assert.equal(result.status,'complete');
- assert.equal(turns,3);assert.equal(budget.calls,2);
+ assert.equal(turns,3);
 }));
 
-for(const [kind,path,calls] of [['out-of-scope','outside/private.txt',0],['symlink','allowed/link.txt',0],['read-budget','allowed/visible.txt',2000]] as const){
+for(const [kind,path] of [['out-of-scope','outside/private.txt'],['symlink','allowed/link.txt'],['oversize','allowed/visible.txt']] as const){
 test(`${kind} denied reads never return EOF metadata or continue generation`,t=>project(async root=>{
  await mkdir(join(root,'allowed'));await mkdir(join(root,'outside'));
  await writeFile(join(root,'allowed','visible.txt'),'line');await writeFile(join(root,'outside','private.txt'),'private');
  if(kind==='symlink')try{await symlink(join(root,'outside','private.txt'),join(root,'allowed','link.txt'));}
  catch(error){if(process.platform==='win32'&&(error as NodeJS.ErrnoException).code==='EPERM'){t.skip('Windows file symlink privilege is unavailable');return;}throw error;}
-  const repo=await repositoryReader(root,{agents:[],backend:'host',scope:['allowed']},{budget:{calls,bytes:0}});
+  const repo=await repositoryReader(root,{agents:[],backend:'host',scope:['allowed'],readBudget:{maxBytes:128}});
+  if(kind==='oversize')await writeFile(join(root,path),'beyond the file limit'.repeat(12));
   let sent=0;
   const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async url=>{
    sent++;
@@ -252,12 +252,12 @@ test('single_example_and_copied_support_cannot_be_promoted_to_convention',async(
  const evidence={path:'a.ts',startLine:1,endLine:1,digest:'same'};
  const sources:RepositoryReader={...reader,read:async(path,startLine,endLine)=>({content:'same',evidence:{...evidence,path,startLine,endLine}})};
  const observation={statement:'Reuse handler pattern',classification:'convention',scope:['src'],supportingEvidence:[evidence],counterEvidence:[],coverage:{independentSupports:1,counterexampleSearched:true},guidanceDisposition:'follow-existing'};
- await assert.rejects(validateResearch({observations:[observation]},sources),/convention/);
- await assert.rejects(validateResearch({observations:[{...observation,supportingEvidence:[evidence,{...evidence,path:'copy.ts'}],coverage:{independentSupports:2,counterexampleSearched:true}}]},sources),/independent|copied|convention/);
+ assert.match((await validateResearch({observations:[observation]},sources)).warnings.join('\n'),/independent support/i);
+ assert.match((await validateResearch({observations:[{...observation,supportingEvidence:[evidence,{...evidence,path:'copy.ts'}],coverage:{independentSupports:2,counterexampleSearched:true}}]},sources)).warnings.join('\n'),/independent support/i);
 });
 test('suggestions_do_not_become_rules_and_missing_refutation_is_not_promoted',async()=>{
  const base={statement:'Use a new style',classification:'suggestion',scope:['src'],supportingEvidence:[],counterEvidence:[],guidanceDisposition:'follow-existing'};
- await assert.rejects(validateResearch({observations:[base]},reader),/suggestion/);
+ assert.match((await validateResearch({observations:[base]},reader)).warnings.join('\n'),/suggestion requires review/i);
 });
 test('conflicting recommendations may remain suggestions awaiting a human decision',async()=>{
  const observation={topic:'query access',statement:'The existing recommendations conflict; do not choose a rule automatically',classification:'suggestion',scope:['src'],supportingEvidence:[],counterEvidence:[],guidanceDisposition:'needs-decision'};
@@ -343,7 +343,7 @@ test('unexplained_counterexamples_require_decision_instead_of_follow_existing',a
  const sources:RepositoryReader={...reader,read:async(path,startLine,endLine)=>({content:path,evidence:{path,startLine,endLine:endLine!,digest:path}})};
  const ev=(path:string)=>({path,startLine:1,endLine:1,digest:path});
  const observation={statement:'Handlers use mapper',classification:'convention',scope:['src'],supportingEvidence:[ev('src/a.ts'),ev('src/b.ts')],counterEvidence:[ev('src/c.ts')],coverage:{independentSupports:2,counterexampleSearched:true},exceptions:[],unknowns:['why c differs'],guidanceDisposition:'follow-existing'};
- await assert.rejects(validateResearch({observations:[observation]},sources),/decision|counterexample/);
+ assert.match((await validateResearch({observations:[observation]},sources)).warnings.join('\n'),/counterexample requires a decision/i);
  await assert.doesNotReject(()=>validateResearch({observations:[{...observation,classification:'local-pattern',guidanceDisposition:'needs-decision'}]},sources));
 });
 test('reusable_guidance_blocks_redundant_inference_and_partial_guidance_limits_gaps',async()=>{
@@ -356,12 +356,12 @@ test('convention_requires_replayable_counterexample_search',async()=>{
  const sources:RepositoryReader={...reader,read:async(path,startLine,endLine)=>({content:path,evidence:{path,startLine,endLine:endLine!,digest:path}})};
  const ev=(path:string)=>({path,startLine:1,endLine:1,digest:path});
  const observation={statement:'Pattern',classification:'convention',scope:['src'],supportingEvidence:[ev('src/a.ts'),ev('src/b.ts')],counterEvidence:[],coverage:{independentSupports:2,counterexampleSearched:true},guidanceDisposition:'follow-existing'};
- await assert.rejects(validateResearch({observations:[observation]},sources),/query/);
+ assert.match((await validateResearch({observations:[observation]},sources)).warnings.join('\n'),/query/);
  let searches=0;
  const counted={...sources,search:async()=>{searches++;return [];}};
  const valid={observations:[{...observation,coverage:{...observation.coverage,counterexampleQueries:['alternative(']}}]};
  await validateResearch(valid,counted);await validateResearch(valid,counted);
- assert.equal(searches,1);
+ assert.equal(searches,2);
 });
 test('host_new_instance_does_not_reset_run_request_budget',async()=>{
  const {hostBackend}=await import('../src/analyzer/host.js');const fs=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');

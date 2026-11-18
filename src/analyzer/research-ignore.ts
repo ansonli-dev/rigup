@@ -1,9 +1,10 @@
 import ignore from 'ignore';
 import {lstat,readFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import {agents,projectCommandRoots} from '../integrations/agents/index.js';
 import {openspec} from '../integrations/sdd/openspec.js';
 import {specKit} from '../integrations/sdd/spec-kit.js';
-import {digest,safePath} from './evidence.js';
+import {digest} from './evidence.js';
 
 const maxIgnoreBytes=64_000;
 const controlFile='.rigupignore';
@@ -34,8 +35,9 @@ export async function loadResearchIgnore(root:string){
  const rules=ignore({ignorecase:process.platform==='win32'});
  let fingerprint:string|undefined;
  try{
-  const path=await safePath(root,controlFile);
+  const path=join(root,controlFile);
   const info=await lstat(path);
+  if(info.isSymbolicLink())throw Error('.rigupignore symlink denied');
   if(!info.isFile()||info.size>maxIgnoreBytes)throw Error('.rigupignore must be a regular file under 64 KB');
   const bytes=await readFile(path);
   if(bytes.length>maxIgnoreBytes||bytes.includes(0))throw Error('.rigupignore must be a text file under 64 KB');

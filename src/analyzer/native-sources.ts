@@ -13,7 +13,8 @@ import {sddDiscoveryNames,unqualifiedSkillName,type SkillSource} from '../integr
 import {ompLocations} from '../integrations/host-setup/omp-locations.js';
 import {claudeManagedRoot,claudePlugin,ompPackage} from '../integrations/host-setup/manual.js';
 export interface NativeDiagnostic {agent:Agent;code:'omp-claude-provider-filtered'|'plugin-skipped'|'native-conflict';subject:string;detail:string}
-export interface NativeDiscoveryOptions {home?:string;env?:Record<string,string|undefined>;requiredOpenSpecEntriesOnly?:true;managedProjectPaths?:string[];onWarning?:(message:string)=>void;onDiagnostic?:(diagnostic:NativeDiagnostic)=>void}
+export interface OpenCodePluginObservation {target:string;id:string;skills:readonly string[]}
+export interface NativeDiscoveryOptions {home?:string;env?:Record<string,string|undefined>;openCodePlugins?:readonly OpenCodePluginObservation[];managedProjectPaths?:string[];onWarning?:(message:string)=>void;onDiagnostic?:(diagnostic:NativeDiagnostic)=>void}
 export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean;disabled?:boolean}|undefined {
  const front=text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);if(!front)return;
  const value=parse(front[1]);if(!value||typeof value.name!=='string'||typeof value.description!=='string')return;
@@ -24,12 +25,15 @@ const inside=(base:string,path:string)=>{const rel=relative(base,path);return re
 const list=async(path:string)=>readdir(path).catch(()=>[] as string[]);
 const record=(value:unknown):Record<string,any>=>value!==null&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,any>:{};
 const array=(value:unknown):string[]=>typeof value==='string'?[value]:Array.isArray(value)?value.filter((x):x is string=>typeof x==='string'):[];
+const officialOpenCodePackage=(target:string)=>/^(?:superpowers@)?(?:git\+)?https:\/\/github\.com\/obra\/superpowers(?:\.git)?(?:#.*)?$/.test(target)||
+ /^(?:superpowers@)?github:obra\/superpowers(?:#.*)?$/.test(target);
 export async function discoverNativeSources(root:string,options:SetupOptions,dependencies:NativeDiscoveryOptions={}) {
  const result:Partial<Record<Agent,SkillSource[]>>={};if(!options.sdd&&!options.customSkills?.length)return result;
  const home=dependencies.home??homedir(),env=dependencies.env??(dependencies.home?{}:process.env);
- const wanted=new Set(options.sdd?sddDiscoveryNames(options.sdd,options.sdd!=='openspec'||!dependencies.requiredOpenSpecEntriesOnly):[]);
+ const wanted=new Set(options.sdd?sddDiscoveryNames(options.sdd):[]);
  let metadataFiles=0,metadataBytes=0,metadataExhausted=false;
  const metadataText=async(path:string,bound?:string)=>{
+  if(metadataExhausted)throw Error('Native metadata read budget exceeded');
   const canonical=await realpath(path);if(bound&&!inside(await realpath(bound),canonical))throw Error('native source escapes installation root');
   const info=await stat(canonical);if(!info.isFile()||info.size>256000)throw Error('Native manager metadata exceeds budget');
   if(++metadataFiles>2000||(metadataBytes+=info.size)>8_000_000){metadataExhausted=true;throw Error('Native metadata read budget exceeded');}
@@ -61,6 +65,7 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
  }
  const matchingProject=async(record:any)=>['project','local'].includes(record.scope)&&typeof record.projectPath==='string'&&await realpath(record.projectPath).catch(()=>undefined)===root;
  for(const agent of options.agents){
+  metadataFiles=0;metadataBytes=0;metadataExhausted=false;
   const sources:SkillSource[]=[];result[agent]=sources;
   let count=0,bytes=0,directories=0;
   const visited=new Set<string>();
@@ -149,9 +154,14 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    for(const {path,target} of operations){
     if(v2&&target.startsWith('-')){for(const [key,item] of loaded)if(matches(target.slice(1),item.id))loaded.delete(key);continue;}
     if(v2&&[...loaded.values()].some(item=>matches(target,item.id)))continue;
-    const official=/^(?:superpowers@)?(?:git\+)?https:\/\/github\.com\/obra\/superpowers(?:\.git)?(?:#.*)?$/.test(target)||/^(?:superpowers@)?github:obra\/superpowers(?:#.*)?$/.test(target);
+    const official=officialOpenCodePackage(target);
+    const observed=dependencies.openCodePlugins?.find(plugin=>plugin.target===target&&/^[\w.@/-]{1,200}$/.test(plugin.id));
     let localTarget:string|undefined;try{localTarget=target.startsWith('file://')?fileURLToPath(target):isAbsolute(target)?target:target.startsWith('.')?resolve(dirname(path),target):undefined;}catch(error){warn('superpowers',error);continue;}
-    if(!official&&!localTarget)continue;
+    if(!official&&!localTarget){
+     if(options.sdd==='superpowers'&&/(^|[/@.-])superpowers(?:$|[@.-])/.test(target))
+      dependencies.onWarning?.('OpenCode Superpowers registration could not be confirmed; check the active plugin with opencode plugin list');
+     continue;
+    }
     const versionSeparator=target.lastIndexOf('@');const policyTarget='plugin:'+(isAbsolute(target)||versionSeparator<=0?target:target.slice(0,versionSeparator));
     if(v2&&configs.flatMap(doc=>doc.value.policies??[]).findLast((policy:any)=>policy.action==='integration.use'&&matches(policy.resource,policyTarget))?.effect==='deny')continue;
     try{
@@ -165,15 +175,23 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
      const canonical=await realpath(base),manifestPath=join(base,'package.json'),manifestText=await metadataText(manifestPath,canonical),manifest=JSON.parse(manifestText);
      if(manifest.name!=='superpowers')throw Error('Invalid plugin manifest');
      const directEntry=localTarget&&(await stat(localTarget)).isFile()?localTarget:undefined;
-     if(!directEntry&&(typeof manifest.main!=='string'||manifest.exports!==undefined))throw Error('Unrecognized Superpowers package entry; repair the official installation');
-     const entry=directEntry??resolve(base,manifest.main);
+     const main=typeof manifest.main==='string'?manifest.main.replace(/^\.\//,''):'index.js';
+     const entry=directEntry??resolve(base,main);
+     const origin=typeof manifest.repository==='string'?manifest.repository:manifest.repository?.url;
+     const knownEntry=['index.js','.opencode/plugins/superpowers.js'].includes(relative(canonical,await realpath(entry)).replaceAll('\\','/'));
+     if(!observed&&(!knownEntry||!official&&!(typeof origin==='string'&&officialOpenCodePackage(origin)))){
+      dependencies.onWarning?.('OpenCode Superpowers registration could not be confirmed; check the active plugin and skills with opencode plugin list');
+      continue;
+     }
      const entryText=await metadataText(entry,canonical);
-     if(!recognizableOpenCodeRegistration(entryText,v2))throw Error('Superpowers loader does not register native skills; repair the official plugin entry');
-     const id=v2?entryText.match(/export\s+default\s*\{\s*id\s*:\s*['"]([^'"]+)['"]/)?.[1]:'superpowers';
-     if(!id)throw Error('plugin registration ID unavailable; repair configuration');
+     const id=observed?.id??'superpowers';
      const before=sources.length;
      const skillRoot=join(base,'skills'),ctx:Context={origin:'plugin',bound:canonical,packageName:'superpowers',pathNames:v2,skillRoot,sourceFingerprint:digest(JSON.stringify({root:canonical,manifest:await realpath(manifestPath),manifestDigest:digest(manifestText),entry:await realpath(entry),entryDigest:digest(entryText),id}))};
-     for(const name of await list(skillRoot))if(!name.startsWith('.')&&(await stat(join(skillRoot,name)).catch(()=>undefined))?.isDirectory())try{await add(join(skillRoot,name,'SKILL.md'),ctx);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')warn('superpowers',error);}
+     const skills=observed?.skills??(await list(skillRoot)).filter(name=>!name.startsWith('.')).map(name=>join(skillRoot,name,'SKILL.md'));
+     for(const skill of skills)try{
+      if(!isAbsolute(skill)||!inside(await realpath(skillRoot),await realpath(skill)))continue;
+      await add(skill,ctx);
+     }catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')warn('superpowers',error);}
      loaded.set(target,{id,items:sources.splice(before)});
     }catch(error){warn('superpowers',error);}
    }
@@ -399,7 +417,11 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    const fingerprint=digest(JSON.stringify({dependencies:[...checked].sort(),hooks}));
    for(const source of sources){source.sourceFingerprint=digest((source.sourceFingerprint??'')+fingerprint);if(failure){source.satisfies=false;source.problem=failure;}}
   }
-  if(metadataExhausted){sources.length=0;unavailable('Native metadata read budget exceeded; reduce or repair the effective native installation');}
+  if(metadataExhausted){
+   const message='Native metadata read budget exceeded; unresolved precedence requires review';
+   dependencies.onWarning?.(agent+': '+message);
+   unavailable(message);
+  }
   if(!sources.length)delete result[agent];
  }
  return result;
@@ -426,11 +448,3 @@ async function recognizableClaudeUserPlugin(config:string,value:unknown){
 
 // Recognize the audited upstream registration, without importing or executing a plugin.
 // Unknown loaders must be repaired or exposed as native skills before binding.
-function recognizableOpenCodeRegistration(source:string,v2:boolean):boolean {
- const code=source.replace(/\/\*[\s\S]*?\*\//g,'').replace(/^\s*\/\/.*$/gm,'').replace(/\s+/g,'');
- if(!/constsuperpowersSkillsDir=path\.resolve\(__dirname,['"]\.\.\/\.\.\/skills['"]\)/.test(code))return false;
- if(!v2)return /exportconstSuperpowersPlugin=async\(/.test(code)&&code.includes('config:async(config)=>{')&&code.includes('config.skills.paths.push(superpowersSkillsDir)');
- return code.includes('asyncfunctionsetup(ctx){')&&/exportdefault\{id:['"][^'"]+['"],server:SuperpowersPlugin,setup,?\}/.test(code)&&
-  code.includes('fs.readdirSync(superpowersSkillsDir,{withFileTypes:true})')&&code.includes("path.join(superpowersSkillsDir,entry.name,'SKILL.md')")&&
-  code.includes('id:entry.name,')&&code.includes('path:skillPath,')&&code.includes('awaitctx.skill.transform((draft)=>{')&&code.includes('draft.add(skill)');
-}

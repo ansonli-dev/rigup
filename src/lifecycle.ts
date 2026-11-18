@@ -1,9 +1,9 @@
 import {createProgressReporter,type RunProgressEvent} from './progress.js';
 import {RIGUP_VERSION} from './version.js';
-import {readFile,readdir} from 'node:fs/promises';
+import {readFile,readdir,stat} from 'node:fs/promises';
 import {readDurableRecord,saveDurable} from './private-record.js';
 import {configurationCandidate} from './config.js';
-import {validateResearch,ResearchFailure} from './analyzer/backend.js';
+import {researchEvidenceCurrent,validateResearch,ResearchFailure,type ResearchEvidenceReceipt} from './analyzer/backend.js';
 import {CodexTokenLimit,researchBudget} from './analyzer/budget.js';
 import {quoteShell as quote} from './shell-command.js';
 import {join} from 'node:path';
@@ -41,7 +41,11 @@ import type {NpmView} from './integrations/tools/npm-resolution.js';
 import type {LifecyclePresentation} from './cli-output.js';
 export interface LifecycleFlags {globalTools?:('openwiki'|'codegraph')[];deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
 export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:(preview:Preview)=>Promise<'install'|'save'|'cancel'>;report?:(value:Record<string,unknown>)=>void;researchSessionId?:string;expectedFingerprint?:string;npmView?:NpmView;nativeSetup?:import('./integrations/host-setup/index.js').NativeSetupServices;presentation?:LifecyclePresentation}
-interface Run {root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};readSpent?:{calls:number;bytes:number};consent:string;versions?:SetupPlan['versions']}
+interface Run {
+ root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;
+ researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};consent:string;versions?:SetupPlan['versions'];
+ analysisInputs?:string;evidence?:ResearchEvidenceReceipt;completed?:{previewId:string;fingerprint:string};
+}
 async function readRun(path:string,root:string,consent:string):Promise<Run|undefined>{
  const run=await readDurableRecord<Run>(path,'Durable research run');
  if(!run)return;
@@ -180,6 +184,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   }
   if(needsResearch&&backendKind==='host'&&recovery)notice('Native workflow must be initialized before apply:\n'+recovery.nextCommand+'\n');
   let plan:SetupPlan;
+  let saveResearchPreview:((id:string)=>Promise<void>)|undefined;
  let restoredReview:PreviewData|undefined;
   if(foundationOnly){
    emit({stage:'generation',completed:0,task:'assemble project workflow',next:'preview'});
@@ -208,54 +213,45 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const authority=sourceGuidance(profile,options);
    const scopedAuthority=authority.length?{sourceGuidance:authority}:{};
    const reviewRun=review||!!services.confirmPreview;
-   const input={root,options,...(flags.globalTools?.length?{globalTools:flags.globalTools}:{}),...scopedAuthority,effectiveModel,configDigest:config?digest(config):absentDigest,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,executionMode:flags.dryRun?'dry-run':reviewRun?'review':'continuous',fingerprint:profile.fingerprint,researchSessionId};
+   const input={root,options,globalTools:flags.globalTools??[],effectiveModel,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,researchSessionId};
    const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
-   let consent=signature({...input,versions});
-   if(flags.continuation&&flags.continuation!==consent)throw new Error('continuation input/configuration changed; restart preparation');
+   const consent=signature(input);
    const savedRun=async(id:string)=>await readRun(join(runs,id+'.json'),root,id)??await readRun(join(base,'runs',id+'.json'),root,id);
    let run=await savedRun(consent);
-   if(!run&&flags.response&&!flags.continuation&&!review&&input.executionMode==='review'){
-    // Legacy direct responses can still use the run created in continuous mode.
-    const prior=signature({...input,executionMode:'continuous',versions});
-    run=await savedRun(prior);
-    if(run)consent=prior;
-   }
    const runPath=join(runs,consent+'.json');
-   if(!run&&flags.resume&&options.sdd){
-    // Older evidence and discovery contracts use different consent keys for the same project.
-    const priorContracts=[
-     {versions:{prompt:'7',template:'2',document:'1',read:'6'},label:'single-document evidence contract',build:'the previous Rigup build'},
-     {versions:{prompt:'8',template:'2',document:'1',read:'6'},label:'previous topic evidence contract',build:'the previous Rigup build'},
-     {versions:{prompt:'9',template:'2',document:'1',read:'6'},label:'previous evidence and template contract',build:'the previous Rigup build'},
-     {versions:{prompt:'10',template:'3',document:'1',read:'6'},label:'v0.2.0 evidence and template contract',build:'v0.2.0'},
-     {versions:{prompt:'10',template:'4',document:'1',read:'6'},label:'v0.2.1 evidence and template contract',build:'v0.2.1'},
-     {versions:{...versions,prompt:'10'},label:'v0.2.4 research prompt',build:'v0.2.4'},
-    ];
-    const priorFingerprint=options.sdd==='openspec'?(await scanRepository(root,options,{requiredOpenSpecEntriesOnly:true})).fingerprint:input.fingerprint;
-    const candidates=priorFingerprint===input.fingerprint?[input]:[input,{...input,fingerprint:priorFingerprint}];
-    for(const previousInput of candidates){
-     for(const previous of priorContracts){
-      if(await savedRun(signature({...previousInput,versions:previous.versions})))throw Error('Saved research uses the '+previous.label+'. Resume or reconcile it with '+previous.build+', or explicitly start a new preview without --resume.');
-     }
-    }
-    if(priorFingerprint!==input.fingerprint&&await savedRun(signature({...input,fingerprint:priorFingerprint,versions})))throw Error('Saved research uses the previous OpenSpec discovery contract. Resume or reconcile it with the previous Rigup build, or explicitly start a new preview without --resume.');
+   const matchesSelection=(prior:Run)=>signature(prior.options)===signature(options)&&
+    signature(prior.effectiveModel??null)===signature(effectiveModel??null)&&
+    signature(prior.mode.globalTools??[])===signature(input.globalTools)&&
+    signature(prior.mode.retireIds??[])===signature(input.retireIds)&&signature(prior.mode.runChecks??[])===signature(input.runChecks)&&
+    !!prior.mode.configure===input.configure;
+   if(flags.continuation){
+    const original=await savedRun(flags.continuation);
+    if(!original||!matchesSelection(original))throw Error('continuation input/configuration changed; restart preparation');
+    if(!run||run.runId!==original.runId)run=original;
    }
    if(!run&&flags.resume&&needsResearch&&!services.researchSessionId){
+    let latest=0;
     for(const directory of new Set([runs,join(base,'runs')])){
      const entries=await readdir(directory).catch(error=>{if(error.code==='ENOENT')return [];throw error;});
      for(const file of entries.filter(name=>/^[a-f0-9]{64}\.json$/.test(name))){
-      const prior=await readDurableRecord<Run>(join(directory,file),'Durable research run').catch(()=>undefined);
-      if(prior?.root!==root||!prior.options||signature(prior.options)!==signature(options)||!prior.spent?.calls)continue;
-      if(signature(prior.versions??null)!==signature(versions))throw Error('Saved research uses an earlier evidence contract. Resume with its original Rigup version or explicitly start a new review without --resume.');
+      const path=join(directory,file),prior=await readRun(path,root,file.slice(0,-5)).catch(()=>undefined);
+      if(!prior||!matchesSelection(prior))continue;
+      const time=(await stat(path)).mtimeMs;
+      if(time>latest){run=prior;latest=time;}
      }
     }
    }
+   if(run?.completed&&run.completed.fingerprint!==profile.fingerprint&&!flags.continuation){
+    const applied=await readApplyRecord(applyRecordPath(root,lock.stateRoot));
+    if(applied?.previewId===run.completed.previewId&&applied.installId===old?.installId)run=undefined;
+   }
    if(!run)run={root,options,effectiveModel,mode:{globalTools:flags.globalTools,dryRun:flags.dryRun,yes:!reviewRun&&flags.yes,review:reviewRun,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent,versions};
-   if(signature(run.options)!==signature(options))throw Error('durable research options changed; reconciliation required');
+   if(!matchesSelection(run))throw Error('durable research options changed; reconciliation required');
+   run.consent=consent;
    if(flags.researchTokens!==undefined)run.researchTokens=flags.researchTokens;
    await saveDurable(runPath,JSON.stringify(run));researchResumeId=consent;let responseConsumed=false;
    const continuation=(requestPath:string)=>'rigup update '+quote(root)+' --continue '+consent+' --response '+quote(requestPath.replace(/(?:\.request)?\.json$/,'.response.json'));
-   run.readSpent??={calls:0,bytes:0};const reader=await repositoryReader(root,options,{budget:run.readSpent,persist:()=>saveDurable(runPath,JSON.stringify(run)),expectedFingerprint:profile.fingerprint});
+   const reader=await repositoryReader(root,options,{expectedFingerprint:profile.fingerprint});
    const durableNative=!services.backend&&backendKind==='native';let activeNativeBase=run.spent;
    const providerBackend=openAI?openAICompatibleBackend:nativeBackend;
    const rawBackend:AnalysisBackend=services.backend??(backendKind==='host'?{artifactContextVersion:STAGE_EVIDENCE_POLICY,run:async(request,reader)=>{
@@ -277,6 +273,13 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     catch(error){if(!durableNative&&error instanceof ResearchFailure&&error.usage)await addUsage(error.usage);throw error;}
    }}:rawBackend;
    const previousAssets=(old?.assets??[]).filter(a=>a.logicalId!=='rigup:configuration');
+   const analysisInputs=signature({authority,templates:prepared.integration.assets,versions,openSpecRuntime,config:config&&digest(config)});
+   if(run.research){
+    const current=run.analysisInputs===undefined
+     ?await validateResearch(run.research.data,reader).then(value=>value.receipt.searches.length===0,()=>false)
+     :run.analysisInputs===analysisInputs&&await researchEvidenceCurrent(run.evidence,reader);
+    if(!current){delete run.research;delete run.evidence;await saveDurable(runPath,JSON.stringify(run));}
+   }
    const analysisPath=join(runs,signature({kind:'analysis',root,fingerprint:profile.fingerprint,options,...scopedAuthority,effectiveModel,templates:signature(prepared.integration.assets),prompt:PROMPT_VERSION,read:READ_POLICY_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,researchSessionId})+'.analysis.json');
    if(needsResearch&&!run.research){const cached=await readCache<ResearchResult>(analysisPath);if(cached){try{await validateResearch(cached.data,reader);run.research=cached;notice('Research: reuse accepted evidence for unchanged inputs\n');}catch{/* Invalidated accepted evidence is researched again. */}}}
    let newResearch=false;
@@ -285,8 +288,15 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     if(backendKind!=='codex'||services.backend)emit({...active,task:'project evidence analysis',waiting:backendKind==='host'?'host research exchange':'provider response or evidence requests',next:'validate analysis result'});
     const result=await backend.run({kind:'analyze',runId:run.runId,root,fingerprint:profile.fingerprint,options,...scopedAuthority,effectiveModel,versions:{prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},budget,previousInventoryDigest:inventorySignature(previousAssets),templateSourcesDigest:signature(prepared.integration.assets)},reader);
     if(result.status==='pending-host'){emit({stage:'research',completed:0,status:'waiting',requiresUserAction:true,waiting:'host response',next:continuation(result.requestPath)});services.report?.({phase:'research',installStatus:'pending',pending:[result.requestId],requestPath:result.requestPath,nextCommand:continuation(result.requestPath),...nativeSetup});notice('Pending host research: '+result.requestPath+'\nResume: '+continuation(result.requestPath)+'\n');return 3;}
-    run.research=result.value;await saveCache(analysisPath,JSON.stringify(result.value));if(backendKind==='host')run.spent={calls:typeof result.value.usage.calls==='number'?result.value.usage.calls:1,tokens:result.value.usage.tokens};await saveDurable(runPath,JSON.stringify(run));
+    run.research=result.value;await saveCache(analysisPath,JSON.stringify(result.value));if(backendKind==='host')run.spent={calls:typeof result.value.usage.calls==='number'?result.value.usage.calls:1,tokens:result.value.usage.tokens};
    }
+   if(run.research&&(!run.evidence||run.analysisInputs!==analysisInputs)){
+    const {receipt,warnings}=await validateResearch(run.research.data,reader);
+    run.evidence=receipt;run.analysisInputs=analysisInputs;
+    run.research.unknowns=[...new Set([...run.research.unknowns,...warnings])];
+    await saveDurable(runPath,JSON.stringify(run));
+   }
+   saveResearchPreview=async id=>{run.completed={previewId:id,fingerprint:profile.fingerprint};await saveDurable(runPath,JSON.stringify(run));};
    if(needsResearch)emit({stage:'research',completed:1,total:1,status:newResearch?'complete':'reused',next:'generation'});
    profile.research=run.research;emit({stage:'generation',completed:0,task:'artifact planning and fixed assets',next:'preview',waiting:backendKind==='codex'?'local Codex research':backendKind==='native'?'provider research':'local preparation / host response'});notice('Generate: assembling selected capabilities\n');
    const generationRoot=services.researchSessionId?join(lock.stateRoot,'mcp-generation',services.researchSessionId):researchSessionId?join(cache,researchSessionId):cache;
@@ -310,6 +320,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(authorityReview&&profile.truncated)plan.projectRules='pending';
   plan=await prepareProjectToolOperations(plan,profile,{stateRoot:lock.stateRoot,signal:services.signal,view:services.npmView,globalTools:flags.globalTools});
   const result=await preview(plan,resolutions,{cacheRoot:previews,stateRoot:lock.stateRoot,skipUnchanged:!!flags.review&&!flags.dryRun&&!services.runChecks&&!runtimeSetup.template.needsUpdate&&!await interruptedApplyId(root,lock.stateRoot),reviewEntryBlocks:!!old&&!!flags.review,restoredReview});
+  if(result.executable&&!result.noChanges)await saveResearchPreview?.(result.previewId);
   if(plan.gitlabReviewRequired)for(const warning of result.warnings)if(warning.startsWith('GitLab wiring'))notice(warning+'\n');
   if(result.noChanges){
    emit({stage:'preview',completed:result.items.length,total:result.items.length,status:'complete'});
