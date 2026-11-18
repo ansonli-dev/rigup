@@ -57,7 +57,7 @@ cd /path/to/project
 rigup init
 ```
 
-The guide preselects agents and workflow sources it detects. Review the affected paths, then choose Install, Save preview, or Cancel. First-time interactive setup installs the base workflow and Rigup MCP without model calls. Ask the configured agent to prepare rules, or configure a CLI provider and run `rigup update --review --model MODEL_ID`. Use `--language zh-CN` for Simplified Chinese. The default `auto` follows the project's guidance. [Research and budgets](docs/guides/usage.md#研究后端与预算)
+The guide preselects agents and workflow sources it detects. Review the affected paths, then choose Install, Save preview, or Cancel. First-time interactive setup installs the base workflow and Rigup MCP without model calls. Ask the configured agent to prepare rules, or configure a CLI provider and run `rigup update --review --model MODEL_ID`. Choose English or Simplified Chinese at the start of the wizard, or set `--language en` or `--language zh-CN`. The choice controls the CLI and the fixed text in newly generated guidance and workflow skills. [Research and budgets](docs/guides/usage.md#研究后端与预算)
 
 Selecting OpenSpec checks its CLI, project root, and native entries. Rigup reuses a verified project CLI or an available PATH installation. If the CLI is missing, choose project or global during setup. The project scope uses `.rigup/tools/openspec/` and works with the portable runtime. Run its native commands as `rigup openspec <args>` from the project. Rigup stages native generation and fills missing project files.
 
