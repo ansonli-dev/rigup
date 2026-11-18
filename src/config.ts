@@ -11,18 +11,22 @@ import type {CommandSpec} from './types.js';
 const optionKeys=new Set(['agents','backend','projectRules','documentLanguage','quality','customer','executionPolicy','profile','templates','mcp','readBudget','researchBudget','scope','model','sdd','tools','customSkills','projectConventions']);
 const commandDefaults=(command:CommandSpec):CommandSpec=>({...command,cwd:command.cwd??'.',envRefs:command.envRefs??[]});
 
-async function readConfig(path:string,required=false,onWarning?:(message:string)=>void):Promise<Record<string,unknown>|undefined> {
-  let source: string;
-  try { source = await readFile(path, 'utf8'); }
+type ConfigRead=(path:string,bytes:Buffer|undefined)=>void;
+
+async function readConfig(path:string,required=false,onWarning?:(message:string)=>void,onRead?:ConfigRead):Promise<Record<string,unknown>|undefined> {
+  let source: Buffer;
+  try { source = await readFile(path); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       if (required) throw new Error('profile: file not found');
+      onRead?.(path,undefined);
       return;
     }
     throw error;
   }
-  let value:unknown;try{value=parse(source);}catch{throw new Error('config: invalid YAML syntax');}
+  let value:unknown;try{value=parse(source.toString('utf8'));}catch{throw new Error('config: invalid YAML syntax');}
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('config: expected mapping');
+  onRead?.(path,source);
   return Object.fromEntries(Object.entries(value).filter(([key])=>{
    if(optionKeys.has(key))return true;
    const field=/^[\w.-]{1,80}$/.test(key)?key:'unrecognized field';
@@ -31,8 +35,8 @@ async function readConfig(path:string,required=false,onWarning?:(message:string)
   }));
 }
 
-export function readProjectConfig(root:string,onWarning?:(message:string)=>void):Promise<Record<string,unknown>|undefined>{
- return readConfig(join(root,'.rigup','config.yaml'),false,onWarning);
+export function readProjectConfig(root:string,onWarning?:(message:string)=>void,onRead?:ConfigRead):Promise<Record<string,unknown>|undefined>{
+ return readConfig(join(root,'.rigup','config.yaml'),false,onWarning,onRead);
 }
 
 export function normalizeDocumentLanguage(value: unknown): string {
@@ -187,11 +191,11 @@ export function validateOptions(value: Record<string, unknown>): void {
 
 export type SetupOverrides=Partial<Omit<SetupOptions,'sdd'>>&{sdd?:SetupOptions['sdd']|'none'};
 
-export async function loadOptions(root: string, overrides: SetupOverrides, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions;project?:Record<string,unknown>;onSelections?:(selections:{agents:boolean;sdd:boolean})=>void;onWarning?:(message:string)=>void}={}): Promise<SetupOptions> {
-  const project = approvedOptions ? {...approvedOptions} : defaults.project??await readProjectConfig(root,defaults.onWarning)??{};
+export async function loadOptions(root: string, overrides: SetupOverrides, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions;project?:Record<string,unknown>;onSelections?:(selections:{agents:boolean;sdd:boolean})=>void;onWarning?:(message:string)=>void;onConfigRead?:ConfigRead}={}): Promise<SetupOptions> {
+  const project = approvedOptions ? {...approvedOptions} : defaults.project??await readProjectConfig(root,defaults.onWarning,defaults.onConfigRead)??{};
   validateOptions(project); validateOptions(overrides);
   const profilePath = approvedOptions ? undefined : overrides.profile ?? project.profile ?? defaults.fallback?.profile;
-  const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath),true,defaults.onWarning)??{} : {};
+  const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath),true,defaults.onWarning,defaults.onConfigRead)??{} : {};
   validateOptions(profile);
   const fallback:Partial<SetupOptions>=approvedOptions?{}:defaults.fallback??{};
   const layers=[fallback,profile,project,overrides];

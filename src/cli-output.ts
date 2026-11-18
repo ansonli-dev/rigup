@@ -142,6 +142,7 @@ export function createCliOutput(options:{
     if(shown.length<sorted.length)write('  '+t('preview.more',{count:sorted.length-shown.length})+'\n');
     for(const operation of data.preview.operations)write('  '+terminalText(operationDetails(operation))+'\n');
     if(data.preview.executable&&!data.preview.claim)write(t('preview.applyMetadata')+'\n');
+    if(data.preview.claim&&!verbose)for(const warning of data.preview.warnings)write(terminalText(warning)+'\n');
     write((state.details?t('preview.details',{path:terminalText(state.details)}):t('preview.detailsUnavailable'))+'\n');
    }
    if(verbose)write(details);
@@ -180,7 +181,7 @@ export function createCliOutput(options:{
    if(install?.runtimeSetup?.template.state==='written')write(t('result.envUpdated')+'\n');
    for(const operation of install?.operations??[])if(operation.status==='done'&&operation.globalReceipt)write(terminalText(operation.message)+'\n');
    if(install?.operations.some(operation=>operation.status==='done'))write(t('result.operationsVerified')+'\n');
-   if(!complete)write(t('result.installChangesPossible')+'\n');
+   if(!complete&&!state.data?.plan.claim)write(t('result.installChangesPossible')+'\n');
   }
   const blockers=report.blockers as string[]|undefined;
   const pending=Array.isArray(report.pending)?report.pending[0]:undefined;
@@ -195,7 +196,9 @@ export function createCliOutput(options:{
   if(reason&&code!==130)write(t('result.reason',{reason:terminalText(terminalReason(reason.trim().split('\n')[0]))})+'\n');
   if(code===130)return;
   let next:string|undefined;
-  if(state.applyId&&!complete&&await interruptedApplyId(root,stateRoot??defaultStateRoot()).catch(()=>undefined)===state.applyId){
+  if(install?.pending?.length&&state.data?.plan.claim&&typeof report.nextCommand==='string'){
+   next=report.nextCommand;
+  }else if(state.applyId&&!complete&&await interruptedApplyId(root,stateRoot??defaultStateRoot()).catch(()=>undefined)===state.applyId){
    next='rigup update '+quoteShell(root)+' --resume --review';
   }else if(install&&(applyReason(report)||toolWait)){
    next='rigup doctor '+quoteShell(root);

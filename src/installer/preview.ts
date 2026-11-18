@@ -25,6 +25,7 @@ import {defaultStateRoot} from './lock.js';
 import {mergeManaged,type MergeResult} from './merge.js';
 import {equalOwnedContent,ownedContent,replaceOwned,selectorsOverlap,targetPath} from './ownership.js';
 import {isGitlabWiring} from '../integrations/gitlab/ci.js';
+import {equalTomlValue} from '../integrations/agents/config-edit.js';
 import {conventionKey,documentTargetKey,readConventionDocument,validateConventionTarget,type ConventionReceipt} from '../project-conventions.js';
 import {scopeContains} from '../types.js';
 import {approvedAuthorityPaths,approvedInputs,resolveAuthorityTarget} from './approved-input.js';
@@ -274,7 +275,10 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
    if(entry.candidate?.source.kind==='fixed-template')for(const match of markdownLinks(entry.candidate.content))if(!text.includes(match[0]))blockers.push(asset.target+': required consumer binding removed; regenerate or resolve');
   }else if(asset.ownership.kind==='json-key'||asset.ownership.kind==='toml-table'){
    // A locally changed executable binding cannot inherit semantic acceptance of N.
-   if(entry.candidate&&!equalOwnedContent(asset.ownership,text,entry.candidate.content))blockers.push(asset.target+': selected machine binding differs from accepted configuration');
+   if(entry.candidate&&(!equalOwnedContent(asset.ownership,text,entry.candidate.content)||
+      plan.claim&&asset.ownership.kind==='toml-table'&&!equalTomlValue(file.text!,entry.candidate.content,asset.ownership.path))){
+    blockers.push(asset.target+': selected machine binding differs from accepted configuration');
+   }
   }
  }
  if(plan.gitlabReviewRequired){

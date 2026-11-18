@@ -12,7 +12,8 @@ import {askLine,choice,terminalReader,type Ask} from './prompt.js';
 import {loadOptions,normalizeDocumentLanguage,readProjectConfig,validateOptions,type SetupOverrides} from './config.js';
 import type {SetupOptions} from './types.js';
 import {loadManifest} from './installer/baseline.js';
-import {loadPreview} from './installer/preview.js';
+import {absentDigest,loadPreview} from './installer/preview.js';
+import {digest} from './analyzer/evidence.js';
 import {apply,interruptedApplyId,interruptedApplyOptions,interruptedInstallApplyId,interruptedSeedApplyId} from './installer/apply.js';
 import {inspectProjectSetup} from './installer/project-setup.js';
 import {rigupLauncherTarget} from './integrations/agents/rigup-config.js';
@@ -128,8 +129,10 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
  let manifest:Awaited<ReturnType<typeof loadManifest>>,manifestError:unknown;
  try{manifest=await loadManifest(root);}catch(error){manifestError=error;}
  let config:Awaited<ReturnType<typeof readProjectConfig>>,configError:unknown;
+ let projectConfigDigest=absentDigest;
  if(!(manifestError instanceof LinkedRigupDirectoryError)){
-  try{config=await readProjectConfig(root,configWarning);}catch(error){configError=error;}
+  try{config=await readProjectConfig(root,configWarning,(_path,bytes)=>{projectConfigDigest=bytes?digest(bytes):absentDigest;});}
+  catch(error){configError=error;}
  }
  const languageIndex=argv.lastIndexOf('--language');
  const explicitLanguage=values['--language']??(showHelp&&languageIndex>=0?argv[languageIndex+1]:undefined);
@@ -294,8 +297,9 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
   const fallback=manifest&&useInstalledDefaults?(manifest.options??{agents:[],backend:'host' as const}):
    disabledRules&&{agents:disabledRules.agents,backend:disabledRules.backend,profile:disabledRules.profile,projectRules:false};
   let configured={agents:false,sdd:false};
+  const configDigests:Record<string,string>={'.rigup/config.yaml':projectConfigDigest};
   options=await loadSelections(overrides,approvedOptions,{projectRules:newSetup||manifest?.options?.backend==='host'&&manifest.options.projectRules!==undefined,
-   fallback,onSelections:value=>{configured=value;}});
+   fallback,onSelections:value=>{configured=value;},onConfigRead:(path,bytes)=>{if(bytes)configDigests[path]=digest(bytes);}});
   const unapproved=!manifest&&!savedApplyOptions&&!flags.request&&!flags.response&&!values['--continue']&&!values['--prepare-openspec'];
   const ordinary=Object.keys(values).every(flag=>['--review','--dry-run','--resume','--sessions-ended','--language','--profile'].includes(flag));
   if(unapproved&&(ordinary||!configured.agents)){
@@ -321,7 +325,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     if(!configured.agents){options.agents=existing.agents;configured.agents=true;}
     if(ordinary){
      start(options.documentLanguage??initialLanguage);
-     return await executeProjectClaim(root,options,flags,io.write,services);
+     return await executeProjectClaim(root,options,configDigests,flags,io.write,services);
     }
    }else if(existing.kind==='incomplete'){
     return pending('cli.claimIncomplete',{paths:existing.paths.map(path=>terminalText(path)).join(', ')},undefined,!configured.agents);

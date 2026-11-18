@@ -1,5 +1,5 @@
-import {isDeepStrictEqual} from 'node:util';
-import {parse as parseToml} from 'smol-toml';
+import {equalTomlValue,parseConfigJsonValue,tomlValue} from '../integrations/agents/config-edit.js';
+import {projectEntry} from '../integrations/tools/project-mcp-entry.js';
 import type {Agent} from '../types.js';
 import {isRecord} from '../private-record.js';
 import {agents,entryOwnership} from '../integrations/agents/index.js';
@@ -28,9 +28,14 @@ async function targetText(root:string,target:string){
  catch{return {unsafe:true as const};}
 }
 
-function codexService(text:string){
- const {mcp_servers:servers}=parseToml(text);
- return isRecord(servers)?servers.rigup:undefined;
+function invokesRigup(agent:Agent,service:unknown):boolean{
+ if(!isRecord(service))return false;
+ const {command}=service;
+ const commandList=agent==='opencode'&&Array.isArray(command);
+ const args=commandList?command.slice(1):service.args;
+ const executable=commandList?command[0]:command;
+ return Array.isArray(args)&&(args.includes(projectEntry)||typeof executable==='string'&&
+  args.some(arg=>arg===rigupLauncherTarget||arg==='./'+rigupLauncherTarget));
 }
 
 async function inspectBlock(root:string,target:string,ownership:typeof entryOwnership|typeof localIgnoreOwnership){
@@ -53,13 +58,16 @@ export async function inspectProjectSetup(root:string):Promise<ProjectSetupInspe
   Promise.all(hosts.map(async agent=>{
    const expected=await prepareRigupResearchMcp(root,agent);
    const {text,unsafe}=await targetText(root,expected.target);
+   let related=false;
    try{
-    const value=ownedContent(text,expected.ownership);
-    const matchesSelector=value!==undefined&&equalOwnedContent(expected.ownership,value,expected.content);
-    // TOML subtables can extend the active service beyond the bounded ownership range.
-    const match=matchesSelector&&(agent!=='codex'||isDeepStrictEqual(codexService(text!),codexService(expected.content)));
-    return {agent,target:expected.target,match,related:!!value?.includes(rigupLauncherTarget),unsafe:!!unsafe};
-   }catch{return {agent,target:expected.target,match:false,related:!!text?.includes(rigupLauncherTarget),unsafe:true};}
+    const selector=expected.ownership;
+    if(text!==undefined&&selector.kind==='toml-table')related=invokesRigup(agent,tomlValue(text,selector.path));
+    const value=ownedContent(text,selector);
+    if(value!==undefined&&selector.kind==='json-key')related=invokesRigup(agent,parseConfigJsonValue(value));
+    const match=value!==undefined&&equalOwnedContent(selector,value,expected.content)&&
+     (selector.kind!=='toml-table'||equalTomlValue(text!,expected.content,selector.path));
+    return {agent,target:expected.target,match,related,unsafe:!!unsafe};
+   }catch{return {agent,target:expected.target,match:false,related,unsafe:true};}
   })),
  ]);
  const selected=bindings.filter(binding=>binding.match).map(binding=>binding.agent);

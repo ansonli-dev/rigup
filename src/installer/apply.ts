@@ -5,6 +5,7 @@ import {readVerifiedToolInstall} from '../integrations/tools/installed-state.js'
 import {verifyToolInitializationReceipt} from '../integrations/tools/native-state.js';
 import {defaultNpmRegistry} from '../integrations/tools/npm-resolution.js';
 import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
+import {interruptedOpenSpecPreparation} from '../integrations/sdd/openspec-setup.js';
 import {PROMPT_VERSION} from '../analyzer/prompts.js';
 import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
 import {TEMPLATE_VERSION} from '../generator/render.js';
@@ -36,7 +37,7 @@ import {normalizeNpmIntegrity} from '../npm-integrity.mjs';
 import {queryGlobalNpmInstall} from '../integrations/tools/global-npm.js';
 import {consumerPath,findProgram,programIdentity} from '../integrations/tools/global-npm-runtime.js';
 export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;durationMs?:number;diagnostic?:{rule:string;path:string;relatedPath:string};environment?:{node:string;platform:string};exitCode?:number}
-export interface InstallReport {runtimeSetup?:RuntimeSetupSummary;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];sourceReview?:SourceReview;researchNextStep?:string;nextCommand?:string;status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
+export interface InstallReport {runtimeSetup?:RuntimeSetupSummary;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];sourceReview?:SourceReview;researchNextStep?:string;nextCommand?:string;pending?:string[];status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
 export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
 function previewFileTransitions(data:PreviewData):Transaction['files']{
  return Object.fromEntries(data.files.map(file=>{
@@ -169,6 +170,10 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    if(restoringApproval&&(key==='prompt'&&(approved==='10'||approved==='12')||
       (key==='rigup'&&approved==='0.8.0'||key==='read'&&approved==='7')&&data.inputSnapshotVersion===3))continue;
    throw new Error(restoringApproval&&tx?.status==='prepared'?upgradeReconciliation:'implementation version changed; regenerate preview');
+  }
+  if(claim){
+   const pendingOpenSpec=await interruptedOpenSpecPreparation(root,lock.stateRoot);
+   if(pendingOpenSpec)return {...report,pending:pendingOpenSpec.requirements,nextCommand:pendingOpenSpec.nextCommand};
   }
   const interruptedInstall=await interruptedInstallApplyId(root,lock.stateRoot);
   if(interruptedInstall&&interruptedInstall!==previewId)throw Error('Resume the original tool approval with rigup update '+quoteShell(root)+' --resume --review');
@@ -502,11 +507,16 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   const manifest:Manifest={...rules,...seedHistory,schemaVersion:1,installId:tx.installId,assets,options:data.plan.options,versions:installedVersions,installedTools:tx.receipts,...(Object.keys(tx.initialized!).length?{initializedTools:tx.initialized}:{})};
   await dependencies.hook?.('before-manifest');await verifyFiles();await assertSources();
   await verifyGlobalInstalls(true);
+  const stageDirectory=claim?'.rigup/baseline/'+tx.installId:undefined;
+  if(claim)await assertClaimStorage(root);
   await atomicProjectWrite(root,'.rigup/manifest.json',Buffer.from(JSON.stringify(manifest,null,2)+'\n'),0o600,false,async()=>{
-   if(claim)await assertClaimStorage(root);
+   if(claim){
+    const blockers=await verifyFreshPreview(data,lock.stateRoot);
+    if(blockers?.length)throw Error(blockers.join('\n'));
+   }
    const actual=await readFileState(root,'.rigup/manifest.json');
    if(actual.digest!==data.manifestDigest)throw Error('manifest changed during apply');
-  });
+  },undefined,undefined,stageDirectory);
   await dependencies.hook?.('after-manifest');
   if(data.plan.options.agents.length&&data.plan.assets.length)report.warnings.push('Native host loading/reload is unverified; configuration installation is separate from live host acceptance');
   const installed=await finishCommitted(tx);
