@@ -242,11 +242,15 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   };
   // Private inputs can change independently of the saved approval and check history.
   let checksRunThisApply=false;
+  const runtimeContext={configured:['*'],providerEnvImport:data.plan.providerEnvImport};
   const finishCommitted=async(transaction:Transaction)=>{
    await verifyGlobalInstalls(true);
    const checks=transaction.checks??[];
-   const runtime=await applyRuntimeInputs(root,data.plan.options,{configured:['*'],verified:checksRunThisApply?checks.filter(check=>check.status==='passed').map(check=>'customer:'+check.name):[]});
-   if(report.runtimeSetup?.template.state==='written')runtime.template={...runtime.template,state:'written',imported:report.runtimeSetup.template.imported};
+   const runtime=await applyRuntimeInputs(root,data.plan.options,{...runtimeContext,verified:checksRunThisApply?checks.filter(check=>check.status==='passed').map(check=>'customer:'+check.name):[]});
+   if(report.runtimeSetup?.template.state==='written'){
+    const imported=[...report.runtimeSetup.template.imported,...runtime.template.imported];
+    runtime.template={...runtime.template,state:'written',imported:[...new Map(imported.map(input=>[input.name+':'+input.source,input])).values()]};
+   }
    report.runtimeSetup=runtime;
    const result:InstallReport={...report,...pendingRules,status:'complete',checks,exitCode:checks.some(c=>c.status==='failed')?1:checks.some(c=>c.status==='pending')||data.plan.pendingRuntimeTools?.length?3:0};
    if(data.sourceReview&&data.plan.projectRules==='pending')markSourceReview(result,data.sourceReview);
@@ -314,7 +318,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     }
     throw new Error('installed target content or mode changed; prepare a new update preview: '+f.target);
    }
-   const runtimeSetup=report.runtimeSetup??await applyRuntimeInputs(root,data.plan.options,{configured:['*']});
+   const runtimeSetup=report.runtimeSetup??await applyRuntimeInputs(root,data.plan.options,runtimeContext);
    completed=total;step('verified completed installation','reused');return {...tx.report!,runtimeSetup,written:[]};
   }
   if((currentManifest?digest(currentManifest):absentDigest)!==data.manifestDigest)throw new Error('manifest changed since preview');
@@ -337,7 +341,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    if(!dependencies.runChecks&&unchangedInstallation(data)){
     for(const asset of data.oldManifest!.assets){const bytes=await readTarget(root,asset.baseline!);if(!bytes||digest(bytes)!==asset.digest)throw Error('installed baseline changed since preview');}
     completed=total;step('verified unchanged installation','reused');
-    return {...report,...pendingRules,runtimeSetup:await applyRuntimeInputs(root,data.plan.options,{configured:['*']}),status:'complete',exitCode:0};
+    return {...report,...pendingRules,runtimeSetup:await applyRuntimeInputs(root,data.plan.options,runtimeContext),status:'complete',exitCode:0};
    }
    tx={previewId,installId:randomUUID(),status:'prepared',files,receipts:{...(data.oldManifest?.installedTools??{})},initialized:{...(data.oldManifest?.initializedTools??{})},preview:{digest:signature(data),data},
     ...(data.sourceReview&&priorReport?{report:priorReport}:{})};
@@ -450,7 +454,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(dependencies.signal?.aborted)return cancelled();
   const verifyFiles=async()=>{for await(const {target,state} of readFileStates(root,data.files.map(f=>f.target))){const expected=tx!.files[target];if(!matchesFileState(state,expected.after,afterMode(expected)))throw new Error('written configuration differs from preview (content or mode); baseline not committed');}};
   await verifyFiles();
-  report.runtimeSetup=await applyRuntimeInputs(root,data.plan.options,{configured:['*']});
+  report.runtimeSetup=await applyRuntimeInputs(root,data.plan.options,runtimeContext);
   if(!tx.checks){
    if(dependencies.runChecks||data.plan.runChecks?.length)await assertSources();
    if(dependencies.runChecks)tx.checks=await dependencies.runChecks();

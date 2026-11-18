@@ -26,7 +26,7 @@ import {readDurableRecord,saveDurable} from './private-record.js';
 import {quoteShell,quoteShellList} from './shell-command.js';
 import {LinkedRigupDirectoryError} from './installer/ownership.js';
 import {promptResearchProvider,resolveResearchProvider} from './research/provider-settings.js';
-import {runtimeEnvironment,runtimeSetupSummary,writeRuntimeSummary,type RuntimeSetupSummary} from './runtime-inputs.js';
+import {runtimeEnvironment,runtimeSetupSummary,selectProviderEnvImport,writeRuntimeSummary,type RuntimeSetupSummary} from './runtime-inputs.js';
 import {applyReason,createCliOutput,terminalReason,terminalText,writeDoctor} from './cli-output.js';
 import {supportedHost} from './integrations/host-setup/manual.js';
 import {nativeSetupInteraction} from './integrations/host-setup/index.js';
@@ -531,20 +531,24 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
   const wantsRules=options.projectRules??!!options.sdd;
   if(wizard&&wantsRules&&!explicitResearch)flags.foundationOnly=true;
   runtimeSetup=await runtimeSetupSummary(root,options);
+  let deferredProvider=false;
   if(modernResearch&&!flags.deferResearch&&!flags.foundationOnly){
-   let later=false;
    if(runtimeSetup.template.state!=='pending'||explicitResearch){
     const environment=await runtimeEnvironment(root,options,'provider',values['--model']);
     services.provider??=await resolveResearchProvider(root,values['--model'],options.model,environment);
     if(!services.provider&&guided&&!flags.dryRun&&values['--model']){
      const selected=await promptResearchProvider(promptIO,values['--model'],environment);
      if(selected===null)return 130;
-     later=selected===undefined;
+     deferredProvider=selected===undefined;
+     if(selected){
+      const {provider,apiKeyEnv}=selected.identity;
+      flags.providerEnvImport={provider,apiKeyEnv};
+     }
      services.provider=selected;
     }
    }
    if(!services.provider){
-    if(values['--model']&&!later){
+    if(values['--model']&&!deferredProvider){
      const message='Configure a CLI provider and its credentials before requesting research with --model.';
      services.report?.({phase:'research',installStatus:'pending',projectRules:manifest?.projectRules,requiredInput:[message],researchNextStep:message});
      presentation.notice(t('cli.providerRequired'));
@@ -559,6 +563,9 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     {...environment,RIGUP_API_KEY_ENV:values['--api-key-env']??environment.RIGUP_API_KEY_ENV});
    if(!credentials)return 130;
    services.credentials=credentials;
+  }
+  if(!savedApplyOptions&&!flags.continuation&&!deferredProvider&&!flags.providerEnvImport){
+   flags.providerEnvImport=await selectProviderEnvImport(root,options,values['--model']);
   }
   if(flags.researchTokens&&(!options.sdd||options.backend!=='codex'))throw Error('--research-tokens requires the Codex backend and a development workflow');
   if(flags.configure&&values['--review'])options.executionPolicy={mode:'review'};
@@ -607,7 +614,9 @@ async function runLocalizedCli(argv:string[],io:CliIO):Promise<number>{
    if(draft?.root===root&&signature(draft.agents)===signature(data.plan.options.agents))await rm(path,{force:true});
   }catch{if(verbose)write(t('cli.removeDraftFailed')+'\n');}
  }
- if(verbose&&actual.runtimeSetup)writeRuntimeSummary(actual.runtimeSetup as RuntimeSetupSummary,write);
+ if(actual.runtimeSetup)writeRuntimeSummary(actual.runtimeSetup as RuntimeSetupSummary,write,{
+  verbose,providerApiKeyEnv:!json&&actual.phase==='apply'?display.state.data?.plan.providerEnvImport?.apiKeyEnv:undefined,
+ });
  await display.finish(code,actual);
  if(json){
   const error=display.state.error??applyReason(actual)??actual.error??last.trim();

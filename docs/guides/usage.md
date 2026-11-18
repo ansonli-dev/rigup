@@ -68,7 +68,7 @@ mcp:
 - `customSkills` 接受本地 `source` 目录，可用 `position` 绑定 `prepare`、`deliver` 或 `release`。`templates` 通过 `source`、`target` 和 `values` 为允许的文档或 skill 资源做标量替换。`change-release` 需要真实的客户部署适配器。
 - 对支持 HTTP MCP 的企业 GitLab、协作文档等服务，在对应 `mcp` 项填入 HTTPS `url` 和 `bearerTokenEnv: TEAM_MCP_TOKEN`。从启动宿主的环境提供专用凭据。宿主和服务继续负责工具权限、审批和读写范围。`rigup doctor` 列出变量名、实际消费者和待验证状态。
 
-应用设置时，Rigup 按已启用的本地消费者增量准备私有 `.rigup/.env`，并将它及临时文件加入 `.rigup/.gitignore`。原有注释和非空值保留，空值可从明确配置、无歧义的仓库目标或已声明的调用环境填入；项目文件中的非空值优先。审阅和 dry-run 不写该文件。模板只声明所选能力需要的输入，JSON 和终端报告不含值。已跟踪、链接或未被有效忽略的文件保持原样并提示修正。写入时，Rigup 先限制临时文件的权限，再写入凭据并原子替换。
+应用设置时，Rigup 按已启用的本地消费者增量准备私有 `.rigup/.env`，并将它及临时文件加入 `.rigup/.gitignore`。原有注释和非空值保留。空值可从明确配置、无歧义的仓库目标或已声明的调用环境填入。基础向导默认将提供方凭据留在调用环境。审阅和 dry-run 不写该文件。模板只声明所选能力需要的输入，JSON 和终端报告不含值。已跟踪、链接或未被有效忽略的文件保持原样并提示修正。写入时，Rigup 先限制临时文件的权限，再写入凭据并原子替换。
 
 CLI provider 和显式选择的 `customer.commands.environment` 可以读取各自声明的本地输入。后者通过 `--run-checks environment` 执行，仅向该命令传入声明的引用；参数中的 `${NAME}` 以无 shell 的临时参数展开，保存的命令仍保留引用。恢复安装时保留历史检查，但只有本次实际执行的检查能验证当前输入。宿主启动的 MCP 和 GitLab CI 从宿主或 runner 获取凭据，本地存在同名变量不能证明它们已配置或连接。生成本地 GitLab include 不需要 token 或远端地址。远端目标只从明确配置或唯一兼容 Git remote 推导。
 
@@ -149,6 +149,8 @@ CLI 支持 `anthropic` 和 `openai-compatible`。配置 `RIGUP_PROVIDER`、`RIGU
 ```sh
 rigup update --review --model MODEL_ID --json
 ```
+
+使用 `--model`、在调用环境中设置有效的 `RIGUP_PROVIDER`，或在提供方提示中选择 CLI 提供方，可授权本次设置导入该提供方的环境输入。选择后运行 `rigup update --review` 并应用保存的预览，即可为已有项目补齐输入。应用读取获准变量的当前值，保留项目文件里的非空值。实际复制密钥时，终端会显示变量名、目标路径及 Git 忽略状态。提示中键入的密钥仅供本次请求使用。
 
 私有 provider 文件使用 `provider`、`model`、`apiKeyEnv` 和可选 `baseURL`、`maxOutputTokens`。限制文件和目录为当前用户可访问，密钥值留在受保护的本地输入中。每次生成默认最多 16,384 输出 tokens，可用 `RIGUP_MAX_OUTPUT_TOKENS` 或私有设置覆盖，必须是正安全整数，并始终受剩余预算约束。
 

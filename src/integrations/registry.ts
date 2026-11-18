@@ -4,7 +4,7 @@ import {prepareCustomer} from './gitlab/customer.js';
 import {inspectProjectToolInstall} from './tools/software.js';
 import {assertEmptyToolScopes,prepareNativeInitialization} from './tools/initialization.js';
 import {isNativeTool,nativeInitializationPaths,softwareInstallRecipe,toolPackage} from './tools/recipes.js';
-import {scopesOverlap,type SetupOperation,type SetupOptions,type SetupPlan,type SetupRequirement} from '../types.js';
+import {scopesOverlap,type ProviderEnvImport,type SetupOperation,type SetupOptions,type SetupPlan,type SetupRequirement} from '../types.js';
 import type {ProjectProfile} from '../analyzer/repository.js';
 import {resolveNpmLatest,type NpmView} from './tools/npm-resolution.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
@@ -31,7 +31,7 @@ export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
 export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];openSpecProjectCli?:true;skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
-export async function prepareIntegrations(profile:ProjectProfile,options:SetupOptions,nativeInput?:import('./host-setup/runtime.js').NativeInputs):Promise<IntegrationPreparation>{
+export async function prepareIntegrations(profile:ProjectProfile,options:SetupOptions,nativeInput?:import('./host-setup/runtime.js').NativeInputs,providerEnvImport?:ProviderEnvImport):Promise<IntegrationPreparation>{
  const [quality,runtime]=await Promise.all([prepareQuality(profile,options),runtimeSetupSummary(profile.root,options)]);
  const assets:PreparedAsset[]=[];const warnings:string[]=[];const requirements:SetupRequirement[]=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
  for(const agent of options.agents)if(!Object.hasOwn(agents,agent))throw Error('unknown agent');
@@ -127,7 +127,7 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
  if(options.projectConventions?.tracker) warnings.push('Tracker convention recorded; executable tracker adapter is pending');
  push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
- if(profile.git.available&&(assets.length||bindings.length)||runtime.inputs.some(input=>input.destination==='.rigup/.env')){
+ if(providerEnvImport||profile.git.available&&(assets.length||bindings.length)||runtime.inputs.some(input=>input.destination==='.rigup/.env')){
   const ownership=localIgnoreOwnership,content=localIgnoreContent;
   push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
  }

@@ -352,6 +352,7 @@ Omit path to use the current directory. A TTY previews changes before Install, S
  'runtime.summary':"Runtime inputs: {status} ({path})",
  'runtime.pending':"Pending: {reason}",
  'runtime.imported':"Imported {name} from {source}",
+ 'runtime.providerImported':"Imported {name} from the calling environment into .rigup/.env (git-ignored)",
  'runtime.missing':"{capability}: {name} {status} — supply in {path}",
  'runtime.unverified':"{capability}: {status}; verification remaining — {reason}",
  'runtime.source.project-file':"project-file",
