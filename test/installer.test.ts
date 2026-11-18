@@ -535,6 +535,23 @@ test('harness retries a seed interrupted before exclusive creation',()=>fixture(
  assert.equal((await loadManifest(root))?.seededProjectDocuments?.[0].target,target);
 }));
 
+test('an ambiguous legacy seed intent does not recreate a removed document',()=>fixture(async(root,cache,state)=>{
+ const {harnessPlan}=await import('./helpers.js');
+ const {applyRecordPath}=await import('../src/installer/baseline.js');
+ const settings={...harnessOptions,projectConventions:harnessTopics};
+ const review=await preview(await harnessPlan(root,cache,settings),[],{cacheRoot:cache,stateRoot:state});
+ const target=review.projectDocuments![0].target;
+ await assert.rejects(apply(review.previewId,{cacheRoot:cache,stateRoot:state,hook:async point=>{
+  if(point==='before-seed')throw Error('interrupted legacy seed');
+ }}),/interrupted legacy seed/);
+ const journal=applyRecordPath(root,state);
+ const record=JSON.parse(await readFile(journal,'utf8'));
+ delete record.seedStages;
+ await saveCache(journal,JSON.stringify(record));
+ await assert.rejects(apply(review.previewId,{cacheRoot:cache,stateRoot:state,recover:true}),/customer document.*interrupted/i);
+ await assert.rejects(readFile(root+'/'+target),{code:'ENOENT'});
+}));
+
 for(const scenario of ['written-deleted','written-moved','written-edited'] as const){
  test('harness preserves customer state when seed recovery needs reconciliation: '+scenario,()=>fixture(async(root,cache,state)=>{
   const {harnessPlan}=await import('./helpers.js');
@@ -595,6 +612,33 @@ test('harness rejects replacing an unresolved seed transaction and blocks fresh 
  await writeFile(target,seed);
  assert.equal((await apply(a.previewId,{cacheRoot,stateRoot:state,recover:true})).status,'complete');
  assert.deepEqual((await loadManifest(root))?.seededProjectDocuments?.map(doc=>doc.target),[a.projectDocuments![0].target]);
+}));
+
+test('harness approves a declared source symlink and rejects retargeting with identical bytes',t=>fixture(async(root,cache,state)=>{
+ const {harnessPlan}=await import('./helpers.js');
+ const {symlink}=await import('node:fs/promises');
+ for(const name of ['api','knowledge'])await mkdir(root+'/'+name);
+ const guidance='Use a problem document for invalid API requests.\n';
+ await writeFile(root+'/api/route.ts','export const api = true;\n');
+ await writeFile(root+'/knowledge/original.md',guidance);
+ await writeFile(root+'/knowledge/alternate.md',guidance);
+ const path='api/policy.md';
+ const link=async(name:string)=>symlink(root+'/knowledge/'+name+'.md',root+'/'+path,'file');
+ try{await link('original');}catch(error){
+  if(process.platform==='win32'&&(error as NodeJS.ErrnoException).code==='EPERM'){t.skip('Windows user cannot create file symlinks');return;}
+  throw error;
+ }
+ const settings={...harnessOptions,scope:['api'],projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['api'],source:path}]}};
+ const deps={cacheRoot:cache,stateRoot:state};
+ const decision=await preview(await harnessPlan(root,cache,settings),[],deps);
+ assert.equal(decision.executable,true,JSON.stringify(decision.blockers));
+ assert.equal(decision.harness?.guidance.find(item=>item.topicId==='api-errors')?.sourceRef?.path,path);
+ await rm(root+'/'+path);await link('alternate');
+ await assert.rejects(apply(decision.previewId,deps),/source input changed.*api\/policy\.md/i);
+ assert.equal(await loadManifest(root),undefined);
+ await rm(root+'/'+path);await link('original');
+ assert.equal((await apply(decision.previewId,deps)).status,'complete');
+ assert.equal(await readFile(root+'/'+path,'utf8'),guidance);
 }));
 
 test('harness reads registered authority under directory, file and root scopes',()=>fixture(async(root,cache,state)=>{

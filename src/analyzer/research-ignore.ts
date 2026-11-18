@@ -5,6 +5,7 @@ import {agents,projectCommandRoots} from '../integrations/agents/index.js';
 import {openspec} from '../integrations/sdd/openspec.js';
 import {specKit} from '../integrations/sdd/spec-kit.js';
 import {digest} from './evidence.js';
+import {evidenceSecretName,secretName} from './read-policy.js';
 
 const maxIgnoreBytes=64_000;
 const controlFile='.rigupignore';
@@ -30,6 +31,13 @@ const generated={
 const skillDirectories=Object.values(agents).map(agent=>agent.skillDirectory);
 const workflowPrefix=/^(?:openspec-|speckit[.-])/;
 const specKitPrefix=/^speckit[.-]/;
+
+export function researchPathExcluded(path:string,generatedScopes:readonly string[]=[],legacySecrets=false):boolean{
+ return path.split('/').some(part=>['.git','node_modules','dist','.superpowers'].includes(part)||
+   (legacySecrets?secretName.test(part):evidenceSecretName(part)))||
+  ['.rigupignore','.omp/plugins','.rigup/manifest.json','.rigup/config.yaml','.rigup/baseline','.rigup/tools','.rigup/check-results',
+   ...generatedScopes].some(scope=>path===scope||path.startsWith(scope+'/'));
+}
 
 export async function loadResearchIgnore(root:string){
  const rules=ignore({ignorecase:process.platform==='win32'});

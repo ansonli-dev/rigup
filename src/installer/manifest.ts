@@ -49,7 +49,10 @@ export async function atomicProjectWrite(root:string,target:string,content:Buffe
     throw new ExclusiveLinkError(target,error);
    }
    keepStage=!!afterLink;
-   await afterLink?.();
+   if(afterLink){
+    await syncDirectory(directory);
+    await afterLink();
+   }
    keepStage=false;
   }else{
    await renameWithRetry(()=>rename(temporary,path),verify);

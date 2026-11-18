@@ -1,6 +1,7 @@
-import {isAbsolute,posix} from 'node:path';
+import {isAbsolute,posix,relative,sep} from 'node:path';
 import {scanInstallationSources,scanNativeEntries} from '../analyzer/repository.js';
-import {digest} from '../analyzer/evidence.js';
+import {safePath} from '../analyzer/evidence.js';
+import {loadResearchIgnore,researchPathExcluded,workflowEvidenceKind} from '../analyzer/research-ignore.js';
 import {signature} from '../generator/cache.js';
 import {assertOpenSpecRuntime} from '../integrations/sdd/openspec-setup.js';
 import {selectedChecks,type ProjectCheck} from '../integrations/tools/check-catalog.js';
@@ -8,25 +9,42 @@ import {resolveProjectChecks} from '../integrations/tools/quality.js';
 import {scopeContains,type SetupPlan} from '../types.js';
 import {absentDigest,readFileState} from './file-state.js';
 
+export function approvedAuthorityPaths(plan:SetupPlan):Set<string>{
+ return new Set([
+  ...plan.harness?.guidance.flatMap(binding=>binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)?[binding.sourceRef.path]:[])??[],
+  ...plan.harnessNavigation?.notApplicable?.map(binding=>binding.path)??[],
+ ]);
+}
+
+export async function resolveAuthorityTarget(root:string,path:string):Promise<string>{
+ const target=relative(root,await safePath(root,path)).split(sep).join('/');
+ if(researchPathExcluded(path)||researchPathExcluded(target))throw Error('Approved rule source unavailable: '+path);
+ return target;
+}
+
 export async function approvedInputs(root:string,plan:SetupPlan,managed:string[],stateRoot?:string){
  if(plan.openSpecRuntime){
   try{await assertOpenSpecRuntime(root,plan.options,plan.openSpecRuntime,stateRoot);}
   catch{throw Error('OpenSpec runtime or project entry changed: openspec/config.yaml');}
  }
  const values=new Map<string,string>();
- const authority=[
-  ...plan.harness?.guidance.flatMap(binding=>binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)?[binding.sourceRef.path]:[])??[],
-  ...plan.harnessNavigation?.notApplicable?.map(binding=>binding.path)??[],
- ];
+ const authority=approvedAuthorityPaths(plan);
+ const ignore=authority.size?await loadResearchIgnore(root):undefined;
+ const workflow=plan.options.projectRules?'all':plan.options.sdd==='spec-kit'?'spec-kit':undefined;
  const selectors=[...plan.runChecks??[],...plan.options.quality?.preCommit??[],...plan.options.quality?.prePush??[],...plan.options.quality?.gitlab?.checks??[]];
  const scopes=[...managed,...plan.operations.filter(operation=>operation.kind==='initialize').flatMap(operation=>operation.declaredWrites)];
  const profile=selectors.length||plan.options.sdd==='spec-kit'?await scanInstallationSources(root,plan.options,scopes):undefined;
  const paths=new Set(['.rigup/config.yaml','.rigupignore',...authority,...(plan.options.sdd==='spec-kit'?profile?.files.filter(path=>path.startsWith('.specify/'))??[]:[])]);
  for(const path of paths){
   if(managed.includes(path))continue;
-  const {bytes}=await readFileState(root,path).catch(()=>{throw Error('Cannot read approved input: '+path);});
-  if(!bytes&&authority.includes(path))throw Error('Approved rule source unavailable: '+path);
-  values.set(path,bytes?digest(bytes):absentDigest);
+  const isAuthority=authority.has(path);
+  const actual=isAuthority?await resolveAuthorityTarget(root,path).catch(()=>{throw Error('Cannot read approved input: '+path);}):path;
+  if(isAuthority&&[path,actual].some(target=>ignore?.excludes(target,false)||
+    workflow&&workflowEvidenceKind(target,false,workflow)))throw Error('Approved rule source unavailable: '+path);
+  const content=managed.includes(actual)?undefined:await readFileState(root,actual).catch(()=>{throw Error('Cannot read approved input: '+path);});
+  if(isAuthority&&(!content?.bytes&&!managed.includes(actual)||await resolveAuthorityTarget(root,path)!==actual))throw Error('Approved rule source unavailable: '+path);
+  const hash=content?.digest??absentDigest;
+  values.set(path,actual===path?hash:signature([actual,hash]));
  }
  if(plan.options.sdd||plan.options.customSkills?.length){
   const native=profile??await scanNativeEntries(root,plan.options);

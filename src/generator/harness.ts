@@ -1,6 +1,6 @@
 import type {ProjectProfile} from '../analyzer/repository.js';
 import {projectChecks} from '../integrations/tools/check-catalog.js';
-import {scopeContains,scopesOverlap,validateTopicId,type ConventionDraft,type Evidence,type HarnessSummary,type SetupOptions} from '../types.js';
+import {intersectScopes,scopeContains,scopesOverlap,validateTopicId,type ConventionDraft,type Evidence,type HarnessSummary,type SetupOptions} from '../types.js';
 import {replacedSourceAssessment,sameAuthoritySource,verifiedScopes,type GuidanceBinding} from './project-rules.js';
 
 const selectedScopes=(options:SetupOptions)=>options.scope?.length?options.scope:['.'];
@@ -33,7 +33,8 @@ export function declaredAuthority(profile:ProjectProfile,options:SetupOptions,as
  return (options.projectConventions?.topics??[]).flatMap(topic=>{
   const sourceRef=topic.source&&profile.declaredSources?.[topic.source];
   if(!sourceRef)return [];
-  return [...new Set(verifiedScopes(topic.scope,files))].filter(scope=>scopesOverlap(selected,[scope])).flatMap(scope=>
+  const authorized=profile.declaredSourceScopes?.[topic.source!]??topic.scope;
+  return [...new Set(verifiedScopes(intersectScopes(topic.scope,authorized),files))].filter(scope=>scopesOverlap(selected,[scope])).flatMap(scope=>
    assessedAuthority({topicId:topic.id,topic:topic.title,scope:[scope],sourceRef,coverageStatus:'reusable',consumers:conventionConsumers(options),gaps:[]},assessed,files,selected));
  });
 }

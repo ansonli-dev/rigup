@@ -5,20 +5,20 @@ import {readdir,readFile,realpath,stat,lstat} from 'node:fs/promises';
 import {join,relative,posix} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {scopeContains,scopesOverlap,type SetupOptions,type CommandSpec,type GitlabJobBinding,type Evidence} from '../types.js';
+import {intersectScopes,scopeContains,scopesOverlap,type SetupOptions,type CommandSpec,type GitlabJobBinding,type Evidence} from '../types.js';
 import {discoverGitlabJobs} from '../integrations/gitlab/ci.js';
 import {projectChecks,npmScript} from '../integrations/tools/check-catalog.js';
 import {documentTargetKey,readConventionDocument,validateConventionReceipts,type ConventionPage,type ConventionReceipt} from '../project-conventions.js';
 import {projectInput,type Ownership} from '../managed-input.js';
 import {digest,safePath,sliceEvidence,type EvidenceRead,type ReadEvidence} from './evidence.js';
-import {filterContent,filterLegacyInstallationContent,secretName,evidenceSecretName,READ_POLICY_VERSION} from './read-policy.js';
+import {filterContent,filterLegacyInstallationContent,READ_POLICY_VERSION} from './read-policy.js';
 import type {SearchSelection} from './backend.js';
-import {loadResearchIgnore,workflowEvidenceKind} from './research-ignore.js';
+import {loadResearchIgnore,researchPathExcluded,workflowEvidenceKind} from './research-ignore.js';
 import type {ProjectCheck} from '../integrations/tools/check-catalog.js';
 import {targetPath} from '../installer/ownership.js';
 const exec=promisify(execFile);
 const specializedScripts=['test:e2e','test-e2e','check-types','typecheck','deps:validate','test'];
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,import('../integrations/tools/installed-state.js').ToolInstallReceipt>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeDiagnostics?:NativeDiagnostic[];nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:ProjectCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;conventions?:ConventionPage[];conventionPaths?:string[];extraSourcePaths?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,import('../integrations/tools/installed-state.js').ToolInstallReceipt>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeDiagnostics?:NativeDiagnostic[];nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:ProjectCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;declaredSourceScopes?:Record<string,string[]>;conventions?:ConventionPage[];conventionPaths?:string[];extraSourcePaths?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
@@ -47,21 +47,11 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
  for(const topic of options.projectConventions?.topics??[])if(topic.source){
   declaredSources.set(topic.source,[...(declaredSources.get(topic.source)??[]),...topic.scope]);
  }
- const extraSources=[
+ const extraSources=new Set([
   ...[...declaredSources].filter(([,scope])=>scopesOverlap(scopes,scope)).map(([path])=>path),
   ...receipts.filter(receipt=>!profile.researchBlocked&&scopesOverlap(scopes,[receipt.scope])).map(receipt=>receipt.target),
- ];
- if(extraSources.length)profile.extraSourcePaths=extraSources;
+ ]);
  const registered=new Map(receipts.map(receipt=>[documentTargetKey(receipt.target),receipt]));
- const declaredFor=(path:string,actual:string)=>{
-  const lexical=declaredSources.get(path),canonical=declaredSources.get(actual);
-  if(!lexical||!canonical||path===actual)return lexical??canonical;
-  return [...new Set(lexical.flatMap(a=>canonical.flatMap(b=>scopeContains(a,b)?[b]:scopeContains(b,a)?[a]:[])))];
- };
- const projection=(path:string,raw:string,actual=path)=>projectSource(path,actual,raw,
-  [...(managed.get(path)??[]),...(actual===path?[]:managed.get(actual)??[])],scopes,
-  [...new Set([registered.get(documentTargetKey(path)),registered.get(documentTargetKey(actual))])].filter(receipt=>receipt!==undefined),
-  declaredFor(path,actual),filter);
  const selectedScope=(path:string)=>!options.scope?.length||options.scope.some(scope=>scopeContains(scope,path));
  if(purpose==='research'&&(!selectedScope(gitlabPath)||ignored.excludes(gitlabPath,false))){
   profile.gitlabReviewRequired=true;
@@ -76,12 +66,34 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
  const maxFiles=options.readBudget?.maxFiles ?? 2000;const maxBytes=options.readBudget?.maxBytes ?? 8_000_000;
  const actualFiles=new Map<string,string>();
  const relativeFile=(file:string)=>relative(root,file).split('\\').join('/');
- const skipped=(path:string)=>path.split('/').some(part=>
-  ['.git','node_modules','dist','.superpowers'].includes(part)||(purpose==='installation'?secretName.test(part):evidenceSecretName(part)))||
-  ['.rigupignore','.omp/plugins','.rigup/manifest.json','.rigup/config.yaml','.rigup/baseline','.rigup/tools','.rigup/check-results',
-   ...generatedScopes].some(scope=>path===scope||path.startsWith(scope+'/'));
+ const skipped=(path:string)=>researchPathExcluded(path,generatedScopes,purpose==='installation');
+ const canonicalDeclarations=new Map<string,string[]>();
+ const canonicalReceipts=new Map<string,ConventionReceipt[]>();
+ if(purpose==='research'){
+  const eligible=(path:string)=>!skipped(path)&&!ignored.excludes(path,false)&&
+   (!workflowScope||!workflowEvidenceKind(path,false,workflowScope));
+  for(const path of new Set([...declaredSources.keys(),...receipts.map(receipt=>receipt.target)])){
+   if(!eligible(path))continue;
+   const actual=await safePath(root,path).then(async file=>(await stat(file)).isFile()?relativeFile(file):undefined).catch(()=>undefined);
+   if(!actual||actual===path||!eligible(actual))continue;
+   const stated=declaredSources.get(path);
+   if(stated)canonicalDeclarations.set(actual,[...(canonicalDeclarations.get(actual)??[]),...stated]);
+   const receipt=registered.get(documentTargetKey(path));
+   if(receipt)canonicalReceipts.set(actual,[...(canonicalReceipts.get(actual)??[]),receipt]);
+   if(extraSources.has(path))extraSources.add(actual);
+  }
+ }
+ if(extraSources.size)profile.extraSourcePaths=[...extraSources];
+ const declaredFor=(path:string,actual:string)=>{
+  const lexical=declaredSources.get(path),canonical=declaredSources.get(actual)??canonicalDeclarations.get(actual);
+  return lexical&&canonical&&path!==actual?intersectScopes(lexical,canonical):lexical??canonical;
+ };
+ const projection=(path:string,raw:string,actual=path)=>projectSource(path,actual,raw,
+  [...(managed.get(path)??[]),...(actual===path?[]:managed.get(actual)??[])],scopes,
+  [...new Set([registered.get(documentTargetKey(path)),registered.get(documentTargetKey(actual)),...canonicalReceipts.get(actual)??[]])].filter(receipt=>receipt!==undefined),
+  declaredFor(path,actual),filter);
  const outside=(path:string,directory:boolean)=>!selectedScope(path)&&!(directory&&options.scope?.some(scope=>scopeContains(path,scope)));
- const declared=(path:string,directory:boolean)=>extraSources.some(source=>source===path||directory&&scopeContains(path,source));
+ const declared=(path:string,directory:boolean)=>extraSources.has(path)||directory&&[...extraSources].some(source=>scopeContains(path,source));
  async function walk(dir:string,canonical:string,ancestry:ReadonlySet<string>):Promise<void>{
   for(const entry of (await readdir(canonical,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){
    const file=join(dir,entry.name),path=relativeFile(file);
@@ -145,12 +157,14 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
     if(source.page)(profile.conventions??=[]).push(source.page);
     profile.unknowns.push(...source.warnings);
    }
-   if(purpose==='research'&&researchable&&!convention&&extraSources.includes(path)&&declaredSources.has(path)&&declaredFor(path,actual)?.length){
+   const authorized=declaredFor(path,actual);
+   if(purpose==='research'&&researchable&&!convention&&extraSources.has(path)&&declaredSources.has(path)&&authorized?.length){
     const lines=visible.split('\n');
     const start=lines.findIndex(line=>line.trim())+1;
     if(start){
      profile.declaredSources??=Object.create(null) as Record<string,Evidence>;
      profile.declaredSources[path]=sliceEvidence(path,lines,start,Math.min(lines.length,start+47)).evidence;
+     (profile.declaredSourceScopes??=Object.create(null))[path]=authorized;
     }
    }
    for(const agent of options.sdd||options.customSkills?.length?[]:Object.keys(agents) as Agent[]) {

@@ -26,7 +26,7 @@ import {equalOwnedContent,ownedContent,replaceOwned,selectorsOverlap,targetPath}
 import {isGitlabWiring} from '../integrations/gitlab/ci.js';
 import {conventionKey,documentTargetKey,readConventionDocument,validateConventionTarget,type ConventionReceipt} from '../project-conventions.js';
 import {scopeContains} from '../types.js';
-import {approvedInputs} from './approved-input.js';
+import {approvedAuthorityPaths,approvedInputs,resolveAuthorityTarget} from './approved-input.js';
 import type {ResolvedProjectCheck} from '../integrations/tools/quality.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
@@ -228,7 +228,9 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
   }catch{blockers.push(op.id+': external operation protection or recipe validation failed');}
  }
  // Validate selected owned content in the final virtual tree, including preserved local edits.
- const available=async(target:string)=>fileMap.has(target)?fileMap.get(target)!.text!==undefined:(await readTarget(root,target))!==undefined;
+ const authorityTargets=approvedAuthorityPaths(plan);
+ const available=async(target:string)=>fileMap.has(target)?fileMap.get(target)!.text!==undefined:
+  (await readTarget(root,authorityTargets.has(target)?await resolveAuthorityTarget(root,target):target))!==undefined;
  const conventionPaths=new Set(plan.harnessNavigation?.conventionPaths);
  for(const entry of entries.filter(e=>e.action!=='remove')){
   const asset=entry.candidate??entry.old!;const file=fileMap.get(asset.target)!;if(file.encoding==='base64')continue;

@@ -13,6 +13,7 @@ import {isRecord,saveDurable} from '../private-record.js';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {lstat,unlink} from 'node:fs/promises';
+import {resolveAuthorityTarget} from './approved-input.js';
 import {readFileState,readFileStates,matchesFileState,platformFileMode} from './file-state.js';
 import type {CommandSpec,SetupOptions,SetupPlan} from '../types.js';
 import {loadPreview,readTarget,approvalInputChange,verifyFreshPreview,unchangedInstallation,absentDigest,assertPreviewIdentity,LegacyPreviewError,type PreviewData} from './preview.js';
@@ -60,7 +61,7 @@ async function provenSeed(root:string,target:string,stage:string|undefined){
 
 async function seedApplied(root:string,target:string,tx:Transaction,actual:Awaited<ReturnType<typeof readFileState>>){
  const expected=tx.files[target],progress=tx.seedProgress?.[target],stage=tx.seedStages?.[target];
- if((!progress||progress==='started'&&!stage)&&matchesFileState(actual,expected.before,expected.beforeMode))return false;
+ if((!progress||progress==='started'&&tx.seedStages&&!stage)&&matchesFileState(actual,expected.before,expected.beforeMode))return false;
  if(matchesFileState(actual,expected.after,afterMode(expected))&&
     (progress==='written'||progress==='started'&&await provenSeed(root,target,stage)))return true;
  throw Error(seedReconciliation+' File: '+target);
@@ -201,6 +202,10 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     path:binding.sourceRef.path,topic:binding.topic,topicId:binding.topicId,scope:binding.scope,
    }]:[])??[];
   const authorityPaths=new Set(authority.map(source=>source.path));
+  for(const {path} of authority){
+   const actual=await resolveAuthorityTarget(root,path).catch(()=>undefined);
+   if(actual)authorityPaths.add(actual);
+  }
   const changedInput=async()=>approvalInputChange(root,data,lock.stateRoot).catch(error=>
    error instanceof Error&&!(error as NodeJS.ErrnoException).code?error.message:'recorded project inputs');
   const sourcesMatch=async()=>!await changedInput();
@@ -414,6 +419,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
      completed++;step(f.target,'reused');
      continue;
     }
+    tx.seedStages??={};
     progress[f.target]='started';
     await saveDurable(statePath,JSON.stringify(tx));
     await dependencies.hook?.('before-seed');

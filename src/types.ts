@@ -76,6 +76,10 @@ export function scopesOverlap(left:readonly string[],right:readonly string[]):bo
  return left.some(a=>right.some(b=>scopeContains(a,b)||scopeContains(b,a)));
 }
 
+export function intersectScopes(left:readonly string[],right:readonly string[]):string[]{
+ return [...new Set(left.flatMap(a=>right.flatMap(b=>scopeContains(a,b)?[b]:scopeContains(b,a)?[a]:[])))];
+}
+
 export type CheckKind='build'|'lint'|'test'|'environment'|'eval';
 export interface NpmScript {cwd:string;script:string}
 export type CheckSelector=CheckKind|NpmScript;
