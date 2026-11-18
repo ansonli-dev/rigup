@@ -336,9 +336,14 @@ test('OpenCode recognizes the installed upstream loader through a local link',()
  await nativePut(join(base,'package.json'),'{"name":"superpowers","main":".opencode/plugins/superpowers.js","repository":"https://github.com/obra/superpowers.git"}');
  await nativePut(entry,officialOpenCodePlugin.replace(/^\/\/ Upstream:[^\n]+\n/,'').replaceAll('\n','\r\n'));
  await nativeSkills(join(base,'skills'));
- await mkdir(join(home,'.config/opencode/plugins'));await symlink(entry,join(home,'.config/opencode/plugins/superpowers.js'));
+ const plugins=join(home,'.config/opencode/plugins');
+ if(process.platform==='win32')await symlink(dirname(entry),plugins,'junction');
+ else{
+  await mkdir(plugins);
+  await symlink(entry,join(plugins,'superpowers.js'));
+ }
  const profile=await scanRepository(root,nativeOptions('opencode'),{home});
- assert.equal(profile.nativeEntries?.opencode?.length,4);
+ assert.equal(profile.nativeEntries?.opencode?.length,4,profile.unknowns.join('\n'));
  const prior=await openCodeV080Identity(base,entry);
  assert.ok(profile.skillSources?.opencode?.every(source=>source.sourceFingerprint===prior),'existing v0.8 approvals require the original direct-loader identity');
 })));
