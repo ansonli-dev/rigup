@@ -7,7 +7,7 @@ import {resolveWindowsExecutable} from '../src/integrations/tools/windows-proces
 import {runCli,type CliIO} from '../src/cli.js';
 import {describeNativePreparation,nativePreparationProblem,planNativePreparation,type NativeProgress} from '../src/integrations/host-setup/index.js';
 import {latestUrl,ompArchive,ompId,requiredSkills} from './host-setup-fixtures.js';
-import {project} from './helpers.js';
+import {project,testEnvironment} from './helpers.js';
 
 const id='superpowers@claude-plugins-official',market='claude-plugins-official';
 const commit='22f0b463e7a5e579904dd6211a520321035526f7';
@@ -268,6 +268,134 @@ test('first guided init can return from native consent and then prepares a fresh
  }finally{for(const key of keys){const value=before[key];if(value===undefined)delete process.env[key];else process.env[key]=value;}}
 })));
 
+for(const stop of ['optional tools','after back','after marketplace'] as const)test('cancellation '+stop+' reports prior Claude project writes',t=>project(root=>project(async home=>{
+ const {io,output,reports}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ const native=io.services!.nativeSetup!;
+ testEnvironment(t,{HOME:home,USERPROFILE:home,CLAUDE_CONFIG_DIR:join(home,'.claude'),RIGUP_CONSUMER_PATH:native.env!.RIGUP_CONSUMER_PATH!});
+ const target=join(root,'.claude','settings.json');
+ await put(target,{permissions:{allow:['Read']}});
+ const launch=native.launch!;
+ native.launch=async(command,cwd)=>{
+  const result=await launch(command,cwd);
+  if(!command.args.includes('--version')){
+   const written=JSON.parse(await readFile(target,'utf8'));
+   await put(target,{...written,permissions:{allow:['Read']}});
+  }
+  return result;
+ };
+ let toolPrompts=0;
+ io.ask=async question=>{
+  const choices=question.choices.map(choice=>typeof choice==='string'?choice:choice.value);
+  if(choices.includes('superpowers'))return [toolPrompts?'none':'superpowers'];
+  if(choices.includes('Approve'))return [stop==='after marketplace'&&steps.length?'Cancel':'Approve'];
+  if(choices.includes('openwiki'))return ++toolPrompts===1&&stop==='after back'?'back':null;
+  assert.fail('Unexpected question: '+question.message);
+ };
+ const code=await runCli(['init','--agents','claude','--language','zh-CN'],io);
+ assert.equal(code,130,output.join(''));
+ assert.deepEqual(steps,stop==='after marketplace'?['marketplace']:['marketplace','install']);
+ assert.equal(toolPrompts,stop==='after marketplace'?0:stop==='after back'?2:1);
+ const settings=JSON.parse(await readFile(target,'utf8'));
+ assert.deepEqual(settings.permissions,{allow:['Read']});
+ assert.ok(settings.extraKnownMarketplaces[market]);
+ await missing(join(root,'.rigup','manifest.json'));
+ if(stop!=='after marketplace')assert.equal(reports.length,0);
+ const terminal=output.join('');
+ assert.match(terminal,/结果: 已取消/);
+ const result=terminal.slice(terminal.lastIndexOf('结果: 已取消'));
+ assert.doesNotMatch(result,/项目没有写入任何内容/);
+ assert.equal(result.match(/\.claude[\\/]settings\.json/g)?.length,1,result);
+ assert.match(result,/extraKnownMarketplaces/);
+ if(stop==='after marketplace')assert.doesNotMatch(result,/claude plugin uninstall/);
+ else assert.match(result,/claude plugin uninstall superpowers@claude-plugins-official --scope project --keep-data/);
+})));
+
+test('cancellation reports a possibly modified project path when native writes cannot be checked',
+ {skip:process.platform==='win32'||process.getuid?.()===0},()=>project(root=>project(async home=>{
+ const {io,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ const controller=new AbortController();
+ io.services!.signal=controller.signal;
+ const target=join(root,'.claude');
+ const native=io.services!.nativeSetup!,launch=native.launch!;
+ native.launch=async(command,cwd)=>{
+  const result=await launch(command,cwd);
+  if(command.args.includes('marketplace')){
+   await chmod(target,0);
+   controller.abort();
+  }
+  return result;
+ };
+ try{
+  assert.equal(await runCli(args(root),io),130,output.join(''));
+  assert.deepEqual(steps,['marketplace']);
+  const result=output.join('').split('Result: Cancelled').at(-1)!;
+  assert.match(result,/may have changed project files/);
+  assert.match(result,/\.claude\/settings\.json/);
+  assert.doesNotMatch(result,/Nothing was written|claude plugin uninstall/);
+ }finally{if(steps.includes('marketplace'))await chmod(target,0o700);}
+})));
+
+test('cancellation after an OMP user link reports no project writes',()=>project(root=>project(async home=>{
+ const {io,output}=cli(root,home);
+ const {target}=await fakeOmp(io,home);
+ io.ask=async question=>{
+  if(question.choices.includes('Approve'))return ['Approve'];
+  if(question.choices.includes('openwiki'))return null;
+  assert.fail('Unexpected question: '+question.message);
+ };
+ assert.equal(await runCli(['init','--agents','omp','--sdd','superpowers','--language','en'],io),130,output.join(''));
+ assert.ok((await stat(target)).isDirectory());
+ assert.match(output.join(''),/Result: Cancelled\nNothing was written to the project\./);
+ await missing(join(root,'.omp'));
+})));
+
+test('noninteractive Superpowers gives the native gate before verbose file details',t=>project(root=>project(async home=>{
+ const {io,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ const native=io.services!.nativeSetup!;
+ testEnvironment(t,{HOME:home,USERPROFILE:home,CLAUDE_CONFIG_DIR:join(home,'.claude'),RIGUP_CONSUMER_PATH:native.env!.RIGUP_CONSUMER_PATH!});
+ const args=['init','--agents','claude','--sdd','superpowers','--defer-research','--review','--tools','none','--language','zh-CN'];
+ const passive={...io,isTTY:false,outputIsTTY:false,ask:async()=>assert.fail('unexpected prompt')};
+ assert.equal(await runCli(args,passive),3);
+ const plain=output.join('');
+ assert.match(plain,/缺少原生 Superpowers/);
+ assert.equal(plain.match(/--prepare-native/g)?.length,1,plain);
+ assert.doesNotMatch(plain,/missing native entry|\.claude\/skills\//);
+ output.length=0;
+ assert.equal(await runCli([...args,'--verbose'],{...passive,isTTY:true}),3);
+ const verbose=output.join('');
+ assert.match(verbose,/\.claude\/skills\//);
+ assert.ok(verbose.indexOf('--prepare-native') < verbose.indexOf('.claude/skills/'),verbose);
+ output.length=0;
+ assert.equal(await runCli([...args,'--json'],{...passive,writeError:undefined}),3);
+ const report=JSON.parse(output.join(''));
+ assert.equal(report.phase,'preview');
+ assert.equal(report.executable,false);
+ assert.match(report.nextCommand,/--prepare-native$/);
+ assert.match(report.pending[0].reason,/missing native entry/);
+ assert.deepEqual(steps,[]);
+ await missing(join(root,'.claude'));
+})));
+
+test('standalone noninteractive native approval presents its command first',()=>project(root=>project(async home=>{
+ const {io,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ const passive={...io,isTTY:false,outputIsTTY:false,ask:async()=>assert.fail('unexpected prompt')};
+ assert.equal(await runCli(args(root),passive),3);
+ const plain=output.join('');
+ assert.match(plain,/requires approval with terminal input and output/);
+ assert.equal(plain.match(/--prepare-native/g)?.length,1,plain);
+ assert.doesNotMatch(plain,/settings\.json/);
+ output.length=0;
+ assert.equal(await runCli([...args(root),'--verbose'],passive),3);
+ const verbose=output.join('');
+ assert.match(verbose,/settings\.json/);
+ assert.ok(verbose.indexOf('--prepare-native') < verbose.indexOf('settings.json'),verbose);
+ assert.deepEqual(steps,[]);
+})));
+
 test('guided review stays read-only and an active host can approve native setup',()=>project(root=>project(async home=>{
  const {io,reports,output}=cli(root,home),steps:string[]=[];
  await fakeClaude(io,root,home,steps);
@@ -280,6 +408,7 @@ test('guided review stays read-only and an active host can approve native setup'
   process.chdir(root);process.env.CLAUDECODE='1';
   assert.equal(await runCli(args(root),io),0,output.join(''));
   assert.match(output.join(''),/reload.*host session/i);
+  assert.doesNotMatch(output.slice(0,output.findIndex(line=>line.includes('Native preparation complete'))).join(''),/reload.*host session/i);
  }finally{process.chdir(originalCwd);if(original===undefined)delete process.env.CLAUDECODE;else process.env.CLAUDECODE=original;}
  assert.equal(asked,2);
  assert.deepEqual(steps,['marketplace','install']);

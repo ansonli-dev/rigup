@@ -30,6 +30,9 @@ test('a TTY can save one approved preview for a later noninteractive apply',()=>
  const reports:Record<string,unknown>[]=[];let output='';
  const answers=['2'];const io={cwd:root,isTTY:true,write:(text:string)=>output+=text,read:async()=>answers.shift()??null,services:{cacheRoot,stateRoot,report:(report:Record<string,unknown>)=>reports.push(report)}};
  assert.equal(await runCli(['init','--agents','codex','--sdd','none','--tools','none','--defer-research','--language','auto'],io),3,output);
+ assert.match(output,/^Result: Preview generated, not yet installed$/m);
+ assert.doesNotMatch(output,/Needs action|^Reason:/m);
+ assert.equal(output.match(/--apply [a-f0-9]{64}/g)?.length,1);
  const saved=reports.at(-1)!;assert.equal(saved.phase,'handoff');
  assert.match(output,new RegExp(' --apply '+saved.previewId));
  assert.deepEqual(await readdir(root),[]);
@@ -37,6 +40,84 @@ test('a TTY can save one approved preview for a later noninteractive apply',()=>
  assert.deepEqual(await readdir(root),[]);
  assert.equal(await runCli(['update','--apply',String(saved.previewId),'--sessions-ended'],{...io,isTTY:false}),0,output);
  assert.equal(reports.at(-1)?.previewId,saved.previewId);
+}))));
+
+test('saved review and the subsequent bare update describe distinct next steps',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ let output='';
+ const io={cwd:root,isTTY:false,write:(text:string)=>output+=text,services:{cacheRoot,stateRoot}};
+ const review=['init','--agents','claude','--sdd','none','--defer-research','--review','--language','zh-CN'];
+ assert.equal(await runCli(review,io),3,output);
+ assert.match(output,/^结果: 预览已生成，尚未安装$/m);
+ assert.doesNotMatch(output,/^结果: 需要处理$|^原因:/m);
+ assert.equal(output.match(/--apply [a-f0-9]{64}/g)?.length,1);
+ assert.deepEqual(await readdir(root),[]);
+ output='';
+ assert.equal(await runCli([...review,'--json'],io),3,output);
+ const saved=JSON.parse(output);
+ assert.equal(saved.phase,'handoff');
+ assert.equal(saved.installStatus,'pending');
+ assert.equal(saved.executable,true);
+ assert.equal(saved.exitCode,3);
+ assert.deepEqual(saved.pending,['Apply the saved preview']);
+ assert.ok(saved.nextCommand.includes(root));
+ assert.ok(saved.nextCommand.endsWith('--apply '+saved.previewId));
+
+ output='';
+ assert.equal(await runCli(['update','--apply',saved.previewId,'--sessions-ended'],io),0,output);
+ assert.match(output,/下一步: .*请为当前项目生成 Rigup 规则/);
+ assert.doesNotMatch(output,/rigup_begin/);
+ output='';
+ assert.equal(await runCli(['update'],io),3,output);
+ assert.equal(output.match(/^下一步:/gm)?.length,1);
+ assert.match(output,/下一步: .*请为当前项目生成 Rigup 规则/);
+ assert.doesNotMatch(output,/^原因:|rigup_begin/m);
+ output='';
+ assert.equal(await runCli(['update','--json'],io),3,output);
+ assert.equal(JSON.parse(output).researchNextStep,'Open the project in a selected agent and call rigup_begin, or configure a CLI provider and retry with --review.');
+}))));
+
+test('interrupted review retains the protected preview and possible partial writes',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const {apply}=await import('../src/installer/apply.js');
+ let output='';
+ const io={cwd:root,isTTY:false,write:(text:string)=>output+=text,services:{cacheRoot,stateRoot}};
+ assert.equal(await runCli(['init','--agents','claude','--sdd','none','--defer-research','--review','--language','en','--json'],io),3,output);
+ const {previewId}=JSON.parse(output);
+ await assert.rejects(apply(previewId,{cacheRoot:join(cacheRoot,'previews'),stateRoot,
+  hook:async point=>{if(point==='after-file')throw Error('fixture stopped after a write');},
+ }),/fixture stopped/);
+ output='';
+ assert.equal(await runCli(['update','--resume','--review'],io),3,output);
+ assert.match(output,/changes may have been written/);
+ assert.doesNotMatch(output,/^Result: Preview generated/m);
+ assert.ok(output.includes('--apply '+previewId+' --resume'),output);
+ output='';
+ assert.equal(await runCli(['update','--resume','--review','--json'],io),3,output);
+ const recovered=JSON.parse(output);
+ assert.equal(recovered.phase,'handoff');
+ assert.ok(recovered.nextCommand.includes(root));
+ assert.ok(recovered.nextCommand.endsWith('--apply '+previewId+' --resume'),recovered.nextCommand);
+}))));
+
+for(const mode of ['guided','saved'] as const)test('active session gets one reload reminder after '+mode+' installation',t=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const cwd=process.cwd();
+ testEnvironment(t,{CLAUDECODE:'fixture'});
+ let output='',beforeCommit='';
+ const io={cwd:root,isTTY:mode==='guided',write:(text:string)=>output+=text,
+  ask:async()=>['Install'],services:{cacheRoot,stateRoot,runChecks:async()=>{beforeCommit=output;return [];}}};
+ const init=['init','--agents','claude','--sdd','none','--tools','none','--language','en'];
+ try{
+  process.chdir(root);
+  if(mode==='saved'){
+   assert.equal(await runCli([...init,'--defer-research','--review','--json'],io),3,output);
+   const {previewId}=JSON.parse(output);
+   output='';
+   assert.equal(await runCli(['update','--apply',previewId],io),0,output);
+  }else assert.equal(await runCli(init,io),0,output);
+  assert.doesNotMatch(beforeCommit,/reload.*host session/i);
+  const reminders=Array.from(output.matchAll(/reload.*host session/gi));
+  assert.equal(reminders.length,1,output);
+  assert.ok(output.indexOf('Result: Install complete') < reminders[0].index!,output);
+ }finally{process.chdir(cwd);}
 }))));
 
 test('preview cancellation and incompatible standalone preparation cannot write the project',t=>project(root=>project(cacheRoot=>project(async stateRoot=>{
@@ -242,6 +323,42 @@ test('missing OpenSpec bindings return a copyable recovery command without apply
  assert.match(report.resumeCommand,/--agents codex --sdd openspec --defer-research/);
  assert.deepEqual(await readdir(root),[]);
 }))));
+for(const caller of ['project','parent','lifecycle'] as const)test('OpenSpec displays ordered commands from '+caller,t=>project(parent=>project(async control=>{
+ const {delimiter}=await import('node:path');
+ const {mkdir}=await import('node:fs/promises');
+ const root=join(parent,"-Open && Spec's project");
+ await mkdir(root);
+ const bin=join(control,'bin');
+ await writeOpenSpecFixture(bin,'console.log(process.argv.includes("--version")?"1.16.0":JSON.stringify({root:null}));\n');
+ const path=bin+delimiter+process.env.PATH;
+ testEnvironment(t,{PATH:path,RIGUP_CONSUMER_PATH:path});
+ const cwd=caller==='project'?root:parent;
+ const mode=caller==='lifecycle'?['--backend','codex','--dry-run']:['--defer-research'];
+ const args=['init',...(cwd===root?[]:[root]),'--agents','codex','--sdd','openspec',...mode,'--language','en'];
+ let output='';
+ const io={cwd,isTTY:false,write:(text:string)=>output+=text,services:{cacheRoot:join(control,'cache'),stateRoot:join(control,'state')}};
+ assert.equal(await runCli(args,io),3,output);
+ const commands=output.split('\n').filter(line=>line.includes('rigup init'));
+ const projectArg=cwd===root?'':process.platform==='win32'?" '.\\-Open && Spec''s project'":" './-Open && Spec'\"'\"'s project'";
+ assert.equal(commands.length,2,output);
+ for(const line of commands)assert.ok(line.includes('rigup init'+projectArg+' --agents codex --sdd openspec'),line);
+ assert.match(commands[0],/--prepare-openspec --install-scope project$/);
+ assert.ok(mode.every(flag=>commands[1].includes(flag)),commands[1]);
+ assert.doesNotMatch(commands[1],/--prepare-openspec/);
+ assert.deepEqual(await readdir(root),[]);
+ output='';
+ assert.equal(await runCli([...args,'--json'],io),3,output);
+ const report=JSON.parse(output);
+ assert.ok(report.nextCommand.includes(root.slice(0,root.lastIndexOf('Spec'))),report.nextCommand);
+ if(caller==='lifecycle'){
+  assert.equal(report.resumeCommand,undefined);
+  assert.match(report.nextCommand,/--prepare-openspec --install-scope project$/);
+ }else{
+  assert.ok(report.nextCommand.endsWith(' && '+report.resumeCommand));
+  assert.match(report.resumeCommand,/--defer-research/);
+ }
+})));
+
 test('explicit_dry_run_and_preflight_missing_inputs_never_call_backend_or_write_project',()=>project(async root=>project(async cache=>project(async state=>{
  let calls=0;const io={cwd:root,isTTY:false,write:()=>{},services:{cacheRoot:cache,stateRoot:state,backend:{run:async()=>{calls++;throw Error('unexpected research');}}}};
  assert.equal(await runCli(['init','--agents','codex','--dry-run'],io),0);assert.equal(calls,0);assert.deepEqual(await readdir(root),[]);
@@ -323,6 +440,7 @@ switch(process.argv[2]){
   assert.equal(code,0,output+diagnostic);
   assert.equal(JSON.parse(output).nativeWorkflow,'ready');
   assert.match(diagnostic,/reload.*host session/i);
+  assert.ok(diagnostic.indexOf('OpenSpec CLI 1.16.0') < diagnostic.search(/reload.*host session/i),diagnostic);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/schema: spec-driven/);
  }finally{process.chdir(cwd);}
 })));

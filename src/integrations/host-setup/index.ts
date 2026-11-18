@@ -146,7 +146,14 @@ export type NativeProgress={host:Agent;status:'recognized'|'ready'|'manual'|'sto
  step?:Step['id'];code?:number|null;changes?:string[];undo?:string;pin?:string;blocker?:Blocker;
  stage?:'version'|'store';cliVersion?:string;installedVersion?:string;installedSha?:string;installPath?:string};
 type RunCode=0|1|3|130;
-type RunResult={exitCode:RunCode;progress:NativeProgress[]};
+type NativeProjectChange={path:string;undo?:string;marketplaceAdded?:true};
+type ProjectEffects={projectChanges:NativeProjectChange[];uncertainProjectPaths:string[]};
+export interface NativeSetupEffects {
+ projectChanges:readonly NativeProjectChange[];
+ uncertainProjectPaths:readonly string[];
+ reloadRecommended:boolean;
+}
+type RunResult={exitCode:RunCode;progress:NativeProgress[];effects:NativeSetupEffects};
 type ConfirmClaudeInstall=(step:Step,target:ClaudeTarget)=>Promise<boolean>;
 
 const needsReview=(reason:string,evidence:string[])=>new NativeBlocker('native-target-changed',reason,{evidence});
@@ -198,7 +205,7 @@ class UncertainNativeWriter extends NativeBlocker {
  }
 }
 
-async function executeHost(approved:Planned,lock:ProjectLock,input:NativeSetupServices,progress:NativeProgress[],confirmClaudeInstall?:ConfirmClaudeInstall):Promise<RunCode>{
+async function executeHost(approved:Planned,lock:ProjectLock,input:NativeSetupServices,progress:NativeProgress[],effects:ProjectEffects,confirmClaudeInstall?:ConfirmClaudeInstall):Promise<RunCode>{
  const {host,runtime}=approved,{root,stateRoot,writerRoot}=runtime;
  const {signal}=input;
  const stop=(error:unknown,exitCode:1|3):1|3|130=>{
@@ -220,6 +227,7 @@ async function executeHost(approved:Planned,lock:ProjectLock,input:NativeSetupSe
  const changed=()=>needsReview('Native targets changed after approval. Review a fresh plan.',
   approved.host==='claude'?[approved.recipe.catalog,approved.recipe.project]:[approved.recipe.target,approved.store]);
  let dispatching=false;
+ let projectTargets:string[]=[];
  try{
   return await withHostWriter<RunCode>(lock,host,async runner=>{
    let state:Planned;
@@ -295,6 +303,7 @@ async function executeHost(approved:Planned,lock:ProjectLock,input:NativeSetupSe
 
     const steps=[...approved.steps];
     for(const step of steps){
+     projectTargets=step.writes.filter(item=>item.level==='project').map(item=>item.path);
      const before=await visibleChanges(step.writes);
      const command=state.host==='claude'?claudeCommand(runtime,scratch,step.id as ClaudeStep):ompCommand(runtime,state.store,scratch);
      const outcome=await run(command,state.host==='claude'?root:work,900_000);
@@ -302,7 +311,19 @@ async function executeHost(approved:Planned,lock:ProjectLock,input:NativeSetupSe
      const [observed,rescanned]=await Promise.allSettled([readTarget(),scan(root,[host],input)]);
      const after=observed.status==='fulfilled'?observed.value:undefined;
      const latest=rescanned.status==='fulfilled'?rescanned.value:undefined;
-     const changes=[...await visibleChanges(step.writes)].filter(([path,value])=>value!==before.get(path)).map(([path])=>path);
+     const afterWrites=await visibleChanges(step.writes);
+     const changes=[...afterWrites].filter(([path,value])=>value!==before.get(path)).map(([path])=>path);
+     const marketplaceAdded=step.id==='marketplace'&&state.host==='claude'&&!state.recipe.declared&&after?.host==='claude'&&after.recipe.declared;
+     const projectChanges:NativeProjectChange[]=[];
+     for(const path of projectTargets){
+      const prior=before.get(path),current=afterWrites.get(path);
+      if(prior==='unavailable'||current==='unavailable'||(!after&&prior===current)){
+       effects.uncertainProjectPaths.push(path);
+      }else if(prior!==current||marketplaceAdded){
+       projectChanges.push({path,...(marketplaceAdded?{marketplaceAdded:true}:{})});
+      }
+     }
+     effects.projectChanges.push(...projectChanges);
      const stepProgress={step:step.id,code:outcome.code,changes,pin:step.pin};
      const evidence=[...step.writes.map(item=>item.path),
       ...(observed.status==='rejected'?toBlocker(host,observed.reason).evidence:[])];
@@ -344,6 +365,7 @@ async function executeHost(approved:Planned,lock:ProjectLock,input:NativeSetupSe
      if(!verified)return failStep(new NativeBlocker(host+'-not-recognized-after-install',
       'Could not verify the approved '+host+' Superpowers install after rescanning.',{evidence:rescanEvidence(state,after,latest)}));
      const installedVersion=receipt?.installedVersion,installedSha=receipt?.installedSha;
+     if(step.undo)for(const change of projectChanges)change.undo=step.undo;
      progress.push({host,status:'recognized',message:'recognized; reopen the host to pick it up.'+
       (installedSha?' Installed Superpowers'+(installedVersion?' '+installedVersion:'')+' at '+installedSha+'.':''),
       ...stepProgress,undo:step.undo,...(receipt?{installedVersion,installedSha,installPath:receipt.installed}:{})});
@@ -353,13 +375,17 @@ async function executeHost(approved:Planned,lock:ProjectLock,input:NativeSetupSe
   },signal,writerRoot);
  }catch(error){
   if(!dispatching)throw error;
+  effects.uncertainProjectPaths.push(...projectTargets);
   throw new UncertainNativeWriter([writerRoot,...approved.recipe.paths]);
  }
 }
 
 export async function executeNativePreparation(plan:NativePreparation,input:NativeSetupServices={},confirmClaudeInstall?:ConfirmClaudeInstall):Promise<RunResult>{
  const {root}=plan,progress:NativeProgress[]=[];
- const end=(exitCode:RunCode):RunResult=>({exitCode,progress});
+ const effects:ProjectEffects={projectChanges:[],uncertainProjectPaths:[]};
+ const end=(exitCode:RunCode):RunResult=>({exitCode,progress,effects:{
+  ...effects,reloadRecommended:progress.some(item=>item.status==='recognized'&&(item.step==='install'||item.step==='link')),
+ }});
  if(input.signal?.aborted)return end(130);
  const initial=plan.entries.find(entry=>entry.action)?.action;
  if(!initial)return end(plan.entries.every(entry=>entry.status==='ready')?0:3);
@@ -395,7 +421,7 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
      exit=exit||3;
      continue;
     }
-    const hostExit=await executeHost(entry.action,lock,input,progress,confirmClaudeInstall);
+    const hostExit=await executeHost(entry.action,lock,input,progress,effects,confirmClaudeInstall);
     if(hostExit===130)return end(130);
     if(hostExit===1||hostExit===3&&exit===0)exit=hostExit;
    }
@@ -461,9 +487,9 @@ function nativeManualText(host:Agent){
 
 export async function nativeSetupInteraction(root:string,hosts:Agent[],input:NativeSetupServices,ui:{
  write:(message:string)=>void;report?:(value:Record<string,unknown>)=>void;
- ask:import('../../prompt.js').Ask;inspect:boolean;canPrompt:boolean;back?:boolean;
+ ask:import('../../prompt.js').Ask;inspect:boolean;canPrompt:boolean;back?:boolean;isTTY?:boolean;verbose?:boolean;
+ onEffects?:(effects:NativeSetupEffects)=>void;
 }):Promise<0|1|3|130|'back'>{
- const {sessionReloadNotice}=await import('../../installer/session.js');
  const {nativePreparationCommand}=await import('./manual.js');
  const plan=await planNativePreparation(root,hosts,input),description=describeNativePreparation(plan);
  const ready=plan.entries.every(entry=>entry.status==='ready'),hasAction=plan.entries.some(entry=>entry.action);
@@ -487,7 +513,13 @@ export async function nativeSetupInteraction(root:string,hosts:Agent[],input:Nat
   for(const item of step.writes)write('    '+t(`native.${item.level}`)+': '+item.path+
    (item.level==='project'?t('native.sharedSettings'):''));
  };
- for(const entry of description.hosts){
+ const compactGate=ui.isTTY===false&&!ui.inspect&&!ready&&hasAction&&!ui.canPrompt&&!input.signal?.aborted;
+ const writeApprovalRequired=()=>{
+  write(t('native.approvalRequired'));
+  write(nextCommand);
+ };
+ if(compactGate)writeApprovalRequired();
+ if(!compactGate||ui.verbose)for(const entry of description.hosts){
   write(entry.host+': '+(entry.status==='ready'?t('native.ready'):entry.reason??entry.status));
   if(entry.launcher)write('  '+t('native.verifyCli',{version:entry.launcher.verifiedVersion,command:entry.launcher.versionCommand,
    work:entry.launcher.temporaryUnder,state:entry.launcher.writerState}));
@@ -506,24 +538,24 @@ export async function nativeSetupInteraction(root:string,hosts:Agent[],input:Nat
   if(entry.manual)write('  '+t('native.manual',{command:nativeManualText(entry.host)}));
  }
  writeBlockers(description.blockers);
- if(hasAction)write(t('native.actionNotice'));
+ if(hasAction&&(!compactGate||ui.verbose))write(t('native.actionNotice'));
  if(input.signal?.aborted){report(130);return 130;}
  if(ui.inspect||ready){report(0);return 0;}
  if(!hasAction){report(3,undefined,['Some native workflow prerequisites need manual preparation.']);return 3;}
  if(!ui.canPrompt){
-  write(t('native.approvalRequired'));write(nextCommand);report(3,undefined,[translate('en','native.approvalRequired')]);return 3;
+  if(!compactGate)writeApprovalRequired();
+  report(3,undefined,[translate('en','native.approvalRequired')]);return 3;
  }
  const approvals=[choice('Cancel',t('choice.cancel')),choice('Approve',t('choice.approve'))];
  const answer=await ui.ask({message:t('native.approvePrompt'),choices:approvals,back:ui.back});
  if(answer==='back'&&ui.back)return 'back';
  if(!Array.isArray(answer)||answer.length!==1||answer[0]!=='Approve'||input.signal?.aborted){report(130);return 130;}
- const reload=await sessionReloadNotice(root);
- if(reload)write(t('cli.restartHost'));
  const result=await executeNativePreparation(plan,input,async (step,target)=>{
   writeStep(step,target);
   const answer=await ui.ask({message:t('native.approveClaude'),choices:approvals});
   return Array.isArray(answer)&&answer.length===1&&answer[0]==='Approve';
  });
+ ui.onEffects?.(result.effects);
  for(const item of result.progress){
   write(item.host+': '+nativeProgressMessage(item)+(item.code!==undefined?t('native.exit',{code:item.code??t('native.unknownExit')}):''));
   for(const path of item.changes??[])write('  '+t('native.observed',{path}));

@@ -3,7 +3,7 @@ import {inspectGlobalNpm} from './integrations/tools/global-npm.js';
 import {defaultNpmRegistry} from './integrations/tools/npm-resolution.js';
 import {toolPackage} from './integrations/tools/recipes.js';
 import {readFile,realpath,rm} from 'node:fs/promises';
-import {resolve,join,relative,isAbsolute} from 'node:path';
+import {resolve,join,relative,isAbsolute,sep} from 'node:path';
 import {homedir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {onboard,promptNativeCredentials,restrictBindings} from './onboarding.js';
@@ -15,10 +15,9 @@ import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
 import {apply,interruptedApplyOptions,interruptedInstallApplyId,interruptedSeedApplyId} from './installer/apply.js';
 import {doctor} from './installer/doctor.js';
-import {sessionReloadNotice} from './installer/session.js';
 import {defaultStateRoot} from './installer/lock.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
-import {inspectOpenSpec,openSpecProjectScopes,OpenSpecReceiptError,planOpenSpecPreparation,preparationScope,prepareOpenSpec,reportOpenSpecPending,type OpenSpecPreparation} from './integrations/sdd/openspec-setup.js';
+import {inspectOpenSpec,openSpecProjectScopes,OpenSpecReceiptError,planOpenSpecPreparation,preparationScope,prepareOpenSpec,reportOpenSpecPending,type OpenSpecInspection,type OpenSpecPreparation} from './integrations/sdd/openspec-setup.js';
 import {openspecPackage,openspecPreparationCommand,type OpenSpecInstallScope} from './integrations/sdd/openspec.js';
 import {forwardProjectOpenSpec,readOpenSpecPreparation} from './integrations/sdd/openspec-project.js';
 import {privateDirectory,signature} from './generator/cache.js';
@@ -49,7 +48,7 @@ function validLanguage(value:unknown):string|undefined{
 const activateLanguage=(language:string|undefined)=>setLocale(resolveLocale(language,process.env));
 
 async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:string,english?:string):void},display:ReturnType<typeof createCliOutput>):Promise<number>{
- const {state,presentation}=display;
+ const {state,presentation,verbose,recordNativeEffects}=display;
  const fail=(code:number,key:MessageKey,params?:MessageParams)=>{
   io.write(t(key,params)+'\n',translate('en',key,params)+'\n');return code;
  };
@@ -168,6 +167,18 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
  };
  const commandError=(code:number,key:MessageKey,params?:MessageParams)=>{start();return fail(code,key,params);};
  const nativeTTY=io.isTTY===true&&(io.outputIsTTY??io.terminal?.output.isTTY)===true;
+ state.nativeTTY=nativeTTY;
+ const openSpecPending=async(setup:OpenSpecInspection,agents:SetupOptions['agents'],resumeAt:(project:string|undefined)=>string,reportPending=true)=>{
+  const resumeCommand=resumeAt(root);
+  const commands=reportPending?reportOpenSpecPending(setup,resumeCommand,presentation.notice,services.report):
+   [...setup.steps.filter(step=>step!==resumeCommand),resumeCommand];
+  const cwd=await realpath(io.cwd).catch(()=>undefined);
+  const projectPath=cwd===undefined?root:relative(cwd,root);
+  const project=projectPath.startsWith('-')?'.'+sep+projectPath:projectPath||undefined;
+  const prepareCommand=openspecPreparationCommand(root,agents,setup.scope);
+  state.openSpecNext=commands.map(step=>step===resumeCommand?resumeAt(project):
+   step===prepareCommand?openspecPreparationCommand(project,agents,setup.scope):step);
+ };
  const nativeInput={...services.nativeSetup,stateRoot:services.nativeSetup?.stateRoot??services.stateRoot,signal:services.signal};
  if(values['--prepare-native']){
   if(positional[0]!=='init'||!values['--agents']||values['--sdd']!=='superpowers'||
@@ -181,7 +192,8 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     undefined,{fallback:manifest?.options});
    start(selected.documentLanguage??initialLanguage);
    const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:services.report,
-    ask,inspect:!!(values['--review']||values['--dry-run']),canPrompt:nativeTTY&&selected.executionPolicy?.mode!=='review'});
+    ask,inspect:!!(values['--review']||values['--dry-run']),canPrompt:nativeTTY&&selected.executionPolicy?.mode!=='review',
+    isTTY:nativeTTY,verbose,onEffects:recordNativeEffects});
    return result==='back'?130:result;
   }catch(error){return failRaw(services.signal?.aborted?130:1,errorMessage(error));}
  }
@@ -220,6 +232,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
  if(values['--profile'])overrides.profile=values['--profile'];
  if(values['--language'])overrides.documentLanguage=values['--language'];
  flags.dryRun=!!values['--dry-run'];flags.yes=!io.isTTY&&!values['--dry-run']&&!values['--review'];flags.review=!!values['--review'];flags.response=values['--response'];flags.request=values['--request'];flags.configure=!!values['--configure'];if(flags.request){const privateRoot=resolve(io.services?.cacheRoot??join(homedir(),'.cache','rigup'),'host');const rel=relative(privateRoot,resolve(flags.request));if(!isAbsolute(flags.request)||!rel||rel.startsWith('..')||isAbsolute(rel)){return commandError(2,'cli.requestPath',{path:privateRoot});}}if(flags.request&&flags.response){return commandError(2,'cli.requestResponse');}flags.sessionsEnded=!!values['--sessions-ended'];flags.resume=!!values['--resume'];flags.retireIds=values['--retire']?.split(',');flags.runChecks=values['--run-checks']?.split(',') as import('./types.js').CheckKind[];if(flags.runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){return commandError(2,'cli.checkKinds');}applyId=values['--apply'];
+ state.sessionsEnded=flags.sessionsEnded;
  if([flags.dryRun,flags.yes,flags.review].filter(Boolean).length>1){return commandError(2,'cli.executionMode');}
  if(values['--research-tokens']){
   const tokens=Number(values['--research-tokens']);
@@ -245,15 +258,16 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     if(services.signal?.aborted)return 130;
     if(setup.requirements.length){
      for(const requirement of setup.requirements)io.write(t('openspec.prefix',{requirement})+'\n');
-     const resume=setup.needsProject
-      ?'rigup init '+quoteShell(root)+' --agents '+quoteShellList(prepared.plan.options.agents)+' --sdd openspec'+(prepared.plan.projectRules==='pending'?' --defer-research':'')+' --review'
-      :'rigup update '+quoteShell(root)+' --apply '+applyId+(flags.resume?' --resume':'');
-     reportOpenSpecPending(setup,resume,presentation.notice,services.report);
+     const agents=prepared.plan.options.agents;
+     await openSpecPending(setup,agents,project=>{
+      const path=project===undefined?'':' '+quoteShell(project);
+      return setup.needsProject
+       ?'rigup init'+path+' --agents '+quoteShellList(agents)+' --sdd openspec'+(prepared.plan.projectRules==='pending'?' --defer-research':'')+' --review'
+       :'rigup update'+path+' --apply '+applyId+(flags.resume?' --resume':'');
+     });
      return 3;
     }
    }
-   const reload=await sessionReloadNotice(root,flags.sessionsEnded);
-   if(reload)io.write(t('cli.restartHost')+'\n',reload+'\n');
    presentation.progress({stage:'apply',completed:0});
    presentation.applying(applyId);
    const report=await apply(applyId,{cacheRoot,stateRoot:services.stateRoot,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});
@@ -329,8 +343,6 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
   services.report=value=>report?.({...(runtimeSetup?{runtimeSetup}:{}),...(nativePreparation?{nativePreparation}:{}),...value});
   const nativeDeps={stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write,view:services.npmView};
   const prepareApproved=async(selected:SetupOptions,approval:OpenSpecPreparation)=>{
-   const reload=await sessionReloadNotice(root,flags.sessionsEnded);
-   if(reload)io.write(t('cli.restartHost')+'\n',reload+'\n');
    state.native=approval.kind!=='existing'?{version:approval.install.version,prefix:approval.prefix}:{version:approval.cliVersion};
    const setup=await prepareOpenSpec(root,selected,approval,{...nativeDeps,onInstalled:()=>{
     state.native={...state.native,installed:true};
@@ -380,7 +392,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    if(services.signal?.aborted)return 130;
    if(setup.requirements.length){
     for(const requirement of setup.requirements)io.write(t('openspec.prefix',{requirement})+'\n');
-    reportOpenSpecPending(setup,openspecPreparationCommand(root,options.agents,scope),presentation.notice,services.report);
+    await openSpecPending(setup,options.agents,project=>openspecPreparationCommand(project,options.agents,scope));
     return 3;
    }
    services.report?.({phase:'preflight',installStatus:'not-installed',nativeWorkflow:'ready'});
@@ -405,12 +417,18 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    }
   }
   start();
+  const repeatOpenSpec=(selected:Pick<SetupOptions,'agents'|'documentLanguage'>,project:string|undefined)=>{
+   const originalFlags=Object.entries(values).filter(([flag])=>flag!=='--agents'&&flag!=='--sdd').flatMap(([flag,value])=>boolean.has(flag)?[flag]:[flag,quoteShell(value)]);
+   if(wizard&&!values['--language']&&selected.documentLanguage&&selected.documentLanguage!=='auto')originalFlags.push('--language',quoteShell(selected.documentLanguage));
+   return ['rigup',command,...(project===undefined?[]:[quoteShell(project)]),
+    ...(values['--continue']?[]:['--agents',quoteShellList(selected.agents),'--sdd','openspec']),...originalFlags].join(' ');
+  };
   const checkWorkflow=async(selected:SetupOptions,back=false):Promise<'ready'|'back'|'stop'>=>{
    if(selected.sdd==='superpowers'&&selected.agents.some(supportedHost)&&firstWorkflow&&wizard&&inlineReview&&!flags.review&&!flags.dryRun&&nativeTTY){
     const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:value=>{
      nativePreparation=value.nativePreparation as Record<string,unknown>;
      if(value.installStatus!=='complete'&&value.installStatus!=='up-to-date')services.report?.(value);
-    },ask,inspect:false,canPrompt:true,back});
+    },ask,inspect:false,canPrompt:true,back,isTTY:nativeTTY,verbose,onEffects:recordNativeEffects});
     if(result==='back'){nativePreparation=undefined;return 'back';}
     if(result===0)return 'ready';
     setupExit=result;return 'stop';
@@ -465,11 +483,8 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
      }
     }catch(error){setupExit=failedPreparation(error,selected,scope);return 'stop';}
    }
-   const originalFlags=Object.entries(values).filter(([flag])=>flag!=='--agents'&&flag!=='--sdd').flatMap(([flag,value])=>boolean.has(flag)?[flag]:[flag,quoteShell(value)]);
    if(draftPath)await saveDurable(draftPath,JSON.stringify({root,agents:selected.agents,scope,documentLanguage:selected.documentLanguage}));
-   if(wizard&&!values['--language']&&selected.documentLanguage&&selected.documentLanguage!=='auto')originalFlags.push('--language',quoteShell(selected.documentLanguage));
-   const resumeCommand=['rigup',command,quoteShell(root),'--agents',quoteShellList(selected.agents),'--sdd','openspec',...originalFlags].join(' ');
-   reportOpenSpecPending(setup,resumeCommand,presentation.notice,services.report);
+   await openSpecPending(setup,selected.agents,project=>repeatOpenSpec(selected,project));
    setupExit=3;
    return 'stop';
   };
@@ -559,6 +574,8 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    const answer=await ask({message:t('wizard.continue'),choices,defaults:['Install']});
    return Array.isArray(answer)&&answer[0]==='Install'?'install':Array.isArray(answer)&&answer[0]==='Save preview, apply later'?'save':'cancel';
   };
+  services.presentation={...presentation,openSpecPending:(setup,agents)=>
+   openSpecPending(setup,agents,project=>repeatOpenSpec({agents,documentLanguage:options.documentLanguage},project),false)};
  }catch(e){start();state.error=errorMessage(e);return services.signal?.aborted?130:2;}
  try{
   const code=await executeLifecycle(root,options,flags,io.write,{...services,isTTY:io.isTTY});
