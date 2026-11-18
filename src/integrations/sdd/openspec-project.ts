@@ -1,3 +1,4 @@
+import {makeReason,ReasonError} from '../../i18n/reasons.js';
 import {execFile,spawn} from 'node:child_process';
 import {lstat,readFile,realpath} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
@@ -46,11 +47,11 @@ export async function verifiedProjectOpenSpec(root:string,stateRoot?:string){
  const record=await readOpenSpecPreparation(root,stateRoot);
  if(!record?.projectReceipt)return;
  const identity=await readVerifiedToolInstall(root,'openspec',record.projectReceipt);
- if(!identity)throw Error('Project OpenSpec installation differs from its receipt. Reconcile .rigup/tools/openspec before continuing.');
+ if(!identity)throw new ReasonError(makeReason('reason.openspec.projectReceipt'));
  const packageRoot=await targetPath(root,projectTool.prefix+'/node_modules/'+projectTool.name);
  const metadata=JSON.parse(await readFile(await targetPath(packageRoot,'package.json'),'utf8'));
  const relative=typeof metadata.bin==='string'?metadata.bin:metadata.bin?.openspec;
- if(typeof relative!=='string'||!/^[\w./-]+\.(?:c|m)?js$/i.test(relative))throw Error('Invalid OpenSpec CLI entry');
+ if(typeof relative!=='string'||!/^[\w./-]+\.(?:c|m)?js$/i.test(relative))throw new ReasonError(makeReason('reason.openspec.projectEntry'));
  const entry=await targetPath(packageRoot,relative.replace(/^\.\//,''));
  return {file:process.execPath,args:[entry],source:'project' as const,version:identity.version,
   identity:signature({root,entry,payload:record.projectPayloadDigest,receipt:record.projectReceipt})};
@@ -83,7 +84,7 @@ async function protectProjectOpenSpec(root:string){
  await gitIgnoreCheck(root,projectTool.prefix,candidate,candidate===text?undefined:async()=>{
   await atomicProjectWrite(root,ignoreTarget,Buffer.from(candidate),previous.mode??0o644,false,async()=>{
    const current=await readFileState(root,ignoreTarget);
-   if(current.digest!==previous.digest||current.mode!==previous.mode)throw Error('OpenSpec ignore file changed during preparation');
+   if(current.digest!==previous.digest||current.mode!==previous.mode)throw new ReasonError(makeReason('reason.openspec.projectIgnoreChanged'));
   });
  });
 }
@@ -118,5 +119,5 @@ export async function forwardProjectOpenSpec(cwd:string,argv:string[],stateRoot?
   }
   if(dirname(root)===root||await lstat(join(root,'.git')).catch(()=>undefined))break;
  }
- throw Error('No verified project OpenSpec installation. Run Rigup OpenSpec preparation from the project root.');
+ throw new ReasonError(makeReason('reason.openspec.projectMissing'));
 }

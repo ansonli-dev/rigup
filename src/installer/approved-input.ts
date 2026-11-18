@@ -1,6 +1,7 @@
-import {isAbsolute,posix,relative,sep} from 'node:path';
+import {isAbsolute,posix,relative,resolve,sep} from 'node:path';
+import {readFile} from 'node:fs/promises';
 import {scanInstallationSources,scanNativeEntries} from '../analyzer/repository.js';
-import {safePath} from '../analyzer/evidence.js';
+import {digest,safePath} from '../analyzer/evidence.js';
 import {loadResearchIgnore,researchPathExcluded,workflowEvidenceKind} from '../analyzer/research-ignore.js';
 import {signature} from '../generator/cache.js';
 import {assertOpenSpecRuntime} from '../integrations/sdd/openspec-setup.js';
@@ -8,6 +9,7 @@ import {selectedChecks,type ProjectCheck} from '../integrations/tools/check-cata
 import {resolveProjectChecks} from '../integrations/tools/quality.js';
 import {scopeContains,type SetupPlan} from '../types.js';
 import {absentDigest,readFileState} from './file-state.js';
+import {checkClaimSelection} from './claim.js';
 
 export function approvedAuthorityPaths(plan:SetupPlan):Set<string>{
  return new Set([
@@ -28,6 +30,20 @@ export async function approvedInputs(root:string,plan:SetupPlan,managed:string[]
   catch{throw Error('OpenSpec runtime or project entry changed: openspec/config.yaml');}
  }
  const values=new Map<string,string>();
+ if(plan.claim){
+  await checkClaimSelection(root,plan);
+  const config='.rigup/config.yaml';
+  values.set(config,(await readFileState(root,config)).digest);
+  const sources=new Set(plan.assets.filter(asset=>['customer-template','customer-skill'].includes(asset.source.kind)).map(asset=>asset.source.ref));
+  const configDigests=Object.entries(plan.claim.configDigests??{});
+  for(const [path] of configDigests)if(path!==config)sources.add(path);
+  if(!plan.claim.configDigests&&plan.options.profile)sources.add(resolve(root,plan.options.profile));
+  for(const source of sources)values.set(source,digest(await readFile(source).catch(()=>{throw Error('Cannot read approved input: '+source);})));
+  for(const [path,expected] of configDigests){
+   if(values.get(path)!==expected)throw Error('Claim configuration changed while resolving options: '+path);
+  }
+  return {values:Object.fromEntries(values),checks:[]};
+ }
  const authority=approvedAuthorityPaths(plan);
  const ignore=authority.size?await loadResearchIgnore(root):undefined;
  const workflow=plan.options.projectRules?'all':plan.options.sdd==='spec-kit'?'spec-kit':undefined;

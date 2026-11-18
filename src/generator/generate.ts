@@ -7,7 +7,7 @@ import type {ProjectProfile} from '../analyzer/repository.js';
 import {repositoryReader} from '../analyzer/repository.js';
 import {researchBudget} from '../analyzer/budget.js';
 import {researchEvidenceCurrent,validateResearch,type AnalysisBackend,type ResearchEvidenceReceipt,type ResearchResult} from '../analyzer/backend.js';
-import type {ManagedAsset,SetupOptions,SetupPlan,StepResult,AssetDisposition} from '../types.js';
+import type {ManagedAsset,ProviderEnvImport,SetupOptions,SetupPlan,StepResult,AssetDisposition} from '../types.js';
 import {scopeContains,scopesOverlap,validateInventory} from '../types.js';
 import {prepareIntegrations,type IntegrationPreparation,type PreparedAsset} from '../integrations/registry.js';
 import {agents} from '../integrations/agents/index.js';
@@ -35,8 +35,8 @@ interface State extends RuleEvidenceState {version:1;selection?:string;fingerpri
 const candidateDigest=(content:string,pages?:ArtifactPage[])=>pages?signature({content,pages}):digest(content);
 export function inventorySignature(assets:ManagedAsset[]):string {return signature(assets.map(a=>({logicalId:a.logicalId,target:a.target,ownership:a.ownership,digest:a.digest})).sort((a,b)=>a.logicalId.localeCompare(b.logicalId)));}
 type GenerationPreparation={integration:IntegrationPreparation;fixedTemplates:Awaited<ReturnType<typeof readWorkflowTemplates>>};
-export async function prepareGeneration(profile:ProjectProfile,options:SetupOptions):Promise<GenerationPreparation>{
- const [integration,fixedTemplates]=await Promise.all([prepareIntegrations(profile,options),readWorkflowTemplates(options)]);
+export async function prepareGeneration(profile:ProjectProfile,options:SetupOptions,providerEnvImport?:ProviderEnvImport):Promise<GenerationPreparation>{
+ const [integration,fixedTemplates]=await Promise.all([prepareIntegrations(profile,options,undefined,{providerEnvImport}),readWorkflowTemplates(options)]);
  for(const asset of integration.assets)if(asset.source.kind==='customer-template')validateTemplateContent(asset.content);
  return {integration,fixedTemplates};
 }

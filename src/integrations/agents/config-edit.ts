@@ -1,5 +1,7 @@
 import {parseTree,findNodeAtLocation,getNodeValue,modify,applyEdits,type Node,type ParseError} from 'jsonc-parser';
 import {parse as parseToml} from 'smol-toml';
+import {isDeepStrictEqual} from 'node:util';
+import {isRecord} from '../../private-record.js';
 
 function assertUniqueKeys(node:Node):void {
  const children=node.children??[];
@@ -36,6 +38,19 @@ export function editJson(text:string,path:string[],next:string|undefined):string
  let value:unknown=undefined;if(next!==undefined){jsonTree(next);value=JSON.parse(next);}
  return applyEdits(text,modify(text,path,value,{formattingOptions:{insertSpaces:true,tabSize:2}}));
 }
+export function tomlValue(text:string,path:readonly string[]):unknown {
+ let value:unknown=parseToml(text,{integersAsBigInt:true});
+ for(const key of path){
+  if(!isRecord(value)||!Object.hasOwn(value,key))return;
+  value=value[key];
+ }
+ return value;
+}
+
+export function equalTomlValue(text:string,expected:string,path:readonly string[]):boolean {
+ return isDeepStrictEqual(tomlValue(text,path),tomlValue(expected,path));
+}
+
 export function tomlRange(text:string,path:string[]):{start:number;end:number}|undefined {
  parseToml(text);
  if(!path.length||path.some(p=>!/^[-A-Za-z0-9_]+$/.test(p)))throw new Error('TOML table selector unsupported');

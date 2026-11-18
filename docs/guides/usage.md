@@ -15,9 +15,9 @@ rigup doctor
 
 省略路径时使用当前目录。交互向导固定显式参数，按项目配置和探测结果预选其余选项。`update --configure` 重新打开向导。可绘制的终端用 Space 多选，行式模式接受 `1,2`、`1，2`、`1、2`、`1 2`，按 `b` 回到上一可编辑项。可选工具允许空选。遇到错误输入会重问当前项。
 
-可执行预览列出受影响路径，接着选择安装、保存预览或取消。保存后用显示的 `--apply` 命令应用同一预览。默认输出报告本轮写入与下一步，完整差异存入私有状态目录，也可加 `--verbose` 查看。`--json` 使用非交互模式，stdout 输出一个对象，文本诊断走 stderr。
+可执行预览按 agent 配置、项目指南、Rigup 配套文件等类别汇总改动。选择安装、保存预览或取消。保存后可复制终端显示的 `--apply` 命令。默认输出报告本轮写入与下一步。加 `--verbose` 可查看路径、完整日志位置和通过的诊断项目。完整差异保存在私有状态目录。`rigup doctor` 默认显示诊断汇总、需要处理的项目和下一步。`--json` 使用非交互模式，stdout 输出一个对象，文本诊断走 stderr。
 
-`--dry-run` 保存私有候选和预览。已配置 provider 时，生成完整规则的 dry-run 仍会请求模型。首次设置可用 `--defer-research` 明确只准备基础接线。`--review` 提供待应用的预览与 `nextCommand`。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Rigup 核对工作流入口的来源和依赖。Claude Code 和 Oh My Pi 缺少 Superpowers 时，参见[准备 Superpowers](#准备-superpowers)。 [验证范围](../compatibility/status.md) · [最近验证的上游组合](../compatibility/upstream-lock.json)
+`--dry-run` 保存私有候选和预览。已配置 provider 时，生成完整规则的 dry-run 仍会请求模型。首次设置可用 `--defer-research` 明确只准备基础接线。`--review` 提供待应用的预览与 `nextCommand`。成功生成但尚未应用的预览返回退出码 3，表示需要确认或应用。配置完整时，非交互 `init` 和 `update` 按项目设置选择执行方式。Rigup 核对工作流入口的来源和依赖。Claude Code 和 Oh My Pi 缺少 Superpowers 时，参见[准备 Superpowers](#准备-superpowers)。 [验证范围](../compatibility/status.md) · [最近验证的上游组合](../compatibility/upstream-lock.json)
 
 首次选择 OpenSpec 后，Rigup 检查已核验的项目 CLI 或安全 PATH 上的 CLI、项目的 OpenSpec 根和所选宿主的入口。已有 CLI 时沿用其版本，可用 `--prepare-openspec` 补齐项目文件。缺少 CLI 时，交互引导默认项目范围。项目范围使用 `.rigup/tools/openspec/`，便携版可使用随附的 Node 和 npm。全局范围使用终端 PATH 上的 Node 和 npm，以及可写的用户前缀。两种范围都在准备前显示并冻结版本、registry、包完整性和目标位置，再核对对应 Node 是否满足包的要求。
 
@@ -68,7 +68,7 @@ mcp:
 - `customSkills` 接受本地 `source` 目录，可用 `position` 绑定 `prepare`、`deliver` 或 `release`。`templates` 通过 `source`、`target` 和 `values` 为允许的文档或 skill 资源做标量替换。`change-release` 需要真实的客户部署适配器。
 - 对支持 HTTP MCP 的企业 GitLab、协作文档等服务，在对应 `mcp` 项填入 HTTPS `url` 和 `bearerTokenEnv: TEAM_MCP_TOKEN`。从启动宿主的环境提供专用凭据。宿主和服务继续负责工具权限、审批和读写范围。`rigup doctor` 列出变量名、实际消费者和待验证状态。
 
-应用设置时，Rigup 按已启用的本地消费者增量准备私有 `.rigup/.env`，并将它及临时文件加入 `.rigup/.gitignore`。原有注释和非空值保留，空值可从明确配置、无歧义的仓库目标或已声明的调用环境填入；项目文件中的非空值优先。审阅和 dry-run 不写该文件。模板只声明所选能力需要的输入，JSON 和终端报告不含值。已跟踪、链接或未被有效忽略的文件保持原样并提示修正。写入时，Rigup 先限制临时文件的权限，再写入凭据并原子替换。
+应用设置时，Rigup 按已启用的本地消费者增量准备私有 `.rigup/.env`，并将它及临时文件加入 `.rigup/.gitignore`。原有注释和非空值保留。空值可从明确配置、无歧义的仓库目标或已声明的调用环境填入。基础向导默认将提供方凭据留在调用环境。审阅和 dry-run 不写该文件。模板只声明所选能力需要的输入，JSON 和终端报告不含值。已跟踪、链接或未被有效忽略的文件保持原样并提示修正。写入时，Rigup 先限制临时文件的权限，再写入凭据并原子替换。
 
 CLI provider 和显式选择的 `customer.commands.environment` 可以读取各自声明的本地输入。后者通过 `--run-checks environment` 执行，仅向该命令传入声明的引用；参数中的 `${NAME}` 以无 shell 的临时参数展开，保存的命令仍保留引用。恢复安装时保留历史检查，但只有本次实际执行的检查能验证当前输入。宿主启动的 MCP 和 GitLab CI 从宿主或 runner 获取凭据，本地存在同名变量不能证明它们已配置或连接。生成本地 GitLab include 不需要 token 或远端地址。远端目标只从明确配置或唯一兼容 Git remote 推导。
 
@@ -109,16 +109,16 @@ rigup init . --agents 'claude,omp' --sdd superpowers --prepare-native --review -
 rigup init . --agents 'claude,omp' --sdd superpowers --prepare-native
 ```
 
-独立准备结束后直接退出。向导准备成功后重新扫描，再生成常规的项目预览。Rigup 复用已识别的有效入口。缺失时会展示准备步骤、目标和可能的写入位置。CLI 版本在批准后探测，与最近验证版本不同会显示提示。若本地还没有 Claude 官方 marketplace，先批准添加，再批准从目录读取的插件目标。
+独立准备结束后直接退出。向导准备成功后重新扫描，再生成常规的项目预览。Rigup 复用已识别的有效入口。缺失时默认展示要执行的命令和写入位置。加 `--verbose` 可查看来源、完整性和核验详情。CLI 版本在批准后探测，与最近验证版本不同会显示提示。若本地还没有 Claude 官方 marketplace，先批准添加，再批准从目录读取的插件目标。
 
 | 宿主 | 批准后可能写入 |
 | --- | --- |
 | Claude Code | 项目共享的 `.claude/settings.json`、Claude 用户配置目录中的市场和插件缓存及本机状态。Rigup 展示缓存官方目录中的 Superpowers SHA 和可用版本，并核对安装回执及复扫结果。 |
-| Oh My Pi | OMP 用户插件目录中的 `omp-plugins.lock.json`、链接及相关本机状态，以及 Rigup 私有状态中的 `@loneexile/omp-superpowers` 归档。Rigup 在确认前从官方 npm registry 解析 `latest`，下载后验证所展示的 SHA-512，再链接并复扫。若此次 Claude 项目安装已为 OMP 提供完整入口，会跳过用户级链接。 |
+| Oh My Pi | OMP 插件目录中的 `omp-plugins.lock.json` 和插件文件。能创建目录符号链接时，Rigup 校验固定包的 SHA-512 后从私有状态目录建立链接。Windows 拒绝创建目录符号链接时，Rigup 先展示固定版本的 registry 安装供批准，再核对 `bun.lock` 的完整性、安装目录和加载入口。Claude 项目插件已提供完整工作流时可直接复用。 |
 
 `--review` 和 `--dry-run` 检查准备计划，检查成功返回 0。Review 模式、JSON 输出和重定向保留预览交接。独立准备需要后续操作时返回 3，执行或校验失败返回 1，取消返回 130。交互安装须在终端明确选择“批准”或 Approve。改动使用中的宿主配置后，按提示重载宿主。
 
-如果需要处理阻塞，可在终端或 `--json` 的 `nativePreparation.blockers` 中查看宿主、问题代码、证据路径和建议操作。`.env` 诊断仅列出可能影响安装位置的键名。核对状态并处理问题后，重跑相同命令。Rigup 会使用已验证的现场状态，跳过成功步骤。若报告无法确认写入进程已退出，应先等待进程退出或手动核对状态。已验证的 Claude 项目安装可用 `claude plugin uninstall superpowers@claude-plugins-official --scope project --keep-data` 移除；共享市场缓存不应随意删除。OMP 链接可用 `omp plugin uninstall @loneexile/omp-superpowers` 解除。有效链接仍使用 Rigup 私有目录中的固定包。
+如果需要处理阻塞，可在终端或 `--json` 的 `nativePreparation.blockers` 中查看宿主、问题代码、证据路径和建议操作。`.env` 诊断仅列出可能影响安装位置的键名。核对状态并处理问题后，重跑相同命令。Rigup 会使用已验证的现场状态，跳过成功步骤。若报告无法确认写入进程已退出，应先等待进程退出或手动核对状态。已验证的 Claude 项目安装可用 `claude plugin uninstall superpowers@claude-plugins-official --scope project --keep-data` 移除；共享市场缓存不应随意删除。可用 `omp plugin uninstall @loneexile/omp-superpowers` 移除 OMP 插件。有效链接仍使用 Rigup 私有目录中的固定包。
 
 ## 先安装工作流，再生成规则
 
@@ -150,6 +150,8 @@ CLI 支持 `anthropic` 和 `openai-compatible`。配置 `RIGUP_PROVIDER`、`RIGU
 rigup update --review --model MODEL_ID --json
 ```
 
+使用 `--model`、在调用环境中设置有效的 `RIGUP_PROVIDER`，或在提供方提示中选择 CLI 提供方，可授权本次设置导入该提供方的环境输入。选择后运行 `rigup update --review` 并应用保存的预览，即可为已有项目补齐输入。默认由 agent 生成规则时，调用环境中的 provider 密钥保持在调用环境。应用读取获准变量的当前值，保留项目文件里的非空值。实际复制密钥时，终端会显示变量名、目标路径及 Git 忽略状态。提示中键入的密钥仅供本次请求使用。
+
 私有 provider 文件使用 `provider`、`model`、`apiKeyEnv` 和可选 `baseURL`、`maxOutputTokens`。限制文件和目录为当前用户可访问，密钥值留在受保护的本地输入中。每次生成默认最多 16,384 输出 tokens，可用 `RIGUP_MAX_OUTPUT_TOKENS` 或私有设置覆盖，必须是正安全整数，并始终受剩余预算约束。
 
 `maxCalls` 统计实际 HTTP 请求，Anthropic 的远程 `count_tokens` 也计一次。该端点返回 404/405 时，本次后端会话改用保守的序列化 UTF-8 字节估算并报告此情况；其他错误不会静默降级。生成仍必须返回可信的实际 token 用量，未知消费保留在私有运行状态中等待对账。CLI provider 只能请求经过过滤的读取、清单和搜索；授权读取超过文件末尾时可获得过滤后的行数重试，无效最终结果至多在原剩余预算内修复一次并重新完整校验。MCP 宿主的模型费用由宿主记录。源码、配置或读取范围变化时会重新校验相关结果。
@@ -170,7 +172,9 @@ rigup update --resume --review --json
 
 Rigup 比较上次生成的基线、本地文件和新候选。非重叠改动可合并，冲突保留本地内容，等待用户处理后重新预览。审阅时，手工改过的宿主入口标记块会单独列为冲突。JSON 报告用 `installStatus: conflict` 标识冲突，在 `error` 中列出阻塞原因。要继续更新，可把自定义内容移到标记之外并恢复块内的托管内容，然后运行 `nextCommand` 给出的审阅命令。混合配置按拥有的键、表或标记块更新，完整文件也核对权限位。需要显式退役时使用 `--retire logicalId,...`。
 
-文本归属比较接受 CRLF/LF 差异，实际内容和权限编辑仍受保护。新 clone 缺少本机基线时，与确定性候选一致的受管部分可在审阅后登记归属，并保留原文件字节；不同内容仍是冲突。批准目标的摘要、模式和恢复记录保持精确匹配。
+文本归属比较接受 CRLF/LF 差异，实际内容和权限编辑仍受保护。
+
+克隆已配置 Rigup 的仓库后，使用 `rigup update --review` 核对从项目 MCP 配置识别的 agent。按终端命令应用，Rigup 会在 Git 忽略的本机状态中登记已验证配置的归属，并保留检出的文件字节。若缺少或改动了必需的 Rigup 入口，先按报告核对相应路径。无法确认归属的可选项会在预览中提示，可另行审阅。
 
 中断后保留项目 `.rigup/` 和私有状态 `~/.local/state/rigup/`。普通候选与请求位于 `~/.cache/rigup/`。在原项目路径运行 `rigup update --resume --review`，复核恢复的选择和批准预览，再执行报告中的 `--apply` 与 `--resume` 命令。仍在运行的写入进程会阻止重试。相关输入、目标或检查声明变化时，报告列出需要复核的路径。
 

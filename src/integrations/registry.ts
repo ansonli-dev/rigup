@@ -1,10 +1,11 @@
+import {makeReason,nextStepReasonDetail,reasonDetail,reasonFallback,reasonFromError} from '../i18n/reasons.js';
 import {detectExternalTool,planGlobalNpmInstall,globalNpmInstallOperation} from './tools/global-npm.js';
 import {prepareQuality} from './tools/quality.js';
 import {prepareCustomer} from './gitlab/customer.js';
 import {inspectProjectToolInstall} from './tools/software.js';
 import {assertEmptyToolScopes,prepareNativeInitialization} from './tools/initialization.js';
 import {isNativeTool,nativeInitializationPaths,softwareInstallRecipe,toolPackage} from './tools/recipes.js';
-import {scopesOverlap,type SetupOperation,type SetupOptions,type SetupPlan,type SetupRequirement} from '../types.js';
+import {scopesOverlap,type ProviderEnvImport,type SetupOperation,type SetupOptions,type SetupPlan,type SetupRequirement} from '../types.js';
 import type {ProjectProfile} from '../analyzer/repository.js';
 import {resolveNpmLatest,type NpmView} from './tools/npm-resolution.js';
 import {dirname,isAbsolute,resolve} from 'node:path';
@@ -12,8 +13,9 @@ import {lstat,readFile,readdir,stat} from 'node:fs/promises';
 import {quoteShell} from '../shell-command.js';
 import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
 import {projectMcpArgs} from './tools/project-mcp-entry.js';
+import {prepareRigupResearchMcp,rigupLauncherTarget,rigupLauncherTemplate} from './agents/rigup-config.js';
 import {collectCustomSkill} from './custom-skills.js';
-import {renderCustomerTemplate} from './custom-templates.js';
+import {renderCustomerTemplate,validateCustomerTemplateTarget} from './custom-templates.js';
 import {openwiki,openwikiInitializationGuide} from './tools/openwiki.js';
 import {codegraph} from './tools/codegraph.js';
 import type {Ownership} from '../managed-input.js';
@@ -31,10 +33,18 @@ export {bindSdd,resolveSkillSource} from './sdd/binding.js';
 export type {SddBinding,SkillSource} from './sdd/binding.js';
 export interface PreparedAsset {logicalId:string;target:string;content:string;ownership:Ownership;source:{kind:string;ref:string;digest?:string};encoding?:'utf8'|'base64';mode?:number;consumer?:string}
 export interface IntegrationPreparation {assets:PreparedAsset[];operations:SetupOperation[];warnings:string[];requirements:SetupRequirement[];bindings:SddBinding[];openSpecProjectCli?:true;skillBindings?:{agent:string;consumer:string;target?:string;nativeName?:string}[]}
-export async function prepareIntegrations(profile:ProjectProfile,options:SetupOptions,nativeInput?:import('./host-setup/runtime.js').NativeInputs):Promise<IntegrationPreparation>{
- const [quality,runtime]=await Promise.all([prepareQuality(profile,options),runtimeSetupSummary(profile.root,options)]);
+export async function prepareIntegrations(profile:ProjectProfile,options:SetupOptions,nativeInput?:import('./host-setup/runtime.js').NativeInputs,preparation?:{mode?:'claim';providerEnvImport?:ProviderEnvImport}):Promise<IntegrationPreparation>{
+ const mode=preparation?.mode;
+ const [quality,runtime]=await Promise.all([prepareQuality(profile,options),mode==='claim'?undefined:runtimeSetupSummary(profile.root,options)]);
  const assets:PreparedAsset[]=[];const warnings:string[]=[];const requirements:SetupRequirement[]=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
  for(const agent of options.agents)if(!Object.hasOwn(agents,agent))throw Error('unknown agent');
+ const optionalSource=async<T>(source:string,read:()=>Promise<T>):Promise<T|undefined>=>{
+  try{return await read();}
+  catch(error){
+   if(mode!=='claim'||(error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+   warnings.push('Missing custom source: '+source+'. Its outputs remain outside the claimed inventory.');
+  }
+ };
  const push=(added:PreparedAsset[])=>{
   for(const asset of added) {
    const same=assets.find(a=>a.target === asset.target && JSON.stringify(a.ownership) === JSON.stringify(asset.ownership));
@@ -43,7 +53,7 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
    assets.push(asset);
   }
  };
- if(options.sdd) {
+ if(options.sdd&&mode!=='claim') {
   for(const agent of options.agents) {
    try {
     const {binding,warnings:bindingWarnings}=resolveSddBinding(options.sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
@@ -51,27 +61,35 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
     warnings.push(...bindingWarnings);
    }
    catch(error){
-    const reason=(error as Error).message;
-    if(agent==='opencode'&&reason.startsWith('OPENCODE_DISABLE_PROJECT_CONFIG')){
-     requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason,
-      nextCommand:'Unset OPENCODE_DISABLE_PROJECT_CONFIG or set it to false before retrying Rigup'});
-     continue;
-    }
-    if((agent==='omp'&&/^(skills\.enabled:false|OMP project skill settings)/.test(reason))||
-       (agent==='opencode'&&reason.startsWith('OpenCode permission.skill'))){
-     requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+reason,nextCommand:reason});
+    const reason=reasonFromError(error);
+    const code=typeof reason==='string'?undefined:reason.code;
+    if(code==='reason.sdd.openCodeProjectOff'||code==='reason.sdd.openCodeProjectDenied'||
+       code==='reason.sdd.ompSkillsOff'||code==='reason.sdd.ompProjectSkills'){
+     const detail=makeReason('reason.identified',{id:agent,reason});
+     const instruction=code==='reason.sdd.openCodeProjectOff'?makeReason('reason.sdd.openCodeRestoreProject'):reason;
+     requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:detail.fallback,
+      [reasonDetail]:detail,nextCommand:reasonFallback(instruction),[nextStepReasonDetail]:instruction});
      continue;
     }
     const native=options.sdd==='superpowers'&&supportedHost(agent)?superpowersReadiness(profile,agent):undefined;
     const problem=native?.status==='missing'&&supportedHost(agent)?
      await (await import('./host-setup/index.js')).nativePreparationProblem(profile.root,agent,nativeInput):undefined;
     const nextCommand=native?.status==='missing'&&!problem?nativePreparationCommand(profile.root,options.agents):
-     options.sdd==='openspec'&&reason.startsWith('missing native entry: openspec-')?openspecPreparationCommand(profile.root,options.agents):undefined;
+     options.sdd==='openspec'&&typeof reason!=='string'&&reason.code==='reason.sdd.missingNativeEntry'&&String(reason.params.entry).startsWith('openspec-')?openspecPreparationCommand(profile.root,options.agents):undefined;
     const initialized=options.sdd==='spec-kit'&&(await stat(resolve(profile.root,'.specify')).catch(()=>undefined))?.isDirectory();
     let registered=false;if(initialized)try{const path=await safePath(profile.root,'.specify/integration.json');if((await stat(path)).size<=256000){const state=JSON.parse(await readFile(path,'utf8'));registered=Array.isArray(state?.installed_integrations)&&state.installed_integrations.includes(agent)||state?.integration===agent||state?.default_integration===agent;}}catch{}
     const repair=options.sdd==='superpowers'?superpowersManual[agent]:options.sdd==='openspec'?'rigup doctor '+quoteShell(profile.root):'cd '+quoteShell(profile.root)+' && specify '+(registered?'integration upgrade '+agent:initialized?'integration install '+agent:'init --here --integration '+agent);
-    const cliHelp=options.sdd==='spec-kit'?'; if specify is unavailable, use uvx --from git+https://github.com/github/spec-kit.git@v1.3.2 specify, or uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.3.2':'';
-    requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:agent+': '+(native?.reason??reason)+(problem?'; '+problem:'')+'; '+(native?repair:nextCommand??repair)+cliHelp,nextCommand:nextCommand??repair});
+    const manualKey=agent==='omp'?'native.manualOmp':agent==='codex'?'native.manualCodex':agent==='opencode'?'native.manualOpenCode':undefined;
+    const manual=options.sdd==='superpowers'&&manualKey?makeReason(manualKey):undefined;
+    let detail=makeReason('reason.identified',{id:agent,reason:native?.[reasonDetail]??reason});
+    if(problem)detail=makeReason('reason.withDetail',{reason:detail,detail:problem});
+    detail=makeReason('reason.withDetail',{reason:detail,detail:native?manual??repair:nextCommand??manual??repair});
+    if(options.sdd==='spec-kit')detail=makeReason('reason.withDetail',{reason:detail,detail:makeReason('reason.sdd.specKitInstall',{
+     run:'uvx --from git+https://github.com/github/spec-kit.git@v1.3.2 specify',
+     install:'uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.3.2',
+    })});
+    requirements.push({integrationId:options.sdd,kind:'sdd-binding',agent,reason:detail.fallback,[reasonDetail]:detail,
+     nextCommand:nextCommand??repair,...(!nextCommand&&manual?{[nextStepReasonDetail]:manual}:{})});
    }
   }
  }
@@ -81,14 +99,9 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
   const prepared=await prepareCustomerMcp(profile.root,{...input,agents:hosts});push(prepared.assets);warnings.push(...prepared.warnings);requirements.push(...prepared.requirements);
  }
  if(options.projectRules&&options.agents.length){
-  const target='.rigup/rigup-mcp.mjs';
-  const content=(await readFile(new URL('../../templates/rigup-mcp.mjs',import.meta.url),'utf8')).replace('__RIGUP_VERSION__',RIGUP_VERSION);
-  push([{logicalId:'rigup:research-launcher',target,content,ownership:{kind:'file'},source:{kind:'fixed-template',ref:'rigup-mcp',digest:digest(content)}}]);
-  for(const agent of options.agents){
-   const args=projectMcpArgs(agents[agent].mcpTarget,target,[agent]);
-   const prepared=await prepareCustomerMcp(profile.root,{id:'rigup',agents:[agent],command:{executable:'node',args,cwd:'.',envRefs:[]}},true);
-   push(prepared.assets);requirements.push(...prepared.requirements);
-  }
+  const content=(await rigupLauncherTemplate()).replace('__RIGUP_VERSION__',RIGUP_VERSION);
+  push([{logicalId:'rigup:research-launcher',target:rigupLauncherTarget,content,ownership:{kind:'file'},source:{kind:'fixed-template',ref:'rigup-mcp',digest:digest(content)}}]);
+  for(const agent of options.agents)push([await prepareRigupResearchMcp(profile.root,agent)]);
  }
  const toolLauncher='.rigup/tool-mcp.mjs';
  if(options.tools?.length){
@@ -107,10 +120,15 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
   warnings.push(tool.id+': binary availability and native connection pending');
   if(selection.id==='openwiki')warnings.push(openwikiInitializationGuide);
  }
+ const missingSkillDirectories=new Set<string>();
  for(const skill of options.customSkills ?? []) for(const agent of options.agents) {
-  const copies=await collectCustomSkill(resolve(profile.root,skill.source),agents[agent].skillDirectory);
+  const copies=await optionalSource(skill.source,()=>collectCustomSkill(resolve(profile.root,skill.source),agents[agent].skillDirectory));
+  if(!copies){
+   missingSkillDirectories.add(agents[agent].skillDirectory);
+   continue;
+  }
   const entry=copies.find(a=>a.target.endsWith('/SKILL.md'))!;const name=entry.target.split('/').at(-2)!;
-  const existing=(profile.skillSources?.[agent]??[]).filter(s=>s.name===name||s.name.split(':').at(-1)===name);
+  const existing=mode==='claim'?[]:(profile.skillSources?.[agent]??[]).filter(s=>s.name===name||s.name.split(':').at(-1)===name);
   const resolved=existing.length?resolveSkillSource(name,existing.map(s=>({...s,name,nativeName:s.name}))):undefined;
   if(resolved){
    const bundle=(items:Awaited<ReturnType<typeof collectCustomSkill>>)=>digest(JSON.stringify(items.map(a=>({target:a.target,digest:a.source.digest,mode:a.mode,encoding:a.encoding}))));
@@ -123,11 +141,20 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
  }
  const context=options.projectConventions?.documentRoutes?.context ?? 'docs/rigup';
  const roots=[context,...assets.filter(a=>a.target.endsWith('/SKILL.md')).map(a=>a.target.slice(0,-9)+'/references')];
- for(const template of options.templates ?? []) push([await renderCustomerTemplate(profile.root,template,roots,'change-deliver:review')]);
+ for(const template of options.templates ?? []){
+  const missingRoot=[...missingSkillDirectories].find(root=>template.target.startsWith(root+'/'));
+  if(missingRoot&&!roots.some(root=>template.target.startsWith(root.replace(/\/$/,'')+'/'))){
+   validateCustomerTemplateTarget(template.target,[missingRoot]);
+   warnings.push('Could not verify the custom skill for '+template.target+'. Its template remains outside the claimed inventory.');
+   continue;
+  }
+  const asset=await optionalSource(template.source,()=>renderCustomerTemplate(profile.root,template,roots,'change-deliver:review'));
+  if(asset)push([asset]);
+ }
  if(options.projectConventions?.tracker) warnings.push('Tracker convention recorded; executable tracker adapter is pending');
  push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);
- if(profile.git.available&&(assets.length||bindings.length)||runtime.inputs.some(input=>input.destination==='.rigup/.env')){
+ if(preparation?.providerEnvImport||profile.git.available&&(assets.length||bindings.length)||runtime?.inputs.some(input=>input.destination==='.rigup/.env')){
   const ownership=localIgnoreOwnership,content=localIgnoreContent;
   push([{logicalId:'rigup:local-state-ignore',target:'.rigup/.gitignore',content,ownership,source:{kind:'configuration',ref:'local-state-ignore',digest:digest(content)}}]);
  }

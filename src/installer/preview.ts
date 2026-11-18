@@ -1,11 +1,13 @@
 import {parseDocument} from 'yaml';
+import {makeReason,reasonDetail,reasonFallback,type ReasonCode,type ReasonInput} from '../i18n/reasons.js';
 import {filterContent} from '../analyzer/read-policy.js';
 import {scanInstallationSources} from '../analyzer/repository.js';
 import {lstat,realpath} from 'node:fs/promises';
 import {join,posix,isAbsolute} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
-import type {SetupPlan,ManagedAsset} from '../types.js';
+import type {Agent,SetupPlan,ManagedAsset} from '../types.js';
+import {assertClaimStorage} from './claim.js';
 import type {Ownership} from '../managed-input.js';
 import type {PreparedAsset} from '../integrations/registry.js';
 import {assertEmptyToolScopes} from '../integrations/tools/initialization.js';
@@ -24,13 +26,16 @@ import {defaultStateRoot} from './lock.js';
 import {mergeManaged,type MergeResult} from './merge.js';
 import {equalOwnedContent,ownedContent,replaceOwned,selectorsOverlap,targetPath} from './ownership.js';
 import {isGitlabWiring} from '../integrations/gitlab/ci.js';
+import {equalTomlValue} from '../integrations/agents/config-edit.js';
 import {conventionKey,documentTargetKey,readConventionDocument,validateConventionTarget,type ConventionReceipt} from '../project-conventions.js';
 import {scopeContains} from '../types.js';
 import {approvedAuthorityPaths,approvedInputs,resolveAuthorityTarget} from './approved-input.js';
 import type {ResolvedProjectCheck} from '../integrations/tools/quality.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
-export interface Preview {noChanges?:true;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];projectDocuments?:{target:string;action:'create'|'preserve';reason:string}[];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
+export const previewReasonDetails:unique symbol=Symbol('previewReasonDetails');
+type PreviewReasonDetails={blockers:ReasonInput[];items:(ReasonInput|undefined)[];projectDocuments:ReasonInput[]};
+export interface Preview {claim?:{agents:Agent[]};[previewReasonDetails]?:PreviewReasonDetails;noChanges?:true;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];projectDocuments?:{target:string;action:'create'|'preserve';reason:string}[];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number;seed?:ConventionReceipt}
 export interface PreviewData {schemaVersion:1;approvalNonce?:string;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2|3|4;inputs?:Record<string,string>;resolvedChecks?:ResolvedProjectCheck[];resolutions?:PreviewResolution[];reviewEntryBlocks?:boolean;sourceReview?:SourceReview;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
@@ -82,6 +87,11 @@ type PreviewDependencies={cacheRoot?:string;stateRoot?:string;skipUnchanged?:boo
 async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],dependencies:PreviewDependencies):Promise<PreviewData>{
  const root=await realpath(plan.root);if(root!==plan.root)throw new Error('plan root must be canonical');
  const oldManifest=await loadManifest(root);const old=oldManifest?.assets??[];
+ if(plan.claim){
+  if(oldManifest||resolutions.length||plan.dispositions.length||plan.operations.length||plan.projectDocuments?.length||
+     plan.runChecks?.length||plan.openSpecRuntime||plan.pendingRuntimeTools?.length)throw Error('Claim requires a project without local installation and no project writes');
+  await assertClaimStorage(root);
+ }
  const pendingReview=await sourceReview(root,oldManifest,dependencies.stateRoot??defaultStateRoot());
  if(pendingReview){
   const selected=plan.options.scope?.length?plan.options.scope:['.'];
@@ -90,7 +100,8 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
    plan={...plan,projectRules:'pending',warnings:[...plan.warnings,'Previously approved rule sources still require review in their original scope.']};
   }
  }
- const blockers=plan.requirements.map(r=>r.integrationId+': '+r.reason);const items:PreviewItem[]=[];
+ const blockers:ReasonInput[]=plan.requirements.map(r=>makeReason('reason.identified',{id:r.integrationId,reason:r[reasonDetail]??r.reason}));
+ const items:PreviewItem[]=[],itemReasons:PreviewReasonDetails['items']=[];
  for(const a of old)if(plan.dispositions.filter(d=>d.logicalId===a.logicalId).length!==1)throw new Error('every old inventory item requires a disposition: '+a.logicalId);
  for(const d of plan.dispositions)if(!old.some(a=>a.logicalId===d.logicalId)||!['retain','update','retire','pending'].includes(d.action))throw new Error('invalid old inventory disposition');
  const inputAssets=[...plan.assets];const baselineRecords:PreviewData['baselines']=[];const nextAssets:ManagedAsset[]=[];
@@ -102,7 +113,12 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
  const receiptByIdentity=new Map(history.map(item=>[conventionKey(item.topicId,item.scope),item]));
  for(const receipt of history)if(allTargets.some(target=>overlaps(target,receipt.target)))throw Error('Managed target overlaps a customer convention document');
  const seeds=new Map<string,{receipt:ConventionReceipt;content:string}>();
- const projectDocuments:NonNullable<Preview['projectDocuments']>=[];
+ const projectDocuments:NonNullable<Preview['projectDocuments']>=[],documentReasons:ReasonInput[]=[];
+ const document=(target:string,action:'create'|'preserve',code:ReasonCode)=>{
+  const reason=makeReason(code);
+  projectDocuments.push({target,action,reason:reason.fallback});
+  documentReasons.push(reason);
+ };
  const identities=new Set<string>();
  const prospective=new Set<string>();
  for(const {target,content} of plan.projectDocuments??[]){
@@ -118,7 +134,7 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
   if(prior){
    const file=await targetPath(root,prior.target);
    const present=await lstat(file).catch(error=>{if(error.code!=='ENOENT')throw error;});
-   projectDocuments.push({target:prior.target,action:'preserve',reason:present?'Previously created customer document':'Previously created customer document is missing; review its location'});
+   document(prior.target,'preserve',present?'preview.seedPrevious':'preview.seedMissing');
   }else seeds.set(target,{receipt:{target,topicId:page.topicId,scope:page.scope},content});
  }
  for await(const {target,state} of readFileStates(root,allTargets)){const raw=state.bytes;const encoding=inputAssets.find(a=>a.target===target)?.encoding??old.find(a=>a.target===target)?.encoding??'utf8';fileMap.set(target,{raw,text:raw?.toString(encoding==='base64'?'base64':'utf8'),encoding,observedMode:state.mode,mode:state.mode});}
@@ -126,13 +142,13 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
  for(const [target,{receipt,content}] of seeds){
   const state=await readFileState(root,target);
   if(state.bytes){
-   projectDocuments.push({target,action:'preserve',reason:'Existing customer document'});
+   document(target,'preserve','preview.seedExisting');
    continue;
   }
   allTargets.push(target);
   creates.set(target,receipt);
   fileMap.set(target,{text:content,encoding:'utf8',mode:0o644});
-  projectDocuments.push({target,action:'create',reason:'Record the remaining decisions for this topic and scope'});
+  document(target,'create','preview.seedCreate');
  }
  const usedResolutions=new Set<PreviewResolution>();
  const entries:{candidate?:PreparedAsset;old?:ManagedAsset;action:'update'|'remove'|'retain'|'pending'}[]=[];
@@ -192,7 +208,7 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
   }
   if(result.action!=='conflict'&&entry.action!=='remove'&&file.text!==undefined&&nextMode!==file.observedMode&&['keep','noop'].includes(result.action))result={action:'update',content:result.content??local};
   if(process.platform==='win32'&&localMode===0o444&&['create','update','remove'].includes(result.action))result={action:'conflict',reason:'Windows target is read-only; review its permissions before changing it'};
-  if(result.action==='conflict')blockers.push(asset.target+': '+result.reason);
+  if(result.action==='conflict')blockers.push(makeReason('reason.identified',{id:asset.target,reason:result[reasonDetail]??String(result.reason)}));
   else {
    if(['create','update','remove'].includes(result.action)) {
     try{file.text=replaceOwned(file.text,asset.ownership,result.action==='remove'?undefined:result.content);file.mode=file.text===undefined?undefined:nextMode??0o644;}
@@ -206,6 +222,7 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
    }
   }
   const display=(content:string|undefined)=>{if(content===undefined)return undefined;if(asset.encoding==='base64')return '[binary content]';try{return filterContent(asset.target,content).slice(0,4000);}catch{return '[content withheld by read policy]';}};
+  itemReasons[items.length]=result[reasonDetail];
   items.push({logicalId:asset.logicalId,target:asset.target,ownership:asset.ownership,action:result.action,reason:result.reason,observedDigest,beforeMode:file.observedMode,afterMode:file.mode,...(!['noop','keep'].includes(result.action)?{before:display(local),after:display(result.action==='remove'?undefined:result.content??entry.candidate?.content)}:{})});
  }
  if(usedResolutions.size!==resolutions.length)throw new Error('resolution target/selector does not match planned item');
@@ -268,12 +285,15 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
    if(entry.candidate?.source.kind==='fixed-template')for(const match of markdownLinks(entry.candidate.content))if(!text.includes(match[0]))blockers.push(asset.target+': required consumer binding removed; regenerate or resolve');
   }else if(asset.ownership.kind==='json-key'||asset.ownership.kind==='toml-table'){
    // A locally changed executable binding cannot inherit semantic acceptance of N.
-   if(entry.candidate&&!equalOwnedContent(asset.ownership,text,entry.candidate.content))blockers.push(asset.target+': selected machine binding differs from accepted configuration');
+   if(entry.candidate&&(!equalOwnedContent(asset.ownership,text,entry.candidate.content)||
+      plan.claim&&asset.ownership.kind==='toml-table'&&!equalTomlValue(file.text!,entry.candidate.content,asset.ownership.path))){
+    blockers.push(asset.target+': selected machine binding differs from accepted configuration');
+   }
   }
  }
  if(plan.gitlabReviewRequired){
   if(plan.assets.some(a=>isGitlabWiring(a.logicalId))||plan.dispositions.some(d=>isGitlabWiring(d.logicalId)&&d.action!=='retain'))throw Error('Complete a root review before changing GitLab wiring');
- }else if(plan.options.quality?.gitlab){
+ }else if(!plan.claim&&plan.options.quality?.gitlab){
   try{
    const text=fileMap.get('.gitlab-ci.yml')?.text??(await readTarget(root,'.gitlab-ci.yml'))?.toString('utf8');const doc=parseDocument(text??'');if(doc.errors.length)throw new Error('CI YAML invalid');
    const include=doc.toJS()?.include;const includes=Array.isArray(include)?include:[include];
@@ -283,9 +303,13 @@ async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],depen
    for(const [name,job] of Object.entries(expected??{}))for(const [key,value] of Object.entries(job as object))if(signature(actual?.[name]?.[key])!==signature(value))throw new Error('required CI job binding changed');
   }catch{blockers.push('.gitlab-ci.yml: required CI include/job binding invalid or unavailable; preserve local content and re-prepare');}
  }
- const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId:'',root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
+ const publicPreview:Preview={...(plan.claim?{claim:{agents:plan.options.agents}}:{}),...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId:'',root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers:blockers.map(reasonFallback),operations:plan.operations,warnings:plan.warnings,
+  [previewReasonDetails]:{blockers,items:itemReasons,projectDocuments:documentReasons}};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644,...(creates.has(target)?{seed:creates.get(target)}:{})}));
+ if(plan.claim&&files.some(file=>file.next===undefined||file.observedDigest!==digest(Buffer.from(file.next,file.encoding))||
+   platformFileMode(file.mode)!==file.observedMode))throw Error('Claim cannot change a project target');
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
+ if(plan.claim&&manifestRaw)throw Error('Local installation records changed while preparing the claim');
  const {values:inputs,checks:resolvedChecks}=await approvedInputs(root,plan,allTargets,dependencies.stateRoot);
  const inputSnapshot=signature(inputs);
  if(dependencies.restoredReview&&plan.projectRules==='ready'&&

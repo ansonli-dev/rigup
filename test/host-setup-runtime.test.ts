@@ -208,3 +208,18 @@ test('a differently spelled existing project ancestor cannot accept a config ove
  const input=config(home,'');
  await assert.rejects(runtime.inspectHostRuntime(root,'claude',{...input,env:{...input.env,CLAUDE_CONFIG_DIR:join(alias,'future-config')}}),/CLAUDE_CONFIG_DIR/);
 })));
+
+test('the native writer drains both streams and classifies a split stderr tail',()=>project(root=>project(async fixtureHome=>{
+ const runtime=await load();assert.ok(runtime);
+ const stateRoot=join(fixtureHome,'state');
+ const code=[
+  'process.stdout.write("x".repeat(100_000));',
+  'process.stderr.write("SECRET_FIXTURE ".repeat(10_000)+"\\x1b[31mError: E");',
+  'setTimeout(()=>{process.stderr.write("PERM: operation not permitted, symlink\\x1b[0m /fixture/path");process.exitCode=7;},20);',
+ ].join('');
+ const outcome=await runtime.withHostWriter({root,stateRoot},'omp',runner=>
+  runner.run({executable:process.execPath,args:['-e',code],env:{HOME:fixtureHome,USERPROFILE:fixtureHome}},root,10_000,async()=>undefined));
+ assert.equal(outcome.code,7);
+ assert.equal(outcome.stderrSummary,'EPERM: permission denied while creating a symbolic link.');
+ assert.doesNotMatch(JSON.stringify(outcome),/SECRET_FIXTURE|fixture\/path|\\u001b/);
+})));

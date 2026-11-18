@@ -1,5 +1,6 @@
 import {valid} from 'semver';
 import {isRecord} from '../../private-record.js';
+import {makeReason} from '../../i18n/reasons.js';
 import {NativeBlocker} from './blockers.js';
 import {strictJson} from './host-files.js';
 import {ompPackage} from './manual.js';
@@ -11,7 +12,7 @@ export interface OmpPin {version:string;integrity:string;tarball:string}
 
 export async function readOmpDownload(url:string,limit:number,timeoutMs:number,request:typeof fetch=fetch,signal?:AbortSignal){
  const timeout=AbortSignal.timeout(timeoutMs);
- const failed=()=>new NativeBlocker('download-failed','Could not download OMP metadata or package from its official URL.',{evidence:[url]});
+ const failed=()=>new NativeBlocker('download-failed',makeReason('reason.native.download'),{evidence:[url]});
  let response:Response;
  try{response=await request(url,{redirect:'error',signal:signal?AbortSignal.any([signal,timeout]):timeout});}
  catch{throw failed();}
@@ -27,7 +28,7 @@ export async function readOmpDownload(url:string,limit:number,timeoutMs:number,r
    if(done)break;
    if(offset+value.length>limit){
     await reader.cancel().catch(()=>{});
-    throw new NativeBlocker('download-failed','OMP download exceeds the size limit.',{evidence:[url]});
+    throw new NativeBlocker('download-failed',makeReason('reason.native.downloadSize'),{evidence:[url]});
    }
    bytes.set(value,offset);offset+=value.length;
   }
@@ -37,7 +38,7 @@ export async function readOmpDownload(url:string,limit:number,timeoutMs:number,r
 
 export async function resolveOmpPin(request?:typeof fetch,signal?:AbortSignal):Promise<OmpPin>{
  const bytes=await readOmpDownload(latest,256_000,20_000,request,signal);
- const invalid=()=>new NativeBlocker('download-failed','The official OMP registry did not publish usable latest package metadata.',{evidence:[latest]});
+ const invalid=()=>new NativeBlocker('download-failed',makeReason('reason.native.metadata'),{evidence:[latest]});
  let metadata:Record<string,unknown>;
  try{metadata=strictJson(bytes.toString('utf8'));}catch{throw invalid();}
  const {version,dist}=metadata;

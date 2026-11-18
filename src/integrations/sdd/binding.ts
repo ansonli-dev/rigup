@@ -1,3 +1,4 @@
+import {makeReason,ReasonError,reasonDetail,type WithReasonDetail} from '../../i18n/reasons.js';
 import {openspec} from './openspec.js';
 import {specKit} from './spec-kit.js';
 import {superpowers} from './superpowers.js';
@@ -26,7 +27,7 @@ export interface SddBinding {
  projectSources?:string[];
 }
 
-export interface SkillSource {
+export interface SkillSource extends WithReasonDetail {
  name:string;
  origin:'plugin'|'local'|'managed'|'unknown';
  identity:string;
@@ -65,26 +66,28 @@ function availableEntry(name:string,id:string,available:string[]):string|undefin
 }
 
 export function bindSdd(id:string,agent:string,available:string[]):SddBinding {
- if(!['claude','codex','opencode','omp'].includes(agent)) throw new Error('unsupported host');
+ if(!['claude','codex','opencode','omp'].includes(agent)) throw new ReasonError(makeReason('reason.sdd.unsupportedAgent'));
  const descriptor=descriptors.find(candidate=>candidate.id===id);
- if(!descriptor) throw new Error('unsupported SDD');
+ if(!descriptor) throw new ReasonError(makeReason('reason.sdd.unsupportedWorkflow'));
  const nativeName=(name:string)=>{
   const canonical=descriptor===specKit?specKitName(name,agent):name;
   return availableEntry(canonical,id,available)??canonical;
  };
  const prepare=descriptor.prepare.map(nativeName);
  const deliver=descriptor.deliver.map(nativeName);
- for(const entry of [...prepare,...deliver]) if(!available.includes(entry)) throw new Error('missing native entry: '+entry);
+ for(const entry of [...prepare,...deliver]) if(!available.includes(entry)) throw new ReasonError(makeReason('reason.sdd.missingNativeEntry',{entry}));
  return {status:'source-bound',id,agent,prepare,deliver,artifacts:[...descriptor.artifacts],gates:[...descriptor.gates]};
 }
 
 export function resolveSkillSource(name:string,sources:SkillSource[],selectedIdentity?:string):SkillSource {
  const matches=sources.filter(source=>source.name===name && (!selectedIdentity || source.identity===selectedIdentity));
- if(!matches.length) throw new Error('missing skill source: '+name);
- if(matches.some(source=>source.origin==='unknown' || !source.satisfies))
-  throw new Error(matches.find(source=>source.problem)?.problem??'skill source unknown or dependency needs verification');
+ if(!matches.length) throw new ReasonError(makeReason('reason.sdd.missingSource',{name}));
+ if(matches.some(source=>source.origin==='unknown' || !source.satisfies)){
+  const problem=matches.find(source=>source.problem);
+  throw new ReasonError(problem?.[reasonDetail]??problem?.problem??makeReason('reason.sdd.unverifiedSource'));
+ }
  if(matches.length>1 && (!matches[0].digest || matches.some(source=>source.digest!==matches[0].digest))){
-  throw new Error('skill source conflict: select an explicit identity');
+  throw new ReasonError(makeReason('reason.sdd.sourceConflict'));
  }
  return matches.find(source=>source.origin==='plugin') ?? matches[0];
 }
@@ -109,7 +112,7 @@ export function resolveSddBinding(id:string,agent:string,available:string[],sour
  const revise=optional.find(source=>unqualifiedSkillName(source.nativeName!)===descriptor.revise)?.nativeName;
  const selected=[...prepare,...deliver];
  const community=agent==='omp'&&id==='superpowers'&&selected.some(source=>source.packageName==='@loneexile/omp-superpowers');
- if(community&&selected.some(source=>source.packageName!=='@loneexile/omp-superpowers'))throw Error('skill source conflict: select one complete Superpowers workflow');
+ if(community&&selected.some(source=>source.packageName!=='@loneexile/omp-superpowers'))throw new ReasonError(makeReason('reason.sdd.workflowConflict'));
  const projectSources=[...prepare,...deliver,...optional].map(source=>source.identity).filter(path=>files.includes(path));
  return {
   binding:{...binding,...(community?{artifacts:['docs/specs','docs/plans'],gates:['Retain design approval before planning and explicit approval before implementation','Follow the community native testing, review and verification requirements']}:{}),prepare:prepare.map(source=>source.nativeName!),deliver:deliver.map(source=>source.nativeName!),revise,projectSources},

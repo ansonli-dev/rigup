@@ -90,6 +90,8 @@ test('guided first init prepares OpenSpec before tool choices and applies the re
   assert.equal(code,0,first.output());
   assert.equal(answers.length,0);
   assert.ok(first.output().includes('Prepare automatically')&&first.output().indexOf('Prepare automatically')<first.output().indexOf('Optional tools'),first.output());
+  assert.match(first.output(),/Prepared 6 OpenSpec files in openspec\/.*\.agents\/skills\//);
+  assert.ok(first.output().indexOf('Prepared 6 OpenSpec files')<first.output().indexOf('Optional tools'),first.output());
   assert.match(first.output(),/Install complete/);
   assert.match(await readFile(join(root,'.agents/skills/change-prepare/references/project.md'),'utf8'),/Native prepare: openspec-propose/);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/spec-driven/);
@@ -105,7 +107,7 @@ test('a broken OpenSpec launcher still shows the original retry command',()=>fix
   const args=['init','--agents','codex','--sdd','openspec','--defer-research','--review','--language','en'];
   assert.equal(await runCli(args,cli.io),3,cli.output());
   assert.match(cli.output(),/existing openspec command did not start successfully/);
-  assert.match(cli.output(),/^Next: rigup init .+ --agents codex --sdd openspec --defer-research --review --language 'en'$/m);
+  assert.match(cli.output(),/^Next: rigup init --agents codex --sdd openspec --defer-research --review --language 'en'$/m);
  }finally{process.env.PATH=previous;}
 }));
 
@@ -132,6 +134,7 @@ test('a separate init resumes the OpenSpec selection and preserves existing proj
   const resumed=terminal(root,control,['','']);
   assert.equal(await runCli(['init','--language','en'],resumed.io),0,resumed.output());
   assert.doesNotMatch(resumed.output(),/Target agents|Native SDD/);
+  assert.doesNotMatch(resumed.output(),/Prepared \d+ OpenSpec files/);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/# original project config/);
   assert.equal(await readFile(join(proposal,'SKILL.md'),'utf8'),existing);
  }finally{process.env.PATH=path;}
@@ -143,7 +146,7 @@ test('manual OpenSpec preparation keeps the language selected by the wizard',()=
  try{
   const first=terminal(root,control,['1','2']);
   assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--tools','none'],first.io),3,first.output());
-  assert.match(first.output(),/下一步:[^\n]+--language 'zh-CN'/);
+  assert.match(first.output(),/^  2\. rigup init .+--language 'zh-CN'$/m);
   const native=terminal(root,control,[]);
   assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--prepare-openspec'],native.io),0,native.output());
   const resumed=terminal(root,control,['','']);

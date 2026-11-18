@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import {mkdir,readFile,stat,symlink,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,rm,stat,symlink,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {test} from 'node:test';
 import type {HostRuntime} from '../src/integrations/host-setup/runtime.js';
 import {project} from './helpers.js';
-import {latestUrl,ompArchive,ompId as id} from './host-setup-fixtures.js';
+import {latestUrl,ompArchive,ompId as id,ompRegistryFixture} from './host-setup-fixtures.js';
 import {resolveOmpPin} from '../src/integrations/host-setup/omp-pin.js';
 
 const load=()=>import('../src/integrations/host-setup/omp.js').catch(()=>undefined);
@@ -126,4 +126,61 @@ test('OMP uses config.yml before config.yaml and retains custom source evidence'
  assert.equal(inspected.status,'missing');
  assert.ok(inspected.shadowEvidence.includes(primary+' (skills.customDirectories)'));
  assert.ok(inspected.shadowEvidence.includes(primary+' (extensions)'));
+})));
+
+test('the directory symlink probe selects registry only for Windows EPERM and removes scratch',async()=>{
+ const {symlinksAllowed}=await import('../src/integrations/host-setup/symlink-probe.js');
+ let calls=0;
+ assert.equal(await symlinksAllowed('linux',async()=>{calls++;}),true);
+ assert.equal(calls,0);
+ for(const code of [undefined,'EPERM','EACCES']){
+  let scratch:string|undefined;
+  assert.equal(await symlinksAllowed('win32',async(source,link,type)=>{
+   scratch=dirname(link);
+   assert.equal(type,undefined);
+   assert.ok((await stat(source)).isDirectory());
+   if(code)throw Object.assign(Error('fixture failure'),{code});
+   await symlink(source,link,process.platform==='win32'?'junction':'dir');
+  }),code!=='EPERM');
+  assert.ok(scratch);
+  await assert.rejects(stat(scratch),{code:'ENOENT'});
+ }
+});
+
+test('Windows directory symlink probe records native permission',{skip:process.platform!=='win32'},async t=>{
+ const {symlinksAllowed}=await import('../src/integrations/host-setup/symlink-probe.js');
+ let attempted=false,code:string|undefined;
+ const allowed=await symlinksAllowed('win32',async (...args)=>{
+  attempted=true;
+  try{await symlink(...args);}catch(error){
+   code=(error as NodeJS.ErrnoException).code;
+   throw error;
+  }
+ });
+ assert.ok(attempted);
+ assert.equal(allowed,code!=='EPERM');
+ t.diagnostic('Directory symlink result '+(code??'created')+'; preparation route '+(allowed?'link':'install'));
+});
+
+test('OMP verifies the real Bun registry tuple only after a registry dispatch',()=>project(root=>project(async home=>{
+ const omp=await load();assert.ok(omp);
+ const rt=runtime(root,home),base=join(home,'.omp','plugins'),fixture=ompRegistryFixture();
+ const {target,bunLock,manifest}=await fixture.write(base);
+ assert.deepEqual((await omp.inspectOmp(rt,'registry-receipt')).fromRegistry,
+  {version:fixture.pin.version,integrity:fixture.pin.integrity});
+ await assert.rejects(omp.inspectOmp(rt),{code:'omp-foreign-install'});
+ await assert.rejects(omp.inspectOmp(rt,'registry-preflight'),{code:'omp-foreign-install'});
+ assert.equal((await stat(target)).isDirectory(),true);
+ const duplicate=fixture.lockText().replace('"packages": {','"packages": {}, "packages": {');
+ for(const text of [duplicate,'{"packages":',fixture.lockText(['other@'+fixture.pin.version,'',{},fixture.pin.integrity]),' '.repeat(1_048_577)]){
+  await put(bunLock,text);
+  await assert.rejects(omp.inspectOmp(rt,'registry-receipt'),{code:'omp-not-recognized-after-install'});
+ }
+ await rm(bunLock);
+ await assert.rejects(omp.inspectOmp(rt,'registry-receipt'),{code:'omp-not-recognized-after-install'});
+ await put(bunLock,fixture.lockText());
+ await put(manifest,{name:'@foreign/package',version:fixture.pin.version});
+ await assert.rejects(omp.inspectOmp(rt,'registry-receipt'),{code:'omp-not-recognized-after-install'});
+ await put(join(base,'omp-plugins.lock.json'),{plugins:{[id]:{enabled:false,version:fixture.pin.version}}});
+ await assert.rejects(omp.inspectOmp(rt,'registry-receipt'),{code:'host-plugin-disabled'});
 })));

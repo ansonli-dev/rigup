@@ -6,6 +6,7 @@ import {acquireLock,defaultStateRoot,type ProjectLock} from '../../installer/loc
 import {protectedOperationCommand,hostWriterPath,nativeWriterStateRoot,readHostWriter,writerAlive} from '../../installer/operations.js';
 import {isRecord,saveDurable} from '../../private-record.js';
 import {syncDirectory} from '../../sync-directory.js';
+import {makeReason,type ReasonInput} from '../../i18n/reasons.js';
 import {NativeBlocker} from './blockers.js';
 import {absoluteHostPath,canonicalHostDirectory,nativeJson,withinPath} from './host-files.js';
 
@@ -74,11 +75,11 @@ export async function inspectHostLocations(root:string,host:SetupHost,input:Nati
    const path=await canonicalHostDirectory(value);
    if(withinPath(root,path))throw Error('inside project');
    return path;
-  }catch{throw new NativeBlocker('prerequisite-unverified',key+' must point to a directory outside the project.',{evidence:[absoluteHostPath(value)]});}
+  }catch{throw new NativeBlocker('prerequisite-unverified',makeReason('reason.native.outsideProject',{key}),{evidence:[absoluteHostPath(value)]});}
  };
  const home=await externalDirectory('HOME',nativeHome(input,env));
  if(!await stat(home).then(info=>info.isDirectory(),()=>false))
-  throw new NativeBlocker('prerequisite-unverified','HOME is not an available directory.',{evidence:[home]});
+  throw new NativeBlocker('prerequisite-unverified',makeReason('reason.native.homeUnavailable'),{evidence:[home]});
  env.HOME=home;
  if(windows){
   env.USERPROFILE=home;
@@ -89,13 +90,13 @@ export async function inspectHostLocations(root:string,host:SetupHost,input:Nati
   if(env[key])env[key]=await externalDirectory(key,env[key]!);
  }
  if(host==='omp'){
-  const invalid=(key:string,reason:string)=>new NativeBlocker('prerequisite-unverified',key+' '+reason,{evidence:['<environment> ('+key+')']});
+  const invalid=(key:string,reason:ReasonInput)=>new NativeBlocker('prerequisite-unverified',reason,{evidence:['<environment> ('+key+')']});
   if(env.PI_CONFIG_DIR&&(!localConfig.test(env.PI_CONFIG_DIR)||specialName.test(env.PI_CONFIG_DIR)||env.PI_CONFIG_DIR.endsWith('.')))
-   throw invalid('PI_CONFIG_DIR','must be a supported directory name under HOME.');
+   throw invalid('PI_CONFIG_DIR',makeReason('reason.native.piConfig'));
   for(const key of ['OMP_PROFILE','PI_PROFILE']){
    if(env[key]===undefined)continue;
    const name=env[key]!.trim();
-   if(name&&(!validProfile.test(name)||specialName.test(name)||name.endsWith('.')))throw invalid(key,'does not select a supported OMP profile.');
+   if(name&&(!validProfile.test(name)||specialName.test(name)||name.endsWith('.')))throw invalid(key,makeReason('reason.native.ompProfile',{key}));
    env[key]=name;
   }
  }
@@ -111,13 +112,43 @@ export async function inspectHostRuntime(root:string,host:SetupHost,input:Native
  const locations=await inspectHostLocations(root,host,input);
  const paths=pathEntries(locations.root,locations.env.PATH??'');
  const program=await nativeProgram(host,locations.root,paths);
- if(!program)throw new NativeBlocker('cli-not-runnable',host+' was not found on PATH; install the CLI and retry.',{evidence:paths});
+ if(!program)throw new NativeBlocker('cli-not-runnable',makeReason('reason.native.cliMissing',{host}),{evidence:paths});
  return {...locations,program};
 }
 export type HostRuntime=Awaited<ReturnType<typeof inspectHostRuntime>>;
 
 export function nativeChildEnv(runtime:HostRuntime,privateTemp:string):NodeJS.ProcessEnv{
  return {...runtime.env,...(windows?{TEMP:privateTemp,TMP:privateTemp}:{TMPDIR:privateTemp})};
+}
+
+const stderrLimit=8_192;
+const errnoSummary={
+ EPERM:'Operation not permitted.',
+ EACCES:'Permission denied.',
+ ENOENT:'A required file or executable was missing.',
+ ENOSPC:'The filesystem is out of space.',
+ EROFS:'The destination is read-only.',
+ EINTEGRITY:'Package integrity verification failed.',
+ ECONNREFUSED:'The network connection was refused.',
+ ECONNRESET:'The network connection was reset.',
+ ENOTFOUND:'The network host could not be resolved.',
+ ETIMEDOUT:'The network request timed out.',
+};
+const knownErrno=new RegExp('\\b('+Object.keys(errnoSummary).join('|')+')\\b');
+
+export function summarizeNativeStderr(stderr?:Buffer|string){
+ if(!stderr?.length)return;
+ const bytes=typeof stderr==='string'?Buffer.from(stderr.slice(-stderrLimit)):stderr;
+ const text=bytes.subarray(-stderrLimit).toString('utf8').trim();
+ if(!text)return;
+ // Emit only fixed messages. Host output can contain credentials and paths.
+ const symlink=/\b(EPERM|EACCES)\b[^\r\n]*\bsymlink\b/i.exec(text);
+ if(symlink)return symlink[1].toUpperCase()+': permission denied while creating a symbolic link.';
+ const errno=knownErrno.exec(text)?.[1] as keyof typeof errnoSummary|undefined;
+ if(errno)return errno+': '+errnoSummary[errno];
+ if(/\bauthentication failed\b|\bcould not read username\b|\bpermission denied \(publickey\)/i.test(text))
+  return 'Git authentication failed.';
+ return 'The CLI reported an unrecognized error on stderr.';
 }
 
 export async function withHostWriter<T>(
@@ -138,8 +169,14 @@ export async function withHostWriter<T>(
 
  async function run(command:HostCommand,cwd:string,timeoutMs:number,recheck:()=>Promise<string|undefined>,capture?: (chunk:Buffer)=>void){
   let code:number|null=null,cancelled=false,dispatched=false;
+  let stderr=Buffer.alloc(0);
   const result=await protectedOperationCommand(command,cwd,Math.min(timeoutMs,900_000),{
    signal,launcher:{cwd:resource.stateRoot,env:command.env},stdout:capture,
+   stderr:chunk=>{
+    const tail=chunk.subarray(-stderrLimit);
+    const keep=stderrLimit-tail.length;
+    stderr=Buffer.concat([stderr.subarray(Math.max(0,stderr.length-keep)),tail]);
+   },
    markDispatching:async identity=>{await saveDurable(record,JSON.stringify({root:resource.root,host,identity}));},
    registryPending:async()=>{
     let blocked:string|undefined;
@@ -153,6 +190,7 @@ export async function withHostWriter<T>(
     return {status:exit===0&&!interrupted?'done':'failed',message:'Native command exited'};
    },
   });
-  return {code,cancelled:cancelled||!dispatched&&signal?.aborted===true,dispatched,blocked:result.status==='pending'?result.message:undefined};
+  return {code,cancelled:cancelled||!dispatched&&signal?.aborted===true,dispatched,
+   blocked:result.status==='pending'?result.message:undefined,stderrSummary:summarizeNativeStderr(stderr)};
  }
 }

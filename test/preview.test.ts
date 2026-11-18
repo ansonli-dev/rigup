@@ -3,6 +3,7 @@ import {project} from './helpers.js';import {mkdir,writeFile,readFile,symlink} f
 import {preview} from '../src/installer/preview.js';import {ownedContent,replaceOwned,targetPath} from '../src/installer/ownership.js';
 import {doctor} from '../src/installer/doctor.js';
 import {createCliOutput} from '../src/cli-output.js';
+import {withLocale} from '../src/i18n/index.js';
 import {join} from 'node:path';
 import type {SetupPlan,ManagedAsset} from '../src/types.js';import {digest} from '../src/analyzer/evidence.js';
 function plan(root:string,target='owned.md',content='next'):SetupPlan{return {root,fingerprint:'source',options:{agents:[],backend:'host'},assets:[{logicalId:'a',target,content,ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],dispositions:[],operations:[],warnings:[],requirements:[],versions:{}};}
@@ -304,6 +305,14 @@ test('harness seeds customer pages without exposing draft evidence',()=>fixture(
  const details=await readFile(display.state.details!,'utf8');
  assert.ok(details.includes('create '+document!.target));
  assert.doesNotMatch(details,/status: draft/);
+ const stored=await loadPreview(review.previewId,cache);
+ assert.equal(stored.preview.previewId,review.previewId);
+ assert.equal(stored.preview.projectDocuments?.[0].reason,'Record the remaining decisions for this topic and scope');
+ await withLocale('zh-CN',()=>display.presentation.preview(stored,{restored:true}));
+ const localized=await readFile(display.state.details!,'utf8');
+ assert.ok(localized.includes('创建 '+document!.target));
+ assert.match(localized,/记录此主题和范围下仍需决定的事项/);
+ assert.doesNotMatch(localized,/Record the remaining decisions/);
  const installed=await apply(review.previewId,{cacheRoot:cache,stateRoot:state});
  assert.ok(installed.written.includes(document!.target));
  const manifest=(await loadManifest(root))!;

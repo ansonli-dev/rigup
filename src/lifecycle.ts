@@ -10,7 +10,7 @@ import {quoteShell as quote} from './shell-command.js';
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
-import type {SetupOptions,CheckKind,SetupPlan} from './types.js';
+import type {SetupOptions,CheckKind,ProviderEnvImport,SetupPlan,SetupRequirement} from './types.js';
 import type {AnalysisBackend,ResearchResult} from './analyzer/backend.js';
 import {scanRepository,repositoryReader} from './analyzer/repository.js';
 import {hostBackend} from './analyzer/host.js';
@@ -28,19 +28,22 @@ import {privateDirectory,signature,readCache,saveCache} from './generator/cache.
 import {applyRecordPath,loadManifest,readApplyRecord,sourceReview} from './installer/baseline.js';
 import {acquireLock,defaultStateRoot} from './installer/lock.js';
 import {assertNoUnknownWriters} from './installer/operations.js';
-import {approvalInputChange,preview,loadPreview,restoredReviewMatches,type Preview,type PreviewData} from './installer/preview.js';
+import {prepareClaimPlan} from './installer/claim.js';
+import {approvalInputChange,preview,previewReasonDetails,loadPreview,restoredReviewMatches,type Preview,type PreviewData} from './installer/preview.js';
 import {sessionReloadNotice} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
-import {apply,interruptedApplyId,interruptedInstallApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
+import {apply,interruptedApplyId,interruptedInstallApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type ApplyDependencies,type CheckResult,type InstallReport} from './installer/apply.js';
 import {essentialEnvironment,runtimeEnvironment,runtimeSetupSummary} from './runtime-inputs.js';
 import {prepareProjectToolOperations} from './integrations/registry.js';
+import {nativePreparationCommand} from './integrations/host-setup/manual.js';
 import {inspectOpenSpecForSetup,interruptedOpenSpecPreparation,type OpenSpecRuntimeIdentity} from './integrations/sdd/openspec-setup.js';
 import {openspecPreparationCommand} from './integrations/sdd/openspec.js';
 import type {NpmView} from './integrations/tools/npm-resolution.js';
 import type {LifecyclePresentation} from './cli-output.js';
-export interface LifecycleFlags {globalTools?:('openwiki'|'codegraph')[];deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
-export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;confirmPreview?:(preview:Preview)=>Promise<'install'|'save'|'cancel'>;report?:(value:Record<string,unknown>)=>void;researchSessionId?:string;expectedFingerprint?:string;npmView?:NpmView;nativeSetup?:import('./integrations/host-setup/index.js').NativeSetupServices;presentation?:LifecyclePresentation}
+import {makeReason,nextStepReasonDetail,ReasonError,reasonDetail,reasonFallback,renderReason,type ReasonedReport} from './i18n/reasons.js';
+export interface LifecycleFlags {providerEnvImport?:ProviderEnvImport;globalTools?:('openwiki'|'codegraph')[];deferResearch?:boolean;foundationOnly?:boolean;dryRun?:boolean;yes?:boolean;review?:boolean;response?:string;request?:string;sessionsEnded?:boolean;resume?:boolean;continuation?:string;retireIds?:string[];runChecks?:CheckKind[];configure?:boolean;researchTokens?:number}
+export interface LifecycleServices {backend?:AnalysisBackend;credentials?:{apiKey?:string;model?:string};apiKeyEnvOverride?:string;provider?:ResearchProvider;isTTY?:boolean;clock?:()=>number;cacheRoot?:string;stateRoot?:string;signal?:AbortSignal;runChecks?:()=>Promise<CheckResult[]>;onProviderImport?:ApplyDependencies['onProviderImport'];confirmPreview?:(preview:Preview)=>Promise<'install'|'save'|'cancel'>;report?:(value:ReasonedReport)=>void;researchSessionId?:string;expectedFingerprint?:string;npmView?:NpmView;nativeSetup?:import('./integrations/host-setup/index.js').NativeSetupServices;presentation?:LifecyclePresentation}
 interface Run {
  root:string;options:SetupOptions;effectiveModel?:SetupOptions['model'];mode:LifecycleFlags;runId:string;research?:ResearchResult;
  researchTokens?:number;spent:{calls:number;tokens:number|'unknown'};consent:string;versions?:SetupPlan['versions'];
@@ -53,9 +56,34 @@ async function readRun(path:string,root:string,consent:string):Promise<Run|undef
  if(run.researchTokens!==undefined&&(!Number.isSafeInteger(run.researchTokens)||run.researchTokens<1))throw Error('Durable research token limit invalid; reconciliation required');
  return run;
 }
+export async function executeProjectClaim(root:string,options:SetupOptions,configDigests:Record<string,string>,flags:Pick<LifecycleFlags,'dryRun'|'resume'>,
+ write:(text:string)=>void,services:LifecycleServices):Promise<number>{
+ const lock=await acquireLock(root,{stateRoot:services.stateRoot,recover:flags.resume});
+ try{
+  const pendingOpenSpec=await interruptedOpenSpecPreparation(root,lock.stateRoot);
+  const interrupted=await interruptedApplyId(root,lock.stateRoot);
+  if(pendingOpenSpec||interrupted){
+   const nextCommand=pendingOpenSpec?.nextCommand??'rigup update '+quote(root)+' --resume --review';
+   const pending=pendingOpenSpec?.requirements??['An approved installation was interrupted. Review the saved preview before resuming.'];
+   services.report?.({phase:'preflight',installStatus:'pending',nextCommand,pending});
+   return 3;
+  }
+  await assertNoUnknownWriters(root,lock.stateRoot);
+  if(services.signal?.aborted)return 130;
+  const cacheRoot=join(services.cacheRoot??join(homedir(),'.cache','rigup'),'previews');
+  const result=await preview(await prepareClaimPlan(root,options,configDigests),[],{cacheRoot,stateRoot:lock.stateRoot});
+  const nextCommand=result.executable&&!flags.dryRun?'rigup update '+quote(root)+' --apply '+result.previewId:null;
+  if(services.presentation)await services.presentation.preview(await loadPreview(result.previewId,cacheRoot));
+  else write(t('lifecycle.preview',{id:result.previewId})+'\n');
+  services.report?.({phase:nextCommand?'handoff':'preview',installStatus:nextCommand?'pending':result.executable?'not-installed':'failed',...result,nextCommand});
+  return result.executable?flags.dryRun?0:3:1;
+ }finally{await lock.release();}
+}
+
 export async function executeLifecycle(root:string,options:SetupOptions,flags:LifecycleFlags,write:(s:string)=>void,services:LifecycleServices={}):Promise<number>{
  const display=services.presentation,notice=display?.notice??write;
- const runtimeSetup=await runtimeSetupSummary(root,options);
+ const {providerEnvImport}=flags;
+ const runtimeSetup=await runtimeSetupSummary(root,options,{providerEnvImport});
  const report=services.report;
  services={...services,report:value=>report?.({runtimeSetup,...value})};
  if(!options.agents.length){notice(t('cli.selectAgents')+'\n');services.report?.({phase:'preflight',installStatus:'pending',requiredInput:[{field:'agents',sources:['project configuration','selected profile','CLI overrides'],provide:'--agents codex (or another supported host)'}]});return 3;}
@@ -76,22 +104,23 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  const handoff=async(result:Preview,previouslyApproved=false):Promise<3|130|undefined>=>{
   const choice=review?'save':previouslyApproved?'install':await services.confirmPreview?.(result)??'install';
   if(choice==='cancel'||services.signal?.aborted)return 130;
-  if(choice==='install'){
-   const reload=await sessionReloadNotice(root,flags.sessionsEnded);
-   if(reload)write(t('cli.restartHost')+'\n');
-   return;
-  }
+  if(choice==='install')return;
   const nextCommand='rigup update '+quote(root)+' --apply '+result.previewId+(flags.resume?' --resume':'');
-  services.report?.({phase:'handoff',installStatus:'pending',...result,pending:['Apply the saved preview'],nextCommand});
+  const reason=makeReason('cli.applySavedPreview');
+  services.report?.({phase:'handoff',installStatus:'pending',...result,pending:[reason.fallback],nextCommand,[reasonDetail]:reason});
   notice(t('cli.savedPreview')+'\n'+nextCommand+'\n');return 3;
+ };
+ const adviseCompletedApply=async(installed:InstallReport)=>{
+  if(!display&&installed.status==='complete'&&
+     await sessionReloadNotice(root,flags.sessionsEnded).catch(()=>undefined))write(t('cli.restartHost')+'\n');
  };
 
  try {
   if(options.sdd==='openspec'){
    const pending=await interruptedOpenSpecPreparation(root,lock.stateRoot);
    if(pending){
-    services.report?.({phase:'preflight',installStatus:'pending',reason:'openspec-preparation',executable:false,pending:pending.requirements,nextCommand:pending.nextCommand});
-    notice(pending.requirements.join('\n')+'\n'+pending.nextCommand+'\n');return 3;
+    services.report?.({phase:'preflight',installStatus:'pending',reason:'openspec-preparation',executable:false,pending:pending.requirements,nextCommand:pending.nextCommand,[reasonDetail]:pending.requirementReasons[0]});
+    notice(pending.requirementReasons.map(reason=>renderReason(reason)).join('\n')+'\n'+pending.nextCommand+'\n');return 3;
    }
   }
   await assertNoUnknownWriters(root,lock.stateRoot);
@@ -99,8 +128,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const protectedApply=seedApply??await interruptedInstallApplyId(root,lock.stateRoot);
   if(protectedApply&&(!flags.resume||flags.continuation||flags.researchTokens!==undefined||services.researchSessionId)){
    const nextCommand='rigup update '+quote(root)+' --resume --review';
-   const message=seedApply?'Reconcile the interrupted customer document creation using the original approval.':'Resume the interrupted tool installation using the original approval.';
-   services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId:protectedApply,pending:[message],nextCommand});
+   const reason=makeReason(seedApply?'cli.interruptedSeed':'cli.interruptedTool');
+   services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId:protectedApply,pending:[reason.fallback],nextCommand,[reasonDetail]:reason});
    notice(t(seedApply?'cli.interruptedSeed':'cli.interruptedTool')+'\n'+nextCommand+'\n');
    return 3;
   }
@@ -109,9 +138,9 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(flags.continuation||flags.researchTokens!==undefined){
    const interrupted=await interruptedApplyId(root,lock.stateRoot);
    if(interrupted){
-    const message='Finish or reconcile interrupted installation '+interrupted+' with its original approval before continuing research';
+    const reason=makeReason('cli.interruptedResearch',{id:interrupted});
     emit({...active,status:'waiting',requiresUserAction:true,waiting:'interrupted installation',next:'reconcile the approved apply'});
-    services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId:interrupted,pending:[message]});
+    services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId:interrupted,pending:[reason.fallback],[reasonDetail]:reason});
     notice(t('cli.interruptedResearch',{id:interrupted})+'\n');return 3;
    }
   }else if(flags.resume){
@@ -119,7 +148,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const interrupted=await restoreInterruptedPreview(root,options,previews,lock.stateRoot);if(interrupted){
    const data=await loadPreview(interrupted,previews);
    const restored=data.preview;
-   await display?.preview(data);
+   await display?.preview(data,{livePreview:restored,restored:true});
    if(flags.deferResearch&&restored.projectRules!=='pending')throw Error('Interrupted preview belongs to full setup; resume without --defer-research');
    if(restored.projectRules==='pending'||(await loadManifest(root))?.projectRules==='pending')review=true;
    if(flags.dryRun){
@@ -129,10 +158,11 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    }
    const decision=await handoff(restored,true);if(decision)return decision;
    display?.applying(interrupted);
-   const installed=await apply(interrupted,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,recover:true,signal:services.signal,onProgress:emit,runChecks:services.runChecks});
+   const installed=await apply(interrupted,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,recover:true,signal:services.signal,onProgress:emit,runChecks:services.runChecks,onProviderImport:services.onProviderImport});
    services.report?.({phase:'apply',installStatus:installed.status,...installed});
-   if(installed.nextCommand)notice((installed.researchNextStep??t('lifecycle.rulesPending'))+'\n'+installed.nextCommand+'\n');
+   if(installed.nextCommand)notice((installed.pending?.[0]??installed.researchNextStep??t('lifecycle.rulesPending'))+'\n'+installed.nextCommand+'\n');
    notice(t('lifecycle.resumed',{status:t(`status.${installed.status}`)})+'\n');
+   await adviseCompletedApply(installed);
    return installed.exitCode;
   }}
   let openSpecRuntime:OpenSpecRuntimeIdentity|undefined;
@@ -147,9 +177,11 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     }
     if(!needsResearch||backendKind!=='host'||installed){
      const nextCommand=native.steps.length?native.steps.join(' && '):null;
-     for(const problem of native.requirements)notice(t('openspec.prefix',{requirement:problem})+'\n');
+     for(const problem of native.requirementReasons)notice(t('openspec.prefix',{requirement:renderReason(problem)})+'\n');
      notice(t('openspec.setupRequired')+'\n'+(nextCommand?nextCommand+'\n':''));
-     services.report?.({phase:'preflight',installStatus:'pending',reason:'openspec-preparation',executable:false,pending:native.requirements,requiredInput:native.requirements,nextCommand});return 3;
+     services.report?.({phase:'preflight',installStatus:'pending',reason:'openspec-preparation',executable:false,pending:native.requirements,requiredInput:native.requirements,nextCommand,[reasonDetail]:native.requirementReasons[0]});
+     if(native.steps.length)await display?.openSpecPending?.(native,options.agents);
+     return 3;
     }
     openSpecPending=native;
    }
@@ -157,7 +189,8 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   }
   const providerKind=services.provider?.identity.provider??options.model?.provider??'anthropic';
   const openAI=providerKind==='openai-compatible';
-  const environment=backendKind==='native'&&needsResearch?await runtimeEnvironment(root,options,'provider'):essentialEnvironment();
+  const apiKeyEnvOverride=services.apiKeyEnvOverride??(providerEnvImport?.explicitApiKeyEnv?providerEnvImport.apiKeyEnv:undefined);
+  const environment=backendKind==='native'&&needsResearch?await runtimeEnvironment(root,options,'provider',undefined,apiKeyEnvOverride):essentialEnvironment();
   const apiKeyEnv=services.provider?.identity.apiKeyEnv??options.model?.apiKeyEnv??(openAI?'OPENAI_API_KEY':'ANTHROPIC_API_KEY');
   const model=services.provider?.identity.model??options.model?.model??services.credentials?.model??environment.RIGUP_MODEL_ID??environment[openAI?'OPENAI_MODEL':'ANTHROPIC_MODEL'];
   const apiKey=services.provider?.apiKey??services.credentials?.apiKey??environment[apiKeyEnv];
@@ -172,14 +205,20 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(flags.deferResearch&&old)throw Error('Deferred research is available for initial setup only');
   const authorityReview=await sourceReview(root,old,lock.stateRoot);
   if(old?.projectRules==='pending'||authorityReview)review=true;
-  const prepared=await prepareGeneration(profile,options);
+  const prepared=await prepareGeneration(profile,options,providerEnvImport);
   if(openSpecRuntime?.scope==='project')prepared.integration.openSpecProjectCli=true;
   const recovery=prepared.integration.requirements.find(requirement=>requirement.nextCommand);
+  const presentNativeGate=(requirement:SetupRequirement|undefined)=>{
+   if(requirement?.integrationId==='superpowers'&&requirement.kind==='sdd-binding'&&requirement.nextCommand){
+    display?.superpowersGate?.(requirement,requirement.nextCommand===nativePreparationCommand(root,options.agents));
+   }
+  };
   const nativeSetup=recovery?.nextCommand?{nativeSetupCommand:recovery.nextCommand,nativeRequirements:prepared.integration.requirements}:{};
   if(needsResearch&&!services.backend&&backendKind!=='host'&&recovery){
    emit({...active,status:'waiting',requiresUserAction:true,waiting:'native workflow setup',next:recovery.nextCommand});
-   services.report?.({phase:'preflight',installStatus:'pending',pending:prepared.integration.requirements,nextCommand:recovery.nextCommand});
-   notice(t('lifecycle.blocked',{reason:recovery.reason})+'\n'+t('lifecycle.initialize')+'\n'+recovery.nextCommand+'\n');return 3;
+   services.report?.({phase:'preflight',installStatus:'pending',pending:prepared.integration.requirements,nextCommand:recovery.nextCommand,[reasonDetail]:prepared.integration.requirements[0]?.[reasonDetail]});
+   presentNativeGate(recovery);
+   notice(t('lifecycle.blocked',{reason:renderReason(recovery[reasonDetail]??recovery.reason)})+'\n'+t('lifecycle.initialize')+'\n'+recovery.nextCommand+'\n');return 3;
   }
   if(needsResearch&&backendKind==='host'&&recovery)notice(t('lifecycle.initializeBeforeApply')+'\n'+recovery.nextCommand+'\n');
   let plan:SetupPlan;
@@ -214,7 +253,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const authority=sourceGuidance(profile,options);
    const scopedAuthority=authority.length?{sourceGuidance:authority}:{};
    const reviewRun=review||!!services.confirmPreview;
-   const input={root,options,globalTools:flags.globalTools??[],effectiveModel,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,researchSessionId};
+   const input={root,options,globalTools:flags.globalTools??[],effectiveModel,retireIds:flags.retireIds??[],runChecks:flags.runChecks??[],configure:!!flags.configure,researchSessionId,providerEnvImport};
    const versions={prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
    const consent=signature(input);
    const savedRun=async(id:string)=>await readRun(join(runs,id+'.json'),root,id)??await readRun(join(base,'runs',id+'.json'),root,id);
@@ -224,10 +263,14 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     signature(prior.effectiveModel??null)===signature(effectiveModel??null)&&
     signature(prior.mode.globalTools??[])===signature(input.globalTools)&&
     signature(prior.mode.retireIds??[])===signature(input.retireIds)&&signature(prior.mode.runChecks??[])===signature(input.runChecks)&&
-    !!prior.mode.configure===input.configure;
+    !!prior.mode.configure===input.configure&&
+    signature(prior.mode.providerEnvImport??null)===signature(providerEnvImport??null);
    if(flags.continuation){
     const original=await savedRun(flags.continuation);
-    if(!original||!matchesSelection(original))throw Error('continuation input/configuration changed; restart preparation');
+    // Older unmarked runs can use a historical ID. A saved import grant must match the supplied ID.
+    if(!original||!matchesSelection(original)||(original.mode.providerEnvImport!==undefined&&consent!==flags.continuation)){
+     throw Error('continuation input/configuration changed; restart preparation');
+    }
     if(!run||run.runId!==original.runId)run=original;
    }
    if(!run&&flags.resume&&needsResearch&&!services.researchSessionId){
@@ -246,7 +289,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
     const applied=await readApplyRecord(applyRecordPath(root,lock.stateRoot));
     if(applied?.previewId===run.completed.previewId&&applied.installId===old?.installId)run=undefined;
    }
-   if(!run)run={root,options,effectiveModel,mode:{globalTools:flags.globalTools,dryRun:flags.dryRun,yes:!reviewRun&&flags.yes,review:reviewRun,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent,versions};
+   if(!run)run={root,options,effectiveModel,mode:{providerEnvImport,globalTools:flags.globalTools,dryRun:flags.dryRun,yes:!reviewRun&&flags.yes,review:reviewRun,retireIds:flags.retireIds,runChecks:flags.runChecks,configure:flags.configure},runId:randomUUID(),spent:{calls:0,tokens:0},consent,versions};
    if(!matchesSelection(run))throw Error('durable research options changed; reconciliation required');
    run.consent=consent;
    if(flags.researchTokens!==undefined)run.researchTokens=flags.researchTokens;
@@ -301,14 +344,15 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(oldConfiguration)plan.dispositions.push({logicalId:oldConfiguration.logicalId,action:flags.configure?'update':'retain',reason:flags.configure?'Explicit configuration change':'Preserve configuration ownership and original baseline'});
   const resolutions:import('./installer/preview.js').PreviewResolution[]=[];
   if(flags.configure){const candidate=await configurationCandidate(root,options);plan.assets.push(candidate);const raw=await readTarget(root,candidate.target);resolutions.push({target:candidate.target,selector:candidate.ownership,observedDigest:raw?digest(raw):absentDigest,action:'replace'});}
-  for(const id of flags.retireIds??[]){const disposition=plan.dispositions.find(d=>d.logicalId===id);if(!disposition)throw new Error('retirement id not in old inventory');if(plan.assets.some(a=>a.logicalId===id))throw new Error('retirement contradicts selected capability');disposition.action='retire';disposition.reason='Explicit retirement authorized before research';}
+  for(const id of flags.retireIds??[]){const disposition=plan.dispositions.find(d=>d.logicalId===id);if(!disposition)throw new ReasonError(makeReason('reason.cli.retireMissing',{id},'retirement id not in old inventory'));if(plan.assets.some(a=>a.logicalId===id))throw new ReasonError(makeReason('reason.cli.retireSelected',{id},'retirement contradicts selected capability'));disposition.action='retire';disposition.reason='Explicit retirement authorized before research';}
   for(const d of plan.dispositions)if(d.action==='retire'&&!flags.retireIds?.includes(d.logicalId))plan.requirements.push({integrationId:d.logicalId,reason:'Retirement is outside current consent; rerun with --retire '+d.logicalId});
   emit({stage:'generation',unit:'assets',task:'fixed assembly',completed:plan.assets.length,total:plan.assets.length,status:'complete',next:'preview'});emit({stage:'preview',completed:0,waiting:'ownership and virtual-tree checks'});
   if(openSpecRuntime)plan.openSpecRuntime=openSpecRuntime;
   if(openSpecPending){
    const nextCommand=openspecPreparationCommand(root,options.agents,openSpecPending.scope);
-   plan.requirements.push(...openSpecPending.requirements.map(reason=>({integrationId:'openspec',kind:'sdd-binding' as const,reason,nextCommand})));
+   plan.requirements.push(...openSpecPending.requirementReasons.map(reason=>({integrationId:'openspec',kind:'sdd-binding' as const,reason:reasonFallback(reason),[reasonDetail]:reason,nextCommand})));
   }
+  if(providerEnvImport)plan.providerEnvImport=providerEnvImport;
   plan.runChecks=flags.runChecks??[];
   if(authorityReview&&profile.truncated)plan.projectRules='pending';
   plan=await prepareProjectToolOperations(plan,profile,{stateRoot:lock.stateRoot,signal:services.signal,view:services.npmView,globalTools:flags.globalTools});
@@ -321,22 +365,27 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    if(options.projectRules&&result.projectRules==='pending'){
     const message='Open the project in a selected agent and call rigup_begin, or configure a CLI provider and retry with --review.';
     services.report?.({...summary,phase:'research',installStatus:'pending',researchNextStep:message});
-    notice(t('lifecycle.rulesNext')+'\n');
+    notice(t('lifecycle.rulesNext',{agentStep:t('cli.openAgent')})+'\n');
     return 3;
    }
-   services.report?.({...summary,phase:'preview',installStatus:'up-to-date',runtimeSetup:await runtimeSetupSummary(root,options,{configured:['*']})});
+   services.report?.({...summary,phase:'preview',installStatus:'up-to-date',runtimeSetup:await runtimeSetupSummary(root,options,{configured:['*'],providerEnvImport})});
    notice(t('lifecycle.upToDate')+'\n');
    return 0;
   }
   const conflicts=result.items.filter(i=>i.action==='conflict');
   const failed=!result.executable&&(conflicts.length>0||!plan.requirements.length);
   const reviewCommand=conflicts.length?'rigup update '+quote(root)+' --review':undefined;
-  const nextCommand=reviewCommand??recovery?.nextCommand??plan.requirements.find(requirement=>requirement.nextCommand)?.nextCommand;
+  const nextRequirement=recovery??plan.requirements.find(requirement=>requirement.nextCommand);
+  const nextCommand=reviewCommand??nextRequirement?.nextCommand;
+  const blockerReasons=result[previewReasonDetails]?.blockers??result.blockers;
   const installStatus=conflicts.length?'conflict':failed?'failed':result.executable?'not-installed':'pending';
-  services.report?.({phase:'preview',installStatus,...result,pending:plan.requirements,conflicts,nextCommand:nextCommand??null,...(failed?{error:result.blockers.join('\n')}:{})});
-  if(display)await display.preview(await loadPreview(result.previewId,previews));
+  services.report?.({phase:'preview',installStatus,...result,pending:plan.requirements,conflicts,nextCommand:nextCommand??null,
+   [reasonDetail]:blockerReasons[0],[nextStepReasonDetail]:reviewCommand?undefined:nextRequirement?.[nextStepReasonDetail],
+   ...(failed?{error:result.blockers.join('\n')}:{})});
+  if(!result.executable&&!failed)presentNativeGate(nextRequirement);
+  if(display)await display.preview(await loadPreview(result.previewId,previews),{livePreview:result});
   else notice(t('lifecycle.preview',{id:result.previewId})+'\n');
-  for(const blocker of result.blockers)notice(t('lifecycle.blocked',{reason:blocker})+'\n');
+  for(const blocker of blockerReasons)notice(t('lifecycle.blocked',{reason:renderReason(blocker)})+'\n');
   for(const requirement of plan.requirements)if(requirement.nextCommand)notice(t('lifecycle.initialize')+'\n'+requirement.nextCommand+'\n');
   if(reviewCommand)notice(t('lifecycle.resolveConflict')+'\n'+reviewCommand+'\n');
   if(!result.executable){
@@ -347,11 +396,13 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   if(flags.dryRun)return 0;
   const decision=await handoff(result);if(decision)return decision;
   display?.applying(result.previewId);
-  const installed=await apply(result.previewId,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,onProgress:emit,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});
+  const installed=await apply(result.previewId,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,onProgress:emit,recover:flags.resume,signal:services.signal,runChecks:services.runChecks,onProviderImport:services.onProviderImport});
   services.report?.({phase:'apply',installStatus:installed.status,...installed});
   for(const warning of installed.warnings)notice(t('lifecycle.pendingNote',{warning})+'\n');
   if(installed.nextCommand)notice((installed.researchNextStep??t('cli.rulesAvailable'))+'\n'+installed.nextCommand+'\n');
-  notice(t('lifecycle.installSummary',{status:t(`status.${installed.status}`),count:installed.written.length,checks:installed.checks.map(c=>c.name+':'+t(`status.${c.status}`)).join(', ')})+'\n');return installed.exitCode;
+  notice(t('lifecycle.installSummary',{status:t(`status.${installed.status}`),count:installed.written.length,checks:installed.checks.map(c=>c.name+':'+t(`status.${c.status}`)).join(', ')})+'\n');
+  await adviseCompletedApply(installed);
+  return installed.exitCode;
  }catch(error){
   if(services.signal?.aborted){emit({...active,status:'waiting',waiting:'cancelled'});return 130;}
   if(error instanceof CodexTokenLimit&&researchResumeId){
@@ -365,7 +416,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
 }
 
 export async function loadContinuation(root:string,id:string,services:LifecycleServices={}):Promise<{options:SetupOptions;flags:LifecycleFlags}>{
- if(!/^[a-f0-9]{64}$/.test(id))throw new Error('continuation id invalid');
+ if(!/^[a-f0-9]{64}$/.test(id))throw new ReasonError(makeReason('reason.cli.continueId',undefined,'continuation id invalid'));
  const state=await privateDirectory(services.stateRoot??defaultStateRoot(),root);const base=await privateDirectory(services.cacheRoot??join(homedir(),'.cache','rigup'),root);const run=await readRun(join(state,'runs',id+'.json'),root,id)??await readRun(join(base,'runs',id+'.json'),root,id);
- if(!run||run.root!==root||run.consent!==id)throw new Error('continuation missing; restart preparation');return {options:run.options,flags:{...run.mode,continuation:id}};
+ if(!run||run.root!==root||run.consent!==id)throw new ReasonError(makeReason('reason.cli.continueMissing',undefined,'continuation missing; restart preparation'));return {options:run.options,flags:{...run.mode,continuation:id}};
 }

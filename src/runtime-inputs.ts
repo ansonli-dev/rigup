@@ -1,7 +1,8 @@
+import {makeReason,ReasonError,reasonDetail,reasonFallback,renderReason,type ReasonInput,type WithReasonDetail} from './i18n/reasons.js';
 import {artifactLocale,t,translate,type MessageKey,type MessageParams} from './i18n/index.js';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import type {SetupOptions} from './types.js';
+import type {ProviderEnvImport,SetupOptions} from './types.js';
 import {effectiveNpmRegistry,normalizeNpmRegistry} from './integrations/tools/npm-resolution.js';
 import {validateTrackerURL} from './analyzer/provider-url.js';
 import {researchProviderMetadata} from './research/provider-settings.js';
@@ -9,15 +10,16 @@ import {essentialEnvironment,PrivateInputWriteError,readRuntimeFile,renderRuntim
 
 type Consumer='provider'|'npm'|`customer:${string}`;
 type Source='project-file'|'calling-environment'|'configuration'|'repository-remote';
-type Evidence={configured?:string[];verified?:string[]};
-export interface RuntimeInput {name:string;capability:string;destination:string;required:boolean;state:'present'|'missing'|'optional'|'unverified';source?:Source;reason:string}
+type RuntimeInputContext={configured?:string[];verified?:string[];providerEnvImport?:ProviderEnvImport};
+export const runtimeDestination:unique symbol=Symbol('runtimeDestination');
+export interface RuntimeInput extends WithReasonDetail {[runtimeDestination]?:ReasonInput;name:string;capability:string;destination:string;required:boolean;state:'present'|'missing'|'optional'|'unverified';source?:Source;reason:string}
 export interface RuntimeSetupSummary {
  inputs:RuntimeInput[];
- template:{path:string;state:'not-needed'|'available'|'pending'|'written';needsUpdate:boolean;imported:{name:string;source:Source}[];reason?:string};
- capabilities:{capability:string;configuration:'configured'|'pending';verification:'passed'|'not-run';reason:string}[];
+ template:WithReasonDetail&{path:string;state:'not-needed'|'available'|'pending'|'written';needsUpdate:boolean;imported:{name:string;source:Source}[];reason?:string};
+ capabilities:(WithReasonDetail&{capability:string;configuration:'configured'|'pending';verification:'passed'|'not-run';reason:string})[];
  providerDiagnostic?:string;
 }
-interface Declaration {name:string;capability:string;destination:string;required:boolean;reason:string;comment:string;consumer?:Consumer;seed?:string;seedSource?:Source}
+interface Declaration extends WithReasonDetail {[runtimeDestination]?:ReasonInput;name:string;capability:string;destination:string;required:boolean;reason:string;comment:string;consumer?:Consumer;seed?:string;seedSource?:Source}
 type InputNote=Extract<MessageKey,`artifact.env${string}`>;
 const exec=promisify(execFile);
 const local=runtimeEnvPath;
@@ -56,24 +58,49 @@ async function remoteTarget(root:string,options:SetupOptions):Promise<{value?:st
  return targets.size===1?{value:[...targets][0],source:'repository-remote'}:{};
 }
 
-async function declarations(root:string,options:SetupOptions,file:RuntimeFile,modelOverride?:string,onProviderError?:(reason:string)=>void):Promise<Declaration[]>{
+function providerEnvironment(file:RuntimeFile,apiKeyEnvOverride?:string):NodeJS.ProcessEnv{
+ const environment={...process.env};
+ for(const name of providerVariables){const value=file.entries.get(name)?.value;if(value)environment[name]=value;}
+ if(apiKeyEnvOverride!==undefined)environment.RIGUP_API_KEY_ENV=apiKeyEnvOverride;
+ return environment;
+}
+
+export async function selectProviderEnvImport(root:string,options:SetupOptions,modelOverride?:string,apiKeyEnvOverride?:string):Promise<ProviderEnvImport|undefined>{
+ if(options.backend!=='native'&&options.projectRules!==true)return;
+ const selected=process.env.RIGUP_PROVIDER?.trim(),explicitModel=!!modelOverride?.trim();
+ if(!explicitModel&&selected!=='anthropic'&&selected!=='openai-compatible')return;
+ const file=await readRuntimeFile(root);
+ if(file.problem)return;
+ const metadata=await researchProviderMetadata(root,modelOverride,options.model,providerEnvironment(file,apiKeyEnvOverride)).catch(()=>undefined);
+ if(!metadata)return;
+ const {provider,apiKeyEnv}=metadata.identity;
+ if(explicitModel||selected===provider)return apiKeyEnvOverride===undefined?{provider,apiKeyEnv}:{provider,apiKeyEnv,explicitApiKeyEnv:true};
+}
+
+async function declarations(root:string,options:SetupOptions,file:RuntimeFile,context:{
+ modelOverride?:string;apiKeyEnvOverride?:string;onProviderError?:(reason:string)=>void;approval?:ProviderEnvImport;
+}={}):Promise<Declaration[]>{
+ const {modelOverride,apiKeyEnvOverride,onProviderError,approval}=context;
  const inputs:Declaration[]=[];
  const locale=artifactLocale(options.documentLanguage);
- const add=(name:string,capability:string,required:boolean,note:InputNote|{key:InputNote;params:MessageParams},consumer?:Consumer,destination=local,seed?:string,seedSource?:Source)=>{
+ const add=(name:string,capability:string,required:boolean,note:InputNote|{key:InputNote;params:MessageParams},consumer?:Consumer,where:ReasonInput=local,seed?:string,seedSource?:Source)=>{
+  const destination=reasonFallback(where);
   if(inputs.some(input=>input.name===name&&input.capability===capability&&input.destination===destination))return;
   const {key,params}=typeof note==='string'?{key:note,params:undefined}:note;
-  inputs.push({name,capability,required,reason:translate('en',key,params),comment:translate(locale,key,params),consumer,destination,seed,seedSource});
+  const reason=makeReason(key,params);
+  inputs.push({name,capability,required,reason:reason.fallback,[reasonDetail]:reason,[runtimeDestination]:where,
+   comment:translate(locale,key,params),consumer,destination,seed,seedSource});
  };
  for(const [name,command] of Object.entries(options.customer?.commands??{}))for(const reference of command.envRefs)
   add(reference,'customer:'+name,true,{key:'artifact.envCustomerCommand',params:{name}},`customer:${name}`);
- for(const reference of options.customer?.envRefs??[])add(reference,'customer',true,'artifact.envCustomerWorkflow',undefined,'agent host ('+options.agents.join(', ')+')');
+ for(const reference of options.customer?.envRefs??[])add(reference,'customer',true,'artifact.envCustomerWorkflow',undefined,makeReason('reason.runtime.agentDestination',{agents:options.agents.join(', ')}));
  for(const mcp of options.mcp??[]){
   const hosts=(mcp.agents??options.agents).filter(agent=>options.agents.includes(agent));
   if(hosts.length)for(const reference of [...(mcp.envRefs??[]),...(mcp.command?.envRefs??[]),...(mcp.bearerTokenEnv?[mcp.bearerTokenEnv]:[])])
-   add(reference,'mcp:'+mcp.id,true,'artifact.envMcp',undefined,'agent host ('+hosts.join(', ')+')');
+   add(reference,'mcp:'+mcp.id,true,'artifact.envMcp',undefined,makeReason('reason.runtime.agentDestination',{agents:hosts.join(', ')}));
  }
  for(const reference of options.quality?.gitlab?.openwiki?.envRefs??[])
-  add(reference,'gitlab:openwiki',true,'artifact.envCi',undefined,'GitLab CI variables');
+  add(reference,'gitlab:openwiki',true,'artifact.envCi',undefined,makeReason('reason.runtime.ciDestination'));
  const remoteCommands=['issue','mr','ci'].filter(name=>options.customer?.commands?.[name]);
  if(remoteCommands.length&&['gitlab','github'].includes(options.projectConventions?.tracker?.system??'')){
   const target=await remoteTarget(root,options);
@@ -81,8 +108,17 @@ async function declarations(root:string,options:SetupOptions,file:RuntimeFile,mo
  }
  if(options.sdd==='openspec'||options.tools?.some(tool=>tool.install))add('RIGUP_NPM_REGISTRY','npm',false,'artifact.envRegistry','npm');
  if(options.backend==='native'||options.projectRules===true){
-  const environment={...process.env};
-  for(const name of providerVariables){const value=file.entries.get(name)?.value;if(value)environment[name]=value;}
+  const environment=providerEnvironment(file,apiKeyEnvOverride);
+  if(approval){
+   const {provider,apiKeyEnv}=approval;
+   if((provider!=='anthropic'&&provider!=='openai-compatible')||typeof apiKeyEnv!=='string'||!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))return inputs;
+   const providers=[environment.RIGUP_PROVIDER?.trim(),process.env.RIGUP_PROVIDER?.trim()];
+   const projectReference=file.entries.get('RIGUP_API_KEY_ENV')?.value;
+   const references=[projectReference,approval.explicitApiKeyEnv===true?undefined:process.env.RIGUP_API_KEY_ENV];
+   if(providers.some(value=>value&&value!==provider)||references.some(value=>value&&value!==apiKeyEnv))return inputs;
+   environment.RIGUP_PROVIDER=provider;
+   environment.RIGUP_API_KEY_ENV=apiKeyEnv;
+  }
   // Only provider selection metadata is read here; values remain in this module.
   const metadata=await researchProviderMetadata(root,modelOverride,options.model,environment).catch(error=>{
    if(!onProviderError)throw error;
@@ -91,69 +127,87 @@ async function declarations(root:string,options:SetupOptions,file:RuntimeFile,mo
   if(metadata){
    const provider=metadata.identity.provider,prefix=provider==='anthropic'?'ANTHROPIC':'OPENAI';
    const key=metadata.identity.apiKeyEnv;
-   add('RIGUP_PROVIDER','provider',true,'artifact.envProvider','provider',local,provider,process.env.RIGUP_PROVIDER?'calling-environment':'configuration');
+   const seedSource=(...names:string[]):Source=>{
+    const selected=names.find(name=>environment[name]!==undefined);
+    return selected&&effective(file,selected).source==='calling-environment'?'calling-environment':'configuration';
+   };
+   add('RIGUP_PROVIDER','provider',true,'artifact.envProvider','provider',local,provider,seedSource('RIGUP_PROVIDER'));
    add(key,'provider',true,'artifact.envApiKey','provider');
-   add('RIGUP_MODEL_ID','provider',true,'artifact.envModel','provider',local,metadata.identity.model,process.env.RIGUP_MODEL_ID||process.env[prefix+'_MODEL']?'calling-environment':'configuration');
-   add('RIGUP_API_KEY_ENV','provider',false,'artifact.envKeyName','provider',local,key,process.env.RIGUP_API_KEY_ENV?'calling-environment':'configuration');
-   add('RIGUP_BASE_URL','provider',false,'artifact.envGateway','provider',local,metadata.baseURL,process.env.RIGUP_BASE_URL||process.env[prefix+'_BASE_URL']?'calling-environment':'configuration');
-   add('RIGUP_MAX_OUTPUT_TOKENS','provider',false,'artifact.envMaxTokens','provider',local,metadata.maxOutputTokens===undefined?undefined:String(metadata.maxOutputTokens),process.env.RIGUP_MAX_OUTPUT_TOKENS?'calling-environment':'configuration');
+   add('RIGUP_MODEL_ID','provider',true,'artifact.envModel','provider',local,metadata.identity.model,seedSource('RIGUP_MODEL_ID',prefix+'_MODEL'));
+   add('RIGUP_API_KEY_ENV','provider',false,'artifact.envKeyName','provider',local,key,key===process.env.RIGUP_API_KEY_ENV?seedSource('RIGUP_API_KEY_ENV'):'configuration');
+   add('RIGUP_BASE_URL','provider',false,'artifact.envGateway','provider',local,metadata.baseURL,seedSource('RIGUP_BASE_URL',prefix+'_BASE_URL'));
+   add('RIGUP_MAX_OUTPUT_TOKENS','provider',false,'artifact.envMaxTokens','provider',local,metadata.maxOutputTokens===undefined?undefined:String(metadata.maxOutputTokens),seedSource('RIGUP_MAX_OUTPUT_TOKENS'));
    for(const suffix of ['MODEL','BASE_URL'])if(effective(file,prefix+'_'+suffix).value)add(prefix+'_'+suffix,'provider',false,suffix==='MODEL'?'artifact.envProviderModel':'artifact.envProviderBaseUrl','provider');
   }
  }
  return inputs;
 }
 
-async function state(root:string,options:SetupOptions,evidence:Evidence={}){
+async function state(root:string,options:SetupOptions,context:RuntimeInputContext={}){
  let providerDiagnostic:string|undefined;
- const file=await readRuntimeFile(root),declared=await declarations(root,options,file,undefined,reason=>{providerDiagnostic=reason;});
+ const file=await readRuntimeFile(root);
+ const declared=await declarations(root,options,file,{onProviderError:reason=>{providerDiagnostic=reason;},approval:context.providerEnvImport});
  const inputs:RuntimeInput[]=declared.map(input=>{
   const {name,capability,destination,required,reason}=input;
-  if(destination!==local)return {name,capability,destination,required,reason,state:'unverified'};
-  if(file.problem)return {name,capability,destination,required,state:required?'missing':'optional',reason:'Correct the private runtime input file before consuming this value'};
+  const base={name,capability,destination,required,reason,[reasonDetail]:input[reasonDetail],[runtimeDestination]:input[runtimeDestination]};
+  if(destination!==local)return {...base,state:'unverified'};
+  if(file.problem){
+   const detail=makeReason('reason.runtime.fixPrivateInput');
+   return {...base,state:required?'missing':'optional',reason:detail.fallback,[reasonDetail]:detail};
+  }
   const value=effective(file,name,input.seed,input.seedSource);
-  return {name,capability,destination,required,reason,state:value.value?'present':required?'missing':'optional',...(value.source?{source:value.source}:{})};
+  return {...base,state:value.value?'present':required?'missing':'optional',...(value.source?{source:value.source}:{})};
  });
- const localInputs=declared.filter(input=>input.destination===local);
+ const localInputs=declared.filter(input=>input.destination===local&&(input.consumer!=='provider'||context.providerEnvImport));
  const values=[...new Map(localInputs.map(input=>[input.name,{...input,...effective(file,input.name,input.seed,input.seedSource)}])).values()];
  const text=renderRuntimeFile(file,values,artifactLocale(options.documentLanguage));
  const capabilities=[...new Set([...declared.map(input=>input.capability),...options.agents.map(agent=>'host:'+agent),...(options.quality?.gitlab?['gitlab']:[])])].map(capability=>{
-  const configured=!!(evidence.configured?.includes('*')||evidence.configured?.includes(capability));
-  const verified=evidence.verified?.includes(capability)??false;
+  const configured=!!(context.configured?.includes('*')||context.configured?.includes(capability));
+  const verified=context.verified?.includes(capability)??false;
+  const reason=makeReason(verified?'reason.runtime.verified':capability.startsWith('host:')?'reason.runtime.verifyAgent':
+   capability.startsWith('gitlab')?'reason.runtime.verifyCi':'reason.runtime.verifyConnection');
   return {capability,configuration:configured?'configured' as const:'pending' as const,verification:verified?'passed' as const:'not-run' as const,
-   reason:verified?'Explicit verification completed':capability.startsWith('host:')?'Approve or reload the selected host and run its explicit host check':capability.startsWith('gitlab')?'Run the configured jobs in the target CI runner':'Configuration and input presence do not verify a connection or successful execution'};
+   reason:reason.fallback,[reasonDetail]:reason};
  });
- const summary:RuntimeSetupSummary={inputs,template:{path:local,state:file.problem?'pending':localInputs.length?'available':'not-needed',needsUpdate:!file.problem&&text!==file.text,imported:[],...(file.problem?{reason:file.problem}:{})},capabilities,...(providerDiagnostic?{providerDiagnostic}:{})};
+ const summary:RuntimeSetupSummary={inputs,template:{path:local,state:file.problem?'pending':file.exists||localInputs.length?'available':'not-needed',needsUpdate:!file.problem&&text!==file.text,imported:[],...(file.problem?{reason:file.problem,[reasonDetail]:file[reasonDetail]}:{})},capabilities,...(providerDiagnostic?{providerDiagnostic}:{})};
  return {file,values,text,summary};
 }
 
-export async function runtimeSetupSummary(root:string,options:SetupOptions,evidence?:Evidence):Promise<RuntimeSetupSummary>{
- return (await state(root,options,evidence)).summary;
+export async function runtimeSetupSummary(root:string,options:SetupOptions,context?:RuntimeInputContext):Promise<RuntimeSetupSummary>{
+ return (await state(root,options,context)).summary;
 }
 
-export async function applyRuntimeInputs(root:string,options:SetupOptions,evidence?:Evidence):Promise<RuntimeSetupSummary>{
- const {file,values,text,summary}=await state(root,options,evidence);
+export async function applyRuntimeInputs(root:string,options:SetupOptions,context?:RuntimeInputContext):Promise<RuntimeSetupSummary>{
+ const {file,values,text,summary}=await state(root,options,context);
  if(!summary.template.needsUpdate)return summary;
  try{await writeRuntimeFile(root,file,text);}
- catch(error){summary.template.state='pending';summary.template.reason=error instanceof PrivateInputWriteError?error.message:'Keep .rigup/.env unchanged; verify the target and effective ignore for .env and .env.rigup-*.tmp, then retry.';return summary;}
+ catch(error){
+  const reason=error instanceof PrivateInputWriteError?error.reason:makeReason('reason.runtime.writeFailed');
+  summary.template.state='pending';summary.template.reason=reasonFallback(reason);summary.template[reasonDetail]=reason;
+  return summary;
+ }
  summary.template.state='written';summary.template.needsUpdate=false;
  summary.template.imported=values.flatMap(input=>input.value&&input.source&&input.source!=='project-file'?[{name:input.name,source:input.source}]:[]);
  return summary;
 }
 
-export async function runtimeEnvironment(root:string,options:SetupOptions,consumer:Consumer,modelOverride?:string):Promise<NodeJS.ProcessEnv>{
+export async function runtimeEnvironment(root:string,options:SetupOptions,consumer:Consumer,modelOverride?:string,apiKeyEnvOverride?:string):Promise<NodeJS.ProcessEnv>{
  const file=await readRuntimeFile(root);
- if(file.problem)throw Error(file.problem);
- const inputs=await declarations(root,options,file,consumer==='provider'?modelOverride:undefined,consumer==='provider'?undefined:()=>{}),environment=essentialEnvironment();
+ if(file.problem)throw new ReasonError(file[reasonDetail]??file.problem);
+ const provider=consumer==='provider';
+ const inputs=await declarations(root,options,file,provider?{modelOverride,apiKeyEnvOverride}:{onProviderError:()=>{}});
+ const environment=essentialEnvironment();
  for(const input of inputs.filter(input=>input.consumer===consumer)){
   const {value}=effective(file,input.name,input.seed,input.seedSource);
   if(value!==undefined)environment[input.name]=value;
  }
+ if(provider&&apiKeyEnvOverride!==undefined)environment.RIGUP_API_KEY_ENV=apiKeyEnvOverride;
  return environment;
 }
 
 export async function selectedNpmRegistry(root:string):Promise<string|undefined>{
  const file=await readRuntimeFile(root);
- if(file.problem)throw Error(file.problem);
+ if(file.problem)throw new ReasonError(file[reasonDetail]??file.problem);
  const value=effective(file,'RIGUP_NPM_REGISTRY').value;
  if(!value)return;
  try{
@@ -165,15 +219,18 @@ export async function operationNpmRegistry(root:string,name:string,signal?:Abort
  return effectiveNpmRegistry(root,name,await selectedNpmRegistry(root),signal);
 }
 
-export function writeRuntimeSummary(summary:RuntimeSetupSummary,write:(text:string)=>void):void{
+export function writeRuntimeSummary(summary:RuntimeSetupSummary,write:(text:string)=>void,announcedProviderKey?:string):void{
  if(summary.providerDiagnostic)write(t('runtime.provider',{reason:summary.providerDiagnostic})+'\n');
  write(t('runtime.summary',{status:t(`status.${summary.template.state}`),path:summary.template.path})+'\n');
- if(summary.template.reason)write(t('runtime.pending',{reason:summary.template.reason})+'\n');
- for(const input of summary.template.imported)write(t('runtime.imported',{name:input.name,source:t(`runtime.source.${input.source}`)})+'\n');
+ if(summary.template.reason)write(t('runtime.pending',{reason:renderReason(summary.template[reasonDetail]??summary.template.reason)})+'\n');
+ for(const input of summary.template.imported){
+  if(input.name===announcedProviderKey&&input.source==='calling-environment')continue;
+  write(t('runtime.imported',{name:input.name,source:t(`runtime.source.${input.source}`)})+'\n');
+ }
  for(const input of summary.inputs)if(input.state==='missing'||input.state==='unverified')write(t('runtime.missing',{
-  capability:input.capability,name:input.name,status:t(`status.${input.state}`),path:input.destination,
+  capability:input.capability,name:input.name,status:t(`status.${input.state}`),path:renderReason(input[runtimeDestination]??input.destination),
  })+'\n');
  for(const capability of summary.capabilities)if(capability.verification==='not-run')write(t('runtime.unverified',{
-  capability:capability.capability,status:t(`status.${capability.configuration}`),reason:capability.reason,
+  capability:capability.capability,status:t(`status.${capability.configuration}`),reason:renderReason(capability[reasonDetail]??capability.reason),
  })+'\n');
 }

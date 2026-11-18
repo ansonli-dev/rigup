@@ -81,7 +81,7 @@ test('applying a saved preview starts in the preview language and rejects an ove
  const io:CliIO={cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot,stateRoot,report:value=>{report=value;}}};
  await mkdir(join(root,'.rigup'));
  await writeFile(join(root,'.rigup','config.yaml'),'documentLanguage: en\n');
- assert.equal(await runCli(['init','--language','zh-CN','--sdd','none','--dry-run'],io),0,output);
+ assert.equal(await runCli(['init','--agents','codex','--language','zh-CN','--sdd','none','--dry-run'],io),0,output);
  const id=String(report.previewId);
  assert.match(id,/^[a-f0-9]{64}$/);
  output='';
@@ -96,7 +96,7 @@ test('applying a saved preview starts in the preview language and rejects an ove
 
 test('profile language applies before the header and project configuration takes precedence',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
  await mkdir(join(root,'.rigup'));
- await writeFile(join(root,'profile.yaml'),'documentLanguage: zh-CN\n');
+ await writeFile(join(root,'profile.yaml'),'documentLanguage: zh-CN\nagents: [codex]\n');
  const settings=join(root,'.rigup','config.yaml');
  await writeFile(settings,'profile: profile.yaml\n');
  let output='';
@@ -144,9 +144,10 @@ test('doctor localizes the header and diagnoses while its JSON and fallback erro
  const english=await run('C',['doctor','--json'],1);
  const chinese=await run('zh_CN.UTF-8',['doctor','--json'],1);
  assert.equal(chinese.stdout,english.stdout);
+ assert.equal((await run('zh_CN.UTF-8',['doctor','--json','--verbose'],1)).stdout,english.stdout);
  assert.equal(JSON.parse(chinese.stdout).error,'config fixture-asset: failed — Trusted generated baseline unavailable');
  assert.match(chinese.stderr,/^诊断: /);
- assert.match(chinese.stderr,/配置 fixture-asset: 失败 — 无法读取可信的生成基线/);
+ assert.match(chinese.stderr,/配置 fixture\.md: 失败 — 无法读取可信的生成基线/);
  assert.doesNotMatch(english.stderr,/\p{Script=Han}/u);
 
  const error=await run('zh_CN.UTF-8',['init','--bad-flag','--json'],2);
@@ -157,7 +158,7 @@ test('doctor localizes the header and diagnoses while its JSON and fallback erro
 
 test('update preview localizes the rendered details and retains stable paths',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
  let output='';
- const exit=await runCli(['update','--language','zh-CN','--dry-run','--verbose'],{
+ const exit=await runCli(['update','--agents','codex','--language','zh-CN','--dry-run','--verbose'],{
   cwd:root,isTTY:false,write:text=>output+=text,services:{cacheRoot,stateRoot},
  });
  assert.equal(exit,0,output);
@@ -166,3 +167,35 @@ test('update preview localizes the rendered details and retains stable paths',()
  assert.match(output,/\+\+\+ 变更后的受管内容/);
  assert.doesNotMatch(output,/^Preview |Create \d file|owned after/m);
 }))));
+
+test('The doctor legacy JSON fallback uses the last check without exposing an opaque diagnostic ID in normal text',async()=>{
+ const {doctorLegacyLastLine,formatDoctorLabel,formatDoctorReason}=await import('../src/i18n/doctor.js');
+ const diagnostic={category:'tests',id:'opaque:internal-id',state:'pending',reason:'Unmapped external diagnostic'} as const;
+ assert.equal(doctorLegacyLastLine({diagnostics:[diagnostic],checks:[{name:'lint',status:'failed',startedAt:'fixture-time',commit:'fixture-ref'}]}),
+  'check lint: failed fixture-time fixture-ref');
+ assert.equal(formatDoctorReason(diagnostic),'Unmapped external diagnostic');
+ assert.doesNotMatch(formatDoctorLabel(diagnostic),/opaque:internal-id/);
+ assert.match(formatDoctorLabel(diagnostic,true),/opaque:internal-id/);
+});
+
+test('reason code catalogues agree and render structured and unknown reasons',async()=>{
+ const {reasonCodes,makeReason,renderReason,reasonFallback,reasonFromError}=await import('../src/i18n/reasons.js');
+ const {en}=await import('../src/i18n/en.js');
+ const {zhCN}=await import('../src/i18n/zh-CN.js');
+ assert.ok(reasonCodes.length>0);
+ assert.equal(new Set(reasonCodes).size,reasonCodes.length);
+ const params=(template:string)=>[...new Set(Array.from(template.matchAll(/\{(\w+)\}/g),match=>match[1]))].sort();
+ for(const code of reasonCodes){
+  assert.ok(en[code]?.trim(),code+' is missing in en');
+  assert.ok(zhCN[code]?.trim(),code+' is missing in zh-CN');
+  assert.deepEqual(params(zhCN[code]),params(en[code]),code);
+ }
+ const nested=makeReason('reason.config.file',{file:'.rigup/config.yaml',reason:makeReason('cli.invalidLanguage')},en['cli.invalidLanguage']);
+ assert.match(renderReason(nested,'zh-CN'),/\.rigup\/config\.yaml.*请使用 auto/);
+ assert.equal(reasonFallback(nested),en['cli.invalidLanguage']);
+ assert.equal(renderReason('external fixture sentence','zh-CN'),'external fixture sentence');
+ assert.equal(renderReason({...nested,code:'reason.future'} as unknown as typeof nested,'zh-CN'),en['cli.invalidLanguage']);
+ assert.equal(reasonFallback(reasonFromError(new SyntaxError('untrusted content'))),en['cli.invalidJson']);
+ assert.equal(reasonFallback(reasonFromError('not an Error')),en['cli.operationFailed']);
+ assert.equal(reasonFromError(new Error('external fixture sentence')),'external fixture sentence');
+});

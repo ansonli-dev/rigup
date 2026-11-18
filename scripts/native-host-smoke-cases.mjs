@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import {spawnSync,execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {mkdir,readFile,realpath,stat,writeFile} from 'node:fs/promises';
+import {lstat,mkdir,mkdtemp,readFile,realpath,rm,stat,symlink,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 import {stripVTControlCharacters} from 'node:util';
+import {parse} from 'jsonc-parser';
 
 const id='superpowers@claude-plugins-official';
 const ompId='@loneexile/omp-superpowers';
@@ -25,7 +26,24 @@ const approvedOmp=run=>{
  return {version:match[1],integrity:match[2]};
 };
 
+async function directorySymlinkCapability(stage){
+ const probe=await mkdtemp(join(stage,'symlink-'));
+ try{
+  const target=join(probe,'target'),link=join(probe,'link');
+  await mkdir(target);
+  try{await symlink(target,link);}
+  catch(error){
+   if(windows&&error.code==='EPERM')return {allowed:false,error:error.code};
+   throw error;
+  }
+  assert.equal(await realpath(link),await realpath(target));
+  return {allowed:true};
+ }finally{await rm(probe,{recursive:true,force:true});}
+}
+
 export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
+ result.directorySymlinks=await directorySymlinkCapability(stage);
+ const ompMode=result.directorySymlinks.allowed?'link':'install';
  const dist=dirname(entry);
  const {scanNativeEntries}=await import(pathToFileURL(join(dist,'analyzer/repository.js')));
  const {prepareClaudeScratch,claudeGitEnv}=await import(pathToFileURL(join(dist,'integrations/host-setup/claude.js')));
@@ -88,12 +106,25 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
   const ompReceipt=async ({version,integrity},base=join(home,'.omp/plugins'))=>{
    const lock=await content(join(base,'omp-plugins.lock.json')),item=lock.plugins[ompId];
    assert.deepEqual({enabled:item.enabled,version:item.version},{enabled:true,version});
-   const link=await realpath(join(base,'node_modules',ompId));
-   const store=join(state,'native-packages','omp-superpowers-'+version,'package');
-   assert.equal(link,store);
-   const data=await readFile(join(dirname(store),'source.tgz'));
-   assert.equal('sha512-'+createHash('sha512').update(data).digest('base64'),integrity);
-   assert.equal((await readFile(join(dirname(store),'complete'),'utf8')).trim(),integrity);
+   const installed=join(base,'node_modules',ompId);
+   if(ompMode==='link'){
+    const store=join(state,'native-packages','omp-superpowers-'+version,'package');
+    assert.equal(await realpath(installed),store);
+    const data=await readFile(join(dirname(store),'source.tgz'));
+    assert.equal('sha512-'+createHash('sha512').update(data).digest('base64'),integrity);
+    assert.equal((await readFile(join(dirname(store),'complete'),'utf8')).trim(),integrity);
+   }else{
+    const info=await lstat(installed);
+    assert.ok(info.isDirectory()&&!info.isSymbolicLink());
+    const manifest=await content(join(installed,'package.json'));
+    assert.equal(manifest.name,ompId);assert.equal(manifest.version,version);
+    const errors=[];
+    const bun=parse(await readFile(join(base,'bun.lock'),'utf8'),errors,{allowTrailingComma:true});
+    assert.deepEqual(errors,[]);
+    assert.equal(bun.packages[ompId][0],ompId+'@'+version);
+    assert.equal(bun.packages[ompId][3],integrity);
+    assert.equal(await exists(join(state,'native-packages')),false);
+   }
    assert.ok((await checks(['omp'])).omp.length>=4);
    return lock;
   };
@@ -106,6 +137,7 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
   const plan=JSON.parse(preview.text).nativePreparation;
   assert.deepEqual(plan.hosts.map(item=>item.status),['action','action']);
   assert.deepEqual(plan.hosts[0].steps.map(item=>item.id),['marketplace']);
+  assert.deepEqual(plan.hosts[1].steps.map(item=>item.id),[ompMode]);
   if(windows)assert.match(plan.hosts[0].steps[0].command,/bin\\claude\.exe/i);
  }
  assertExit(first.direct('claude,omp','--json'),3);
@@ -143,7 +175,7 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  const native=await first.interactive('claude,omp','approve');
  assertExit(native,0);assert.equal(native.prompts.length,2);
  assert.doesNotMatch(native.prompts[0],/\(Superpowers(?: [0-9][A-Za-z0-9.+-]*)? at /);
- assert.match(native.output,/omp: recognized via the Claude project plugin/);
+ assert.match(native.output,/omp[:：].*Claude project plugin/i);
  const firstTarget=approvedClaude(native);
  const firstReceipt=await first.claudeReceipt(firstTarget);
  assert.equal(await exists(join(first.home,'.omp/plugins/omp-plugins.lock.json')),false);
@@ -194,8 +226,8 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  result.cases.push({name:'install Git environment denies official marketplace refresh',status:'passed'});
 
  const second=await caseAt('OMP first');
- const linked=await second.interactive('omp','approve');assertExit(linked,0);
- const ompTarget=approvedOmp(linked);
+ const prepared=await second.interactive('omp','approve','--verbose');assertExit(prepared,0);
+ const ompTarget=approvedOmp(prepared);
  const lock=await second.ompReceipt(ompTarget);
  assertExit(second.direct('omp'),0);
  const both=await second.interactive('claude,omp','approve');assertExit(both,0);
@@ -204,14 +236,14 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  assert.deepEqual(await second.ompReceipt(ompTarget),lock);
  assert.ok((await second.checks(['omp'])).omp.every(source=>source.packageName===ompId));
  assertExit(second.direct('claude,omp'),0);
- result.cases.push({name:'OMP verified link, real Claude install, native OMP source precedence and no-op',status:'passed',
-  omp:{...ompTarget,enabled:true,linked:true},claudeCommit:secondReceipt.gitCommitSha});
+ result.cases.push({name:'Verified OMP preparation, real Claude install, native OMP source precedence and no-op',status:'passed',
+  omp:{...ompTarget,enabled:true,linked:ompMode==='link',mode:ompMode},claudeCommit:secondReceipt.gitCommitSha});
 
  const profile=await caseAt('OMP profile');
  const data=join(profile.home,'XDG data'),named=join(profile.home,'.omp/profiles/work');
  await mkdir(join(data,'omp/profiles/work'),{recursive:true});
  Object.assign(profile.env,{OMP_PROFILE:'work',PI_CODING_AGENT_DIR:join(profile.home,'unused agent'),XDG_DATA_HOME:data});
- const namedResult=await profile.interactive('omp','approve');assertExit(namedResult,0);
+ const namedResult=await profile.interactive('omp','approve','--verbose');assertExit(namedResult,0);
  await profile.ompReceipt(approvedOmp(namedResult),join(windows?named:join(data,'omp/profiles/work'),'plugins'));
  assert.equal(await exists(profile.env.PI_CODING_AGENT_DIR),false);
  assertExit(profile.direct('omp'),0);
