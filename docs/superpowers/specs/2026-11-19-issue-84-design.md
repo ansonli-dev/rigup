@@ -1,0 +1,47 @@
+# OMP Superpowers preparation without Windows symlink privileges
+
+The approved OMP preparation flow must work on a Windows account that cannot create directory symlinks. It must also explain failed native commands for both OMP and Claude. [Rigup issue #84](https://github.com/ansonli-dev/rigup/issues/84)
+
+## Observations at 51406c2
+
+- Rigup currently resolves an official npm pin, checks or stages its own archive, and dispatches only `omp plugin link`. A macOS fixture using the real protected runner made that command emit a Windows-style `EPERM` and exit 1 twice. Both runs reported `install-command-failed` with numeric exit 1 and hid stderr. The retry resolved metadata again, reused the staged archive and retried link. The fake host left only `node_modules`, yet Rigup suggested uninstall. [Planning and execution](../../../src/integrations/host-setup/index.ts) · [Protected runner](../../../src/installer/operations.ts)
+- The locally installed OMP 18.1.13 code calls `fs.promises.symlink` for link and passes the supplied registry version to `bun install` for install. It reports link errors on stderr even with `--json`. The issue provides the native Windows result for OMP 18.1.17. Local-directory install also needs a link, and the reported tarball forms fail. The local reproduction used a fake host and did not exercise a restricted Windows token. [Issue reproduction](https://github.com/ansonli-dev/rigup/issues/84)
+- A complete ordinary-directory fixture was `ready` in `rigup init --prepare-native --dry-run` with the reported, mismatched or absent Bun receipt. Each run made zero launcher calls, metadata requests and prompts. Direct `inspectOmp` rejected the same directory as `omp-foreign-install`. The readiness scan runs first and reads OMP registrations and skill sources. [Discovery](../../../src/analyzer/native-sources.ts) · [OMP inspection](../../../src/integrations/host-setup/omp.ts)
+- The controller independently installed the pinned package with OMP 18.1.13 on macOS in an isolated HOME. The command succeeded, created a real package directory and recorded `enabled: true` and the exact issue SHA-512 in Bun's lock. This confirms the CLI version used in the previous compatibility gate supports the registry route.
+- The reported OMP 18.1.17 artifact is the four-element tuple at `packages["@loneexile/omp-superpowers"]` in the user's OMP plugin directory's `bun.lock`. Its digest matches the independently archived Rigup Windows pin. A read-only check of the installed Bun 1.4.0 global text lock confirmed the `packages` nesting, four fields, empty default resolution, SHA-512 at index 3 and trailing commas for another real registry package. The issue's tuple parsed with this structure using the repo's JSONC parser. [Reported registry receipt](https://github.com/ansonli-dev/rigup/issues/84) · [Archived Windows pin](../../compatibility/evidence/2026-11-17-native-superpowers/win32.json)
+
+```jsonc
+"packages": {
+  "@loneexile/omp-superpowers": [
+    "@loneexile/omp-superpowers@7.0.2-omp.3",
+    "",
+    {},
+    "sha512-e0iw1xbuH8F678WCuMT+ZN4b08WfCNEf3kranIqdFva7Hbkuy1v6mgrbP7miVd6r9qzS9/e/ZaQPiXYwQw8BZQ=="
+  ],
+},
+```
+
+## Selection and approval
+
+- Non-Windows defaults to `link` without filesystem probing. On Windows, create a disposable directory under the OS temp directory and attempt a directory symlink with the default `symlink(target, link)` call. An `EPERM` from creating the link selects `install`. Successful probes and other errors select `link`. Clean up the probe directory on either outcome. Tests can set `NativeSetupServices.symlinks?: () => Promise<boolean>`, with false selecting registry install.
+- Freeze `via: 'link' | 'install'` in the OMP action. Resolve the official npm pin once and show the exact command, version, source pin, expected writes and undo before consent. Link keeps the verified archive route. Install dispatches literal argv for `omp plugin install @loneexile/omp-superpowers@<pin.version> --json`, advertises the OMP `bun.lock` path and delegates package/cache operations to OMP/Bun. Install skips reading, downloading and staging Rigup's native package store. Ordinary writer locks and private process scratch still apply.
+- Retain review policy, explicit consent, protected process dispatch and launcher, destination and source checks. Recheck the selected route inside the writer lock and immediately before dispatch. A route change stops with `native-target-changed` and requires a fresh approved plan. Registry preflight checks that the target is absent and any existing `bun.lock` is a bounded regular file. A pre-existing incomplete, foreign or disabled installation remains manual. A registration with a missing target can still be retried if the existing inspection and discovery checks permit it.
+
+## Recognition and retry
+
+- For the dispatched registry route, inspect a real target directory under the selected OMP user plugin location, its regular `package.json`, the enabled OMP registration, the host manifest's direct dependency and its regular `bun.lock`. Parse the text receipt as JSONC with trailing commas and reject duplicates, invalid syntax and oversized or redirected files. Compare the manifest name and version, exact scoped tuple identity and the tuple's SHA-512 with the approved pin. The resolution slot is metadata and Rigup never accesses it as a URL. Require all the expected skill bindings to resolve to that package directory. Link success continues to require the verified store and bindings from that store.
+- OMP/Bun performs registry resolution, package installation and its own validation before Rigup sees the receipt. The SHA-512 match is a post-install check of Bun's record. Match it exactly and keep raw receipt fields out of the report. A command failure keeps its native exit code. An exit-0 install with missing or mismatched receipt or incorrect sources returns `omp-not-recognized-after-install` with the relevant paths, and offers manual `omp plugin uninstall @loneexile/omp-superpowers` if it left a package or registration. Rigup leaves removal to the user. A failure that leaves only empty scaffolding needs no uninstall.
+- Under the existing OMP writer lock, persist a small private verification record for the canonical user package target and approved pin immediately before dispatch of a registry install. Clear it after the receipt and binding verify or when the completed attempt is confirmed to have left no target. An interrupted or rejected attempt with a remaining target retains the record. Ordinary discovery excludes this target while the record remains, including after a restart, and directs the user to manual removal and retry. The post-install scan may inspect that specific target while the attempt is still marked. A fresh, approved attempt with the old target removed can replace the record or retire it before switching to link. A complete manual installation with no Rigup attempt or a distinct Claude/project provider keeps the readiness shortcut. A verified install becomes `ready` without another probe, request or write.
+
+## Native diagnostics and renderer handoff
+
+Keep the existing `NativeProgress.code?: number | null` and add `stderrSummary?: string`. The production runner drains and retains up to the last 8 KiB of stderr for classification. Emit fixed messages for recognized filesystem, package integrity, network or authentication errors. For example, a Windows symlink error produces `EPERM: permission denied while creating a symbolic link.` Use a fixed fallback for nonempty unrecognized stderr. Only the fixed summary and existing exit code leave the runtime on a failed probe or failed host command. Successful and user-canceled operations keep stderr private, as does stdout in the failure report. This keeps paths, credentials and terminal controls out of the emitted summary.
+
+Issue #84 owns the producer, including the additive `launch` fixture result `stderr?: string`. Issue #88 owns terminal rendering from `describeOutcome` onward, including a localized label for the summary and route-neutral Claude-to-OMP skip text. The machine report already includes the `progress` entries.
+
+## Acceptance criteria
+
+1. On Windows, a real directory symlink attempt records the observed ability and errno. The packaged gate exercises the route for that permission and records whether `EPERM` was actually observed. Deterministic tests use `symlinks: async () => false` and the real receipt shape to prove the exact registry command and the approved OMP-only flow through `recognized` and subsequent `ready`.
+2. With symlink support, the CLI still offers link, verifies/stages the approved archive and recognizes the resulting OMP binding. Dry-run, review, denied approval and approval drift do not dispatch the planned mutation.
+3. Registry mode uses only the metadata request from Rigup, even if the Rigup package store is absent or unusable. A malformed or redirected receipt, wrong package/version/SHA-512 or wrong skill source cannot pass the post-install check. Foreign and disabled installations remain protected. A second invocation cannot recognize the same rejected target. An approved retry can succeed after target removal or an empty partial failure.
+4. Failed OMP and Claude commands retain their native exit codes. Text and machine output expose only bounded, credential- and path-free summaries with the relevant error category, including `EPERM` for symlink denial.

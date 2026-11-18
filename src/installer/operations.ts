@@ -3,7 +3,6 @@ import {queryInstalledTool,queryToolPackage,type ToolInstallReceipt} from '../in
 import {isRecord,readDurableRecord,saveDurable} from '../private-record.js';
 import {join,resolve,isAbsolute,relative} from 'node:path';
 import {lstat,readFile,realpath} from 'node:fs/promises';
-import {userInfo} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import type {SetupOperation} from '../types.js';
 import {privateDirectory,signature} from '../generator/cache.js';
@@ -17,6 +16,8 @@ import {assertNpmNode,defaultNpmRegistry,resolveProjectNpm} from '../integration
 import {assertInstallDestination,clearInstallStage,createInstallStage,installDirectoryIdentity,ownedInstallStage,publishInstallStage,stagedInstall,validInstallStage,type InstallStage} from './install-staging.js';
 import {essentialEnvironment,operationNpmRegistry,selectedNpmRegistry} from '../runtime-inputs.js';
 import {targetPath} from './ownership.js';
+import {nativeWriterStateRoot} from '../integrations/host-setup/writer-state.js';
+export {nativeWriterStateRoot} from '../integrations/host-setup/writer-state.js';
 import type {PreviewData} from './preview.js';
 export interface OperationResult {globalReceipt?:GlobalNpmReceipt;status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 export type WriterIdentity=ProcessIdentity;
@@ -60,9 +61,6 @@ export async function pendingOperations(root:string,stateRoot=defaultStateRoot()
 export const writerAlive=isAlive;
 const nativeHosts=['claude','omp'] as const;
 type NativeHost=typeof nativeHosts[number];
-// HOME can be isolated or overridden while two processes still target the
-// same native host. Writer recovery must span those effective homes.
-export const nativeWriterStateRoot=(override?:string)=>override??join(userInfo().homedir,'.local','state','rigup');
 export const hostWriterPath=(stateRoot:string,host:NativeHost)=>join(stateRoot,'native-'+host+'.writer.json');
 
 export async function readHostWriter(stateRoot:string,host:NativeHost){
@@ -253,16 +251,18 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
 }
 
 export async function protectedOperationCommand(command:{executable:string;args:string[];env?:NodeJS.ProcessEnv;successRecord?:string},root:string,timeoutMs:number,dependencies:{
- launcher?:{cwd:string;env:NodeJS.ProcessEnv};stdout?:(chunk:Buffer)=>void;
+ launcher?:{cwd:string;env:NodeJS.ProcessEnv};stdout?:(chunk:Buffer)=>void;stderr?:(chunk:Buffer)=>void;
  signal?:AbortSignal;markDispatching:(identity:WriterIdentity)=>Promise<void>;registryPending:()=>Promise<OperationResult|undefined>;
  restoreUndispatched:()=>Promise<OperationResult>;finish:(code:number|null,cancelled:boolean)=>Promise<OperationResult>;
 }):Promise<OperationResult>{
  const {markDispatching,registryPending,restoreUndispatched,finish,signal}=dependencies;
  if(signal?.aborted)return restoreUndispatched();
- const child=startProcess({...command,cwd:root,captureOutput:!!dependencies.stdout,
+ const child=startProcess({...command,cwd:root,captureOutput:!!(dependencies.stdout||dependencies.stderr),
   supervisorCwd:dependencies.launcher?.cwd,supervisorEnv:dependencies.launcher?.env},{defer:true});
  if(dependencies.stdout)child.stdout?.on('data',dependencies.stdout);
- child.stderr?.resume();
+ else child.stdout?.resume();
+ if(dependencies.stderr)child.stderr?.on('data',dependencies.stderr);
+ else child.stderr?.resume();
  let timer:ReturnType<typeof setTimeout>|undefined;
  try{
   if(!child.pid)throw Error('Cannot start the writing process');

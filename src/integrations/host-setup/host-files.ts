@@ -1,6 +1,6 @@
 import {lstat,readFile} from 'node:fs/promises';
 export {absolutePath as absoluteHostPath,directoryLocation as canonicalHostDirectory} from '../../path-location.js';
-import {visit} from 'jsonc-parser';
+import {parse,visit} from 'jsonc-parser';
 import {isRecord} from '../../private-record.js';
 export {withinPath} from '../../npm-command.mjs';
 
@@ -28,15 +28,16 @@ export async function readNativeFile(path:string,limit=256_000){
  return {bytes};
 }
 
-export function strictJson(text:string){
+export function strictJson(text:string,{jsonc=false}={}){
+ const options={disallowComments:!jsonc,allowTrailingComma:jsonc};
  const objects:Set<string>[]=[];
  let invalid=false;
  visit(text,{
   onError:()=>{invalid=true;},onObjectBegin:()=>{objects.push(new Set());},
   onObjectEnd:()=>{objects.pop();},
   onObjectProperty:key=>{const fields=objects.at(-1)!;if(fields.has(key))invalid=true;fields.add(key);},
- },{disallowComments:true});
- const value:unknown=JSON.parse(text);
+ },options);
+ const value:unknown=jsonc?parse(text,undefined,options):JSON.parse(text);
  if(invalid||!isRecord(value))throw Error('Invalid or duplicate native metadata');
  return value;
 }
