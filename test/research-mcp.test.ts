@@ -154,6 +154,22 @@ test('provider-free MCP setup, job replay and finish require independent apply',
  assert.ok(!unchanged.previewId);
 }));
 
+test('MCP citation errors describe the path and let the same job accept a correction',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ await writeFile(join(root,'README.md'),'Public instructions.');
+ await writeFile(join(root,'.env'),'SYNTHETIC_VALUE=hidden-fixture');
+ const run=cli(root,cacheRoot,stateRoot);
+ const foundation=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',foundation.previewId],0);
+ const mcp=await openResearchMcp(root,'claude',{cacheRoot,stateRoot});
+ const begin=await mcp.call('rigup_begin',{root,mode:'init'});
+ const submit=(path:string,line=1)=>mcp.call('rigup_submit_plan',{
+  runId:begin.runId,jobId:begin.job?.id,data:{...empty,citations:[{path,startLine:line,endLine:line}]},
+ });
+ await assert.rejects(submit('.env'),/evidence: "\.env": path outside reader inventory/);
+ await assert.rejects(submit('README.md',20),/evidence: "README\.md": evidence range beyond file/);
+ assert.equal((await submit('README.md')).job?.stage,'plan');
+}));
+
 test('MCP rejects excluded citations and refreshes a digestless job without changing sessions',()=>fixture(async(root,cacheRoot,stateRoot)=>{
  await writeFile(join(root,'README.md'),'current text\n');
  await writeFile(join(root,'.rigupignore'),'/secret-notes.md\n');

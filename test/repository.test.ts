@@ -126,6 +126,40 @@ test('in-root links must obey the resolved file format, scope and ignore rules',
  await assert.rejects(reader.read('selected/visible/ignored.txt',1),/inventory/);
  await assert.rejects(reader.read('selected/denied/note.txt',1),/inventory/);
 }));
+test('citation read failures identify the relative source and the reason',()=>project(async root=>{
+ const path='src.txt';
+ await writeFile(join(root,path),'a public line');
+ const reader=await repositoryReader(root,{agents:[],backend:'host'});
+ const validate=(file:string,startLine=1,endLine=startLine)=>validateResearch({
+  observations:[{supportingEvidence:[{path:file,startLine,endLine,digest:digest('a public line')}]}],
+ },reader);
+ await assert.rejects(validate('src/missing.txt'),{
+  name:'ResearchValidationError',
+  message:'research.observations[0].supportingEvidence[0]: evidence: "src/missing.txt": path outside reader inventory',
+ });
+ await assert.rejects(validate(path,0),/evidence: "src\.txt": invalid evidence range/);
+ await assert.rejects(validate(path,2),/evidence: "src\.txt": evidence range beyond file/);
+
+ await writeFile(join(root,path),'fixture\0binary');
+ await assert.rejects(validate(path),/evidence: "src\.txt": binary file denied/);
+ await rm(join(root,path));
+ await assert.rejects(validate(path),/evidence: "src\.txt": source no longer available/);
+}));
+
+test('citation read failures omit raw errors and paths that are unsafe to display',async()=>{
+ const reader={
+  list:async()=>[],search:async()=>[],
+  read:async()=>{throw Error('Parser input: synthetic-private-text at /private/fixture/root');},
+ };
+ const validate=(path:string)=>validateResearch({observations:[],sourceRef:{path,startLine:1,endLine:1,digest:digest('fixture')}},reader);
+ await assert.rejects(validate('docs/中文 source.md'),{
+  message:'research.sourceRef: evidence: "docs/中文 source.md": source unavailable, denied, or range invalid',
+ });
+ for(const path of ['/private/fixture/root','../outside.txt','src/\nextra.txt','src/'+'x'.repeat(300)]){
+  await assert.rejects(validate(path),{message:'research.sourceRef: evidence: source unavailable, denied, or range invalid'});
+ }
+});
+
 test('verification reads a source once per pass and rereads it at the next checkpoint',()=>project(async root=>{
  const path='source.ts';
  await writeFile(join(root,path),'first\nsecond');

@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {realpath} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {selectResearchOutput,validateResearch,type AnalysisBackend,type RepositoryReader,type ResearchRequest} from '../analyzer/backend.js';
+import {evidenceReadError,selectResearchOutput,validateResearch,type AnalysisBackend,type RepositoryReader,type ResearchRequest} from '../analyzer/backend.js';
 import {digest,type EvidenceRead} from '../analyzer/evidence.js';
 import {analysisSeedPaths,stageSourceGuidance} from '../analyzer/stage-context.js';
 import {researchPrompt} from '../analyzer/prompts.js';
@@ -99,8 +99,12 @@ async function hydrateEvidence(value:unknown,reader:RepositoryReader):Promise<un
   }
   if(!isRecord(node))return node;
   if('path' in node&&('startLine' in node||'endLine' in node)){
-   if(typeof node.path!=='string'||!Number.isSafeInteger(node.startLine)||!Number.isSafeInteger(node.endLine))throw Error('Evidence requires a repository path and exact line range');
-   const {evidence}=await read(node.path,Number(node.startLine),Number(node.endLine));
+   const {path,startLine,endLine}=node;
+   if(typeof path!=='string'||!Number.isSafeInteger(startLine)||!Number.isSafeInteger(endLine))throw Error('Evidence requires a repository path and exact line range');
+   let result:EvidenceRead;
+   try{result=await read(path,Number(startLine),Number(endLine));}
+   catch(error){throw evidenceReadError(path,error);}
+   const {evidence}=result;
    if(node.digest!==undefined&&node.digest!==evidence.digest)throw Error('Evidence digest does not match the current source');
    return evidence;
   }
