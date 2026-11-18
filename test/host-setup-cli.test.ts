@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import {mkdir,stat,writeFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+import {mkdir,readFile,realpath,stat,writeFile} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {resolveWindowsExecutable} from '../src/integrations/tools/windows-process.mjs';
@@ -127,6 +128,49 @@ test('native preparation verifies a completed step before retry, and recognizes 
  assert.equal(await runCli(args(root,'claude,omp'),io),0);
  assert.equal(steps.length,3);
 })));
+
+test('Claude project scope follows the selected worktree and monorepo subdirectory',()=>project(parent=>project(other=>project(async home=>{
+ const linked=join(other,'linked worktree'),nested=join(parent,'nested package');
+ const {io,output}=cli(parent,home);
+ const git=(...args:string[])=>execFileSync('git',['-C',parent,'-c','core.hooksPath=','-c','init.templateDir=',...args],{stdio:'pipe'});
+ git('init','-q');
+ git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','--no-gpg-sign','-qm','fixture');
+ git('worktree','add','--detach',linked);
+ await mkdir(nested);
+ const steps:string[]=[];
+ await fakeClaude(io,parent,home,steps);
+ const original=io.services!.nativeSetup!.launch!;
+ const settings=(root:string)=>join(root,'.claude/settings.json');
+ const parentSettings=await runCli(args(parent),io);
+ assert.equal(parentSettings,0,output.join(''));
+ const parentText=await readFile(settings(parent),'utf8');
+ const registry=join(home,'.claude/plugins/installed_plugins.json');
+ io.services!.nativeSetup!.launch=async (command,cwd)=>{
+  if(command.args.includes('--version'))return original(command,cwd);
+  assert.ok([linked,nested].includes(cwd),cwd);
+  assert.deepEqual(command.args.slice(-2),['--scope','project']);
+  steps.push(cwd);
+  const source={source:'github',repo:'anthropics/claude-plugins-official'};
+  if(command.args.includes('marketplace'))await put(settings(cwd),{extraKnownMarketplaces:{[market]:{source}}});
+  else{
+   const declaration=JSON.parse(await readFile(settings(cwd),'utf8'));
+   await put(settings(cwd),{...declaration,enabledPlugins:{[id]:true}});
+   const installed=JSON.parse(await readFile(registry,'utf8'));
+   installed.plugins[id].push({...installed.plugins[id][0],projectPath:cwd});
+   await put(registry,installed);
+  }
+  return {code:0};
+ };
+ for(const target of [linked,nested]){
+  assert.equal(await runCli(args(target),{...io,cwd:target}),0,output.join(''));
+  assert.equal(JSON.parse(await readFile(settings(target),'utf8')).extraKnownMarketplaces[market].source.repo,'anthropics/claude-plugins-official');
+ }
+ const records=JSON.parse(await readFile(registry,'utf8')).plugins[id];
+ assert.deepEqual(await Promise.all(records.map((item:{projectPath:string})=>realpath(item.projectPath))),[parent,linked,nested]);
+ assert.equal(new Set(records.map((item:{installPath:string})=>item.installPath)).size,1);
+ assert.equal(await readFile(settings(parent),'utf8'),parentText);
+ assert.deepEqual(steps,['marketplace','install',linked,linked,nested,nested]);
+}))));
 
 test('first guided init can return from native consent and then prepares a fresh executable preview',()=>project(root=>project(async home=>{
  const {io,stateRoot,reports,output}=cli(root,home),steps:string[]=[];
