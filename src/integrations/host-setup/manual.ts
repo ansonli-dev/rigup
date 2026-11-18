@@ -29,7 +29,8 @@ export function superpowersReadiness(profile:ProjectProfile,agent:Agent){
   const wanted=sddDiscoveryNames('superpowers',false);
   const source=sources.find(item=>wanted.includes(unqualifiedSkillName(item.name)));
   const blocking=source?.problem??(source?'Existing Superpowers entries do not form a complete workflow; reconcile their sources':undefined);
-  const missing=reason.startsWith('missing native entry:')&&!source&&!diagnostics.some(item=>item.code!=='omp-claude-provider-filtered');
+  const missing=reason.startsWith('missing native entry:')&&!source&&
+   !diagnostics.some(item=>item.code!=='omp-claude-provider-filtered'&&item.code!=='omp-plugin-unlinked');
   return {status:missing?'missing' as const:'manual' as const,reason:[reason,notice,blocking].filter(Boolean).join('; ')};
  }
 }

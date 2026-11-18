@@ -200,3 +200,19 @@ test('a configured remote action leaves ambiguous Git project targets pending',(
  assert.equal(target(second).source,'repository-remote');
  assert.equal(parseEnv(await readFile(join(root,'.rigup/.env'),'utf8')).RIGUP_TRACKER_URL,'https://git.company.test/groups/team/app');
 })));
+
+test('new runtime input comments follow the artifact language and leave user comments and report reasons intact',()=>project(async root=>{
+ await mkdir(join(root,'.rigup'));
+ await writeFile(join(root,'.rigup','.gitignore'),'/.env\n/.env.rigup-*.tmp\n');
+ const path=join(root,'.rigup','.env');
+ const original='# My note\nRETAIN="customer value"\n';
+ await writeFile(path,original,{mode:0o600});
+ const options={agents:['codex' as const],backend:'host' as const,sdd:'openspec' as const,documentLanguage:'zh-CN'};
+ const report=await applyRuntimeInputs(root,options);
+ assert.equal(report.template.state,'written');
+ assert.equal(report.inputs.find(input=>input.name==='RIGUP_NPM_REGISTRY')?.reason,'Optional registry override for selected automatic installers');
+ const rendered=await readFile(path,'utf8');
+ assert.ok(rendered.startsWith(original));
+ assert.match(rendered,/# 可选：为所选的自动安装程序指定 npm 注册表\nRIGUP_NPM_REGISTRY=/);
+ assert.equal((await runtimeSetupSummary(root,{...options,documentLanguage:'en'})).template.needsUpdate,false);
+}));

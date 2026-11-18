@@ -57,7 +57,7 @@ cd /path/to/project
 rigup init
 ```
 
-引导会预选探测到的宿主和工作流来源。核对预览中的路径后，可选择安装、保存预览或取消。首次交互默认安装基础接线和 Rigup MCP，生成项目规则可在已配置的 agent 中完成，也可配置 CLI provider 后执行 `rigup update --review --model MODEL_ID`。用 `--language zh-CN` 选简体中文，默认 `auto` 沿用项目指引的语言。 [研究入口与预算](docs/guides/usage.md#研究后端与预算)
+引导会预选探测到的宿主和工作流来源。核对预览中的路径后，可选择安装、保存预览或取消。首次交互默认安装基础接线和 Rigup MCP，生成项目规则可在已配置的 agent 中完成，也可配置 CLI provider 后执行 `rigup update --review --model MODEL_ID`。向导开始时可选中文或 English，也可以传入 `--language zh-CN` 或 `--language en`。界面和新生成的项目指引及工作流技能使用所选语言。 [研究入口与预算](docs/guides/usage.md#研究后端与预算)
 
 ```sh
 rigup init --agents codex --sdd none --tools none --defer-research --dry-run --json

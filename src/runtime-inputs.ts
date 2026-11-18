@@ -1,3 +1,4 @@
+import {artifactLocale,t,translate,type MessageKey,type MessageParams} from './i18n/index.js';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import type {SetupOptions} from './types.js';
@@ -16,7 +17,8 @@ export interface RuntimeSetupSummary {
  capabilities:{capability:string;configuration:'configured'|'pending';verification:'passed'|'not-run';reason:string}[];
  providerDiagnostic?:string;
 }
-interface Declaration {name:string;capability:string;destination:string;required:boolean;reason:string;consumer?:Consumer;seed?:string;seedSource?:Source}
+interface Declaration {name:string;capability:string;destination:string;required:boolean;reason:string;comment:string;consumer?:Consumer;seed?:string;seedSource?:Source}
+type InputNote=Extract<MessageKey,`artifact.env${string}`>;
 const exec=promisify(execFile);
 const local=runtimeEnvPath;
 const providerVariables=['RIGUP_PROVIDER','RIGUP_MODEL_ID','RIGUP_API_KEY_ENV','RIGUP_BASE_URL','RIGUP_MAX_OUTPUT_TOKENS','ANTHROPIC_API_KEY','ANTHROPIC_MODEL','ANTHROPIC_BASE_URL','OPENAI_API_KEY','OPENAI_MODEL','OPENAI_BASE_URL'];
@@ -56,25 +58,28 @@ async function remoteTarget(root:string,options:SetupOptions):Promise<{value?:st
 
 async function declarations(root:string,options:SetupOptions,file:RuntimeFile,modelOverride?:string,onProviderError?:(reason:string)=>void):Promise<Declaration[]>{
  const inputs:Declaration[]=[];
- const add=(name:string,capability:string,required:boolean,reason:string,consumer?:Consumer,destination=local,seed?:string,seedSource?:Source)=>{
-  if(!inputs.some(input=>input.name===name&&input.capability===capability&&input.destination===destination))inputs.push({name,capability,required,reason,consumer,destination,seed,seedSource});
+ const locale=artifactLocale(options.documentLanguage);
+ const add=(name:string,capability:string,required:boolean,note:InputNote|{key:InputNote;params:MessageParams},consumer?:Consumer,destination=local,seed?:string,seedSource?:Source)=>{
+  if(inputs.some(input=>input.name===name&&input.capability===capability&&input.destination===destination))return;
+  const {key,params}=typeof note==='string'?{key:note,params:undefined}:note;
+  inputs.push({name,capability,required,reason:translate('en',key,params),comment:translate(locale,key,params),consumer,destination,seed,seedSource});
  };
  for(const [name,command] of Object.entries(options.customer?.commands??{}))for(const reference of command.envRefs)
-  add(reference,'customer:'+name,true,'Selected customer '+name+' command',`customer:${name}`);
- for(const reference of options.customer?.envRefs??[])add(reference,'customer',true,'Selected customer workflow',undefined,'agent host ('+options.agents.join(', ')+')');
+  add(reference,'customer:'+name,true,{key:'artifact.envCustomerCommand',params:{name}},`customer:${name}`);
+ for(const reference of options.customer?.envRefs??[])add(reference,'customer',true,'artifact.envCustomerWorkflow',undefined,'agent host ('+options.agents.join(', ')+')');
  for(const mcp of options.mcp??[]){
   const hosts=(mcp.agents??options.agents).filter(agent=>options.agents.includes(agent));
   if(hosts.length)for(const reference of [...(mcp.envRefs??[]),...(mcp.command?.envRefs??[]),...(mcp.bearerTokenEnv?[mcp.bearerTokenEnv]:[])])
-   add(reference,'mcp:'+mcp.id,true,'Selected MCP server',undefined,'agent host ('+hosts.join(', ')+')');
+   add(reference,'mcp:'+mcp.id,true,'artifact.envMcp',undefined,'agent host ('+hosts.join(', ')+')');
  }
  for(const reference of options.quality?.gitlab?.openwiki?.envRefs??[])
-  add(reference,'gitlab:openwiki',true,'Selected OpenWiki CI job',undefined,'GitLab CI variables');
+  add(reference,'gitlab:openwiki',true,'artifact.envCi',undefined,'GitLab CI variables');
  const remoteCommands=['issue','mr','ci'].filter(name=>options.customer?.commands?.[name]);
  if(remoteCommands.length&&['gitlab','github'].includes(options.projectConventions?.tracker?.system??'')){
   const target=await remoteTarget(root,options);
-  for(const name of remoteCommands)add('RIGUP_TRACKER_URL','customer:'+name,true,'Confirmed project target for the configured remote command',`customer:${name}`,local,target.value,target.source);
+  for(const name of remoteCommands)add('RIGUP_TRACKER_URL','customer:'+name,true,'artifact.envTracker',`customer:${name}`,local,target.value,target.source);
  }
- if(options.sdd==='openspec'||options.tools?.some(tool=>tool.install))add('RIGUP_NPM_REGISTRY','npm',false,'Optional registry override for selected automatic installers','npm');
+ if(options.sdd==='openspec'||options.tools?.some(tool=>tool.install))add('RIGUP_NPM_REGISTRY','npm',false,'artifact.envRegistry','npm');
  if(options.backend==='native'||options.projectRules===true){
   const environment={...process.env};
   for(const name of providerVariables){const value=file.entries.get(name)?.value;if(value)environment[name]=value;}
@@ -86,13 +91,13 @@ async function declarations(root:string,options:SetupOptions,file:RuntimeFile,mo
   if(metadata){
    const provider=metadata.identity.provider,prefix=provider==='anthropic'?'ANTHROPIC':'OPENAI';
    const key=metadata.identity.apiKeyEnv;
-   add('RIGUP_PROVIDER','provider',true,'Selected Rigup CLI research provider','provider',local,provider,process.env.RIGUP_PROVIDER?'calling-environment':'configuration');
-   add(key,'provider',true,'API key for Rigup CLI research','provider');
-   add('RIGUP_MODEL_ID','provider',true,'Default CLI research model; --model overrides one run only','provider',local,metadata.identity.model,process.env.RIGUP_MODEL_ID||process.env[prefix+'_MODEL']?'calling-environment':'configuration');
-   add('RIGUP_API_KEY_ENV','provider',false,'Override the provider API-key variable name','provider',local,key,process.env.RIGUP_API_KEY_ENV?'calling-environment':'configuration');
-   add('RIGUP_BASE_URL','provider',false,'Optional company model gateway','provider',local,metadata.baseURL,process.env.RIGUP_BASE_URL||process.env[prefix+'_BASE_URL']?'calling-environment':'configuration');
-   add('RIGUP_MAX_OUTPUT_TOKENS','provider',false,'Optional positive maximum output tokens per generation','provider',local,metadata.maxOutputTokens===undefined?undefined:String(metadata.maxOutputTokens),process.env.RIGUP_MAX_OUTPUT_TOKENS?'calling-environment':'configuration');
-   for(const suffix of ['MODEL','BASE_URL'])if(effective(file,prefix+'_'+suffix).value)add(prefix+'_'+suffix,'provider',false,'Provider-specific '+suffix.toLowerCase().replace('_',' ')+' setting','provider');
+   add('RIGUP_PROVIDER','provider',true,'artifact.envProvider','provider',local,provider,process.env.RIGUP_PROVIDER?'calling-environment':'configuration');
+   add(key,'provider',true,'artifact.envApiKey','provider');
+   add('RIGUP_MODEL_ID','provider',true,'artifact.envModel','provider',local,metadata.identity.model,process.env.RIGUP_MODEL_ID||process.env[prefix+'_MODEL']?'calling-environment':'configuration');
+   add('RIGUP_API_KEY_ENV','provider',false,'artifact.envKeyName','provider',local,key,process.env.RIGUP_API_KEY_ENV?'calling-environment':'configuration');
+   add('RIGUP_BASE_URL','provider',false,'artifact.envGateway','provider',local,metadata.baseURL,process.env.RIGUP_BASE_URL||process.env[prefix+'_BASE_URL']?'calling-environment':'configuration');
+   add('RIGUP_MAX_OUTPUT_TOKENS','provider',false,'artifact.envMaxTokens','provider',local,metadata.maxOutputTokens===undefined?undefined:String(metadata.maxOutputTokens),process.env.RIGUP_MAX_OUTPUT_TOKENS?'calling-environment':'configuration');
+   for(const suffix of ['MODEL','BASE_URL'])if(effective(file,prefix+'_'+suffix).value)add(prefix+'_'+suffix,'provider',false,suffix==='MODEL'?'artifact.envProviderModel':'artifact.envProviderBaseUrl','provider');
   }
  }
  return inputs;
@@ -110,7 +115,7 @@ async function state(root:string,options:SetupOptions,evidence:Evidence={}){
  });
  const localInputs=declared.filter(input=>input.destination===local);
  const values=[...new Map(localInputs.map(input=>[input.name,{...input,...effective(file,input.name,input.seed,input.seedSource)}])).values()];
- const text=renderRuntimeFile(file,values);
+ const text=renderRuntimeFile(file,values,artifactLocale(options.documentLanguage));
  const capabilities=[...new Set([...declared.map(input=>input.capability),...options.agents.map(agent=>'host:'+agent),...(options.quality?.gitlab?['gitlab']:[])])].map(capability=>{
   const configured=!!(evidence.configured?.includes('*')||evidence.configured?.includes(capability));
   const verified=evidence.verified?.includes(capability)??false;
@@ -161,10 +166,14 @@ export async function operationNpmRegistry(root:string,name:string,signal?:Abort
 }
 
 export function writeRuntimeSummary(summary:RuntimeSetupSummary,write:(text:string)=>void):void{
- if(summary.providerDiagnostic)write('provider: '+summary.providerDiagnostic+'\n');
- write('Runtime inputs: '+summary.template.state+' ('+summary.template.path+')\n');
- if(summary.template.reason)write('Pending: '+summary.template.reason+'\n');
- for(const input of summary.template.imported)write('Imported '+input.name+' from '+input.source+'\n');
- for(const input of summary.inputs)if(input.state==='missing'||input.state==='unverified')write(input.capability+': '+input.name+' '+input.state+' — supply in '+input.destination+'\n');
- for(const capability of summary.capabilities)if(capability.verification==='not-run')write(capability.capability+': '+capability.configuration+'; verification remaining — '+capability.reason+'\n');
+ if(summary.providerDiagnostic)write(t('runtime.provider',{reason:summary.providerDiagnostic})+'\n');
+ write(t('runtime.summary',{status:t(`status.${summary.template.state}`),path:summary.template.path})+'\n');
+ if(summary.template.reason)write(t('runtime.pending',{reason:summary.template.reason})+'\n');
+ for(const input of summary.template.imported)write(t('runtime.imported',{name:input.name,source:t(`runtime.source.${input.source}`)})+'\n');
+ for(const input of summary.inputs)if(input.state==='missing'||input.state==='unverified')write(t('runtime.missing',{
+  capability:input.capability,name:input.name,status:t(`status.${input.state}`),path:input.destination,
+ })+'\n');
+ for(const capability of summary.capabilities)if(capability.verification==='not-run')write(t('runtime.unverified',{
+  capability:capability.capability,status:t(`status.${capability.configuration}`),reason:capability.reason,
+ })+'\n');
 }

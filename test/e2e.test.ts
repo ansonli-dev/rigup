@@ -18,7 +18,7 @@ for(const interactive of [false,true])test('CLI budget handoff retains '+(intera
   if(ids.length===1)throw new CodexTokenLimit(0,1000,5000);
   return {status:'complete' as const,value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1}}};
  }}}};
- const args=['init','--agents','codex','--sdd','openspec','--tools','none','--research-tokens','1000'];
+ const args=['init','--agents','codex','--sdd','openspec','--tools','none','--research-tokens','1000','--language','en'];
  let pending:any;
  const first=interactive
   ?await runCli(args,{...io,isTTY:true,read:async()=>assert.fail('no decision before the preview'),services:{...io.services,report:value=>{pending=value;}}})
@@ -119,7 +119,7 @@ test('onboarding_collects_all_choices_before_first_backend_request_and_masks_key
  const saved=keys.map(key=>process.env[key]);for(const key of keys)delete process.env[key];
  process.env.HOME=cache;process.env.USERPROFILE=cache;
  try{
-  let output='';const code=await runCli(['init','--model','fixture-model'],{cwd:root,isTTY:true,write:s=>output+=s,read:async hidden=>{events.push(hidden?'secret':'prompt');secret||=!!hidden;return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{events.push('backend');assert.equal(r.effectiveModel?.model,'fixture-model');return {status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture-model',unknowns:[],usage:{calls:1,tokens:1}}};}}}});
+  let output='';const code=await runCli(['init','--model','fixture-model','--language','en'],{cwd:root,isTTY:true,write:s=>output+=s,read:async hidden=>{events.push(hidden?'secret':'prompt');secret||=!!hidden;return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state,backend:{run:async r=>{events.push('backend');assert.equal(r.effectiveModel?.model,'fixture-model');return {status:'complete',value:{data:{observations:[],unknowns:[],artifacts:[],dispositions:[]},model:'fixture-model',unknowns:[],usage:{calls:1,tokens:1}}};}}}});
   assert.equal(code,0,output);assert.equal(secret,true);assert.doesNotMatch(output,/temporary-secret/);
   assert.ok(events.indexOf('secret')<events.indexOf('backend'));assert.equal(events.at(-1),'prompt');assert.equal(answers.length,0);
  }finally{keys.forEach((key,index)=>{if(saved[index]===undefined)delete process.env[key];else process.env[key]=saved[index];});}

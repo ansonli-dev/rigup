@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {project} from './helpers.js';
 import {runCli} from '../src/cli.js';
 import {resolveResearchProvider} from '../src/research/provider-settings.js';
+import {withLocale} from '../src/i18n/index.js';
 import * as providerSettings from '../src/research/provider-settings.js';
 
 const configKeys=['HOME','USERPROFILE','RIGUP_PROVIDER','RIGUP_MODEL_ID','RIGUP_BASE_URL','RIGUP_API_KEY_ENV','RIGUP_MAX_OUTPUT_TOKENS',
@@ -109,6 +110,15 @@ test('interactive provider selection honors the explicit environment and its out
  });
  assert.equal(selected?.apiKey,'fixture-private-key');assert.equal(selected?.identity.model,'claude-auto[1m]');assert.equal(selected?.maxOutputTokens,24_000);
  assert.doesNotMatch(output,/fixture-private-key/);
+});
+
+test('the Chinese provider prompt can defer to Rigup MCP with the default choice',async()=>{
+ let output='';
+ assert.equal(await withLocale('zh-CN',()=>providerSettings.promptResearchProvider({
+  write:text=>output+=text,read:async()=>'',
+ },'fixture-model',{})),undefined);
+ assert.match(output,/为本次运行选择提供方/);
+ assert.match(output,/回车：在智能体中使用 Rigup MCP/);
 });
 
 test('an existing v0.2.4 selection can enable research MCP without a provider',()=>project(async root=>project(async home=>{

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 · 2026-11-18 · Development preview
+
+- Reuse recognized native Superpowers installs in Claude Code and Oh My Pi. Review the official catalog commit or npm package integrity before preparing missing entries. Failed preparation reports the affected host, evidence, and manual recovery steps. [Issue #81](https://github.com/ansonli-dev/rigup/issues/81)
+- Choose English or Simplified Chinese for the setup wizard, CLI, and generated workflow text. Saved language choices apply to subsequent commands. Skills retain their identifiers and links, and machine reports use stable fields and codes. [Issue #82](https://github.com/ansonli-dev/rigup/issues/82)
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.10.0) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.10.0)
+
 ## 0.9.0 · 2026-11-18 · Development preview
 
 - Apply approved setup from an active agent session and reload the host after writes. Recheck the approved targets, checks and package pins, and resume verified writes from durable v0.8.0 state. [Issue #78](https://github.com/ansonli-dev/rigup/issues/78)

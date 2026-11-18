@@ -12,7 +12,7 @@ import type {Agent,SetupOptions} from '../types.js';
 import {sddDiscoveryNames,unqualifiedSkillName,type SkillSource} from '../integrations/sdd/binding.js';
 import {ompLocations} from '../integrations/host-setup/omp-locations.js';
 import {claudeManagedRoot,claudePlugin,ompPackage} from '../integrations/host-setup/manual.js';
-export interface NativeDiagnostic {agent:Agent;code:'omp-claude-provider-filtered'|'plugin-skipped'|'native-conflict';subject:string;detail:string}
+export interface NativeDiagnostic {agent:Agent;code:'omp-claude-provider-filtered'|'omp-plugin-unlinked'|'plugin-skipped'|'native-conflict';subject:string;detail:string;evidence?:string[]}
 export interface OpenCodePluginObservation {target:string;id:string;skills:readonly string[]}
 export interface NativeDiscoveryOptions {home?:string;env?:Record<string,string|undefined>;openCodePlugins?:readonly OpenCodePluginObservation[];managedProjectPaths?:string[];onWarning?:(message:string)=>void;onDiagnostic?:(diagnostic:NativeDiagnostic)=>void}
 export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean;disabled?:boolean}|undefined {
@@ -79,8 +79,8 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   const visited=new Set<string>();
   const inlineBodies=new Map<string,string>();
   const commandSources=new Set<string>();
-  const diag=(code:NativeDiagnostic['code'],subject:string,detail:string)=>{
-   if(options.sdd==='superpowers'&&(agent==='claude'||agent==='omp'))dependencies.onDiagnostic?.({agent,code,subject,detail});
+  const diag=(code:NativeDiagnostic['code'],subject:string,detail:string,evidence?:string[])=>{
+   if(options.sdd==='superpowers'&&(agent==='claude'||agent==='omp'))dependencies.onDiagnostic?.({agent,code,subject,detail,...(evidence?{evidence}:{})});
   };
   const repair='Repair the enabled installation before retrying';
   const superpowersId=(id:string)=>/^superpowers@[\w.-]{1,160}$/.test(id);
@@ -316,27 +316,30 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
       if((error as NodeJS.ErrnoException)?.code!=='ENOENT')diag('native-conflict',ompPackage,'OMP project plugin overrides are invalid or unreadable');
      }
     }
-    const ompDisabled=array(settings.disabledProviders).includes('omp-plugins')||array(overrides.disabled).includes(ompPackage);
+    const ompDisabled=array(settings.disabledProviders).includes('omp-plugins')||array(overrides.disabled).includes(ompPackage)||
+     array(settings.disabledExtensions).includes(ompPackage);
     if(ompDisabled)diag('native-conflict',ompPackage,'The OMP Superpowers plugin or its provider is explicitly disabled');
     const packages=new Map<string,{path:string;entries:string[];scope:'user'|'project'}>();
     for(const [base,scope] of [[ompPlugins,'user'],[ompProjectPlugins,'project']] as const){
-     const pkg=await json(join(base,'package.json'),()=>diag('native-conflict',ompPackage,'OMP plugin dependencies are invalid or unreadable'));
-     const lock=await json(join(base,'omp-plugins.lock.json'),()=>diag('native-conflict',ompPackage,'OMP plugin lock is invalid or unreadable'));
+     const manifestPath=join(base,'package.json'),lockPath=join(base,'omp-plugins.lock.json');
+     const pkg=await json(manifestPath,()=>diag('native-conflict',ompPackage,'OMP plugin dependencies are invalid or unreadable',[manifestPath]));
+     const lock=await json(lockPath,()=>diag('native-conflict',ompPackage,'OMP plugin lock is invalid or unreadable',[lockPath]));
      const declared=Object.keys(pkg.dependencies??{});
      for(const name of new Set([...declared,...Object.keys(lock.plugins??{})])){
       const disabled=lock.plugins?.[name]?.enabled===false||array(overrides.disabled).includes(name);
-      if(name===ompPackage&&disabled)diag('native-conflict',name,'OMP Superpowers is explicitly disabled in plugin state');
+      if(name===ompPackage&&disabled)diag('native-conflict',name,'OMP Superpowers is explicitly disabled in plugin state',[lockPath]);
       if(!/^(?:@[\w.-]+\/)?[\w.-]+$/.test(name)||disabled||name===ompPackage&&ompDisabled)continue;
       const path=join(base,'node_modules',name);
-      if(pkg.dependencies&&!declared.includes(name)&&!(await lstat(path).catch(()=>undefined))?.isSymbolicLink()){
-       if(name===ompPackage)diag('native-conflict',name,'OMP Superpowers has an incomplete install; '+repair.toLowerCase());
-       continue;
-      }
+      const incomplete=(unlinked:boolean)=>{
+       if(name!==ompPackage)return;
+       diag(unlinked?'omp-plugin-unlinked':'native-conflict',name,unlinked?'OMP Superpowers is registered without a user plugin link':
+        'OMP Superpowers has an incomplete install; '+repair.toLowerCase(),[path,manifestPath,lockPath]);
+      };
+      const type=await lstat(path).catch(error=>error.code==='ENOENT'?null:undefined);
+      const unlinked=scope==='user'&&type===null;
+      if(pkg.dependencies&&!declared.includes(name)&&!type?.isSymbolicLink()){incomplete(unlinked);continue;}
       const manifest=await json(join(path,'package.json')),native=manifest.omp??manifest.pi;
-      if(!native||manifest.name!==name){
-       if(name===ompPackage)diag('native-conflict',name,'OMP Superpowers has an incomplete install; '+repair.toLowerCase());
-       continue;
-      }
+      if(!native||manifest.name!==name){incomplete(unlinked);continue;}
       packages.set(name,{path,entries:array(native.extensions),scope});
      }
     }

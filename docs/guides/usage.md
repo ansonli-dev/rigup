@@ -109,16 +109,16 @@ rigup init . --agents 'claude,omp' --sdd superpowers --prepare-native --review -
 rigup init . --agents 'claude,omp' --sdd superpowers --prepare-native
 ```
 
-独立准备结束后直接退出。向导准备成功后重新扫描，再生成常规的项目预览。已有的有效入口会复用。自动步骤只对经验证的 Claude Code 2.1.273 和 OMP 18.1.13 启用；其他版本、配置覆盖、禁用项和冲突请按报告手动处理。
+独立准备结束后直接退出。向导准备成功后重新扫描，再生成常规的项目预览。Rigup 复用已识别的有效入口。缺失时会展示准备步骤、目标和可能的写入位置。CLI 版本在批准后探测，与最近验证版本不同会显示提示。若本地还没有 Claude 官方 marketplace，先批准添加，再批准从目录读取的插件目标。
 
 | 宿主 | 批准后可能写入 |
 | --- | --- |
-| Claude Code | 项目共享的 `.claude/settings.json`、Claude 用户配置目录中的市场和插件缓存及本机状态。Rigup 核对官方市场中 Superpowers 7.0.2 的固定 Git 提交，再验证该项目的收据。 |
-| Oh My Pi | OMP 用户插件目录中的 `omp-plugins.lock.json`、链接及相关本机状态，以及 Rigup 私有状态中的固定包 `@loneexile/omp-superpowers@7.0.2-omp.3`。Rigup 校验下载的 SHA-512，只链接该包。若此次 Claude 项目安装已为 OMP 提供完整入口，会跳过用户级链接。 |
+| Claude Code | 项目共享的 `.claude/settings.json`、Claude 用户配置目录中的市场和插件缓存及本机状态。Rigup 展示缓存官方目录中的 Superpowers SHA 和可用版本，并核对安装回执及复扫结果。 |
+| Oh My Pi | OMP 用户插件目录中的 `omp-plugins.lock.json`、链接及相关本机状态，以及 Rigup 私有状态中的 `@loneexile/omp-superpowers` 归档。Rigup 在确认前从官方 npm registry 解析 `latest`，下载后验证所展示的 SHA-512，再链接并复扫。若此次 Claude 项目安装已为 OMP 提供完整入口，会跳过用户级链接。 |
 
-`--review` 和 `--dry-run` 检查准备计划，检查成功返回 0。Review 模式、JSON 输出和重定向保留预览交接。独立准备需要后续操作时返回 3，执行或校验失败返回 1，取消返回 130。交互安装须在终端明确选择 Approve。改动使用中的宿主配置后，按提示重载宿主。
+`--review` 和 `--dry-run` 检查准备计划，检查成功返回 0。Review 模式、JSON 输出和重定向保留预览交接。独立准备需要后续操作时返回 3，执行或校验失败返回 1，取消返回 130。交互安装须在终端明确选择“批准”或 Approve。改动使用中的宿主配置后，按提示重载宿主。
 
-失败后查看报告中的已验证或可能写入的内容，再重跑相同命令。Rigup 会使用已验证的现场状态，跳过成功步骤。若报告无法确认写入进程已退出，应先等待进程退出或手动核对状态。已验证的 Claude 项目安装可用 `claude plugin uninstall superpowers@claude-plugins-official --scope project --keep-data` 移除；共享市场缓存不应随意删除。OMP 链接可用 `omp plugin uninstall @loneexile/omp-superpowers` 解除。有效链接仍使用 Rigup 私有目录中的固定包。
+如果需要处理阻塞，可在终端或 `--json` 的 `nativePreparation.blockers` 中查看宿主、问题代码、证据路径和建议操作。`.env` 诊断仅列出可能影响安装位置的键名。核对状态并处理问题后，重跑相同命令。Rigup 会使用已验证的现场状态，跳过成功步骤。若报告无法确认写入进程已退出，应先等待进程退出或手动核对状态。已验证的 Claude 项目安装可用 `claude plugin uninstall superpowers@claude-plugins-official --scope project --keep-data` 移除；共享市场缓存不应随意删除。OMP 链接可用 `omp plugin uninstall @loneexile/omp-superpowers` 解除。有效链接仍使用 Rigup 私有目录中的固定包。
 
 ## 先安装工作流，再生成规则
 
@@ -135,7 +135,8 @@ rigup update --apply PREVIEW_ID
 
 ## 项目研发流程
 
-- `--language` 和 `documentLanguage` 接受 `auto` 或语言标签，例如 `zh-CN`、`en`、`ja`。默认 `auto` 参照适用的项目指引。此设置用于新生成的项目规范和语义文档。已有文档保留原文，原生流程入口保留其名称和模板。
+- 向导首问选择中文或 English。已有明确设置时直接使用该语言。非交互命令可用 `--language zh-CN` 或 `--language en`。应用后选择保存在 manifest 中，使用 `--configure` 时也写入项目配置。
+- `--language` 和 `documentLanguage` 也接受 `auto` 和其他 BCP 47 标签。`auto` 的界面随系统语言，固定模板为英文，语义文档仍参照项目指引。其他语言标签用于模型生成文字，界面和固定模板采用英文。技能标识符、引用路径及机器报告字段保持稳定。修改产出物语言后需生成新预览。
 - 从 `docs/rigup/development-rules.md` 按变更路径查找适用主题，再阅读 `development-rules/<topic>.md` 或原有指引。主题页写明规则、例外和验证方法，源码证据保存在私有运行记录。可通过 `projectConventions.documentRoutes.context` 指定输出目录。
 - 使用 `change-prepare` 将需求、适用规则和检查写入所选 SDD 的原生产物，并准备同一变更的 `GOAL.md`。提案、设计和任务需互相一致并经过审阅。`change-ready` 只读检查所有原生前置条件、同一变更引用、验收与验证对应关系和审批范围；通过后给出包含实际仓库相对路径的 `/goal` 命令。宿主支持该命令时用原生 goal 执行，其他情况用 `change-deliver` 交接，不假定 Claude 提供 `/goal`。这项行为检查依赖 agent 实际加载并遵循技能。即使技能已加载，宿主仍可能执行明确的覆盖指令；技能不能替代宿主的文件权限和项目策略。
 - 推送前审阅每次待推送提交。已配置 MR 流程时，跟进现有 CI 和 reviewer 的最新 head SHA，处理发现并记录结论；再次推送会使旧的完成证据失效。技能不凭空创建远端工具或把尚未结束的 review 当成通过。

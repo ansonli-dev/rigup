@@ -6,6 +6,7 @@ import {acquireLock,defaultStateRoot,type ProjectLock} from '../../installer/loc
 import {protectedOperationCommand,hostWriterPath,nativeWriterStateRoot,readHostWriter,writerAlive} from '../../installer/operations.js';
 import {isRecord,saveDurable} from '../../private-record.js';
 import {syncDirectory} from '../../sync-directory.js';
+import {NativeBlocker} from './blockers.js';
 import {absoluteHostPath,canonicalHostDirectory,nativeJson,withinPath} from './host-files.js';
 
 const windows=process.platform==='win32';
@@ -73,10 +74,11 @@ export async function inspectHostLocations(root:string,host:SetupHost,input:Nati
    const path=await canonicalHostDirectory(value);
    if(withinPath(root,path))throw Error('inside project');
    return path;
-  }catch{throw Error(key+' must point to a directory outside the project: '+absoluteHostPath(value));}
+  }catch{throw new NativeBlocker('prerequisite-unverified',key+' must point to a directory outside the project.',{evidence:[absoluteHostPath(value)]});}
  };
  const home=await externalDirectory('HOME',nativeHome(input,env));
- if(!(await stat(home)).isDirectory())throw Error('HOME is not a directory: '+home);
+ if(!await stat(home).then(info=>info.isDirectory(),()=>false))
+  throw new NativeBlocker('prerequisite-unverified','HOME is not an available directory.',{evidence:[home]});
  env.HOME=home;
  if(windows){
   env.USERPROFILE=home;
@@ -87,12 +89,13 @@ export async function inspectHostLocations(root:string,host:SetupHost,input:Nati
   if(env[key])env[key]=await externalDirectory(key,env[key]!);
  }
  if(host==='omp'){
+  const invalid=(key:string,reason:string)=>new NativeBlocker('prerequisite-unverified',key+' '+reason,{evidence:['<environment> ('+key+')']});
   if(env.PI_CONFIG_DIR&&(!localConfig.test(env.PI_CONFIG_DIR)||specialName.test(env.PI_CONFIG_DIR)||env.PI_CONFIG_DIR.endsWith('.')))
-   throw Error('PI_CONFIG_DIR must be a supported directory name under HOME');
+   throw invalid('PI_CONFIG_DIR','must be a supported directory name under HOME.');
   for(const key of ['OMP_PROFILE','PI_PROFILE']){
    if(env[key]===undefined)continue;
    const name=env[key]!.trim();
-   if(name&&(!validProfile.test(name)||specialName.test(name)||name.endsWith('.')))throw Error(key+' does not select a supported OMP profile');
+   if(name&&(!validProfile.test(name)||specialName.test(name)||name.endsWith('.')))throw invalid(key,'does not select a supported OMP profile.');
    env[key]=name;
   }
  }
@@ -106,8 +109,9 @@ export type HostLocations=Awaited<ReturnType<typeof inspectHostLocations>>;
 
 export async function inspectHostRuntime(root:string,host:SetupHost,input:NativeInputs={}){
  const locations=await inspectHostLocations(root,host,input);
- const program=await nativeProgram(host,locations.root,pathEntries(locations.root,locations.env.PATH??''));
- if(!program)throw Error(host+' was not found on PATH; install the supported CLI and retry');
+ const paths=pathEntries(locations.root,locations.env.PATH??'');
+ const program=await nativeProgram(host,locations.root,paths);
+ if(!program)throw new NativeBlocker('cli-not-runnable',host+' was not found on PATH; install the CLI and retry.',{evidence:paths});
  return {...locations,program};
 }
 export type HostRuntime=Awaited<ReturnType<typeof inspectHostRuntime>>;
@@ -151,11 +155,4 @@ export async function withHostWriter<T>(
   });
   return {code,cancelled:cancelled||!dispatched&&signal?.aborted===true,dispatched,blocked:result.status==='pending'?result.message:undefined};
  }
-}
-
-export async function hostGit(runtime:HostLocations){
- const program=await nativeProgram('git',runtime.root,pathEntries(runtime.root,runtime.env.PATH??''));
- if(!program||windows&&extname(program.file).toLowerCase()!=='.exe')
-  throw Error('Native Claude setup requires Git on PATH');
- return program.file;
 }

@@ -403,3 +403,59 @@ test('unified harness CLI and MCP produce equivalent scoped plans',()=>fixture(a
  assert.deepEqual(finish.preview?.blockers,cliReview.blockers);
  assert.deepEqual(finish.preview?.projectDocuments?.map(doc=>[doc.target.includes('api-validation--'),doc.action]),[[true,'preserve']]);
 }));
+
+test('an installed workflow can switch languages through MCP and CLI with the same managed identities',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ const {confirmedHarnessSource}=await import('./helpers.js');
+ const {loadManifest}=await import('../src/installer/baseline.js');
+ const {digest}=await import('../src/analyzer/evidence.js');
+ const settings={agents:['codex' as const],backend:'host' as const,projectRules:true,sdd:'superpowers' as const,
+  projectConventions:{topics:[
+   {id:'api-errors',title:'API errors',scope:['api'],source:'knowledge/api-errors.md'},
+   {id:'api-validation',title:'API validation',scope:['api']},
+  ]}};
+ await confirmedHarnessSource(root,settings);
+ const policy='Verify the request ID before writing to the audit log.';
+ await writeFile(join(root,'POLICY.md'),policy+'\n');
+ await mkdir(join(root,'.rigup'));
+ await writeFile(join(root,'.rigup','config.yaml'),JSON.stringify(settings));
+ for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion']){
+  const target=join(root,'.agents','skills',name,'SKILL.md');
+  await mkdir(dirname(target),{recursive:true});
+  await writeFile(target,`---\nname: ${name}\ndescription: Native Superpowers fixture.\n---\n`);
+ }
+ const run=cli(root,cacheRoot,stateRoot);
+ const foundation=await run(['init','--language','en','--defer-research','--review'],3);
+ await run(['update','--apply',foundation.previewId],0);
+ const identities=async()=>(await loadManifest(root))!.assets.map(({logicalId,target,ownership})=>({logicalId,target,ownership})).sort((a,b)=>a.target.localeCompare(b.target));
+ const before=await identities();
+ const context=join(root,'.agents','skills','change-prepare','references','project.md');
+ const original=await readFile(context,'utf8');
+ assert.match(original,/Native prepare: brainstorming, writing-plans/);
+ assert.match(original,/## Team conventions/);
+ const mcp=await openResearchMcp(root,'codex',{cacheRoot,stateRoot});
+ const begin=await mcp.call('rigup_begin',{root,mode:'update',language:'zh-CN'});
+ assert.equal(begin.job?.options.documentLanguage,'zh-CN');
+ const plan=await mcp.call('rigup_submit_plan',{runId:begin.runId,jobId:begin.job?.id,data:{...empty,guidance:[]}});
+ await mcp.call('rigup_submit_plan',{runId:begin.runId,jobId:plan.job?.id,data:{...empty,guidance:[{
+  topic:'Audit log',scope:['.'],sourceRef:{path:'POLICY.md',startLine:1,endLine:1,digest:digest(policy)},
+  coverageStatus:'reusable',consumers:['prepare'],gaps:[],
+ }],artifacts:[],dispositions:[]}});
+ const finished=await mcp.call('rigup_finish',{runId:begin.runId});
+ assert.equal(finished.preview?.executable,true);
+ await run(['update','--apply',finished.previewId!],0);
+ const translated=await readFile(context,'utf8');
+ assert.match(translated,/原生准备: brainstorming, writing-plans/);
+ assert.match(translated,/## Team conventions/);
+ assert.match(translated,/\[POLICY\.md\]/);
+ assert.deepEqual(await identities(),before);
+
+ const newMachine=cli(root,cacheRoot,join(cacheRoot,'fresh-state'));
+ const update=await newMachine(['update','--language','en','--review'],3);
+ assert.equal(update.executable,true);
+ assert.equal(update.projectRules,'ready');
+ await newMachine(['update','--apply',update.previewId],0);
+ const reverted=await readFile(context,'utf8');
+ assert.match(reverted,/Native prepare: brainstorming, writing-plans/);
+ assert.match(reverted,/\[POLICY\.md\]/);
+ assert.deepEqual(await identities(),before);
+}));

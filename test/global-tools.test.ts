@@ -127,14 +127,14 @@ import {writeFile,readdir,symlink,realpath} from 'node:fs/promises';
 for(const scope of ['project','global'] as const)test('missing tools offer '+scope+' scope and saving or cancelling writes no software',t=>globalFixture(t,async({root,prefix,stateRoot,cacheRoot})=>{
  const questions:string[]=[];
  let output='';
- const result=await runCli(['init','--agents','claude','--sdd','none','--tools','openwiki,codegraph'],{cwd:root,isTTY:true,write:text=>output+=text,ask:async question=>{
+ const result=await runCli(['init','--agents','claude','--sdd','none','--tools','openwiki,codegraph','--language','en'],{cwd:root,isTTY:true,write:text=>output+=text,ask:async question=>{
   questions.push(question.message);
-  if(question.message.includes('安装范围'))return [scope];
+  if(question.message.includes('installation scope'))return [scope];
   return ['Save preview, apply later'];
  },services:{stateRoot,cacheRoot,confirmPreview:async()=> 'save'}});
- assert.equal(result,3,output);assert.equal(questions.filter(question=>question.includes('安装范围')).length,2);
+ assert.equal(result,3,output);assert.equal(questions.filter(question=>question.includes('installation scope')).length,2);
  for(const id of ['openwiki','codegraph']){
-  const question=questions.find(message=>message.startsWith(id+' 安装范围'))??'';
+  const question=questions.find(message=>message.startsWith(id+' installation scope'))??'';
   assert.ok(question.includes('.rigup/tools/'+id)&&question.includes(prefix),question);
  }
  await assert.rejects(access(globalLauncher(prefix,'openwiki')),{code:'ENOENT'});
@@ -213,7 +213,7 @@ test('reconfiguring missing saved PATH tool can select project software while re
  await mkdir(join(root,'.rigup'));
  await writeFile(join(root,'.rigup/config.yaml'),'agents: [claude]\nbackend: host\nprojectRules: false\ntools:\n - id: openwiki\n   install: false\n   initialize: true\n   agents: [claude]\n');
  let output='';
- assert.equal(await runCli(['update','--configure','--tools','openwiki','--dry-run'],{cwd:root,isTTY:true,write:text=>output+=text,ask:async question=>question.message.includes('安装范围')?['project']:question.defaults??[],services:{stateRoot,cacheRoot}}),0,output);
+ assert.equal(await runCli(['update','--configure','--tools','openwiki','--dry-run','--language','en'],{cwd:root,isTTY:true,write:text=>output+=text,ask:async question=>question.message.includes('installation scope')?['project']:question.defaults??[],services:{stateRoot,cacheRoot}}),0,output);
  const [file]=await readdir(join(cacheRoot,'previews'));
  const saved=JSON.parse(await readFile(join(cacheRoot,'previews',file),'utf8')).data;
  assert.equal(saved.plan.operations[0]?.id,'install:openwiki');
@@ -331,7 +331,7 @@ test('global CodeGraph retains an explicit native initialization preference and 
  await mkdir(join(root,'.rigup'));
  await writeFile(join(root,'.rigup/config.yaml'),'agents: [claude]\nbackend: host\nprojectRules: false\ntools:\n - id: codegraph\n   install: false\n   initialize: true\n   agents: [claude]\n');
  let output='';
- assert.equal(await runCli(['update','--configure','--tools','codegraph','--dry-run'],{cwd:root,isTTY:true,write:text=>output+=text,ask:async question=>question.message.includes('安装范围')?['global']:question.defaults??[],services:{stateRoot,cacheRoot}}),0,output);
+ assert.equal(await runCli(['update','--configure','--tools','codegraph','--dry-run','--language','en'],{cwd:root,isTTY:true,write:text=>output+=text,ask:async question=>question.message.includes('installation scope')?['global']:question.defaults??[],services:{stateRoot,cacheRoot}}),0,output);
  const [file]=await readdir(join(cacheRoot,'previews'));
  const saved=JSON.parse(await readFile(join(cacheRoot,'previews',file),'utf8')).data;
  assert.equal(saved.plan.options.tools[0].initialize,true);

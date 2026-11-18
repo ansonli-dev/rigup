@@ -1,31 +1,21 @@
-import {execFile} from 'node:child_process';
 import {mkdir,readdir,realpath,writeFile} from 'node:fs/promises';
 import {dirname,isAbsolute,join,relative} from 'node:path';
-import {promisify} from 'node:util';
+import {valid} from 'semver';
 import type {ProjectProfile} from '../../analyzer/repository.js';
 import {isRecord} from '../../private-record.js';
-import {essentialEnvironment} from '../../runtime-private-env.js';
+import {NativeBlocker} from './blockers.js';
 import {absoluteHostPath,canonicalHostDirectory,checkedDirectory,nativeJson,statIfPresent,withinPath} from './host-files.js';
 import {claudeManagedRoot,claudePlugin} from './manual.js';
-import {claudeMarket,claudeRepo,claudeSha,claudeSource,claudeVersion} from './pins.js';
+import {claudeMarket,claudeRepo,claudeSource} from './pins.js';
 import {bindingFrom} from './receipt.js';
-import {hostGit,nativeChildEnv,type HostLocations,type HostRuntime} from './runtime.js';
+import {nativeChildEnv,type HostLocations,type HostRuntime} from './runtime.js';
 
-const exec=promisify(execFile);
 const official=(source:unknown)=>isRecord(source)&&Object.keys(source).length===2&&source.source==='github'&&source.repo===claudeRepo;
+const shaOf=(value:unknown)=>typeof value==='string'&&/^[0-9a-f]{40}$/i.test(value)?value.toLowerCase():undefined;
+const versionOf=(value:unknown)=>typeof value==='string'&&/^[0-9][A-Za-z0-9.+-]{0,127}$/.test(value)&&valid(value)?value:undefined;
 export type ClaudeStep='marketplace'|'install';
+export type ClaudeTarget={sha:string;version?:string};
 export const claudeArgs=(step:ClaudeStep)=>['--setting-sources','user','plugin',...(step==='marketplace'?['marketplace','add',claudeRepo]:['install',claudePlugin]),'--scope','project'];
-
-async function verifyCatalogRemote(catalog:string,runtime:HostLocations){
- if(!await statIfPresent(join(catalog,'.git')))return;
- const git=await hostGit(runtime);
- const result=await exec(git,['-C',catalog,'config','--local','--get','remote.origin.url'],{
-  env:essentialEnvironment(runtime.env),timeout:5000,maxBuffer:4096,windowsHide:true,
- }).catch(()=>undefined);
- const url='https://github.com/'+claudeRepo;
- if(result?.stdout.trim()!==url&&result?.stdout.trim()!==url+'.git')
-  throw Error('The cached Claude marketplace repository has a different remote: '+catalog);
-}
 
 export async function inspectClaude(runtime:HostLocations){
  const {root,home,env}=runtime;
@@ -36,7 +26,7 @@ export async function inspectClaude(runtime:HostLocations){
  const user=join(config,'settings.json'),plugins=join(config,'plugins');
  const known=join(plugins,'known_marketplaces.json'),registry=join(plugins,'installed_plugins.json');
  const catalogRoot=join(plugins,'marketplaces',claudeMarket),catalog=join(catalogRoot,'.claude-plugin','marketplace.json');
- const packageRoot=join(plugins,'cache',claudeMarket,'superpowers'),install=join(packageRoot,claudeVersion);
+ const cache=join(plugins,'cache'),packageRoot=join(cache,claudeMarket,'superpowers');
  const configFile=join(env.CLAUDE_CONFIG_DIR??home,'.claude.json'),backups=join(config,'backups');
  const managed=claudeManagedRoot(env);
  const policy=join(managed,'managed-settings.json'),dropIns=join(managed,'managed-settings.d');
@@ -47,12 +37,16 @@ export async function inspectClaude(runtime:HostLocations){
   documents.push(...names.map(name=>join(dropIns,name)));
  }
  if(withinPath(root,config))throw Error('Claude configuration must be outside the project');
+ for(const directory of [projectConfig,config,plugins,dirname(catalogRoot),catalogRoot,dirname(catalog),cache,dirname(packageRoot),packageRoot,backups]){
+  try{await checkedDirectory(directory);}
+  catch{throw new NativeBlocker('prerequisite-unverified','A Claude destination is redirected or is not a directory.',{evidence:[directory]});}
+ }
  const read=async (path:string,label:string,limit?:number)=>{
   try{return (await nativeJson(path,limit))?.value;}
-  catch{throw Error('Invalid or unreadable '+label+': '+path);}
+  catch{throw new NativeBlocker('prerequisite-unverified','Invalid or unreadable '+label+'.',{evidence:[path]});}
  };
  await read(configFile,'Claude user state',4_000_000);
- let projectEnabled=false,enabled=false,declared=false;
+ let projectEnabled=false,declared=false;
  for(const path of documents){
   const value=await read(path,'Claude settings');
   if(!value)continue;
@@ -60,69 +54,76 @@ export async function inspectClaude(runtime:HostLocations){
    const markets=value.extraKnownMarketplaces;
    if(!isRecord(markets)||Object.hasOwn(markets,claudeMarket)&&
     (!isRecord(markets[claudeMarket])||!official(markets[claudeMarket].source)))
-    throw Error('Claude settings declare a non-official '+claudeMarket+' marketplace: '+path);
+    throw new NativeBlocker('claude-catalog-no-entry','Claude settings declare a different source for the official marketplace.',{evidence:[path]});
    if(path===project&&Object.hasOwn(markets,claudeMarket))declared=true;
   }
   if(value.enabledPlugins!==undefined){
    const plugins=value.enabledPlugins;
    if(!isRecord(plugins)||Object.hasOwn(plugins,claudePlugin)&&typeof plugins[claudePlugin]!=='boolean')
-    throw Error('Invalid Claude Superpowers setting: '+path);
-   if(plugins[claudePlugin]===false)throw Error('Claude Superpowers is explicitly disabled: '+path);
-   if(plugins[claudePlugin]===true){enabled=true;if(path===project)projectEnabled=true;}
+    throw new NativeBlocker('prerequisite-unverified','Invalid Claude Superpowers setting.',{evidence:[path]});
+   if(plugins[claudePlugin]===false)throw new NativeBlocker('host-plugin-disabled','Claude Superpowers is explicitly disabled.',{evidence:[path]});
+   if(plugins[claudePlugin]===true&&(path===project||path===local))projectEnabled=true;
   }
  }
  const markets=await read(known,'Claude marketplace registry',2_000_000);
  const installRegistry=await read(registry,'Claude installed plugin registry',2_000_000);
  const recorded=installRegistry?.plugins;
- if(installRegistry&&(installRegistry.version!==2||!isRecord(recorded)))throw Error('Unsupported Claude installed plugin registry');
+ if(installRegistry&&(installRegistry.version!==2||!isRecord(recorded)))
+  throw new NativeBlocker('prerequisite-unverified','Unsupported Claude installed plugin registry.',{evidence:[registry]});
  const records=isRecord(recorded)?recorded[claudePlugin]:undefined;
- const conflict=()=>Error('Claude Superpowers has a different scope or conflicting install receipt: '+registry);
+ const broken=(reason:string,evidence=[registry])=>new NativeBlocker('host-plugin-broken',reason,{evidence});
+ const conflict=()=>broken('Claude Superpowers has conflicting install receipts.');
  if(records!==undefined&&!Array.isArray(records))throw conflict();
- const scoped=[];
- for(const item of records??[]){
-  if(!isRecord(item)||!['project','local'].includes(String(item.scope))||
-     typeof item.projectPath!=='string'||!isAbsolute(item.projectPath))throw conflict();
-  const projectPath=await realpath(item.projectPath).catch(()=>absoluteHostPath(item.projectPath as string));
-  if(relative(root,projectPath)!=='')continue;
-  if(item.scope!=='project')throw conflict();
-  scoped.push(item);
+ const receipts=(records??[]).filter(isRecord),scoped:Record<string,unknown>[]=[];
+ for(const item of receipts){
+  if((item.scope!=='project'&&item.scope!=='local')||typeof item.projectPath!=='string'||!isAbsolute(item.projectPath))continue;
+  const path=item.projectPath;
+  if(relative(root,await realpath(path).catch(()=>absoluteHostPath(path)))==='')scoped.push(item);
  }
  if(scoped.length>1)throw conflict();
- const pinned=(item:unknown)=>isRecord(item)&&item.version===claudeVersion&&item.gitCommitSha===claudeSha&&
-  typeof item.installPath==='string'&&isAbsolute(item.installPath)&&relative(install,absoluteHostPath(item.installPath))==='';
- let installed:string|undefined;
- if(scoped.length){
-  const [item]=scoped;
-  if(!pinned(item)||item.enabled===false||!await checkedDirectory(install))
-   throw Error('Claude Superpowers receipt does not match the pinned source: '+registry);
-  if(!projectEnabled)throw Error('Claude Superpowers receipt has no enabled project setting: '+project);
-  installed=install;
+ const cachePath=(item:Record<string,unknown>)=>{
+  if(typeof item.installPath!=='string'||!isAbsolute(item.installPath))return;
+  const path=absoluteHostPath(item.installPath);
+  if(withinPath(packageRoot,path)&&relative(packageRoot,path)!=='')return path;
+ };
+ const item=scoped[0];
+ if(item?.enabled===false||!item&&receipts.some(receipt=>receipt.scope==='user'&&receipt.enabled===false))
+  throw new NativeBlocker('host-plugin-disabled','Claude Superpowers is explicitly disabled in the install receipt.',{evidence:[registry]});
+ let installed:string|undefined,installedSha:string|undefined,installedVersion:string|undefined;
+ if(item){
+  const path=cachePath(item);
+  if(!path||!await checkedDirectory(path).catch(()=>undefined)||!withinPath(packageRoot,await realpath(path)))
+   throw broken('Claude Superpowers receipt points to an unavailable cache directory.',path?[registry,path]:[registry,packageRoot]);
+  if(!projectEnabled)throw broken('Claude Superpowers receipt has no enabled project setting.',[registry,project,local]);
+  installed=path;installedSha=shaOf(item.gitCommitSha);installedVersion=versionOf(item.version);
  }else{
-  if(enabled)throw Error('Claude Superpowers is enabled without an exact install receipt: '+registry);
-  if(await statIfPresent(install)&&!records?.some(pinned))
-   throw Error('Claude Superpowers cache exists without a pinned receipt: '+install);
+  if(projectEnabled&&!receipts.length)throw broken('Claude Superpowers is enabled without an install receipt.',[registry,project,local]);
+  if(!receipts.some(cachePath)&&await checkedDirectory(packageRoot)&&
+     (await readdir(packageRoot,{withFileTypes:true})).some(entry=>entry.isDirectory()||entry.isSymbolicLink()))
+   throw broken('Claude Superpowers cache exists without a matching receipt.',[packageRoot,registry]);
  }
  const registered=markets?.[claudeMarket];
  let market:'missing'|'ready'='missing';
+ let target:ClaudeTarget|undefined;
  if(registered!==undefined){
   if(!isRecord(registered)||!official(registered.source)||typeof registered.installLocation!=='string'||!isAbsolute(registered.installLocation)||
      relative(catalogRoot,absoluteHostPath(registered.installLocation))!=='')
-   throw Error('The Claude marketplace name is already registered to a different source or path');
+   throw new NativeBlocker('claude-catalog-no-entry','The Claude marketplace name is already registered to a different source or path.',{evidence:[known,catalogRoot]});
   const contents=await read(catalog,'official Claude marketplace catalog',2_000_000);
   const items=contents?.name===claudeMarket&&Array.isArray(contents.plugins)?contents.plugins.filter(item=>isRecord(item)&&item.name==='superpowers'):[];
-  const item=items.length===1?items[0]:undefined;
-  const source=item?.source;
-  if(!isRecord(source)||Object.keys(source).length!==3||source.source!=='url'||source.url!==claudeSource||source.sha!==claudeSha)
-   throw Error('The official cached catalog does not advertise the pinned Superpowers source; prepare Claude manually');
-  await verifyCatalogRemote(catalogRoot,runtime);
+  const entry=items.length===1?items[0]:undefined,source=entry?.source;
+  const sha=isRecord(source)&&Object.keys(source).length===3&&source.source==='url'&&source.url===claudeSource?shaOf(source.sha):undefined;
+  if(!sha)throw new NativeBlocker('claude-catalog-no-entry','The official cached catalog does not advertise a usable Superpowers source and SHA.',{evidence:[catalog]});
+  const version=versionOf(entry?.version);
+  if(entry?.version!==undefined&&!version)
+   throw new NativeBlocker('claude-catalog-no-entry','The official Claude catalog declares an invalid Superpowers version.',{evidence:[catalog]});
+  target={sha,...(version?{version}:{})};
   market='ready';
  }else if(await statIfPresent(catalogRoot)){
-  throw Error('The Claude marketplace cache has no matching registration: '+catalogRoot);
+  throw new NativeBlocker('claude-catalog-no-entry','The Claude marketplace cache has no matching registration.',{evidence:[catalogRoot,known]});
  }
- if(installed&&market==='missing')throw Error('Claude install receipt lacks the official marketplace');
- for(const directory of [dirname(project),config,plugins,dirname(catalogRoot),dirname(packageRoot),backups])await checkedDirectory(directory);
- const paths=[project,local,user,known,registry,catalog,install,configFile,backups,policy];
- return {market,installed,declared,project,config,configFile,backups,known,registry,catalogRoot,install,paths};
+ const paths=[project,local,user,known,registry,catalog,packageRoot,configFile,backups,policy];
+ return {market,target,installed,installedSha,installedVersion,declared,project,config,configFile,backups,known,registry,catalog,catalogRoot,packageRoot,paths};
 }
 
 export function claudeRecognized(receipt:Awaited<ReturnType<typeof inspectClaude>>,profile:ProjectProfile){

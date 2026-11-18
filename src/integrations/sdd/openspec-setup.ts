@@ -1,3 +1,4 @@
+import {t} from '../../i18n/index.js';
 import {globalNpmInstallOperation,managedGlobalNpmProblem,runGlobalNpmInstall,type GlobalNpmApproval} from '../tools/global-npm.js';
 import {packageDirectory,exists,consumerPath,findProgram,commandEnvironment,command,globalNpmOutput,npmPrefix,userNode,programIdentity,prefixIdentity,type Program as GlobalProgram} from '../tools/global-npm-runtime.js';
 import {lstat,mkdir,mkdtemp,readdir,readFile,realpath,rm} from 'node:fs/promises';
@@ -224,7 +225,7 @@ export function reportOpenSpecPending(setup:OpenSpecInspection,resumeCommand:str
  const steps=setup.steps.filter(step=>step!==resumeCommand);
  const nextCommand=steps.length?[...steps,resumeCommand].join(' && '):null;
  report?.({phase:'preflight',installStatus:'pending',executable:false,pending:setup.requirements,requiredInput:setup.requirements,nextCommand,resumeCommand});
- write('补齐 OpenSpec 后继续原设置：\n'+(nextCommand??resumeCommand)+'\n');
+ write(t('openspec.pending')+'\n'+(nextCommand??resumeCommand)+'\n');
 }
 
 type InstallApproval=Extract<OpenSpecPreparation,{kind:'install'}>;
@@ -330,7 +331,7 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   }
   if(approval.kind==='project-install'&&!record.installedCliIdentity){
    if(approval.prefix!==join(root,projectPrefix))throw Error('OpenSpec project npm destination differs from approval');
-   write('正在安装 OpenSpec CLI '+approval.install.version+' 到 '+approval.prefix+'\n');
+   write(t('openspec.installing',{version:approval.install.version,prefix:approval.prefix})+'\n');
    await installProjectOpenSpec(root,record,lock.stateRoot,signal,recover);
    onInstalled?.();
    setup=await inspect();
@@ -340,7 +341,7 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
    await saveOpenSpecPreparation(record,lock.stateRoot);
   }
   if(approval.kind==='install'&&!record.installedCliIdentity){
-   write('正在安装 OpenSpec CLI '+approval.install.version+' 到 '+approval.prefix+'\n');
+   write(t('openspec.installing',{version:approval.install.version,prefix:approval.prefix})+'\n');
    const outcome=await installOpenSpec(root,options,approval,lock.stateRoot,signal,recover);
    setup=outcome.inspection;
    if(outcome.installed)onInstalled?.();

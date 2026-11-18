@@ -3,11 +3,13 @@ import {join} from 'node:path';
 import {digest} from './analyzer/evidence.js';
 import {privateDirectory,saveCache} from './generator/cache.js';
 import {interruptedApplyId,type InstallReport} from './installer/apply.js';
+import type {Diagnostic} from './installer/doctor.js';
 import {absentDigest,platformFileMode} from './installer/file-state.js';
 import {defaultStateRoot} from './installer/lock.js';
 import type {PreviewData} from './installer/preview.js';
 import {defaultNpmRegistry} from './integrations/tools/npm-resolution.js';
 import {quoteShell} from './shell-command.js';
+import {t,translate,type MessageKey} from './i18n/index.js';
 import type {RunProgressEvent} from './progress.js';
 
 export interface LifecyclePresentation {
@@ -26,24 +28,54 @@ export function terminalText(text:string,multiline=false):string {
  });
 }
 
+const reasonKeys=[
+ 'cli.invalidLanguage','cli.invalidJson','cli.operationFailed','cli.applySavedPreview','cli.providerRequired',
+ 'cli.interruptedSeed','cli.interruptedTool','openspec.resume','openspec.resumeScope',
+ 'doctor.manifestMissing','doctor.manifestReadable','doctor.manifestDamaged','doctor.recoveryDamaged',
+ 'doctor.interrupted','doctor.rulesPending','doctor.selectionMissing','doctor.baselineMissing','doctor.targetMissing',
+ 'doctor.modeChanged','doctor.contentPresent','doctor.modified','doctor.ownershipInvalid','doctor.binaryFound','doctor.binaryMissing',
+ 'doctor.hostReload','doctor.hostReloadClaude','doctor.hostUnconfigured','doctor.hostProbe','doctor.hostVersion','doctor.nodeFound',
+ 'doctor.externalFound','doctor.receipt','doctor.wikiBaseline','doctor.nativeUnavailable','doctor.runtimePending','doctor.checkResult',
+ 'result.reviewWait','lifecycle.rulesNext','preview.seedPrevious','preview.seedMissing','preview.seedExisting','preview.seedCreate',
+ 'preview.mergeRemoveBaseline','preview.mergeRemoveChanged','preview.mergeMissingContent','preview.mergeExistingChanged',
+ 'preview.mergeLocalDeleted','preview.mergeBinary','preview.mergeOverlapping',
+] as const satisfies readonly MessageKey[];
+const reasonByEnglish=new Map<string,MessageKey>(reasonKeys.map(key=>[translate('en',key),key]));
+export function terminalReason(reason:string):string{
+ const key=reasonByEnglish.get(reason);
+ return key?t(key):reason;
+}
+
+export function writeDoctor(report:InstallReport&{diagnostics:Diagnostic[]},write:(text:string,english?:string)=>void):void{
+ if(report.nextCommand)write(report.nextCommand+'\n');
+ for(const {category,id,state,reason} of report.diagnostics){
+  write(t(`doctor.category.${category}`)+' '+id+': '+t(`status.${state}`)+' — '+terminalReason(reason)+'\n',
+   category+' '+id+': '+state+' — '+reason+'\n');
+ }
+ for(const {name,status,startedAt,commit} of report.checks){
+  const params={name,status,time:startedAt??'',commit:commit??''};
+  write(t('doctor.check',{...params,status:t(`status.${status}`)})+'\n',translate('en','doctor.check',params)+'\n');
+ }
+}
+
 function operationDetails(operation:PreviewData['preview']['operations'][number]):string {
  return operation.id+' '+operation.query.name+'@'+operation.version+
-  (operation.kind==='install'?' registry '+(operation.registry??defaultNpmRegistry):'')+
-  ' scope '+(operation.global?operation.global.prefix:operation.declaredWrites.join(', '))+
-  (operation.kind==='install'&&operation.query.integrity?' integrity '+operation.query.integrity:'');
+  (operation.kind==='install'?t('preview.registry',{registry:operation.registry??defaultNpmRegistry}):'')+
+  t('preview.scope',{scope:operation.global?operation.global.prefix:operation.declaredWrites.join(', ')})+
+  (operation.kind==='install'&&operation.query.integrity?t('preview.integrity',{integrity:operation.query.integrity}):'');
 }
 
 function fileDetails(data:PreviewData):string {
- const mode=(value:number|undefined)=>value===undefined?'absent':value.toString(8).padStart(4,'0');
+ const mode=(value:number|undefined)=>value===undefined?t('preview.absent'):value.toString(8).padStart(4,'0');
  const lines=data.preview.items.flatMap(item=>[
-  terminalText(item.action+' '+item.target+(item.reason?' — '+item.reason:'')),
-  ...(item.beforeMode!==item.afterMode?['mode '+mode(item.beforeMode)+' -> '+mode(item.afterMode)]:[]),
-  ...(item.before===undefined?[]:['--- owned before (filtered)',terminalText(item.before,true)]),
-  ...(item.after===undefined?[]:['+++ owned after (filtered)',terminalText(item.after,true)]),
+  terminalText(t(`preview.action.${item.action}`)+' '+item.target+(item.reason?' — '+terminalReason(item.reason):'')),
+  ...(item.beforeMode!==item.afterMode?[t('preview.mode',{before:mode(item.beforeMode),after:mode(item.afterMode)})]:[]),
+  ...(item.before===undefined?[]:[t('preview.before'),terminalText(item.before,true)]),
+  ...(item.after===undefined?[]:[t('preview.after'),terminalText(item.after,true)]),
  ]);
- return [...lines,...(data.preview.projectDocuments??[]).map(item=>terminalText(item.action+' '+item.target+' — '+item.reason)),
-  ...data.preview.operations.map(operation=>'operation '+terminalText(operationDetails(operation))),
-  ...data.preview.blockers.map(blocker=>'Blocked: '+terminalText(blocker)),
+ return [...lines,...(data.preview.projectDocuments??[]).map(item=>terminalText(t(`preview.action.${item.action}`)+' '+item.target+' — '+terminalReason(item.reason))),
+  ...data.preview.operations.map(operation=>t('preview.operation',{detail:terminalText(operationDetails(operation))})),
+  ...data.preview.blockers.map(blocker=>t('lifecycle.blocked',{reason:terminalText(terminalReason(blocker))})),
   ...data.preview.warnings.map(warning=>terminalText(warning))].join('\n')+'\n';
 }
 
@@ -76,10 +108,13 @@ export function createCliOutput(options:{
  const {write,verbose,json,stateRoot}=options;
  const state:{root?:string;data?:PreviewData;native?:NativeResult;applyId?:string;error?:string;note?:string;details?:string}={};
  const seen=new Set<string>();
- const stageLabels:Record<string,string>={detect:'Detect',research:'Research',generation:'Generate',preview:'Prepare preview',apply:'Install'};
+ const stageLabels:Partial<Record<RunProgressEvent['stage'],MessageKey>>={
+  detect:'stage.detect',research:'stage.research',generation:'stage.generation',preview:'stage.preview',apply:'stage.apply',
+ };
  const presentation:LifecyclePresentation={
   progress(event){
-   const label=stageLabels[event.stage]??event.stage;
+   const key=stageLabels[event.stage];
+   const label=key?t(key):event.stage;
    if(options.stage)options.stage(label,!!event.requiresUserAction||event.status==='complete'||event.status==='failed');
    else if(!seen.has(event.stage)){seen.add(event.stage);write(label+'…\n');}
   },
@@ -93,19 +128,19 @@ export function createCliOutput(options:{
    }catch{/* A preview can proceed if private details are unavailable. */}
    if(!json){
     const changes=previewPaths(data);
-    write('Preview '+data.preview.previewId+'\n');
+    write(t('lifecycle.preview',{id:data.preview.previewId})+'\n');
     for(const action of ['Create','Update','Delete'] as const){
      const paths=changes.filter(change=>change.action===action);
-     if(paths.length)write(action+' '+paths.length+' file(s)\n');
+     if(paths.length)write(t('preview.fileCount',{action:t(`preview.action.${action}`),count:paths.length})+'\n');
     }
     const actions=['Create','Update','Delete'];
     const sorted=changes.sort((a,b)=>actions.indexOf(a.action)-actions.indexOf(b.action)||a.target.localeCompare(b.target));
     const shown=state.details?sorted.slice(0,15):sorted;
-    for(const change of shown)write('  '+change.action+' '+terminalText(change.target)+'\n');
-    if(shown.length<sorted.length)write('  '+(sorted.length-shown.length)+' more\n');
+    for(const change of shown)write('  '+t(`preview.action.${change.action}`)+' '+terminalText(change.target)+'\n');
+    if(shown.length<sorted.length)write('  '+t('preview.more',{count:sorted.length-shown.length})+'\n');
     for(const operation of data.preview.operations)write('  '+terminalText(operationDetails(operation))+'\n');
-    if(data.preview.executable)write('Apply can also update .rigup/.env and installation metadata.\n');
-    write(state.details?'Details: '+terminalText(state.details)+'\n':'Details unavailable. Use --verbose to inspect the preview.\n');
+    if(data.preview.executable)write(t('preview.applyMetadata')+'\n');
+    write((state.details?t('preview.details',{path:terminalText(state.details)}):t('preview.detailsUnavailable'))+'\n');
    }
    if(verbose)write(details);
   },
@@ -117,45 +152,45 @@ export function createCliOutput(options:{
   const root=state.root;
   if(json||!root)return;
   if(report.phase==='native-preparation'){
-   const label=code===130?'Cancelled':code===3?'Needs action':code===1?'Preparation failed':
-    report.installStatus==='not-applicable'?'Native preparation preview':report.installStatus==='up-to-date'?'Native workflow already ready':'Native preparation complete';
-   write('\nResult: '+label+'\n');return;
+   const label=code===130?'result.cancelled':code===3?'result.needsAction':code===1?'result.nativeFailed':
+    report.installStatus==='not-applicable'?'result.nativePreview':report.installStatus==='up-to-date'?'result.nativeReady':'result.nativeComplete';
+   write('\n'+t('result.heading',{label:t(label)})+'\n');return;
   }
   const install=report.phase==='apply'?report as unknown as InstallReport:undefined;
   const complete=install?.status==='complete';
-  const result=code===130?'Cancelled':complete?(code===0?'Install complete':'Install complete, needs attention'):
-   state.native?.installed&&!state.native.ready?'OpenSpec partially prepared':state.applyId&&!install?'Installation outcome unverified':
-   code===1||code===2?'Not installed':code===3?'Needs action':report.installStatus==='up-to-date'?'Up to date':
-   report.nativeWorkflow==='ready'?'OpenSpec ready':'Preview only';
-  write('\nResult: '+result+'\n');
+  const result=code===130?'result.cancelled':complete?(code===0?'result.installComplete':'result.installAttention'):
+   state.native?.installed&&!state.native.ready?'result.openSpecPartial':state.applyId&&!install?'result.installUnverified':
+   code===1||code===2?'result.notInstalled':code===3?'result.needsAction':report.installStatus==='up-to-date'?'result.upToDate':
+   report.nativeWorkflow==='ready'?'result.openSpecReady':'result.previewOnly';
+  write('\n'+t('result.heading',{label:t(result)})+'\n');
   const preparation=report.nativePreparation as {kind?:string;progress?:{step?:string;status?:string}[]}|undefined;
   const nativeChanges=preparation?.kind==='superpowers'&&preparation.progress?.some(item=>item.step||item.status==='uncertain');
-  if(!state.native&&!state.applyId&&!nativeChanges)write('Nothing was written to the project.\n');
+  if(!state.native&&!state.applyId&&!nativeChanges)write(t('result.noWrites')+'\n');
   if(state.native){
    const native=state.native;
-  if(native.ready)write('OpenSpec '+terminalText(native.version??'CLI')+' and selected project entries are ready.\n');
-  else if(native.installed)write('OpenSpec CLI '+terminalText(native.version??'')+' installed and verified in '+terminalText(native.prefix??'')+'.'
-    +(native.receiptFailed?' Its receipt was not saved.':' Some project changes may have been written.')+'\n');
-  else write('OpenSpec preparation started. Some changes may have been written.\n');
+   if(native.ready)write(t('result.openSpecEntries',{version:terminalText(native.version??'CLI')})+'\n');
+   else if(native.installed)write(t('result.openSpecInstalled',{version:terminalText(native.version??''),prefix:terminalText(native.prefix??'')})+
+    t(native.receiptFailed?'result.receiptNotSaved':'result.projectChangesPossible')+'\n');
+   else write(t('result.openSpecStarted')+'\n');
   }
   if(state.applyId){
-   if(install)write(install.written.length+' managed project target(s) changed.\n');
-   if(install?.runtimeSetup?.template.state==='written')write('.rigup/.env updated.\n');
+   if(install)write(t('result.changedTargets',{count:install.written.length})+'\n');
+   if(install?.runtimeSetup?.template.state==='written')write(t('result.envUpdated')+'\n');
    for(const operation of install?.operations??[])if(operation.status==='done'&&operation.globalReceipt)write(terminalText(operation.message)+'\n');
-   if(install?.operations.some(operation=>operation.status==='done'))write('Completed or previously installed tool operations verified.\n');
-   if(!complete)write('Some installation changes may have been written.\n');
+   if(install?.operations.some(operation=>operation.status==='done'))write(t('result.operationsVerified')+'\n');
+   if(!complete)write(t('result.installChangesPossible')+'\n');
   }
   const blockers=report.blockers as string[]|undefined;
   const pending=Array.isArray(report.pending)?report.pending[0]:undefined;
   const known=typeof pending==='string'?pending:pending?.reason;
   const toolWait=install&&code===3&&state.data?.plan.pendingRuntimeTools?.length
-   ?'Tool installation pending for '+state.data.plan.pendingRuntimeTools.join(', ')+'. '+(install.runtimeSetup?.template.reason??''):undefined;
-  const reviewWait=install?.sourceReview?'Approved rule sources changed. Review current sources before relying on project rules.':undefined;
+   ?t('result.toolWait',{tools:state.data.plan.pendingRuntimeTools.join(', '),reason:install.runtimeSetup?.template.reason??''}):undefined;
+  const reviewWait=install?.sourceReview?t('result.reviewWait'):undefined;
   const reason=state.error??applyReason(report)??toolWait??reviewWait??(typeof report.error==='string'?report.error:undefined)??blockers?.[0]??
-   (typeof report.requestPath==='string'?'Pending host '+(report.phase==='generation'?'generation':'research')+': '+report.requestPath:undefined)??
+   (typeof report.requestPath==='string'?t(report.phase==='generation'?'result.pendingGeneration':'result.pendingResearch',{path:report.requestPath}):undefined)??
    (typeof known==='string'?known:undefined)??(typeof report.message==='string'?report.message:undefined)??
    (code===1||code===2||code===3?state.note?.trim().split('\n')[0]:undefined);
-  if(reason&&code!==130)write('Reason: '+terminalText(reason.trim().split('\n')[0])+'\n');
+  if(reason&&code!==130)write(t('result.reason',{reason:terminalText(terminalReason(reason.trim().split('\n')[0]))})+'\n');
   if(code===130)return;
   let next:string|undefined;
   if(state.applyId&&!complete&&await interruptedApplyId(root,stateRoot??defaultStateRoot()).catch(()=>undefined)===state.applyId){
@@ -164,13 +199,13 @@ export function createCliOutput(options:{
    next='rigup doctor '+quoteShell(root);
   }else if(typeof report.nextCommand==='string'){
    next=complete&&report.projectRules==='pending'&&report.researchNextStep&&!report.sourceReview
-    ?'Open a selected agent and call rigup_begin with the project root.':report.nextCommand;
+    ?t('cli.openAgent'):report.nextCommand;
   }else if(typeof report.resumeCommand==='string'){
    next=report.resumeCommand;
   }else if(typeof report.researchNextStep==='string'){
    next=report.researchNextStep;
   }else if(code===1||code===3)next='rigup doctor '+quoteShell(root);
-  if(next)write('Next: '+terminalText(next)+'\n');
+  if(next)write(t('result.next',{command:terminalText(terminalReason(next))})+'\n');
  }
  return {state,presentation,finish};
 }

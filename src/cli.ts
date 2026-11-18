@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {inspectGlobalNpm} from './integrations/tools/global-npm.js';
+import {defaultNpmRegistry} from './integrations/tools/npm-resolution.js';
 import {toolPackage} from './integrations/tools/recipes.js';
 import {readFile,realpath,rm} from 'node:fs/promises';
 import {resolve,join,relative,isAbsolute} from 'node:path';
@@ -7,8 +8,8 @@ import {homedir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {onboard,promptNativeCredentials,restrictBindings} from './onboarding.js';
 import {detectCommands,detectSdd,detectToolInstallation} from './setup-detection.js';
-import {askLine,terminalReader,type Ask} from './prompt.js';
-import {loadOptions,validateOptions,type SetupOverrides} from './config.js';
+import {askLine,choice,terminalReader,type Ask} from './prompt.js';
+import {loadOptions,normalizeDocumentLanguage,readProjectConfig,validateOptions,type SetupOverrides} from './config.js';
 import type {SetupOptions} from './types.js';
 import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
@@ -26,13 +27,13 @@ import {quoteShell,quoteShellList} from './shell-command.js';
 import {LinkedRigupDirectoryError} from './installer/ownership.js';
 import {promptResearchProvider,resolveResearchProvider} from './research/provider-settings.js';
 import {runtimeEnvironment,runtimeSetupSummary,writeRuntimeSummary,type RuntimeSetupSummary} from './runtime-inputs.js';
-import {applyReason,createCliOutput,terminalText} from './cli-output.js';
+import {applyReason,createCliOutput,terminalReason,terminalText,writeDoctor} from './cli-output.js';
 import {supportedHost} from './integrations/host-setup/manual.js';
 import {nativeSetupInteraction} from './integrations/host-setup/index.js';
 import {terminalUI,type TerminalStreams} from './terminal-ui.js';
+import {resolveLocale,setLocale,t,translate,withLocale,type MessageKey,type MessageParams} from './i18n/index.js';
 export interface CliIO {cwd:string;isTTY:boolean;outputIsTTY?:boolean;write(text:string):void;writeError?(text:string):void;read?(secret?:boolean):Promise<string|null>;ask?:Ask;terminal?:TerminalStreams;services?:LifecycleServices}
 const errorMessage=(error:unknown)=>error instanceof SyntaxError?'input/cache: invalid JSON syntax; inspect the local file without exporting its contents':error instanceof Error?error.message:'operation failed';
-const help='rigup                         Open the interactive project menu (TTY)\nrigup init [path] [--agents claude,codex,opencode,omp] [--sdd superpowers|openspec|spec-kit|none] [--tools openwiki,codegraph|none] [--defer-research]\nrigup update [path] [--configure] [--dry-run|--review] [--apply previewId] [--sessions-ended] [--resume]\nrigup doctor [path] [--check-host claude] [--run-checks build,lint,test,environment,eval]\nrigup mcp [path] --host claude|codex|opencode|omp\nOptions: --profile path --language auto|language-tag --model modelId --json --verbose\nNative Superpowers: rigup init [path] --agents claude,omp --sdd superpowers --prepare-native [--review|--dry-run]\nAdvanced: --retire logicalId,... --prepare-openspec [--install-scope project|global]\nrigup openspec <args>          Run the verified project OpenSpec CLI\nChoose a CLI provider with RIGUP_PROVIDER and its model and API-key environment variables. Without a provider, use Rigup MCP from the installed agent.\nOmit path to use the current directory. A TTY previews changes before Install, Save preview, or Cancel. Use --verbose for preview details. --json never prompts.\n';
 const listOptions:Record<string,RegExp>={
  '--agents':/^(?:claude|codex|opencode|omp)$/,
  '--tools':/^(?:openwiki|codegraph|none)$/,
@@ -40,15 +41,33 @@ const listOptions:Record<string,RegExp>={
  '--retire':/^[^,\s]+$/,
 };
 const splitList=(value:string)=>value.split(',').flatMap(part=>part.trim().split(/\s+/));
+const lifecycleCommands=['init','update','doctor'] as const;
+const isLifecycleCommand=(value:unknown):value is typeof lifecycleCommands[number]=>lifecycleCommands.some(command=>command===value);
+function validLanguage(value:unknown):string|undefined{
+ try{return normalizeDocumentLanguage(value);}catch{return undefined;}
+}
+const activateLanguage=(language:string|undefined)=>setLocale(resolveLocale(language,process.env));
 
-async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof createCliOutput>):Promise<number>{
+async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:string,english?:string):void},display:ReturnType<typeof createCliOutput>):Promise<number>{
  const {state,presentation}=display;
- const configWarning=(message:string)=>io.write(message+'\n');
+ const fail=(code:number,key:MessageKey,params?:MessageParams)=>{
+  io.write(t(key,params)+'\n',translate('en',key,params)+'\n');return code;
+ };
+ const failRaw=(code:number,message:string)=>{io.write(terminalReason(message)+'\n',message+'\n');return code;};
+ const configWarnings:string[]=[];
+ const configWarning=(message:string)=>configWarnings.push(message);
+ const writeConfigWarnings=()=>{
+  for(const message of configWarnings.splice(0)){
+   const field=message.slice(0,message.indexOf(': '));
+   io.write(t('cli.configWarning',{field})+'\n',message+'\n');
+  }
+ };
  const promptWrite=io.isTTY&&io.outputIsTTY===false?io.writeError??io.write:io.write;
  const promptIO={write:promptWrite,read:io.read??(async()=>null)};
  const ask:Ask=io.ask??(question=>askLine(promptIO,question));
  const services:LifecycleServices={...io.services};
- const flags:LifecycleFlags={};const overrides:SetupOverrides={};const positional:string[]=[];let applyId:string|undefined;
+ const flags:LifecycleFlags={};const overrides:SetupOverrides={};const positional:string[]=[];let applyId:string|undefined,showHelp=false;
+ let argumentError:{key:MessageKey;params?:MessageParams}|undefined;
  const boolean=new Set(['--dry-run','--configure','--review','--sessions-ended','--resume','--defer-research','--prepare-openspec','--prepare-native']);const valued=new Set(['--sdd','--backend','--profile','--language','--response','--request','--apply','--model','--api-key-env','--continue','--research-tokens','--check-host','--install-scope']);const values:Record<string,string>={};
  for(let i=0;i<argv.length;i++){
   const arg=argv[i];
@@ -59,8 +78,9 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    const raw=equal<0?argv[i+1]:arg.slice(equal+1);
    const list=raw&&!raw.startsWith('-')?splitList(raw):[];
    if(!list.length||list.some(value=>!accepts.test(value))){
-    io.write(flag+': provide supported comma-separated values, repeat the option, or separate values with spaces. In PowerShell, use quotes around comma-separated values.\n');
-    return 2;
+    argumentError??={key:'cli.listValue',params:{flag}};
+    if(equal<0&&list.length)i++;
+    continue;
    }
    if(equal<0)i++;
    // Retirement IDs may be arbitrary. Only consume adjacent IDs with the
@@ -72,78 +92,151 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    values[flag]=[...new Set([...(values[flag]?.split(',')??[]),...list])].join(',');
    continue;
   }
-  if(boolean.has(arg)){values[arg]='true';continue;}if(valued.has(arg)){if(!argv[i+1]||argv[i+1].startsWith('--')){io.write(arg+': value required\n');return 2;}values[arg]=argv[++i];continue;}
-  if(arg==='--help'){io.write(help);return 0;}
+  if(boolean.has(arg)){values[arg]='true';continue;}
+  if(valued.has(arg)){
+   if(!argv[i+1]||argv[i+1].startsWith('--'))argumentError??={key:'cli.valueRequired',params:{flag:arg}};
+   else values[arg]=argv[++i];
+   continue;
+  }
+  if(arg==='--help'){showHelp=!argumentError;break;}
   if (arg === '--version') {
+   if(argumentError)break;
    const {version} = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
    io.write(`${version}\n`);
    return 0;
   }
-  if(arg.startsWith('-')){io.write('Unknown option\n');return 2;}positional.push(arg);
+  if(arg.startsWith('-'))argumentError??={key:'cli.unknownOption'};
+  else positional.push(arg);
  }
- if(positional.length>2||positional[0]&&!['init','update','doctor'].includes(positional[0])){io.write(help);return 2;}
- if(!positional.length&&!io.isTTY){io.write(help+'Choose a lifecycle command\n');return 2;}
- let root:string;try{root=await realpath(resolve(io.cwd,positional[1]??'.'));}catch{io.write('path: existing directory required\n');return 2;}
- let manifest:Awaited<ReturnType<typeof loadManifest>>;
- try{manifest=await loadManifest(root);}catch(error){io.write((error instanceof LinkedRigupDirectoryError?error.message:'manifest: damaged metadata; diagnose before setup')+'\n');return 1;}
- let command=positional[0];
- if(!command){const a=await ask({message:'Rigup',choices:[manifest?'update':'init','doctor','exit']});if(!Array.isArray(a)||a[0]==='exit')return 130;command=a[0];}
+ const invalidCommand=positional.length>2||positional[0]&&!isLifecycleCommand(positional[0]);
+ const missingCommand=!positional.length&&!io.isTTY;
+ const showUsage=argumentError||showHelp||missingCommand||invalidCommand;
+ const usage=()=>{
+  if(argumentError)return fail(2,argumentError.key,argumentError.params);
+  if(showHelp){io.write(t('cli.help'));return 0;}
+  if(missingCommand){
+   io.write(t('cli.help')+t('cli.chooseCommand')+'\n',translate('en','cli.help')+translate('en','cli.chooseCommand')+'\n');return 2;
+  }
+  io.write(t('cli.help'),translate('en','cli.help'));return 2;
+ };
+ let root:string;try{root=await realpath(resolve(io.cwd,positional[1]??'.'));}catch{
+  if(showUsage)return usage();
+  return fail(2,'cli.pathRequired');
+ }
+ let manifest:Awaited<ReturnType<typeof loadManifest>>,manifestError:unknown;
+ try{manifest=await loadManifest(root);}catch(error){manifestError=error;}
+ let config:Awaited<ReturnType<typeof readProjectConfig>>,configError:unknown;
+ if(!(manifestError instanceof LinkedRigupDirectoryError)){
+  try{config=await readProjectConfig(root,configWarning);}catch(error){configError=error;}
+ }
+ const languageIndex=argv.lastIndexOf('--language');
+ const explicitLanguage=values['--language']??(showHelp&&languageIndex>=0?argv[languageIndex+1]:undefined);
+ const languageOverride=validLanguage(explicitLanguage);
+ const initialLanguage=languageOverride??validLanguage(config?.documentLanguage)??validLanguage(manifest?.options?.documentLanguage);
+ activateLanguage(initialLanguage);
+ const loadSelections=(selected:SetupOverrides,approved?:SetupOptions,defaults?:Parameters<typeof loadOptions>[3])=>{
+  if(configError&&!approved)throw configError;
+  return loadOptions(root,selected,approved,{...defaults,project:config??{},onWarning:configWarning});
+ };
+ if(!explicitLanguage&&(showUsage||!positional.length||positional[0]==='doctor')&&
+    (values['--profile']||config?.profile||manifest?.options?.profile)){
+  try{
+   const effective=await loadSelections(values['--profile']?{profile:values['--profile']}:{},undefined,{fallback:manifest?.options});
+   activateLanguage(effective.documentLanguage??initialLanguage);
+  }catch{/* Help, the menu and doctor must remain available with an invalid profile. */}
+ }
+ if(showUsage)return usage();
+ if(manifestError)return manifestError instanceof LinkedRigupDirectoryError?failRaw(1,manifestError.message):fail(1,'cli.manifestDamaged');
+ let command=isLifecycleCommand(positional[0])?positional[0]:manifest?'update':'init';
+ if(!positional.length){
+  const answer=await ask({message:'Rigup',choices:[
+   {value:manifest?'update':'init',label:t(manifest?'command.update':'command.init')},
+   {value:'doctor',label:t('command.doctor')},{value:'exit',label:t('menu.exit')},
+  ]});
+  if(!Array.isArray(answer)||!isLifecycleCommand(answer[0]))return 130;
+  command=answer[0];
+ }
+ let headerWritten=false;
+ const start=(language?:string)=>{
+  if(language!==undefined)activateLanguage(language);
+  if(!headerWritten){
+   headerWritten=true;
+   const path=terminalText(root);
+   io.write(t('cli.header',{command:t(`command.${command}`),path})+'\n',translate('en','cli.header',{command,path})+'\n');
+  }
+  writeConfigWarnings();
+ };
+ const commandError=(code:number,key:MessageKey,params?:MessageParams)=>{start();return fail(code,key,params);};
  const nativeTTY=io.isTTY===true&&(io.outputIsTTY??io.terminal?.output.isTTY)===true;
  const nativeInput={...services.nativeSetup,stateRoot:services.nativeSetup?.stateRoot??services.stateRoot,signal:services.signal};
  if(values['--prepare-native']){
   if(positional[0]!=='init'||!values['--agents']||values['--sdd']!=='superpowers'||
-     Object.keys(values).some(flag=>!['--agents','--sdd','--prepare-native','--review','--dry-run'].includes(flag))||
+     Object.keys(values).some(flag=>!['--agents','--sdd','--prepare-native','--review','--dry-run','--language'].includes(flag))||
      values['--review']&&values['--dry-run']){
-   io.write('--prepare-native: use init with explicit --agents and --sdd superpowers, with at most one of --review and --dry-run.\n');
-   return 2;
+   return fail(2,'cli.nativeUsage');
   }
   state.root=root;
   try{
-   const selected=await loadOptions(root,{agents:values['--agents'].split(',') as SetupOptions['agents'],sdd:'superpowers'},
-    undefined,{fallback:manifest?.options,onWarning:configWarning});
+   const selected=await loadSelections({agents:values['--agents'].split(',') as SetupOptions['agents'],sdd:'superpowers',...(values['--language']?{documentLanguage:values['--language']}:{})},
+    undefined,{fallback:manifest?.options});
+   start(selected.documentLanguage??initialLanguage);
    const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:services.report,
     ask,inspect:!!(values['--review']||values['--dry-run']),canPrompt:nativeTTY&&selected.executionPolicy?.mode!=='review'});
    return result==='back'?130:result;
-  }catch(error){io.write(errorMessage(error)+'\n');return services.signal?.aborted?130:1;}
+  }catch(error){return failRaw(services.signal?.aborted?130:1,errorMessage(error));}
  }
  if(values['--defer-research']){
   if(command!=='init'||manifest||['--apply','--continue','--request','--response','--retire'].some(arg=>values[arg])){
-   io.write('--defer-research: use with initial project setup\n');return 2;
+   return fail(2,'cli.deferUsage');
   }
   flags.deferResearch=true;
  }
  if(command==='init'&&manifest)command='update';
- io.write(command+': '+terminalText(root)+'\n');
+
  if(values['--prepare-openspec']&&(command==='doctor'||['--apply','--dry-run','--review','--continue','--request','--response','--research-tokens'].some(flag=>values[flag]))){
-  io.write('--prepare-openspec is a separate native setup step for init or update\n');
-  return 2;
+  return commandError(2,'cli.openSpecUsage');
  }
- if(values['--install-scope']&&(!values['--prepare-openspec']||!['project','global'].includes(values['--install-scope']))){io.write('--install-scope requires --prepare-openspec and project or global\n');return 2;}
- if(values['--check-host']&&(command!=='doctor'||values['--check-host']!=='claude')){io.write('--check-host claude is supported with doctor only\n');return 2;}
- if(command==='doctor'){if(values['--research-tokens']){io.write('--research-tokens applies to Codex research only\n');return 2;}try{const runChecks=values['--run-checks']?.split(',');if(runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing check kinds required\n');return 2;}const report=await doctor(root,{checkHost:values['--check-host']?'claude':undefined,runChecks:runChecks as import('./types.js').CheckKind[],stateRoot:io.services?.stateRoot,signal:io.services?.signal});io.services?.report?.({phase:'doctor',installStatus:report.nextCommand?'pending':'not-applicable',...report});if(report.nextCommand)io.write(report.nextCommand+'\n');for(const d of report.diagnostics)io.write(d.category+' '+d.id+': '+d.state+' — '+d.reason+'\n');for(const c of report.checks)io.write('check '+c.name+': '+c.status+' '+(c.startedAt??'')+' '+(c.commit??'')+'\n');return report.exitCode;}catch(e){io.write(errorMessage(e)+'\n');return 1;}}
+ if(values['--install-scope']&&(!values['--prepare-openspec']||!['project','global'].includes(values['--install-scope']))){return commandError(2,'cli.scopeUsage');}
+ if(values['--check-host']&&(command!=='doctor'||values['--check-host']!=='claude')){return commandError(2,'cli.hostUsage');}
+ if(command==='doctor'){
+  start();
+  if(values['--research-tokens'])return fail(2,'cli.researchDoctor');
+  if(explicitLanguage&&!languageOverride){
+   try{normalizeDocumentLanguage(explicitLanguage);}catch(error){return failRaw(2,errorMessage(error));}
+  }
+  try{
+   const runChecks=values['--run-checks']?.split(',') as import('./types.js').CheckKind[]|undefined;
+   const report=await doctor(root,{checkHost:values['--check-host']?'claude':undefined,runChecks,
+    stateRoot:services.stateRoot,signal:services.signal});
+   services.report?.({phase:'doctor',installStatus:report.nextCommand?'pending':'not-applicable',...report});
+   writeDoctor(report,io.write);
+   return report.exitCode;
+  }catch(error){return failRaw(1,errorMessage(error));}
+ }
  state.root=root;
  if(values['--agents'])overrides.agents=values['--agents'].split(',') as SetupOptions['agents'];
  if(values['--sdd'])overrides.sdd=values['--sdd'] as SetupOverrides['sdd'];
  if(values['--backend'])overrides.backend=values['--backend'] as SetupOptions['backend'];
  if(values['--profile'])overrides.profile=values['--profile'];
  if(values['--language'])overrides.documentLanguage=values['--language'];
- flags.dryRun=!!values['--dry-run'];flags.yes=!io.isTTY&&!values['--dry-run']&&!values['--review'];flags.review=!!values['--review'];flags.response=values['--response'];flags.request=values['--request'];flags.configure=!!values['--configure'];if(flags.request){const privateRoot=resolve(io.services?.cacheRoot??join(homedir(),'.cache','rigup'),'host');const rel=relative(privateRoot,resolve(flags.request));if(!isAbsolute(flags.request)||!rel||rel.startsWith('..')||isAbsolute(rel)){io.write('request: use an absolute file path inside '+privateRoot+'\n');return 2;}}if(flags.request&&flags.response){io.write('request/response: choose one\n');return 2;}flags.sessionsEnded=!!values['--sessions-ended'];flags.resume=!!values['--resume'];flags.retireIds=values['--retire']?.split(',');flags.runChecks=values['--run-checks']?.split(',') as import('./types.js').CheckKind[];if(flags.runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){io.write('run-checks: existing kinds required\n');return 2;}applyId=values['--apply'];
- if([flags.dryRun,flags.yes,flags.review].filter(Boolean).length>1){io.write('execution mode: choose one\n');return 2;}
+ flags.dryRun=!!values['--dry-run'];flags.yes=!io.isTTY&&!values['--dry-run']&&!values['--review'];flags.review=!!values['--review'];flags.response=values['--response'];flags.request=values['--request'];flags.configure=!!values['--configure'];if(flags.request){const privateRoot=resolve(io.services?.cacheRoot??join(homedir(),'.cache','rigup'),'host');const rel=relative(privateRoot,resolve(flags.request));if(!isAbsolute(flags.request)||!rel||rel.startsWith('..')||isAbsolute(rel)){return commandError(2,'cli.requestPath',{path:privateRoot});}}if(flags.request&&flags.response){return commandError(2,'cli.requestResponse');}flags.sessionsEnded=!!values['--sessions-ended'];flags.resume=!!values['--resume'];flags.retireIds=values['--retire']?.split(',');flags.runChecks=values['--run-checks']?.split(',') as import('./types.js').CheckKind[];if(flags.runChecks?.some(k=>!['build','lint','test','environment','eval'].includes(k))){return commandError(2,'cli.checkKinds');}applyId=values['--apply'];
+ if([flags.dryRun,flags.yes,flags.review].filter(Boolean).length>1){return commandError(2,'cli.executionMode');}
  if(values['--research-tokens']){
   const tokens=Number(values['--research-tokens']);
-  if(!/^[1-9][0-9]*$/.test(values['--research-tokens'])||!Number.isSafeInteger(tokens)||applyId||command==='doctor'||flags.deferResearch){io.write('--research-tokens: a positive cumulative limit is required for a Codex research run\n');return 2;}
+  if(!/^[1-9][0-9]*$/.test(values['--research-tokens'])||!Number.isSafeInteger(tokens)||applyId||flags.deferResearch){return commandError(2,'cli.researchTokens');}
   flags.researchTokens=tokens;
  }
  if(applyId){
-  if(overrides.documentLanguage){io.write('--language: prepare a new preview to change the document language\n');return 2;}
-  if(values['--model']){io.write('--model: prepare a new preview to change the research model\n');return 2;}
+  if(overrides.documentLanguage){return commandError(2,'cli.applyLanguage');}
+  if(values['--model']){return commandError(2,'cli.applyModel');}
   if(Object.keys(values).some(flag=>!['--apply','--sessions-ended','--resume','--run-checks','--verbose'].includes(flag))){
-   io.write('--apply uses the saved selections. Prepare a new preview to change options or execution mode.\n');return 2;
+   return commandError(2,'cli.applyOptions');
   }
   try{
    const cacheRoot=join(services.cacheRoot??join(homedir(),'.cache','rigup'),'previews');
    const prepared=await loadPreview(applyId,cacheRoot);
    if(prepared.plan.root!==root)throw new Error('preview project root differs from requested path');
+   start(prepared.plan.options.documentLanguage);
    state.data=prepared;
    if(!prepared.preview.executable)throw new Error('preview is blocked; prepare a new preview');
    if(flags.runChecks&&JSON.stringify([...flags.runChecks].sort())!==JSON.stringify([...(prepared.plan.runChecks??[])].sort()))throw new Error('apply checks differ from approved preview; prepare a new preview with --run-checks');
@@ -151,7 +244,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
     const setup=await inspectOpenSpec(root,prepared.plan.options,services.signal,undefined,{stateRoot:services.stateRoot,scope:'project'});
     if(services.signal?.aborted)return 130;
     if(setup.requirements.length){
-     for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
+     for(const requirement of setup.requirements)io.write(t('openspec.prefix',{requirement})+'\n');
      const resume=setup.needsProject
       ?'rigup init '+quoteShell(root)+' --agents '+quoteShellList(prepared.plan.options.agents)+' --sdd openspec'+(prepared.plan.projectRules==='pending'?' --defer-research':'')+' --review'
       :'rigup update '+quoteShell(root)+' --apply '+applyId+(flags.resume?' --resume':'');
@@ -160,13 +253,13 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
     }
    }
    const reload=await sessionReloadNotice(root,flags.sessionsEnded);
-   if(reload)io.write(reload+'\n');
+   if(reload)io.write(t('cli.restartHost')+'\n',reload+'\n');
    presentation.progress({stage:'apply',completed:0});
    presentation.applying(applyId);
    const report=await apply(applyId,{cacheRoot,stateRoot:services.stateRoot,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});
    services.report?.({phase:'apply',installStatus:report.status,...report});
    return report.exitCode;
-  }catch(e){state.error=errorMessage(e);return services.signal?.aborted?130:1;}
+  }catch(e){start();state.error=errorMessage(e);return services.signal?.aborted?130:1;}
  }
  const resumeApply=flags.resume&&!flags.request&&!flags.response&&!flags.researchTokens&&!values['--prepare-openspec']&&!values['--continue'];
  let savedApplyOptions:SetupOptions|undefined;
@@ -176,6 +269,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    const seedApply=await interruptedSeedApplyId(root,services.stateRoot);
    const interruptedPreviewId=seedApply??await interruptedInstallApplyId(root,services.stateRoot);
    if(interruptedPreviewId){
+    start();
     const nextCommand='rigup update '+quoteShell(root)+' --resume --review';
     const message=seedApply?'Reconcile the interrupted customer document creation using the original approval.':'Resume the interrupted tool installation using the original approval.';
     services.report?.({phase:'preflight',installStatus:'pending',reason:'interrupted-install',interruptedPreviewId,pending:[message],nextCommand});
@@ -183,14 +277,15 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    }
   }
  }
- catch(error){io.write(errorMessage(error)+'\n');return 1;}
+ catch(error){start();return failRaw(1,errorMessage(error));}
  let options:SetupOptions;
  let draftPath:string|undefined;
  try {
-  let hasProjectConfig=true;try{await readFile(join(root,'.rigup/config.yaml'));}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')hasProjectConfig=false;else throw e;}
-  if(resumeApply&&command==='update'&&!savedApplyOptions&&!manifest&&!hasProjectConfig&&Object.keys(values).every(flag=>['--resume','--review','--dry-run','--sessions-ended'].includes(flag))){
+  const hasProjectConfig=!!config;
+  if(resumeApply&&command==='update'&&!savedApplyOptions&&!manifest&&!hasProjectConfig&&!configError&&Object.keys(values).every(flag=>['--resume','--review','--dry-run','--sessions-ended'].includes(flag))){
+   start();
    const nextCommand='rigup init '+quoteShell(root)+' --review';
-   presentation.notice('No saved installation selection.');
+   presentation.notice(t('cli.noSavedSelection'));
    services.report?.({phase:'preflight',installStatus:'not-installed',nextCommand});
    return 3;
   }
@@ -202,8 +297,8 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
   const useInstalledDefaults=manifest&&(!hasProjectConfig||manifest.options?.projectRules&&!managedConfig);
   const fallback=manifest&&useInstalledDefaults?(manifest.options??{agents:[],backend:'host' as const}):undefined;
   let configured={agents:false,sdd:false};
-  options=await loadOptions(root,overrides,approvedOptions,{projectRules:newSetup||manifest?.options?.backend==='host'&&manifest.options.projectRules!==undefined,
-   fallback,onWarning:configWarning,onSelections:value=>{configured=value;}});
+  options=await loadSelections(overrides,approvedOptions,{projectRules:newSetup||manifest?.options?.backend==='host'&&manifest.options.projectRules!==undefined,
+   fallback,onSelections:value=>{configured=value;}});
   if(manifest&&flags.configure&&!legacyResearch&&!savedApplyOptions&&options.projectRules===undefined)options.projectRules=true;
   const modernResearch=options.projectRules===true&&!legacyResearch&&!savedApplyOptions;
   const configuredTools=new Map(options.tools?.map(tool=>[tool.id,tool]));
@@ -217,6 +312,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    });
   }
   if(values['--continue']){if(Object.keys(overrides).length||['--tools','--model','--api-key-env','--review','--dry-run','--configure','--retire','--run-checks'].some(k=>values[k]))throw new Error('continuation cannot change explicit selections or execution mode');const continuation=await loadContinuation(root,values['--continue'],io.services);options=continuation.options;Object.assign(flags,{...continuation.flags,response:flags.response,sessionsEnded:flags.sessionsEnded,resume:flags.resume});}
+  if(options.documentLanguage!==undefined)activateLanguage(options.documentLanguage);
   if(!modernResearch&&(values['--model']||values['--api-key-env'])){if(values['--backend']==='codex')throw Error('model/API-key flags select the native backend; Codex model overrides are not supported');if(!values['--backend'])options.backend='native';const model=values['--model']??options.model?.model??process.env.ANTHROPIC_MODEL;const apiKeyEnv=values['--api-key-env']??options.model?.apiKeyEnv??'ANTHROPIC_API_KEY';if(!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv))throw new Error('model.apiKeyEnv: environment reference required');if(!model&&!(io.isTTY&&io.read))throw new Error('model.model: required when changing the API-key reference');if(model)options.model={provider:options.model?.provider??'anthropic',model,apiKeyEnv};}
   if((flags.request||flags.response)&&options.backend!=='host')throw new Error('request/response: select the host backend');
   const firstWorkflow=!savedApplyOptions&&command==='init'&&!flags.dryRun&&!flags.request&&!flags.response&&!flags.continuation&&!flags.researchTokens;
@@ -234,7 +330,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
   const nativeDeps={stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write,view:services.npmView};
   const prepareApproved=async(selected:SetupOptions,approval:OpenSpecPreparation)=>{
    const reload=await sessionReloadNotice(root,flags.sessionsEnded);
-   if(reload)io.write(reload+'\n');
+   if(reload)io.write(t('cli.restartHost')+'\n',reload+'\n');
    state.native=approval.kind!=='existing'?{version:approval.install.version,prefix:approval.prefix}:{version:approval.cliVersion};
    const setup=await prepareOpenSpec(root,selected,approval,{...nativeDeps,onInstalled:()=>{
     state.native={...state.native,installed:true};
@@ -245,9 +341,9 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
   const describePreparation=(approval:OpenSpecPreparation)=>{
    const {kind,needsRoot,needsEntries,agents}=approval;
    nativePreparation={kind,needsRoot,needsEntries,agents,...(kind!=='existing'?{name:openspecPackage,version:approval.install.version,registry:approval.install.registry,prefix:approval.prefix,...(kind==='project-install'||values['--install-scope']?{packageIntegrity:approval.install.packageIntegrity}:{} )}:{version:approval.cliVersion})};
-   if(kind!=='existing')io.write('将 '+openspecPackage+'@'+approval.install.version+' 从 '+approval.install.registry+' 安装到 '+terminalText(approval.prefix)+'\n'+approval.install.packageIntegrity+'\n');
+   if(kind!=='existing')io.write(t('openspec.installPackage',{package:openspecPackage,version:approval.install.version,registry:approval.install.registry??defaultNpmRegistry,prefix:terminalText(approval.prefix)})+'\n'+approval.install.packageIntegrity+'\n');
    else io.write('OpenSpec CLI '+approval.cliVersion+'\n');
-   if(needsRoot||needsEntries.length)io.write('补齐当前项目缺失的原生 OpenSpec 文件（'+openSpecProjectScopes(approval).join(', ')+'）\n');
+   if(needsRoot||needsEntries.length)io.write(t('openspec.projectFiles',{scopes:openSpecProjectScopes(approval).join(', ')})+'\n');
   };
   const failedPreparation=(error:unknown,selected:SetupOptions,scope:OpenSpecInstallScope='project')=>{
    if(state.native&&error instanceof OpenSpecReceiptError){
@@ -261,6 +357,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    return 1;
   };
   if(values['--prepare-openspec']){
+   start();
    runtimeSetup=await runtimeSetupSummary(root,options);
    if(options.sdd!=='openspec'||!options.agents.length)throw Error('--prepare-openspec requires --sdd openspec and at least one agent');
    const saved=await readOpenSpecPreparation(root,nativeDeps.stateRoot);
@@ -270,7 +367,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    if(ongoing&&originalScope&&(!flags.resume||requested&&requested!==originalScope)){
     const nextCommand=openspecPreparationCommand(root,ongoing.approval.agents,originalScope)+' --resume'+(flags.sessionsEnded?' --sessions-ended':'');
     const message='Resume the original OpenSpec preparation with its approved scope.';
-    services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[message],nextCommand});io.write(message+'\n'+nextCommand+'\n');return 3;
+    services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[message],nextCommand});io.write(t('openspec.resumeScope')+'\n'+nextCommand+'\n');return 3;
    }
    const scope=originalScope??requested??'global';
    let setup=await inspectOpenSpec(root,options,services.signal,undefined,{scope,stateRoot:nativeDeps.stateRoot});
@@ -282,7 +379,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    }
    if(services.signal?.aborted)return 130;
    if(setup.requirements.length){
-    for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
+    for(const requirement of setup.requirements)io.write(t('openspec.prefix',{requirement})+'\n');
     reportOpenSpecPending(setup,openspecPreparationCommand(root,options.agents,scope),presentation.notice,services.report);
     return 3;
    }
@@ -294,16 +391,20 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    const state=await privateDirectory(services.stateRoot??defaultStateRoot(),root);
    draftPath=join(state,'init-'+signature(root)+'.json');
    if(!values['--agents']&&!values['--sdd']&&!flags.configure&&!hasProjectConfig&&!options.profile){
-    const draft=await readDurableRecord<{root:string;agents:SetupOptions['agents'];scope?:OpenSpecInstallScope}>(draftPath,'OpenSpec setup choices',value=>
+    const draft=await readDurableRecord<{root:string;agents:SetupOptions['agents'];scope?:OpenSpecInstallScope;documentLanguage?:string}>(draftPath,'OpenSpec setup choices',value=>
      value.root===root&&Array.isArray(value.agents)&&value.agents.length>0&&value.agents.every(agent=>['codex','claude','opencode','omp'].includes(agent)));
     if(draft){
      options={...options,agents:draft.agents,sdd:'openspec'};
+     const language=validLanguage(draft.documentLanguage);
+     if(!values['--language']&&(!options.documentLanguage||options.documentLanguage==='auto')&&language&&language!=='auto')options.documentLanguage=language;
      resumed=true;
      if(draft.scope==='project'||draft.scope==='global')selectedOpenSpecScope=draft.scope;
-     io.write('继续已选的 OpenSpec 设置（'+draft.agents.join(', ')+'）\n');
+     start(options.documentLanguage);
+     io.write(t('openspec.resumeSelection',{agents:draft.agents.join(', ')})+'\n');
     }
    }
   }
+  start();
   const checkWorkflow=async(selected:SetupOptions,back=false):Promise<'ready'|'back'|'stop'>=>{
    if(selected.sdd==='superpowers'&&selected.agents.some(supportedHost)&&firstWorkflow&&wizard&&inlineReview&&!flags.review&&!flags.dryRun&&nativeTTY){
     const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:value=>{
@@ -321,7 +422,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
     const nextCommand=openspecPreparationCommand(root,nativeState.approval.agents,scope)+' --resume';
     const message='Resume the original OpenSpec preparation.';
     services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:[message],nextCommand});
-    io.write(message+'\n'+nextCommand+'\n');setupExit=3;return 'stop';
+    io.write(t('openspec.resume')+'\n'+nextCommand+'\n');setupExit=3;return 'stop';
    }
    let scope=selectedOpenSpecScope??'project';
    const inspect=()=>inspectOpenSpec(root,selected,services.signal,undefined,{scope,stateRoot:nativeDeps.stateRoot});
@@ -329,33 +430,35 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    if(services.signal?.aborted)return 'stop';
    if(!setup.requirements.length)return 'ready';
    if(!setup.cli&&!selectedOpenSpecScope&&(setup.projectAvailable||setup.globalAvailable)){
-    const project='当前项目 · .rigup/tools/openspec/',global='全局 · '+terminalText(setup.prefix??'当前用户的 npm 全局前缀');
-    const choices=[...(setup.projectAvailable?[project]:[]),...(setup.globalAvailable?[global]:[])];
+    const choices=[
+     ...(setup.projectAvailable?[{value:'project',label:t('openspec.project')}]:[]),
+     ...(setup.globalAvailable?[{value:'global',label:t('openspec.global',{prefix:terminalText(setup.prefix??t('openspec.globalPrefix'))})}]:[]),
+    ];
     if(guided){
-     const selection=await ask({message:'OpenSpec 安装到哪里？',choices,defaults:[choices[0]],back});
+     const selection=await ask({message:t('openspec.scope'),choices,defaults:[choices[0].value],back});
      if(selection===null)return 'stop';
      if(selection==='back')return 'back';
-     scope=selection[0]===global?'global':'project';
+     scope=selection[0]==='global'?'global':'project';
     }else if(!setup.projectAvailable)scope='global';
     selectedOpenSpecScope=scope;
     if(setup.scope!==scope)setup=await inspect();
    }
-   for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
+   for(const requirement of setup.requirements)io.write(t('openspec.prefix',{requirement})+'\n');
    if(setup.canPrepare&&guided&&inlineReview){
     try{
      const planned=await planOpenSpecPreparation(root,selected,nativeDeps,setup);
-     for(const requirement of planned.inspection.requirements.slice(setup.requirements.length))io.write('OpenSpec: '+requirement+'\n');
+     for(const requirement of planned.inspection.requirements.slice(setup.requirements.length))io.write(t('openspec.prefix',{requirement})+'\n');
      setup=planned.inspection;
      if(planned.approval){
       describePreparation(planned.approval);
-      const answer=await ask({message:'补齐 OpenSpec',choices:['自动补齐','手动准备后继续'],defaults:['自动补齐'],back});
+      const answer=await ask({message:t('openspec.prepare'),choices:[{value:'auto-fill',label:t('openspec.autoFill')},{value:'manual',label:t('openspec.manual')}],defaults:['auto-fill'],back});
       if(answer===null)return 'stop';
       if(answer==='back'){
        nativePreparation=undefined;selectedOpenSpecScope=undefined;
        if(draftPath)await rm(draftPath,{force:true});
        return 'back';
       }
-      if(Array.isArray(answer)&&answer.length===1&&answer[0]==='自动补齐'){
+      if(Array.isArray(answer)&&answer.length===1&&answer[0]==='auto-fill'){
        setup=await prepareApproved(selected,planned.approval);
        if(!setup.requirements.length)return 'ready';
       }
@@ -363,7 +466,8 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
     }catch(error){setupExit=failedPreparation(error,selected,scope);return 'stop';}
    }
    const originalFlags=Object.entries(values).filter(([flag])=>flag!=='--agents'&&flag!=='--sdd').flatMap(([flag,value])=>boolean.has(flag)?[flag]:[flag,quoteShell(value)]);
-   if(draftPath)await saveDurable(draftPath,JSON.stringify({root,agents:selected.agents,scope}));
+   if(draftPath)await saveDurable(draftPath,JSON.stringify({root,agents:selected.agents,scope,documentLanguage:selected.documentLanguage}));
+   if(wizard&&!values['--language']&&selected.documentLanguage&&selected.documentLanguage!=='auto')originalFlags.push('--language',quoteShell(selected.documentLanguage));
    const resumeCommand=['rigup',command,quoteShell(root),'--agents',quoteShellList(selected.agents),'--sdd','openspec',...originalFlags].join(' ');
    reportOpenSpecPending(setup,resumeCommand,presentation.notice,services.report);
    setupExit=3;
@@ -376,9 +480,9 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    presentation.progress({stage:'detect',completed:0});
    const detected=await detectCommands(root);
    presentation.progress({stage:'detect',completed:1,status:'complete'});
-   if(!provided.agents&&detected.agents.length)io.write('Detected agents on PATH: '+detected.agents.join(', ')+'\n');
+   if(!provided.agents&&detected.agents.length)io.write(t('cli.detectedAgents',{agents:detected.agents.join(', ')})+'\n');
    if(!provided.agents&&!configured.agents&&detected.agents.length)options.agents=detected.agents;
-   const setup=await onboard(options,promptIO,{configure:!!flags.configure,provided,ask,checkWorkflow:checkSelectedWorkflow?checkWorkflow:undefined,
+   const setup=await onboard(options,promptIO,{configure:!!flags.configure,provided,ask,askLanguage:!values['--language']&&(!options.documentLanguage||options.documentLanguage==='auto'),checkWorkflow:checkSelectedWorkflow?checkWorkflow:undefined,
     recommendSdd:configured.sdd?undefined:selected=>detectSdd(root,selected,io.write)});
    if(!setup)return setupExit;
    options=setup;
@@ -396,14 +500,16 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
      continue;
     }
     const detected=await detectToolInstallation(root,tool.id,manifest?.installedTools?.[tool.id],services.stateRoot);
-    if(detected.state==='project')io.write(tool.id+': reuse project installation '+detected.version+'\n');
-    if(detected.state==='available')io.write(tool.id+': reuse existing PATH installation\n');
+    if(detected.state==='project')io.write(t('cli.toolProjectReuse',{tool:tool.id,version:detected.version})+'\n');
+    if(detected.state==='available')io.write(t('cli.toolPathReuse',{tool:tool.id})+'\n');
     if(detected.state==='repair')io.write(tool.id+': '+detected.reason+'\n');
     if(detected.state==='missing'&&io.isTTY&&!values['--json']){
      const global=await inspectGlobalNpm(root,tool.id).catch(()=>undefined);
      if(global){
-      const destinations='project 写入 '+toolPackage(tool.id).prefix+'，global 写入 '+terminalText(global.prefix);
-      const scope=await ask({message:tool.id+' 安装范围（'+destinations+'）',choices:['project','global'],defaults:['project']});
+      const destinations=t('cli.toolDestinations',{project:toolPackage(tool.id).prefix,global:terminalText(global.prefix)});
+      const scope=await ask({message:t('cli.toolScope',{tool:tool.id,destinations}),choices:[
+       choice('project',t('cli.projectScope')),choice('global',t('cli.globalScope')),
+      ],defaults:['project']});
       if(!Array.isArray(scope))return 130;
       if(scope[0]==='global'){(flags.globalTools??=[]).push(tool.id);choices.push({...tool,install:false,initialize:prior?.initialize??false});continue;}
      }
@@ -432,7 +538,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
     if(values['--model']&&!later){
      const message='Configure a CLI provider and its credentials before requesting research with --model.';
      services.report?.({phase:'research',installStatus:'pending',projectRules:manifest?.projectRules,requiredInput:[message],researchNextStep:message});
-     presentation.notice(message);
+     presentation.notice(t('cli.providerRequired'));
      return 3;
     }
     flags.foundationOnly=true;
@@ -449,19 +555,24 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
   if(flags.configure&&values['--review'])options.executionPolicy={mode:'review'};
   validateOptions(options as unknown as Record<string,unknown>);
   if(interactive&&!flags.dryRun&&!flags.review)services.confirmPreview=async()=>{
-   const choices=['Install','Save preview, apply later','Cancel'];
-   const answer=await ask({message:'Continue?',choices,defaults:[choices[0]]});
-   return Array.isArray(answer)&&answer[0]===choices[0]?'install':Array.isArray(answer)&&answer[0]===choices[1]?'save':'cancel';
+   const choices=[choice('Install',t('choice.install')),choice('Save preview, apply later',t('choice.save')),choice('Cancel',t('choice.cancel'))];
+   const answer=await ask({message:t('wizard.continue'),choices,defaults:['Install']});
+   return Array.isArray(answer)&&answer[0]==='Install'?'install':Array.isArray(answer)&&answer[0]==='Save preview, apply later'?'save':'cancel';
   };
- }catch(e){state.error=errorMessage(e);return services.signal?.aborted?130:2;}
+ }catch(e){start();state.error=errorMessage(e);return services.signal?.aborted?130:2;}
  try{
   const code=await executeLifecycle(root,options,flags,io.write,{...services,isTTY:io.isTTY});
   return code;
  }catch(e){state.error=errorMessage(e);return io.services?.signal?.aborted?130:1;}
 }
-export async function runCli(argv:string[],io:CliIO):Promise<number>{
+export function runCli(argv:string[],io:CliIO):Promise<number>{
+ const at=argv.lastIndexOf('--language');
+ const declared=at===-1?undefined:validLanguage(argv[at+1]);
+ return withLocale(resolveLocale(declared,process.env),()=>runLocalizedCli(argv,io));
+}
+async function runLocalizedCli(argv:string[],io:CliIO):Promise<number>{
  if(argv[0]==='openspec')try{return await forwardProjectOpenSpec(io.cwd,argv.slice(1),io.services?.stateRoot,io.services?.signal);}
- catch(error){(io.writeError??io.write)(errorMessage(error)+'\n');return io.services?.signal?.aborted?130:1;}
+ catch(error){(io.writeError??io.write)(terminalReason(errorMessage(error))+'\n');return io.services?.signal?.aborted?130:1;}
  const json=argv.includes('--json'),verbose=argv.includes('--verbose');
  const redirected=io.isTTY&&(io.outputIsTTY??io.terminal?.output.isTTY)===false;
  const ui=!json&&io.isTTY&&!redirected&&io.terminal?terminalUI(io.terminal,io.services?.signal):undefined;
@@ -475,7 +586,7 @@ export async function runCli(argv:string[],io:CliIO):Promise<number>{
  const report=(value:Record<string,unknown>)=>{actual=value;io.services?.report?.(value);};
  const code=await runCliInternal(argv.filter(arg=>arg!=='--json'&&arg!=='--verbose'),{
   ...io,...(json?{isTTY:false,ask:undefined,read:undefined}:{ask:io.ask??ui?.ask,read}),
-  write:text=>{last=text;write(text);},
+  write:(text,english=text)=>{last=english;write(text);},
   services:{...io.services,report,presentation:display.presentation},
  },display);
  if(actual.phase==='apply'&&actual.status==='complete'&&display.state.root&&display.state.data?.plan.options.sdd==='openspec'){
@@ -485,7 +596,7 @@ export async function runCli(argv:string[],io:CliIO):Promise<number>{
    const path=join(stateRoot,'init-'+signature(root)+'.json');
    const draft=await readDurableRecord<{root:string;agents:SetupOptions['agents']}>(path,'OpenSpec setup choices');
    if(draft?.root===root&&signature(draft.agents)===signature(data.plan.options.agents))await rm(path,{force:true});
-  }catch{if(verbose)write('Could not remove the saved OpenSpec choices.\n');}
+  }catch{if(verbose)write(t('cli.removeDraftFailed')+'\n');}
  }
  if(verbose&&actual.runtimeSetup)writeRuntimeSummary(actual.runtimeSetup as RuntimeSetupSummary,write);
  await display.finish(code,actual);

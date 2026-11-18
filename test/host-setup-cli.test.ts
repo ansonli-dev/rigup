@@ -1,14 +1,22 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdir,readFile,realpath,stat,writeFile} from 'node:fs/promises';
+import {chmod,copyFile,mkdir,readFile,realpath,rm,stat,symlink,writeFile} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {resolveWindowsExecutable} from '../src/integrations/tools/windows-process.mjs';
 import {runCli,type CliIO} from '../src/cli.js';
+import {describeNativePreparation,nativePreparationProblem,planNativePreparation,type NativeProgress} from '../src/integrations/host-setup/index.js';
+import {latestUrl,ompArchive,ompId,requiredSkills} from './host-setup-fixtures.js';
 import {project} from './helpers.js';
 
 const id='superpowers@claude-plugins-official',market='claude-plugins-official';
 const commit='22f0b463e7a5e579904dd6211a520321035526f7';
+const marketSource={source:'github',repo:'anthropics/claude-plugins-official'};
+const catalog=(home:string)=>join(home,'.claude/plugins/marketplaces',market);
+const catalogFile=(home:string)=>join(catalog(home),'.claude-plugin/marketplace.json');
+const catalogEntry=(sha=commit,version?:string)=>({name:market,plugins:[{
+ name:'superpowers',version,source:{source:'url',url:'https://github.com/obra/superpowers.git',sha},
+}]});
 const put=async(path:string,value:unknown)=>{
  await mkdir(dirname(path),{recursive:true});
  await writeFile(path,typeof value==='string'?value:JSON.stringify(value));
@@ -28,6 +36,17 @@ function cli(root:string,home:string){
   },
  },ask:async q=>{questions.push(q);return ['Approve'];}};
  return {io,stateRoot,questions,reports,output};
+}
+
+const finalPreparation=(reports:Record<string,unknown>[])=>reports.at(-1)?.nativePreparation as
+ ReturnType<typeof describeNativePreparation>&{progress:NativeProgress[]};
+
+async function launcher(home:string,host:string){
+ const file=join(home,'bin',host+(process.platform==='win32'?'.exe':''));
+ await mkdir(dirname(file),{recursive:true});
+ await copyFile(process.execPath,file);
+ if(process.platform!=='win32')await chmod(file,0o700);
+ return file;
 }
 
 test('passive and redirected native preparation never prompts, dispatches, or creates state',()=>project(root=>project(async home=>{
@@ -57,38 +76,57 @@ test('standalone native preparation rejects lifecycle overrides and does not byp
  await missing(stateRoot);
 })));
 
-async function fakeClaude(io:CliIO,root:string,home:string,steps:string[],failInstall=false){
- const pkg=join(home,'.claude/plugins/cache',market,'superpowers','7.0.2');
+async function fakeClaude(io:CliIO,root:string,home:string,steps:string[],
+ {failInstall=false,catalogVersion,installedVersion='7.0.2',sha=commit,installedSha=sha,cliVersion='2.1.273 (Claude Code)'}:{
+  failInstall?:boolean;catalogVersion?:string;installedVersion?:string;sha?:string;installedSha?:string;cliVersion?:string;
+ }={}){
+ const pkg=join(home,'.claude/plugins/cache',market,'superpowers',installedVersion);
  const config=join(root,'.claude/settings.json');
- const marketSource={source:'github',repo:'anthropics/claude-plugins-official'};
- const catalog=join(home,'.claude/plugins/marketplaces',market);
- const installDir=join(home,'bin');
- await mkdir(installDir);
- if(process.platform==='win32'){
-  const {copyFile}=await import('node:fs/promises');
-  await copyFile(process.execPath,join(installDir,'claude.exe'));
- }else{
-  const {copyFile,chmod}=await import('node:fs/promises');
-  await copyFile(process.execPath,join(installDir,'claude'));
-  await chmod(join(installDir,'claude'),0o700);
- }
+ await launcher(home,'claude');
  io.services!.nativeSetup!.launch=async command=>{
-  if(command.args.includes('--version'))return {code:0,output:'2.1.273 (Claude Code)\n'};
+  if(command.args.includes('--version'))return {code:0,output:cliVersion+'\n'};
   const install=command.args.includes('install');
   steps.push(install?'install':'marketplace');
   if(!install){
    await put(config,{extraKnownMarketplaces:{[market]:{source:marketSource}}});
-   await put(join(home,'.claude/plugins/known_marketplaces.json'),{[market]:{source:marketSource,installLocation:catalog}});
-   await put(join(catalog,'.claude-plugin/marketplace.json'),{name:market,plugins:[{name:'superpowers',source:{source:'url',url:'https://github.com/obra/superpowers.git',sha:commit}}]});
+   await put(join(home,'.claude/plugins/known_marketplaces.json'),{[market]:{source:marketSource,installLocation:catalog(home)}});
+   await put(catalogFile(home),catalogEntry(sha,catalogVersion));
   }else if(!failInstall){
    await put(config,{extraKnownMarketplaces:{[market]:{source:marketSource}},enabledPlugins:{[id]:true}});
-   await put(join(home,'.claude/plugins/installed_plugins.json'),{version:2,plugins:{[id]:[{scope:'project',projectPath:root,installPath:pkg,version:'7.0.2',gitCommitSha:commit}]}});
+   await put(join(home,'.claude/plugins/installed_plugins.json'),{version:2,plugins:{[id]:[{scope:'project',projectPath:root,installPath:pkg,version:installedVersion,gitCommitSha:installedSha}]}});
    await put(join(pkg,'.claude-plugin/plugin.json'),{name:'superpowers'});
-   for(const name of ['brainstorming','writing-plans','executing-plans','verification-before-completion'])
+   for(const name of requiredSkills)
     await put(join(pkg,'skills',name,'SKILL.md'),'---\nname: '+name+'\ndescription: fixture\n---\n');
   }
   return {code:install&&failInstall?19:0,output:'SUPPRESSED_HOST_OUTPUT'};
  };
+}
+
+async function fakeOmp(io:CliIO,home:string,{probe={code:0,output:'omp/99.0.0'},offline=false,badArchive=false,afterLink=async()=>{}}:{
+ probe?:{code:number;output:string};offline?:boolean;badArchive?:boolean;afterLink?:()=>Promise<void>;
+}={}){
+ const service=io.services!.nativeSetup!,hostLaunch=service.launch,file=await launcher(home,'omp');
+ const archive=ompArchive(),requests:string[]=[],commands:string[][]=[];
+ const base=join(home,'.omp','plugins'),target=join(base,'node_modules',ompId),lock=join(base,'omp-plugins.lock.json');
+ service.fetch=async url=>{
+  requests.push(String(url));
+  if(offline)throw Error('private response detail');
+  if(url===latestUrl)return archive.metadata();
+  if(url===archive.pin.tarball)return new Response(badArchive?'tampered':new Uint8Array(archive.bytes));
+  throw Error('unexpected request');
+ };
+ service.launch=async (command,cwd)=>{
+  if(command.executable!==file&&hostLaunch)return hostLaunch(command,cwd);
+  commands.push(command.args);
+  if(command.args.includes('--version'))return probe;
+  assert.deepEqual(command.args.slice(0,2),['plugin','link']);
+  await mkdir(dirname(target),{recursive:true});
+  await symlink(command.args[2],target,process.platform==='win32'?'junction':'dir');
+  await put(lock,{plugins:{[ompId]:{enabled:true,version:archive.pin.version}},settings:{}});
+  await afterLink();
+  return {code:0,output:'SUPPRESSED_HOST_OUTPUT'};
+ };
+ return {archive,requests,commands,base,target,lock};
 }
 
 test('native approval requires explicit consent and allows an unrelated settings change after preview',()=>project(root=>project(async home=>{
@@ -130,21 +168,26 @@ for(const change of ['disabled plugin','review policy','Claude destination'])tes
 })));
 
 test('native preparation verifies a completed step before retry, and recognizes a Claude import without an OMP write',()=>project(root=>project(async home=>{
- const {io,output}=cli(root,home),steps:string[]=[];
- await fakeClaude(io,root,home,steps,true);
+ const {io,output,reports}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps,{failInstall:true});
  assert.equal(await runCli(args(root),io),1);
+ assert.equal(finalPreparation(reports).blockers[0]?.code,'install-command-failed');
  assert.deepEqual(steps,['marketplace','install']);
- const {rm}=await import('node:fs/promises');
  await rm(join(home,'bin'),{recursive:true});
  await fakeClaude(io,root,home,steps);
  await put(join(home,'.env'),'PI_CONFIG_DIR=rerouted\n');
- io.services!.nativeSetup!.fetch=async()=>assert.fail('Claude import needs no OMP download');
+ const {requests,commands}=await fakeOmp(io,home,{offline:true});
  assert.equal(await runCli(args(root,'claude,omp'),io),0,output.join(''));
  assert.deepEqual(steps,['marketplace','install','install']);
  assert.match(output.join(''),/omp:.*recognized.*Claude/i);
  assert.doesNotMatch(output.join(''),/SUPPRESSED_HOST_OUTPUT/);
+ assert.deepEqual(requests,[latestUrl]);
+ assert.deepEqual(commands,[]);
+ assert.deepEqual(finalPreparation(reports).blockers,[]);
+ assert.equal(finalPreparation(reports).hosts.find(item=>item.host==='omp')?.status,'ready');
  await missing(join(home,'.omp'));
  assert.equal(await runCli(args(root,'claude,omp'),io),0);
+ assert.deepEqual(requests,[latestUrl]);
  assert.equal(steps.length,3);
 })));
 
@@ -206,6 +249,9 @@ test('first guided init can return from native consent and then prepares a fresh
    if(q.choices.includes('superpowers')){sddPrompts++;return ['superpowers'];}
    if(q.choices.includes('Approve')){
     nativePrompts++;
+    if(q.message.includes('Claude Superpowers installation')){
+     assert.deepEqual(steps,['marketplace']);return ['Approve'];
+    }
     if(nativePrompts===1)return 'back';
     assert.deepEqual(steps,[]);
     await missing(join(root,'.claude'));
@@ -214,9 +260,9 @@ test('first guided init can return from native consent and then prepares a fresh
    if(q.choices.includes('Save preview, apply later')){previewPrompt=true;return ['Save preview, apply later'];}
    assert.fail('Unexpected question: '+q.message);
   };
-  const code=await runCli(['init',root,'--agents','claude','--tools','none'],io);
+  const code=await runCli(['init',root,'--agents','claude','--tools','none','--language','en'],io);
   assert.equal(code,3,output.join(''));
-  assert.equal(sddPrompts,2);assert.equal(nativePrompts,2);assert.equal(previewPrompt,true);
+  assert.equal(sddPrompts,2);assert.equal(nativePrompts,3);assert.equal(previewPrompt,true);
   assert.deepEqual(steps,['marketplace','install']);
   assert.ok(reports.some(r=>r.phase==='preview'&&r.executable===true));
  }finally{for(const key of keys){const value=before[key];if(value===undefined)delete process.env[key];else process.env[key]=value;}}
@@ -226,7 +272,7 @@ test('guided review stays read-only and an active host can approve native setup'
  const {io,reports,output}=cli(root,home),steps:string[]=[];
  await fakeClaude(io,root,home,steps);
  let asked=0;io.ask=async()=>{asked++;return ['Approve'];};
- const review=await runCli(['init',root,'--agents','claude','--sdd','superpowers','--tools','none','--review'],io);
+ const review=await runCli(['init',root,'--agents','claude','--sdd','superpowers','--tools','none','--review','--language','en'],io);
  assert.equal(review,3,output.join(''));
  assert.ok(reports.some(r=>r.phase==='preview'&&r.executable===false));
  const originalCwd=process.cwd(),original=process.env.CLAUDECODE;
@@ -235,7 +281,7 @@ test('guided review stays read-only and an active host can approve native setup'
   assert.equal(await runCli(args(root),io),0,output.join(''));
   assert.match(output.join(''),/reload.*host session/i);
  }finally{process.chdir(originalCwd);if(original===undefined)delete process.env.CLAUDECODE;else process.env.CLAUDECODE=original;}
- assert.equal(asked,1);
+ assert.equal(asked,2);
  assert.deepEqual(steps,['marketplace','install']);
 })));
 
@@ -245,4 +291,284 @@ test('mixed native preparation finishes only the approved eligible host, leaving
  assert.equal(await runCli(args(root,'codex,claude'),io),3);
  assert.deepEqual(steps,['marketplace','install']);
  assert.match(output.join(''),/codex: missing native entry/);
+})));
+
+test('OMP approves latest once, tolerates registrations and config overlays, and reuses the recognized link',()=>project(root=>project(async home=>{
+ const {io,reports,output}=cli(root,home);
+ const {archive,requests,commands,base,target,lock}=await fakeOmp(io,home);
+ const setup=io.services!.nativeSetup!,primary=join(home,'.omp/agent/config.yml');
+ setup.env!.OMP_CONFIG_FILES='opaque-overlay-path';
+ await put(join(home,'.env'),'EXAMPLE_API_KEY=private-api-key\n');
+ await put(join(home,'.omp/agent/.env'),'PI_CONFIG_DIR=private-config-dir\n');
+ await put(primary,'extensions: [custom.ts]\nskills:\n  customDirectories: [custom-skills]\n');
+ await put(join(dirname(primary),'config.yaml'),'skills:\n  enabled: false\n');
+ await put(join(base,'package.json'),{dependencies:{[ompId]:'8.7.6'}});
+ await put(lock,{plugins:{[ompId]:{enabled:true,version:'8.7.6'}}});
+ assert.equal(await nativePreparationProblem(root,'omp',setup),undefined);
+ assert.deepEqual(requests,[]);
+ io.ask=async()=>{
+  const preview=output.join('');
+  assert.ok(preview.includes(archive.pin.tarball));
+  assert.ok(preview.includes(archive.pin.integrity));
+  assert.match(preview,/Checked .*\.env: no effect on install location/);
+  assert.match(preview,/may change the install location \(PI_CONFIG_DIR\)/);
+  assert.match(preview,/<environment>.*OMP_CONFIG_FILES/);
+  assert.doesNotMatch(preview,/99\.0\.0|private-|opaque-overlay-path/);
+  assert.deepEqual(requests,[latestUrl]);
+  assert.deepEqual(commands,[]);
+  return ['Approve'];
+ };
+ assert.equal(await runCli(args(root,'omp'),io),0,output.join(''));
+ assert.equal(commands.length,2);
+ assert.equal(await realpath(target),commands[1][2]);
+ assert.deepEqual(requests,[latestUrl,archive.pin.tarball]);
+ assert.match(output.join(''),/CLI version 99\.0\.0 differs from the verified 18\.1\.13/);
+ assert.equal(finalPreparation(reports).hosts[0].launcher?.requiredVersion,'18.1.13');
+ assert.equal(finalPreparation(reports).hosts[0].launcher?.verifiedVersion,'18.1.13');
+ assert.deepEqual(finalPreparation(reports).blockers,[]);
+ assert.equal(await runCli(args(root,'omp'),io),0);
+ assert.deepEqual(requests,[latestUrl,archive.pin.tarball]);
+ assert.equal(commands.length,2);
+})));
+
+test('OMP approval keeps an integrity failure out of both the store and link',()=>project(root=>project(async home=>{
+ const {io,stateRoot,reports}=cli(root,home),{commands,requests,archive,target}=await fakeOmp(io,home,{badArchive:true});
+ assert.equal(await runCli(args(root,'omp'),io),3);
+ assert.deepEqual(finalPreparation(reports).blockers.map(blocker=>blocker.code),['download-failed']);
+ assert.deepEqual(commands,[]);
+ assert.deepEqual(requests,[latestUrl,archive.pin.tarball]);
+ await missing(target);
+ await missing(join(stateRoot,'native-packages'));
+})));
+
+test('OMP blocks an unsuccessful or empty version probe without exposing host output',()=>project(root=>project(async home=>{
+ const {io,stateRoot,reports,output}=cli(root,home);
+ for(const probe of [{code:0,output:''},{code:19,output:'\x1b[31mPRIVATE_HOST_DATA'}]){
+  const {commands}=await fakeOmp(io,home,{probe});
+  assert.equal(await runCli(args(root,'omp'),io),1);
+  assert.deepEqual(commands,[['--version']]);
+  assert.equal(finalPreparation(reports).blockers[0]?.code,'cli-not-runnable');
+  await missing(join(stateRoot,'native-packages'));
+ }
+ assert.doesNotMatch(output.join('')+JSON.stringify(reports),/PRIVATE_HOST_DATA/);
+})));
+
+test('an OMP rescan blocker includes write paths, shadowing evidence and undo, then clears on rerun',()=>project(root=>project(async home=>{
+ const {io,reports,output}=cli(root,home),config=join(home,'.omp/agent/config.yml'),dotenv=join(dirname(config),'.env');
+ const initial='skills:\n  customDirectories: [custom-skills]\nextensions: [custom.ts]\n';
+ await put(config,initial);
+ await put(dotenv,'export PI_CONFIG_DIR="private-path"\n');
+ const {archive,requests,target,lock}=await fakeOmp(io,home,{afterLink:()=>put(config,initial+'disabledProviders: [omp-plugins]\n')});
+ assert.equal(await runCli(args(root,'omp'),io),1);
+ const result=finalPreparation(reports),blocker=result.blockers[0];
+ assert.equal(blocker.code,'omp-not-recognized-after-install');
+ for(const path of [target,lock,dotenv+' (PI_CONFIG_DIR)',config+' (skills.customDirectories)',config+' (extensions)'])assert.ok(blocker.evidence.includes(path),path);
+ assert.ok(blocker.suggest.includes('omp plugin uninstall '+ompId));
+ assert.ok(result.progress.find(item=>item.step==='link')?.changes?.includes(target));
+ assert.match(output.join(''),/blocker omp-not-recognized-after-install/);
+ assert.doesNotMatch(output.join('')+JSON.stringify(result),/private-path|SUPPRESSED_HOST_OUTPUT/);
+ await put(config,initial);
+ assert.equal(await runCli(args(root,'omp'),io),0);
+ assert.deepEqual(finalPreparation(reports).blockers,[]);
+ assert.equal(finalPreparation(reports).hosts[0].status,'ready');
+ assert.deepEqual(requests,[latestUrl,archive.pin.tarball]);
+})));
+
+test('an explicitly disabled host from the scan reports its settings while the other host runs',()=>project(root=>project(async home=>{
+ const {io,output,reports}=cli(root,home),settings=join(root,'.claude/settings.local.json');
+ await put(settings,{enabledPlugins:{[id]:false}});
+ const {commands}=await fakeOmp(io,home);
+ assert.equal(await runCli(args(root,'claude,omp'),io),3,output.join(''));
+ const result=finalPreparation(reports);
+ assert.deepEqual(result.hosts.map(({status})=>status),['manual','ready']);
+ assert.equal(result.blockers[0].code,'host-plugin-disabled');
+ assert.ok(result.blockers[0].evidence.includes(settings));
+ assert.equal(commands.length,2);
+})));
+
+test('OMP can finish when the Claude install command fails',()=>project(root=>project(async home=>{
+ const {io,output,reports}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps,{failInstall:true});
+ const {commands}=await fakeOmp(io,home);
+ assert.equal(await runCli(args(root,'claude,omp'),io),1,output.join(''));
+ assert.deepEqual(steps,['marketplace','install']);
+ assert.equal(commands.length,2);
+ assert.deepEqual(finalPreparation(reports).blockers.map(({host,code})=>({host,code})),[{host:'claude',code:'install-command-failed'}]);
+})));
+
+test('offline OMP metadata remains a pre-write blocker when Claude is not imported',()=>project(root=>project(async home=>{
+ const {io,reports,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ const {requests,commands}=await fakeOmp(io,home,{offline:true});
+ await put(join(home,'.omp/agent/config.yml'),'disabledProviders: [claude-plugins]\n');
+ const plan=await planNativePreparation(root,['omp'],io.services!.nativeSetup);
+ assert.deepEqual(describeNativePreparation(plan).blockers.map(blocker=>blocker.code),['download-failed']);
+ assert.equal(await runCli(args(root,'claude,omp'),io),3,output.join(''));
+ assert.deepEqual(steps,['marketplace','install']);
+ assert.deepEqual(commands,[]);
+ assert.deepEqual(requests,[latestUrl,latestUrl]);
+ const result=finalPreparation(reports);
+ assert.deepEqual(result.hosts.map(({status})=>status),['ready','manual']);
+ assert.equal(result.blockers[0].host,'omp');
+ assert.doesNotMatch(output.join('')+JSON.stringify(result),/private response detail/);
+})));
+
+test('a fresh Claude marketplace needs separate approval of the catalog SHA before install',()=>project(root=>project(async home=>{
+ const {io,reports,output}=cli(root,home),steps:string[]=[],sha='a'.repeat(40);
+ await fakeClaude(io,root,home,steps,{sha,installedVersion:'9.8.7',cliVersion:'99.0.0 (Claude Code)'});
+ const free=join(home,'bin');
+ await put(join(free,'git.cmd'),'@echo off\r\nexit /b 0\r\n');
+ const env=io.services!.nativeSetup!.env!;
+ env.PATH=env.RIGUP_CONSUMER_PATH=free;
+ let approvals=0;
+ io.ask=async()=>{
+  approvals++;
+  assert.deepEqual(steps,approvals===1?[]:['marketplace']);
+  if(approvals===1)assert.ok(!output.join('').includes(sha));
+  else{
+   assert.ok(output.join('').includes(sha));
+   assert.match(output.join(''),/catalog version unavailable/);
+  }
+  return approvals===1?['Approve']:['Cancel'];
+ };
+ assert.equal(await runCli(args(root),io),130,output.join(''));
+ assert.equal(approvals,2);
+ assert.deepEqual(steps,['marketplace']);
+ await missing(join(home,'.claude/plugins/installed_plugins.json'));
+ await put(join(catalog(home),'.git/config'),'[remote "origin"]\n url = https://mirror.example/official.git\n');
+ io.ask=async()=>{
+  approvals++;
+  return ['Approve'];
+ };
+ assert.equal(await runCli(args(root),io),0,output.join(''));
+ assert.equal(approvals,3);
+ assert.deepEqual(steps,['marketplace','install']);
+ assert.match(output.join(''),/CLI version 99\.0\.0 differs from the verified 2\.1\.273/);
+ assert.equal(finalPreparation(reports).progress.find(item=>item.step==='install')?.installedVersion,'9.8.7');
+})));
+
+test('cached Claude version and SHA shown at approval cannot drift before dispatch',()=>project(root=>project(async home=>{
+ const {io,reports,output}=cli(root,home),steps:string[]=[],sha='c'.repeat(40);
+ await fakeClaude(io,root,home,steps,{catalogVersion:'8.7.6',installedVersion:'8.7.6',sha});
+ await io.services!.nativeSetup!.launch!({executable:'fixture',args:['marketplace'],env:{}},root);
+ steps.length=0;
+ io.ask=async()=>{
+  assert.match(output.join(''),new RegExp('Superpowers 8\\.7\\.6 at '+sha));
+  await put(catalogFile(home),catalogEntry('d'.repeat(40),'8.7.7'));
+  return ['Approve'];
+ };
+ assert.equal(await runCli(args(root),io),3,output.join(''));
+ assert.deepEqual(steps,[]);
+ assert.equal(finalPreparation(reports).blockers[0]?.code,'native-target-changed');
+})));
+
+test('the fresh Claude catalog is rechecked after approval of the specific install',()=>project(root=>project(async home=>{
+ const {io,reports,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ io.ask=async ({message})=>{
+  if(message.includes('Claude Superpowers installation'))await put(catalogFile(home),catalogEntry('d'.repeat(40)));
+  return ['Approve'];
+ };
+ assert.equal(await runCli(args(root),io),3,output.join(''));
+ assert.deepEqual(steps,['marketplace']);
+ assert.equal(finalPreparation(reports).blockers[0]?.code,'native-target-changed');
+})));
+
+test('recognized user-scope Claude and foreign OMP installs need neither a launcher nor a registry request',()=>project(root=>project(async home=>{
+ const {io,questions,reports,output}=cli(root,home);
+ const claude=join(home,'.claude/plugins/cache',market,'superpowers','4.3.2');
+ await put(join(claude,'.claude-plugin/plugin.json'),{name:'superpowers'});
+ await put(join(home,'.claude/settings.json'),{enabledPlugins:{[id]:true}});
+ await put(join(home,'.claude/plugins/installed_plugins.json'),{version:2,plugins:{[id]:[{scope:'user',version:'4.3.2',installPath:claude}]}});
+ const omp=join(home,'.omp/plugins'),foreign=join(omp,'node_modules',ompId),{files}=ompArchive('6.5.4-omp.2');
+ for(const [file,text] of Object.entries(files))await put(join(foreign,file),text);
+ await put(join(omp,'package.json'),{dependencies:{[ompId]:'6.5.4-omp.2'}});
+ for(const name of requiredSkills)await put(join(claude,'skills',name,'SKILL.md'),files['skills/'+name+'/SKILL.md']);
+ const setup=io.services!.nativeSetup!;
+ setup.env!.PI_CONFIG_FILES='unused-overlay';
+ setup.env!.PATH=setup.env!.RIGUP_CONSUMER_PATH=join(home,'no launchers');
+ let requests=0,launches=0;
+ setup.fetch=async()=>{requests++;throw Error('network unavailable');};
+ setup.launch=async()=>{launches++;return {code:50};};
+ assert.equal(await runCli(args(root,'claude,omp'),io),0,output.join(''));
+ assert.deepEqual(finalPreparation(reports).hosts.map(({status})=>status),['ready','ready']);
+ assert.deepEqual(finalPreparation(reports).blockers,[]);
+ assert.equal(requests,0);
+ assert.equal(launches,0);
+ assert.deepEqual(questions,[]);
+})));
+
+test('a previously recognized OMP source that disappears during approval reports drift',()=>project(root=>project(async home=>{
+ const {io,reports,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ const {base,target,lock,archive,requests,commands}=await fakeOmp(io,home);
+ for(const [file,text] of Object.entries(archive.files))await put(join(target,file),text);
+ await put(lock,{plugins:{[ompId]:{enabled:true,version:archive.pin.version}}});
+ await put(join(base,'package.json'),{dependencies:{[ompId]:archive.pin.version}});
+ await put(join(home,'.omp/agent/config.yml'),'disabledProviders: [claude-plugins]\n');
+ io.ask=async ({message})=>{
+  if(!message.includes('Claude Superpowers installation'))await rm(target,{recursive:true});
+  return ['Approve'];
+ };
+ assert.equal(await runCli(args(root,'claude,omp'),io),3,output.join(''));
+ const result=finalPreparation(reports);
+ assert.deepEqual(result.hosts.map(({status})=>status),['ready','manual']);
+ assert.equal(result.blockers[0]?.code,'native-target-changed');
+ assert.ok(result.blockers[0]?.evidence.some(path=>path.startsWith(target)));
+ assert.deepEqual(requests,[]);
+ assert.deepEqual(commands,[]);
+})));
+
+for(const mismatch of ['SHA','version'])test('Claude detects receipt '+mismatch+' drift after install',()=>project(root=>project(async home=>{
+ const {io,reports,output}=cli(root,home),steps:string[]=[],sha='c'.repeat(40);
+ await fakeClaude(io,root,home,steps,{catalogVersion:'8.7.6',installedVersion:mismatch==='version'?'8.7.7':'8.7.6',
+  sha,installedSha:mismatch==='SHA'?'d'.repeat(40):sha});
+ assert.equal(await runCli(args(root),io),1,output.join(''));
+ const blocker=finalPreparation(reports).blockers[0];
+ assert.equal(blocker.code,'claude-not-recognized-after-install');
+ assert.ok(blocker.evidence.includes(catalogFile(home)));
+ assert.ok(blocker.evidence.some(item=>item.includes('Approved SHA '+sha)));
+ assert.ok(blocker.evidence.some(item=>item.includes(mismatch==='SHA'?'Installed SHA '+'d'.repeat(40):'Installed version 8.7.7')));
+ assert.ok(blocker.suggest[0].includes('claude plugin uninstall'));
+})));
+
+test('native Superpowers renders a Chinese approval while passing the stable Approve value',()=>project(root=>project(async home=>{
+ const {io,questions,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ const invoke=async(language:string)=>{
+  let json='';
+  const exit=await runCli([...args(root),'--language',language,'--review','--json'],{...io,write:text=>json+=text});
+  assert.equal(exit,0,json);
+  return json;
+ };
+ assert.equal(await invoke('zh-CN'),await invoke('en'));
+ output.length=0;
+ assert.equal(await runCli([...args(root),'--language','zh-CN'],io),0,output.join(''));
+ assert.match(output[0],/^初始化: /);
+ assert.deepEqual(questions.map(question=>question.message),['批准准备原生 Superpowers 吗？','批准安装这个 Claude Superpowers 目标吗？']);
+ for(const question of questions)assert.deepEqual(question.choices,[{value:'Cancel',label:'取消'},{value:'Approve',label:'批准'}]);
+ assert.match(output.join(''),/目录未提供版本/);
+ assert.match(output.join(''),/已安装 Superpowers 7\.0\.2/);
+ assert.match(output.join(''),/结果: 原生准备完成/);
+ assert.deepEqual(steps,['marketplace','install']);
+})));
+
+test('native blocker advice is localized and the machine report is independent of the UI language',()=>project(root=>project(async home=>{
+ const {io,output,questions}=cli(root,home);
+ const env=io.services!.nativeSetup!.env!;
+ env.PATH=env.RIGUP_CONSUMER_PATH=join(home,'missing-bin');
+ const invoke=async(language:string)=>{
+  output.length=0;
+  let json='';
+  const exit=await runCli([...args(root,'omp'),'--language',language,'--json'],{...io,write:text=>json+=text});
+  assert.equal(exit,3,json);
+  return json;
+ };
+ const english=await invoke('en');
+ assert.equal(await invoke('zh-CN'),english);
+ assert.deepEqual(JSON.parse(english).nativePreparation.blockers.map((blocker:{code:string})=>blocker.code),['cli-not-runnable']);
+ assert.match(output.join(''),/omp 阻塞项 cli-not-runnable/);
+ assert.match(output.join(''),/这是 Rigup 生成的阻塞报告/);
+ assert.match(output.join(''),/请核实证据文件并起草修复命令/);
+ assert.equal(questions.length,0);
 })));

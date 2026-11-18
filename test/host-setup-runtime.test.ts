@@ -9,6 +9,7 @@ import {test} from 'node:test';
 import * as operation from '../src/installer/operations.js';
 import {acquireLock,processIdentity} from '../src/installer/lock.js';
 import {project} from './helpers.js';
+import {latestUrl,ompArchive} from './host-setup-fixtures.js';
 
 const windows=process.platform==='win32';
 const load=()=>import('../src/integrations/host-setup/runtime.js').catch(()=>undefined);
@@ -61,7 +62,9 @@ test('an actual OMP launcher works with Maven and Gradle wrappers in the project
  await writeFile(entry,windows
   ? '@echo off\r\n"'+process.execPath+'" "%~dp0omp-fixture.cjs" %*\r\n'
   : '#!/bin/sh\nexec "$RIGUP_TEST_NODE" "$RIGUP_TEST_ENTRY" "$@"\n',{mode:0o755});
- const input={...config(home,bin),stateRoot};
+ const input={...config(home,bin),stateRoot,fetch:async(url:RequestInfo|URL)=>{
+  assert.equal(url,latestUrl);return ompArchive().metadata();
+ }};
  Object.assign(input.env,{RIGUP_TEST_NODE:process.execPath,RIGUP_TEST_ENTRY:script});
  const plan=await planNativePreparation(root,['omp'],input);
  assert.equal(plan.entries[0].status,'action',plan.entries[0].reason);
