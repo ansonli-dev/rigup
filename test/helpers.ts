@@ -52,7 +52,7 @@ export async function writeOpenSpecCodexEntries(root:string){
 }
 export async function project(fn:(root:string)=>Promise<void>) {
  const root=await realpath(await mkdtemp(join(tmpdir(),'rigup-scan-')));
- try{await fn(root);}finally{await rm(root,{recursive:true,force:true});}
+ try{await fn(root);}finally{await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:50});}
 }
 
 export async function harnessPlan(root:string,cacheRoot:string,options:import('../src/types.js').SetupOptions){

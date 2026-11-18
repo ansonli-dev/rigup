@@ -70,7 +70,8 @@ export function startProcess(spec,{defer=false}={}){
  const child=defer?spawn(process.execPath,[worker],{
   cwd:spec.supervisorCwd??spec.cwd,
   env:Object.fromEntries(Object.entries(spec.supervisorEnv??process.env).filter(([key])=>!/^NODE_(?:OPTIONS|PATH)$/i.test(key))),
-  detached:!windows,windowsHide:true,stdio,
+  // The writer must remain alive if the controller exits after dispatch.
+  detached:true,windowsHide:true,stdio,
  }):spawnCommand(spec,{detached:!windows,stdio});
  let stopped=false,started=false,settled=false,unavailable=false;
  let stopPromise;
