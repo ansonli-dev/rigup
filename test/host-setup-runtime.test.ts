@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {setTimeout as wait} from 'node:timers/promises';
 import {constants as fs} from 'node:fs';
 import {chmod,copyFile,link,mkdir,readFile,symlink,writeFile} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
@@ -161,7 +162,22 @@ test('POSIX native timeout stops a child that ignores SIGTERM after its host exi
  assert.equal(result.cancelled,true);
  const pid=Number(await readFile(pidFile,'utf8'));
  assert.ok(Number.isInteger(pid)&&pid>0);
- assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
+ // An exited child can retain its PID until the operating system reaps it.
+ const deadline=Date.now()+3000;
+ for(;;){
+  try{
+   if(process.platform==='linux'){
+    const status=await readFile('/proc/'+pid+'/stat','utf8');
+    if(status[status.lastIndexOf(')')+2]==='Z')break;
+   }else process.kill(pid,0);
+  }catch(error){
+   const {code}=error as NodeJS.ErrnoException;
+   if(code!=='ESRCH'&&code!=='ENOENT')throw error;
+   break;
+  }
+  assert.ok(Date.now()<deadline,'timed-out descendant is still running');
+  await wait(20);
+ }
  await operation.assertNoUnknownWriters(root,state);
 })));
 
