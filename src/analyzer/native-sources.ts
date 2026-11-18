@@ -157,9 +157,9 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
     const official=officialOpenCodePackage(target);
     const observed=dependencies.openCodePlugins?.find(plugin=>plugin.target===target&&/^[\w.@/-]{1,200}$/.test(plugin.id));
     let localTarget:string|undefined;try{localTarget=target.startsWith('file://')?fileURLToPath(target):isAbsolute(target)?target:target.startsWith('.')?resolve(dirname(path),target):undefined;}catch(error){warn('superpowers',error);continue;}
-    if(!official&&!localTarget){
-     if(options.sdd==='superpowers'&&/(^|[/@.-])superpowers(?:$|[@.-])/.test(target))
-      dependencies.onWarning?.('OpenCode Superpowers registration could not be confirmed; check the active plugin with opencode plugin list');
+    if(!official&&!(observed&&localTarget)){
+     if(options.sdd==='superpowers'&&(localTarget||/(^|[/@.-])superpowers(?:$|[@.-])/.test(target)))
+      dependencies.onWarning?.('OpenCode Superpowers registration could not be confirmed; check the active plugin and skills with opencode plugin list');
      continue;
     }
     const versionSeparator=target.lastIndexOf('@');const policyTarget='plugin:'+(isAbsolute(target)||versionSeparator<=0?target:target.slice(0,versionSeparator));
@@ -177,9 +177,8 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
      const directEntry=localTarget&&(await stat(localTarget)).isFile()?localTarget:undefined;
      const main=typeof manifest.main==='string'?manifest.main.replace(/^\.\//,''):'index.js';
      const entry=directEntry??resolve(base,main);
-     const origin=typeof manifest.repository==='string'?manifest.repository:manifest.repository?.url;
      const knownEntry=['index.js','.opencode/plugins/superpowers.js'].includes(relative(canonical,await realpath(entry)).replaceAll('\\','/'));
-     if(!observed&&(!knownEntry||!official&&!(typeof origin==='string'&&officialOpenCodePackage(origin)))){
+     if(!observed&&!knownEntry){
       dependencies.onWarning?.('OpenCode Superpowers registration could not be confirmed; check the active plugin and skills with opencode plugin list');
       continue;
      }
@@ -445,6 +444,3 @@ async function recognizableClaudeUserPlugin(config:string,value:unknown){
   }))).every(Boolean);
  }catch{return false;}
 }
-
-// Recognize the audited upstream registration, without importing or executing a plugin.
-// Unknown loaders must be repaired or exposed as native skills before binding.

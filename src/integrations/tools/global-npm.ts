@@ -27,7 +27,7 @@ export async function inspectGlobalNpm(root:string,id:GlobalTool,signal?:AbortSi
 export async function planGlobalNpmInstall(root:string,id:GlobalTool,input:{stateRoot?:string;signal?:AbortSignal;view?:NpmView}={}):Promise<GlobalNpmApproval>{
  const setup=await inspectGlobalNpm(root,id,input.signal),pkg=globalPackage(id);
  const approval={root:setup.root,id,...pkg,prefix:setup.prefix,
- install:await resolveNpmLatest(pkg.name,{...input,root:setup.root,stateRoot:input.stateRoot??defaultStateRoot(),registry:await selectedNpmRegistry(root),nodeVersion:setup.node.version,npm:globalNpmOutput(setup.npm,setup.path)})};
+ install:await resolveNpmLatest(pkg.name,{...input,root:setup.root,stateRoot:input.stateRoot??defaultStateRoot(),registry:await selectedNpmRegistry(root),nodeVersion:setup.node.version,npm:globalNpmOutput(setup.npm,setup.path,setup.root,setup.prefix)})};
  await assertGlobalDestination(approval);return approval;
 }
 export function globalNpmInstallOperation(approval:GlobalNpmApproval):SetupOperation{
@@ -140,15 +140,15 @@ export async function runGlobalNpmInstall(operation:SetupOperation,input:{stateR
   const id=signature(approval),stageName=(stage:InstallStage)=>'global-npm-'+stage.token;
   let record=state.records.find(item=>signature(item.approval)===id);
   for(const prior of state.records){
-   if(prior.identity&&await writerAlive(prior.identity))throw Error('Previous global writing process still active; prefix blocked');
+   if(prior.stage==='dispatching'&&prior.identity&&await writerAlive(prior.identity))throw Error('Previous global writing process still active; prefix blocked');
    if(prior===record||prior.stage==='prepared'||prior.result?.status==='done')continue;
    const result=await queryGlobalNpmInstall(prior.approval,stateRoot);
    if(result.status!=='done')await assertGlobalDestination(prior.approval);
   }
   const terminal=async(result:OperationResult)=>{
    if(!record)throw Error('Global receipt has no original operation record. Reconcile the prefix.');
-   if(record.stage!=='terminal'||signature(record.result)!==signature(result)){
-    record.stage='terminal';record.result=result;
+   if(record.stage!=='terminal'||record.identity||signature(record.result)!==signature(result)){
+    record.stage='terminal';record.result=result;delete record.identity;
     await persist();
    }
    if(result.status==='done'&&record.scratch)await clearInstallStage(stateRoot,stageName(record.scratch),record.scratch);
@@ -177,10 +177,12 @@ export async function runGlobalNpmInstall(operation:SetupOperation,input:{stateR
    const setup=await inspectGlobalNpm(approval.root,approval.id,input.signal);
    if(setup.prefix!==approval.prefix||approval.npmIdentity&&await programIdentity(setup.npm,approval.root,setup.path)!==approval.npmIdentity)throw Error('Global installation scope or npm launcher changed after approval');
    await assertGlobalDestination(approval);
-   const registry=await effectiveNpmRegistry(approval.root,approval.name,await selectedNpmRegistry(approval.root),input.signal,globalNpmOutput(setup.npm,setup.path));
+   const registryOverride=await selectedNpmRegistry(approval.root);
+   const registry=await effectiveNpmRegistry(approval.root,approval.name,registryOverride,input.signal,globalNpmOutput(setup.npm,setup.path,setup.root,setup.prefix));
    if(registry!==approval.install.registry)throw Error('Npm registry selection changed after approval');
    if(await findProgram(approval.bin,approval.root,setup.path))throw Error('A PATH installation appeared after approval; review the existing '+approval.id+' launcher before installing');
-   assertNpmNode(approval.name,approval.install.version,approval.install.enginesNode,setup.node.version);return setup;
+   assertNpmNode(approval.name,approval.install.version,approval.install.enginesNode,setup.node.version);
+   return {...setup,registryOverride};
   };
   await validate();
   if(!record){record={approval,authorizationRef:input.authorizationRef,stage:'prepared'};state.records.push(record);}
@@ -199,7 +201,7 @@ export async function runGlobalNpmInstall(operation:SetupOperation,input:{stateR
   const flags=[...npmRegistryFlags(approval.name,approval.install.registry!),'--ignore-scripts','--no-audit','--no-fund'];
   const dispatch=async(args:string[],installing:boolean,finish:(code:number|null,cancelled:boolean)=>Promise<OperationResult>)=>{
    const current=await validate();
-   const command={executable:current.npm.file,args:[...current.npm.args??[],...args],env:npmEnvironment(current.path),
+   const command={executable:current.npm.file,args:[...current.npm.args??[],...args],env:npmEnvironment(current.path,current.registryOverride),
     ...(installing?{successRecord:await successPath()}:{})};
    return protectedOperationCommand(command,approval.root,operation.timeoutMs,{signal:input.signal,
     markDispatching:async identity=>{
@@ -220,7 +222,12 @@ export async function runGlobalNpmInstall(operation:SetupOperation,input:{stateR
   if(!await matches()){
    if(await exists(archive))await unlink(archive);
    const packed=await dispatch(['pack','--pack-destination',stage,...flags,approval.name+'@'+approval.install.version],false,
-    async(code,cancelled)=>code===0&&!cancelled?{status:'done',message:'Download complete'}:terminal(failed(cancelled)));
+    async(code,cancelled)=>{
+     if(code!==0||cancelled)return terminal(failed(cancelled));
+     record.stage='prepared';delete record.identity;
+     await persist();
+     return {status:'done',message:'Download complete'};
+    });
    if(packed.status!=='done')return packed;
    if(!await matches())throw integrityError();
   }

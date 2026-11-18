@@ -4,6 +4,7 @@
 
 - Native Windows ARM64 in Parallels passed real Maven batch execution, literal arguments, worktree setup, process cancellation, and inherited cache permissions. The scoped registry tests used two local registries and verified the approved version and integrity across retagging and recovery. Native Windows x64 CI exercises the corresponding wrapper paths. [Windows x64 wrapper job](https://github.com/ansonli-dev/rigup/actions/runs/44234037375/job/134565730527)
 - WSL2 covered ext4 and drvfs with and without metadata. Ordinary writes kept effective modes and repeat apply reused them. The private-input checks covered successful protected writes on ext4 and metadata-enabled drvfs and refusal before writing secret values on drvfs without metadata. [WSL2 filesystem evidence](https://github.com/ansonli-dev/rigup/actions/runs/44237576857/job/134577322468)
+- OpenCode configuration and installed official package layouts have fixture coverage. For a custom local plugin, use the host catalog to confirm the active registration and skill entries.
 - The published v0.8.0 CLI provided completed and interrupted npm fixtures and an original Host continuation command. The candidate reused the staged npm result after the old writer exited, consumed an unchanged Host citation after an unrelated edit, and reissued analysis when the cited line changed.
 
 ## Native Superpowers preparation

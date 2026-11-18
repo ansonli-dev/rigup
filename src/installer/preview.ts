@@ -350,7 +350,7 @@ export async function installationInput(root:string,plan:SetupPlan,managedTarget
  // The apply journal verifies whole managed files, including customer content.
  // Keep those files out of the source snapshot so partial writes can resume.
  const scopes=[...plan.operations.filter(o=>o.kind==='initialize').flatMap(o=>o.declaredWrites),...managedTargets];
- const profile=await scanInstallationSources(root,plan.options,scopes);
+ const profile=await scanInstallationSources(root,plan.options,scopes,true);
  const covered=new Set([...profile.files,...managedTargets]);
  if(plan.harness?.guidance.some(binding=>binding.sourceRef&&['reusable','partial'].includes(binding.coverageStatus)&&!covered.has(binding.sourceRef.path))||
    plan.harnessNavigation?.notApplicable?.some(binding=>!covered.has(binding.path))){

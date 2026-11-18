@@ -77,7 +77,7 @@ test('legacy unauthenticated remote configuration remains usable while remote en
 test('doctor checks a remote bearer environment reference without exposing its value',()=>project(async root=>project(async state=>{
  const directory=join(root,'.rigup');
  await mkdir(directory);
- await writeFile(join(directory,'manifest.json'),JSON.stringify({schemaVersion:1,installId:'fixture',assets:[],options:{agents:[],backend:'host',mcp:[authenticated]}}));
+ await writeFile(join(directory,'manifest.json'),JSON.stringify({schemaVersion:1,installId:'fixture',assets:[],options:{agents:['claude'],backend:'host',mcp:[authenticated]}}));
  const prior=process.env.RIGUP_TEST_MCP_BEARER;
  const check=async()=>{
   const report=await doctor(root,{stateRoot:state});

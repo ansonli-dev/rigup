@@ -1,6 +1,7 @@
 import {execFile} from 'node:child_process';
-import {realpath} from 'node:fs/promises';
-import {delimiter} from 'node:path';
+import {mkdtemp,realpath,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {delimiter,join} from 'node:path';
 import {parse,satisfies,validRange} from 'semver';
 import {externalExecutable,npmCommand,npmPathDirectories,withinPath} from '../../npm-command.mjs';
 import {normalizeNpmIntegrity} from '../../npm-integrity.mjs';
@@ -25,13 +26,14 @@ export function normalizeNpmRegistry(value:string):string{
 
 export function npmRegistryFlags(name:string,registry:string):string[]{
  const scope=packageScope(name);
- return ['--registry',registry,...(scope?['--'+scope+':registry='+registry]:[])];
+ return scope?['--'+scope+':registry='+registry]:['--registry',registry];
 }
 
-export function npmEnvironment(directories:string[]):NodeJS.ProcessEnv{
+export function npmEnvironment(directories:string[],registryOverride?:string):NodeJS.ProcessEnv{
  const env=Object.fromEntries(Object.entries(process.env).filter(([name])=>
-  !/^path$/i.test(name)&&!/^npm_config_(?:_auth(?:token)?|username|_password)$/i.test(name)));
- return {...env,PATH:directories.join(delimiter)};
+  !/^path$/i.test(name)&&!/^npm_config_(?:_auth(?:token)?|username|_password)$/i.test(name)&&
+  !(registryOverride&&/^npm_config_registry$/i.test(name))));
+ return {...env,PATH:directories.join(delimiter),...(registryOverride?{npm_config_registry:registryOverride}:{})};
 }
 
 export function isStableNpmVersion(value:unknown):value is string{
@@ -48,9 +50,9 @@ export function assertNpmNode(name:string,version:string,nodeRange:unknown,nodeV
  return range;
 }
 
-export async function resolveProjectNpm(root:string,args:string[]){
+export async function resolveProjectNpm(root:string,args:string[],registryOverride?:string){
  const directories=await npmPathDirectories(root,process.env.PATH??process.env.Path??'');
- const env=npmEnvironment(directories);
+ const env=npmEnvironment(directories,registryOverride);
  if(process.platform==='win32'){
   const command=npmCommand(args);
   for(const path of [command.executable,command.args[0]])if(withinPath(root,path)||withinPath(root,await realpath(path)))throw Error('Project npm launcher must be outside the project');
@@ -61,17 +63,26 @@ export async function resolveProjectNpm(root:string,args:string[]){
  return {executable,args,env};
 }
 
-export function boundedCommandOutput(command:{executable:string;args:string[];env:NodeJS.ProcessEnv},cwd:string,signal?:AbortSignal,timeout=20_000):Promise<string>{
+export async function boundedCommandOutput(command:{executable:string;args:string[];env:NodeJS.ProcessEnv},cwd:string,signal?:AbortSignal,protectedRoots=[cwd]):Promise<string>{
  signal?.throwIfAborted();
- return new Promise((resolve,reject)=>{
-  let failure:Error|null=null;
-  let output='';
-  const child=execFile(command.executable,command.args,{cwd,env:command.env,signal,timeout,killSignal:'SIGKILL',maxBuffer:256_000},(error,stdout)=>{
-   failure=error;output=stdout;
+ const parent=await realpath(tmpdir());
+ if(protectedRoots.some(root=>withinPath(root,parent)))throw Error('npm inspection needs a temporary directory outside the project and npm prefix');
+ const scratch=await mkdtemp(join(parent,'rigup-npm-inspect-'));
+ try{
+  // npm creates its cache even for config and prefix queries.
+  const env=Object.fromEntries(Object.entries(command.env).filter(([key])=>!/^npm_config_(?:cache|logs_dir|logs_max|timing|update_notifier)$/i.test(key)));
+  Object.assign(env,{npm_config_cache:scratch,npm_config_logs_dir:scratch,npm_config_logs_max:'0',npm_config_timing:'false',npm_config_update_notifier:'false'});
+  signal?.throwIfAborted();
+  return await new Promise((resolve,reject)=>{
+   let failure:Error|null=null;
+   let output='';
+   const child=execFile(command.executable,command.args,{cwd,env,signal,timeout:20_000,killSignal:'SIGKILL',maxBuffer:256_000},(error,stdout)=>{
+    failure=error;output=stdout;
+   });
+   // execFile can invoke its callback for an abort before closing the process.
+   child.once('close',()=>failure?reject(failure):resolve(output));
   });
-  // execFile can invoke its callback for an abort before closing the process.
-  child.once('close',()=>failure?reject(failure):resolve(output));
- });
+ }finally{await rm(scratch,{recursive:true,force:true,maxRetries:2});}
 }
 
 const projectNpmOutput:NpmView=async(args,cwd,signal)=>boundedCommandOutput(await resolveProjectNpm(cwd,args),cwd,signal);

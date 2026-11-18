@@ -53,8 +53,41 @@ test('TypeScript properties, commented tsconfig and env example placeholders are
 
 import {mkdir,symlink,rm} from 'node:fs/promises';
 import {dirname} from 'node:path';
-import {scanRepository} from '../src/analyzer/repository.js';
+import {repositoryReader,scanRepository} from '../src/analyzer/repository.js';
+import {validateResearch,researchEvidenceCurrent} from '../src/analyzer/backend.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
+test('declared authority follows a repository symlink and permissions are intersected',async t=>project(async root=>{
+ await mkdir(join(root,'docs')); await mkdir(join(root,'web'));
+ await writeFile(join(root,'docs','guide.md'),'Review changes before publishing.\n');
+ try{await symlink(join(root,'docs','guide.md'),join(root,'web','guide.md'),'file');}
+ catch(error){
+  if(process.platform==='win32'&&(error as NodeJS.ErrnoException).code==='EPERM'){t.skip('Windows user cannot create file symlinks');return;}
+  throw error;
+ }
+ const topics=[{id:'canonical',title:'Guide',scope:['api'],source:'docs/guide.md'}];
+ const options={agents:['codex' as const],backend:'host' as const,projectRules:true,projectConventions:{topics}};
+ const reader=await repositoryReader(root,options);
+ const {evidence}=await reader.read('web/guide.md',1,1);
+ const claim=(scope:string)=>({observations:[{statement:'Review changes',scope:[scope],classification:'explicit-rule',supportingEvidence:[evidence],counterEvidence:[]}]});
+ await assert.rejects(validateResearch(claim('web'),reader),/scope exceeds/);
+ const accepted=await validateResearch(claim('api'),reader);
+ const restricted=await repositoryReader(root,{...options,projectConventions:{topics:[...topics,{id:'alias',title:'Alias',scope:['api/orders','web'],source:'web/guide.md'}]}});
+ assert.deepEqual(restricted.sourceScopes.get('web/guide.md'),['api/orders']);
+ await assert.rejects(validateResearch(claim('api'),restricted),/scope exceeds/);
+ assert.equal(await researchEvidenceCurrent(accepted.receipt,restricted),false);
+ assert.equal(await researchEvidenceCurrent(accepted.receipt,reader),true);
+ await validateResearch(claim('api/orders'),restricted);
+}));
+
+test('Markdown preserves line numbers without exposing multiline credentials',()=>project(async root=>{
+ const raw=['# Reference','~~~yaml','password: |2-','  literal-fixture','client_secret: >-2','  folded-fixture','token: first-line','  plain-continuation-fixture','~~~','Keep the public instructions.'].join('\n');
+ await writeFile(join(root,'README.md'),raw);
+ const result=await readEvidence(root,'README.md',1,10);
+ assert.doesNotMatch(result.content,/(?:literal|folded|plain-continuation)-fixture/);
+ assert.match(result.content,/Keep the public instructions/);
+ assert.equal(result.content.split('\n').length,10);
+}));
+
 const officialOpenCodePlugin=await readFile(new URL('./fixtures/native/superpowers-opencode-v7.0.2.js',import.meta.url),'utf8');
 const powers=['brainstorming','writing-plans','executing-plans','verification-before-completion'];
 async function nativePut(path:string,text:string){await mkdir(dirname(path),{recursive:true});await writeFile(path,text);}
@@ -278,18 +311,23 @@ for(const version of [1,2])test(`OpenCode V${version} does not treat a no-op plu
  await mkdir(join(base,'skills/nested'));await import('node:fs/promises').then(fs=>fs.rename(join(base,'skills/brainstorming'),join(base,'skills/nested/brainstorming')));
  assert.ok(!(await scanRepository(root,nativeOptions('opencode'),{home})).nativeEntries?.opencode?.includes('brainstorming'));
 })));
-test('OpenCode official linked local plugin is discovered from its autoload directory',()=>project(root=>project(async home=>{
+test('OpenCode reports a linked local loader until its registration is observed',()=>project(root=>project(async home=>{
  const base=join(home,'.config/opencode/superpowers'),entry=join(base,'.opencode/plugins/superpowers.js');
  await nativePut(join(base,'package.json'),'{"name":"superpowers","main":".opencode/plugins/superpowers.js","repository":"https://github.com/obra/superpowers.git"}');await nativePut(entry,officialOpenCodePlugin);await nativeSkills(join(base,'skills'));
  await mkdir(join(home,'.config/opencode/plugins'));await symlink(entry,join(home,'.config/opencode/plugins/superpowers.js'));
- assert.equal((await scanRepository(root,nativeOptions('opencode'),{home})).nativeEntries?.opencode?.length,4);
+ const options=nativeOptions('opencode');
+ const profile=await scanRepository(root,options,{home});
+ assert.equal(profile.nativeEntries?.opencode?.length??0,0);
+ assert.ok(profile.unknowns.some(note=>note.includes('opencode plugin list')));
+ const openCodePlugins=[{target:join(home,'.config/opencode/plugins/superpowers.js'),id:'superpowers',skills:powers.map(name=>join(base,'skills',name,'SKILL.md'))}];
+ assert.equal((await scanRepository(root,options,{home,openCodePlugins})).nativeEntries?.opencode?.length,4);
 })));
 test('OpenCode reports a same-named local package without confirmed registration',()=>project(root=>project(async home=>{
  const base=join(home,'third-party');
  await nativeSkills(join(base,'skills'));
- await nativePut(join(base,'index.js'),officialOpenCodePlugin);
- await nativePut(join(base,'package.json'),'{"name":"superpowers","main":"index.js"}');
- await nativePut(join(home,'.config/opencode/opencode.json'),JSON.stringify({plugins:[base]}));
+ await nativePut(join(base,'index.js'),'export default {id:"team-workflow",setup(){}};');
+ await nativePut(join(base,'package.json'),'{"name":"superpowers","main":"index.js","repository":"https://github.com/obra/superpowers.git"}');
+ await nativePut(join(home,'.config/opencode/opencode.json'),JSON.stringify({plugins:[base,'-team-workflow']}));
  const profile=await scanRepository(root,nativeOptions('opencode'),{home});
  assert.equal((await prepareIntegrations(profile,nativeOptions('opencode'))).bindings.length,0);
  assert.match(profile.unknowns.join('\n'),/registration.*opencode plugin list/);

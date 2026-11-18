@@ -68,11 +68,11 @@ mcp:
 - `customSkills` 接受本地 `source` 目录，可用 `position` 绑定 `prepare`、`deliver` 或 `release`。`templates` 通过 `source`、`target` 和 `values` 为允许的文档或 skill 资源做标量替换。`change-release` 需要真实的客户部署适配器。
 - 对支持 HTTP MCP 的企业 GitLab、协作文档等服务，在对应 `mcp` 项填入 HTTPS `url` 和 `bearerTokenEnv: TEAM_MCP_TOKEN`。从启动宿主的环境提供专用凭据。宿主和服务继续负责工具权限、审批和读写范围。`rigup doctor` 列出变量名、实际消费者和待验证状态。
 
-应用设置时，Rigup 按已启用的本地消费者增量准备私有 `.rigup/.env`，并将它及临时文件加入 `.rigup/.gitignore`。原有注释和非空值保留，空值可从明确配置、无歧义的仓库目标或已声明的调用环境填入；项目文件中的非空值优先。审阅和 dry-run 不写该文件。模板只声明所选能力需要的输入，JSON 和终端报告不含值。已跟踪、链接、权限过宽或未被有效忽略的文件保持原样并提示修正。
+应用设置时，Rigup 按已启用的本地消费者增量准备私有 `.rigup/.env`，并将它及临时文件加入 `.rigup/.gitignore`。原有注释和非空值保留，空值可从明确配置、无歧义的仓库目标或已声明的调用环境填入；项目文件中的非空值优先。审阅和 dry-run 不写该文件。模板只声明所选能力需要的输入，JSON 和终端报告不含值。已跟踪、链接或未被有效忽略的文件保持原样并提示修正。写入时，Rigup 先限制临时文件的权限，再写入凭据并原子替换。
 
 CLI provider 和显式选择的 `customer.commands.environment` 可以读取各自声明的本地输入。后者通过 `--run-checks environment` 执行，仅向该命令传入声明的引用；参数中的 `${NAME}` 以无 shell 的临时参数展开，保存的命令仍保留引用。恢复安装时保留历史检查，但只有本次实际执行的检查能验证当前输入。宿主启动的 MCP 和 GitLab CI 从宿主或 runner 获取凭据，本地存在同名变量不能证明它们已配置或连接。生成本地 GitLab include 不需要 token 或远端地址。远端目标只从明确配置或唯一兼容 Git remote 推导。
 
-自动安装 OpenSpec、OpenWiki 或 CodeGraph 使用 npm 的有效 scope registry，再使用通用 registry。npm 沿用用户的 `.npmrc`、代理、CA 和缓存。`RIGUP_NPM_REGISTRY` 可覆盖本次安装的两种 registry 设置，值须为无凭据的 HTTPS 地址或回环 HTTP 地址。预览按包列出实际 registry、版本和完整性。来源变化后需重新审阅，已核验的暂存可用原批准恢复。
+自动安装 OpenSpec、OpenWiki 或 CodeGraph 优先使用包所属 scope 的 registry，未设置时使用通用 registry。npm 沿用用户的 `.npmrc`、代理和 CA。实际安装使用用户设置的缓存，预览查询使用独立临时缓存。`RIGUP_NPM_REGISTRY` 可覆盖本次安装的两种 registry 设置，值须为无凭据的 HTTPS 地址或回环 HTTP 地址。预览按包列出实际 registry、版本和完整性。来源变化后需重新审阅，已核验的暂存可用原批准恢复。
 
 项目 YAML 中的未知顶层键会产生告警，重配时保留手写值和注释。MCP 省略 `agents` 时跟随本次最终选中的宿主。命令默认在项目根运行，环境引用默认为空。工具省略 `install` 或 `initialize` 时只复用现有工具。自定义模板会替换已提供的值，保留其他占位文本。
 

@@ -16,7 +16,7 @@ import type {SetupOptions,SetupPlan} from '../src/types.js';
 async function fixture(fn:(root:string,cache:string,state:string,control:string)=>Promise<void>){await project(async control=>{const root=join(control,'root');await mkdir(root);await fn(root,join(control,'cache'),join(control,'state'),control);});}
 async function activeCodex(root:string,fn:()=>Promise<void>){const cwd=process.cwd(),prior=process.env.CODEX_THREAD_ID;process.chdir(root);process.env.CODEX_THREAD_ID='review-active-codex';try{await fn();}finally{process.chdir(cwd);if(prior===undefined)delete process.env.CODEX_THREAD_ID;else process.env.CODEX_THREAD_ID=prior;}}
 
-test('public lifecycle preserves unresolved Codex identity when ordinary cache is lost',()=>fixture(async(root,cache,state,control)=>{
+test('public lifecycle retries an unresolved Codex attempt after ordinary cache is lost',()=>fixture(async(root,cache,state,control)=>{
  for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
   const dir=root+'/.agents/skills/'+name;await mkdir(dir,{recursive:true});
   await writeFile(dir+'/SKILL.md','---\nname: '+name+'\ndescription: Native fixture\n---\n');
@@ -37,9 +37,14 @@ test('public lifecycle preserves unresolved Codex identity when ordinary cache i
   await assert.rejects(()=>executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state}));
   const initial=await readFile(control+'/calls','utf8');assert.equal(initial,'called\n');
   await rm(cache,{recursive:true});
-  await assert.rejects(()=>executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state}));
-  assert.equal(await readFile(control+'/calls','utf8'),initial,'cache loss must not authorize another model request');
-  assert.equal((await readdir(state+'/codex')).filter(p=>p.endsWith('.usage.json')).length,1);
+  let notices='';
+  await assert.rejects(()=>executeLifecycle(root,options,{resume:true},text=>notices+=text,{cacheRoot:cache,stateRoot:state}));
+  assert.equal(await readFile(control+'/calls','utf8'),'called\ncalled\n');
+  const ledgers=(await readdir(state+'/codex')).filter(p=>p.endsWith('.usage.json'));
+  assert.equal(ledgers.length,1);
+  const ledger=JSON.parse(await readFile(join(state,'codex',ledgers[0]),'utf8'));
+  assert.equal(Object.keys(ledger.attempts).length,2);
+  assert.match(notices,/budget/i);
  }finally{if(old===undefined)delete process.env.PATH;else process.env.PATH=old;}
 }));
 test('explicit Anthropic CLI flags select their provider after default resolution',t=>fixture(async(root,cache,state,control)=>{

@@ -66,12 +66,12 @@ export async function command(program:Program,args:string[],cwd:string,path:stri
  return exec(program.file,[...(program.args??[]),...args],{cwd,signal,timeout:20_000,maxBuffer:256_000,env:commandEnvironment(path,env,true)});
 }
 
-export function globalNpmOutput(npm:Program,path:string[]):NpmView{
- return (args,cwd,signal)=>boundedCommandOutput({executable:npm.file,args:[...npm.args??[],...args],env:npmEnvironment(path)},cwd,signal);
+export function globalNpmOutput(npm:Program,path:string[],root:string,prefix?:string):NpmView{
+ return (args,cwd,signal)=>boundedCommandOutput({executable:npm.file,args:[...npm.args??[],...args],env:npmEnvironment(path)},cwd,signal,prefix?[root,prefix]:[root]);
 }
 
 export async function npmPrefix(npm:Program,root:string,path:string[],signal?:AbortSignal,name='@fission-ai/openspec'){
- const preferred=(await globalNpmOutput(npm,path)(['prefix','-g'],homedir(),signal).catch(()=>undefined))?.trim();
+ const preferred=(await globalNpmOutput(npm,path,root)(['prefix','-g'],homedir(),signal).catch(()=>undefined))?.trim();
  if(!preferred)return;
  for(const prefix of windows?[preferred]:[preferred,join(homedir(),'.local')]){
   if(!prefix||!isAbsolute(prefix))continue;

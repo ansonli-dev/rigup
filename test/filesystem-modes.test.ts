@@ -5,7 +5,7 @@ import {syncBuiltinESMExports} from 'node:module';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {join} from 'node:path';
-import {project} from './helpers.js';
+import {harnessPlan,project} from './helpers.js';
 import {preview} from '../src/installer/preview.js';
 import {apply} from '../src/installer/apply.js';
 import {scanRepository} from '../src/analyzer/repository.js';
@@ -68,6 +68,25 @@ test('unsupported exclusive creation identifies the target and preserves user fi
  assert.equal(await readFile(join(root,'user.json'),'utf8'),'user content');
  assert.deepEqual(await readdir(root),['user.json']);
 }));
+
+test('unavailable hard links leave an approved seed resumable',t=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const settings={agents:['codex' as const],backend:'host' as const,projectRules:true,projectConventions:{topics:[{id:'api-errors',title:'API errors',scope:['.']}]}};
+ const approved=await preview(await harnessPlan(root,cacheRoot,settings),[],{cacheRoot,stateRoot});
+ const target=approved.projectDocuments![0].target;
+ const original=fs.link;
+ const injected=t.mock.method(fs,'link',async(source,destination)=>{
+  if(String(destination)===join(root,target))throw Object.assign(Error('no hard links'),{code:'ENOTSUP'});
+  return original(source,destination);
+ });
+ syncBuiltinESMExports();
+ try{
+  await assert.rejects(apply(approved.previewId,{cacheRoot,stateRoot}),error=>
+   error instanceof Error&&error.message.includes(target));
+  await assert.rejects(readFile(join(root,target)),{code:'ENOENT'});
+ }finally{injected.mock.restore();syncBuiltinESMExports();}
+ assert.equal((await apply(approved.previewId,{cacheRoot,stateRoot,recover:true})).status,'complete');
+ assert.equal((await loadManifest(root))?.seededProjectDocuments?.[0].target,target);
+}))));
 
 test('Windows locks down only the private credential file before publishing it',{
  skip:process.platform!=='win32',

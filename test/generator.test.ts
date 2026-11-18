@@ -33,6 +33,34 @@ test('cached_semantics_do_not_repeat_backend_calls_and_inventory_aligns',()=>fix
  await generate(profile,opts,backend,inventory,{cacheRoot:cache});assert.equal(requests.length,3);
  await writeFile(root+'/src.txt','changed');await generate(await scanRepository(root,opts),opts,backend,[],{cacheRoot:cache});assert.equal(requests.length,6);
 }));
+test('a refreshed plan invalidates content that consumed its changed research',()=>fixture(async(root,cache)=>{
+ const source=root+'/src.txt';
+ const upstream=fake(),calls:string[]=[];
+ let current='Original requirement';
+ const backend:AnalysisBackend={run:async(request,reader)=>{
+  calls.push(request.expectedOutput!);
+  const response=await upstream.backend.run(request,reader);
+  if(response.status!=='complete')return response;
+  const data=response.value.data as Record<string,unknown>;
+  if(request.expectedOutput==='plan')data.projectSummary=current;
+  if(request.expectedOutput==='content')data.content='# Guide\n\n'+(request.input as {research:{projectSummary:string}}).research.projectSummary+'\n';
+  return response;
+ }};
+ const settings={cacheRoot:cache,runId:'same-run'};
+ const make=async()=>{
+  const profile=await scanRepository(root,opts),reader=await repositoryReader(root,opts);
+  profile.research={model:'fixture',usage:{calls:1,tokens:10},unknowns:[],data:{observations:[],citations:[(await reader.read('src.txt',1,1)).evidence]}};
+  return generate(profile,opts,backend,[],settings);
+ };
+ await writeFile(source,current+'\n');
+ const before=await make();assert.equal(before.status,'complete');
+ current='Revised requirement';
+ await writeFile(source,current+'\n');
+ const result=await make();
+ if(result.status!=='complete')assert.fail('Expected a completed plan');
+ assert.match(result.value.assets.find(asset=>asset.logicalId===job.logicalId)!.content,/Revised requirement/);
+ assert.deepEqual(calls,['plan','content','acceptance','plan','content','acceptance']);
+}));
 test('artifact context upgrades regenerate content and acceptance without resetting plan run or charges',()=>fixture(async(root,cache)=>{
  const settings={...opts,backend:'codex' as const},f=fake(),profile=await scanRepository(root,settings),firstBackend={...f.backend,artifactContextVersion:'first'};
  const first=await generate(profile,settings,firstBackend,[],{cacheRoot:cache,runId:'same-paid-run',spent:{calls:1,tokens:100}});assert.equal(first.status,'complete');if(first.status!=='complete')throw Error('pending');
@@ -463,7 +491,7 @@ test('customer_release_position_requires_a_verified_release_adapter',()=>fixture
  const assets=await renderFixed(profile,selected,integration,[],[]);assert.ok(!assets.some(a=>a.target.includes('/change-')));
 }));
 test('replanning_can_inspect_filtered_previous_baseline_without_treating_it_as_source_authority',()=>fixture(async(root,cache)=>{
- const previous='# Prior generated guidance\nAll order operations throw DomainError.\napiKey: customer-secret\nclient_secret: |\n  multiline-sentinel-first\n  multiline-sentinel-second\n';await mkdir(root+'/.rigup/baseline',{recursive:true});await writeFile(root+'/.rigup/baseline/old.md',previous);
+ const previous='# Prior generated guidance\nAll order operations throw DomainError.\napiKey: customer-secret\nclient_secret: |2-\n  multiline-sentinel-first\n  multiline-sentinel-second\n';await mkdir(root+'/.rigup/baseline',{recursive:true});await writeFile(root+'/.rigup/baseline/old.md',previous);
  const old={logicalId:job.logicalId,target:job.target,ownership:{kind:'file' as const},digest:digest(previous),baseline:'.rigup/baseline/old.md',source:{kind:'semantic',ref:'previous'}};
  await writeFile(root+'/.rigup/manifest.json',JSON.stringify({schemaVersion:1,installId:'old',assets:[old]}));
  const f=fake();const backend:AnalysisBackend={run:async(r,reader)=>{if(r.expectedOutput==='plan'){const prior=(r.input as any).previousInventory[0];assert.match(prior.baselineContent,/All order operations throw DomainError/);assert.doesNotMatch(JSON.stringify(r.input),/customer-secret|multiline-sentinel/);assert.equal(prior.authority,'previous-generated-output-only');const result=await f.backend.run(r,reader);if(result.status==='complete')(result.value.data as any).dispositions=[{logicalId:job.logicalId,action:'update',reason:'New evidence invalidates universal rule'}];return result;}return f.backend.run(r,reader);}};

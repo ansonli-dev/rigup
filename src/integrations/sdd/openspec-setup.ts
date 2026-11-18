@@ -212,7 +212,7 @@ export async function planOpenSpecPreparation(root:string,options:OpenSpecOption
   const npm=setup.npm;
   const install=await resolveNpmLatest(openspecPackage,{root:setup.root,stateRoot:input.stateRoot??defaultStateRoot(),
    signal:input.signal,registry:await selectedNpmRegistry(setup.root),nodeVersion:setup.node.version,
-   view:input.view,npm:globalNpmOutput(npm,setup.path)});
+   view:input.view,npm:globalNpmOutput(npm,setup.path,setup.root,setup.prefix)});
   return {inspection:setup,approval:{...scope,kind:'install',prefix:setup.prefix,install}};
  }catch(error){
   input.signal?.throwIfAborted();

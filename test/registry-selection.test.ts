@@ -92,7 +92,8 @@ test('real npm keeps the original approval across retag, a same-version replacem
 test('one approved CLI plan uses effective scoped npmrc, freezes its routes, and keeps auth private',t=>project(root=>project(cache=>project(state=>npmRegistry(wiki=>npmRegistry(async graph=>{
  const name='@colbymchenry/codegraph',token='synthetic-npmrc-registry-token';
  const openwiki=await wiki.publish('openwiki','2.0.0',{bin:{openwiki:'dist/cli/cli.js'}},{'dist/cli/cli.js':'#!/usr/bin/env node\n'});
- const codegraph=await graph.publish(name,'2.1.0',{bin:{codegraph:'npm-shim.js'}},{'npm-shim.js':'#!/usr/bin/env node\n'});
+ await wiki.publish('rigup-scoped-fixture-dependency','1.0.0');
+ const codegraph=await graph.publish(name,'2.1.0',{bin:{codegraph:'npm-shim.js'},dependencies:{'rigup-scoped-fixture-dependency':'1.0.0'}},{'npm-shim.js':'#!/usr/bin/env node\n'});
  await graph.publish('openwiki','2.2.0',{bin:{openwiki:'dist/cli/cli.js'}},{'dist/cli/cli.js':'#!/usr/bin/env node\n'});
  const config=join(state,'user.npmrc');
  const npmrc='registry='+wiki.url+'\n@colbymchenry:registry='+graph.url+'\n//'+new URL(graph.url).host+'/:_authToken=\${RIGUP_NPM_FIXTURE_TOKEN}\n';
@@ -111,7 +112,8 @@ test('one approved CLI plan uses effective scoped npmrc, freezes its routes, and
   let output='',diagnostic='';
   const code=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:text=>output+=text,writeError:text=>diagnostic+=text,
    services:{cacheRoot:cache,stateRoot:state,npmView:async (argv,cwd,signal)=>{
-    if(![wiki.url,graph.url].includes(argv[argv.indexOf('--registry')+1]))throw Error('fixture accepts local registries only');
+    const route=argv.find(arg=>arg.startsWith('--@colbymchenry:registry='))?.split('=')[1]??argv[argv.indexOf('--registry')+1];
+    if(![wiki.url,graph.url].includes(route))throw Error('fixture accepts local registries only');
     return boundedCommandOutput(await resolveProjectNpm(root,argv),cwd,signal);
    }}});
   assert.equal(code,expected,output+diagnostic);
@@ -136,6 +138,8 @@ test('one approved CLI plan uses effective scoped npmrc, freezes its routes, and
  assert.equal(manifest?.installedTools?.codegraph.packageIntegrity,codegraph.integrity);
  assert.ok(graph.requests.some(request=>request.authorization==='Bearer '+token));
  assert.ok(wiki.requests.every(request=>!request.authorization));
+ assert.ok(wiki.requests.some(request=>request.path.includes('/rigup-scoped-fixture-dependency/-/')));
+ assert.ok(graph.requests.every(request=>!request.path.includes('rigup-scoped-fixture-dependency')));
  assert.ok(!JSON.stringify(manifest).includes(token));
  const lock=JSON.parse(await readFile(join(root,'.rigup/tools/codegraph/package-lock.json'),'utf8'));
  assert.equal(lock.packages[''].dependencies[name],'2.1.0');
@@ -176,6 +180,20 @@ test('a real npm view selects only the latest tag through a scoped internal regi
  }finally{if(previous===undefined)delete process.env.npm_config__authToken;else process.env.npm_config__authToken=previous;}
  assert.deepEqual(await readdir(state),[]);
 }))));
+
+test('npm inspection keeps configured project and prefix cache paths read-only',t=>project(root=>project(prefix=>project(stateRoot=>npmRegistry(async registry=>{
+ const {resolveNpmLatest}=await import('../src/integrations/tools/npm-resolution.js');
+ const p=await registry.publish('openwiki','2.0.0');
+ await writeFile(join(root,'package.json'),'{}');
+ const cache=join(prefix,'npm-cache'),logs=join(root,'npm-logs');
+ await writeFile(join(root,'.npmrc'),'registry='+registry.url+'\ncache='+cache.replaceAll('\\','/')+'\nlogs-dir='+logs.replaceAll('\\','/')+'\n');
+ testEnvironment(t,{npm_config_cache:cache,npm_config_prefix:prefix});
+ assert.equal((await resolveNpmLatest('openwiki',{root,stateRoot,nodeVersion:process.versions.node})).packageIntegrity,p.integrity);
+ await assert.rejects(access(cache),{code:'ENOENT'});
+ await assert.rejects(access(logs),{code:'ENOENT'});
+ assert.deepEqual((await readdir(root)).sort(),['.npmrc','package.json']);
+ assert.deepEqual(await readdir(prefix),[]);
+})))));
 
 test('npm metadata requires a latest tag and accepts an undeclared Node range',()=>project(root=>project(async state=>{
  const {resolveNpmLatest}=await import('../src/integrations/tools/npm-resolution.js');
@@ -219,7 +237,9 @@ test('approved registry survives verified native install staging and reaches dis
    assert.equal(staged.registry,registry);
    const approved=await saveNativeOperations(root,join(state,'previews'),[operation]);
    const result=await operationExecutor(approved,{stateRoot:state,launch:async actual=>{
-    assert.equal(actual.parameters.args[actual.parameters.args.indexOf('--registry')+1],registry);
+    const args=actual.parameters.args;
+    const route=args.find(arg=>arg.startsWith('--@colbymchenry:registry='))?.split('=')[1]??args[args.indexOf('--registry')+1];
+    assert.equal(route,registry);
     return {status:'failed',message:'synthetic network unavailable'};
    }})(operation.id);
    assert.equal(result.status,'failed');

@@ -72,6 +72,20 @@ test('before-manifest failure reports completed global installation and resumes 
  assert.equal(registry.requests.length,count);
 }));
 
+test('a reused PID cannot block a completed global writer receipt',t=>globalFixture(t,async({root,prefix,stateRoot,registry})=>{
+ const operation=globalNpmInstallOperation(await planGlobalNpmInstall(root,'openwiki',{stateRoot}));
+ const inputs={stateRoot,authorizationRef:'original'};
+ assert.equal((await runGlobalNpmInstall(operation,inputs)).status,'done');
+ const path=join(stateRoot,'global-npm-'+signature({prefix})+'.operations.json');
+ const record=JSON.parse(await readFile(path,'utf8'));
+ record.records[0].identity={pid:process.pid};
+ await saveDurable(path,JSON.stringify(record));
+ const requests=registry.requests.length;
+ assert.equal((await runGlobalNpmInstall(operation,{...inputs,recover:true})).status,'done');
+ assert.equal(registry.requests.length,requests);
+ assert.equal(JSON.parse(await readFile(path,'utf8')).records[0].identity,undefined);
+}));
+
 test('global resume reuses the verified archive after an interruption before installation',t=>globalFixture(t,async({root,prefix,stateRoot,registry})=>{
  const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
  const operation=globalNpmInstallOperation(approval);

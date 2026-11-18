@@ -5,6 +5,12 @@ import {renameWithRetry} from '../atomic-rename.js';
 import {targetPath} from './ownership.js';
 import {syncDirectory} from '../sync-directory.js';
 import {stagedFileMode} from './filesystem-modes.js';
+export class ExclusiveLinkError extends Error{
+ constructor(target:string,cause:unknown){
+  const exists=(cause as NodeJS.ErrnoException).code==='EEXIST';
+  super(exists?'Target already exists: '+target:'Cannot create '+target+' exclusively. Use a filesystem that supports hard links for this target, then resume the original approval.',{cause});
+ }
+}
 export async function atomicProjectWrite(root:string,target:string,content:Buffer,mode=0o600,exclusive=false,
  verifyCurrent?:()=>Promise<void>,recordMode?:(mode:number,stage?:string)=>Promise<void>,afterLink?:()=>Promise<void>):Promise<void>{
  const path=await targetPath(root,target);
@@ -40,8 +46,7 @@ export async function atomicProjectWrite(root:string,target:string,content:Buffe
   if(exclusive){
    await verify();
    try{await link(temporary,path);}catch(error){
-    if((error as NodeJS.ErrnoException).code==='EEXIST')throw error;
-    throw Error('Cannot create '+target+' exclusively on this filesystem. Keep the target as it is and resolve this file before resuming.',{cause:error});
+    throw new ExclusiveLinkError(target,error);
    }
    keepStage=!!afterLink;
    await afterLink?.();

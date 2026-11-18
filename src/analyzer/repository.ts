@@ -11,7 +11,7 @@ import {projectChecks,npmScript} from '../integrations/tools/check-catalog.js';
 import {documentTargetKey,readConventionDocument,validateConventionReceipts,type ConventionPage,type ConventionReceipt} from '../project-conventions.js';
 import {projectInput,type Ownership} from '../managed-input.js';
 import {digest,safePath,sliceEvidence,type EvidenceRead,type ReadEvidence} from './evidence.js';
-import {filterContent,secretName,evidenceSecretName,READ_POLICY_VERSION} from './read-policy.js';
+import {filterContent,filterLegacyInstallationContent,secretName,evidenceSecretName,READ_POLICY_VERSION} from './read-policy.js';
 import type {SearchSelection} from './backend.js';
 import {loadResearchIgnore,workflowEvidenceKind} from './research-ignore.js';
 import type {ProjectCheck} from '../integrations/tools/check-catalog.js';
@@ -22,14 +22,13 @@ export interface ProjectProfile {research?:import('./backend.js').ResearchResult
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
-export async function scanInstallationSources(root:string,options:SetupOptions,generatedScopes:string[]):Promise<ProjectProfile>{
- // Keep installation snapshot coverage stable when research evidence rules change.
- return (await inventory(root,options,{},generatedScopes,'installation')).profile;
+export async function scanInstallationSources(root:string,options:SetupOptions,generatedScopes:string[],legacy=false):Promise<ProjectProfile>{
+ return (await inventory(root,options,{},generatedScopes,'installation',legacy?filterLegacyInstallationContent:filterContent)).profile;
 }
 export async function scanNativeEntries(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={}):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,[],'native')).profile;
 }
-async function inventory(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[],purpose:'research'|'installation'|'native'='research'){
+async function inventory(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[],purpose:'research'|'installation'|'native'='research',filter=filterContent){
  root=await realpath(root);
  if(options.scope?.some(s=>s.startsWith('/')||s.split('/').includes('..')||s.includes('\\'))) throw new Error('scope: invalid relative path');
  const profile:ProjectProfile={root,fingerprint:'',files:[],git:{available:false},commands:{build:[],lint:[],test:[],environment:[],eval:[]},specializedChecks:[],unknowns:[],truncated:false,readPolicyVersion:READ_POLICY_VERSION};
@@ -54,9 +53,15 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
  ];
  if(extraSources.length)profile.extraSourcePaths=extraSources;
  const registered=new Map(receipts.map(receipt=>[documentTargetKey(receipt.target),receipt]));
+ const declaredFor=(path:string,actual:string)=>{
+  const lexical=declaredSources.get(path),canonical=declaredSources.get(actual);
+  if(!lexical||!canonical||path===actual)return lexical??canonical;
+  return [...new Set(lexical.flatMap(a=>canonical.flatMap(b=>scopeContains(a,b)?[b]:scopeContains(b,a)?[a]:[])))];
+ };
  const projection=(path:string,raw:string,actual=path)=>projectSource(path,actual,raw,
-  [...(managed.get(path)??[]),...(actual===path?[]:managed.get(actual)??[])],
-  scopes,registered.get(documentTargetKey(path)),declaredSources.get(path));
+  [...(managed.get(path)??[]),...(actual===path?[]:managed.get(actual)??[])],scopes,
+  [...new Set([registered.get(documentTargetKey(path)),registered.get(documentTargetKey(actual))])].filter(receipt=>receipt!==undefined),
+  declaredFor(path,actual),filter);
  const selectedScope=(path:string)=>!options.scope?.length||options.scope.some(scope=>scopeContains(scope,path));
  if(purpose==='research'&&(!selectedScope(gitlabPath)||ignored.excludes(gitlabPath,false))){
   profile.gitlabReviewRequired=true;
@@ -140,7 +145,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
     if(source.page)(profile.conventions??=[]).push(source.page);
     profile.unknowns.push(...source.warnings);
    }
-   if(purpose==='research'&&researchable&&!convention&&extraSources.includes(path)&&declaredSources.has(path)){
+   if(purpose==='research'&&researchable&&!convention&&extraSources.includes(path)&&declaredSources.has(path)&&declaredFor(path,actual)?.length){
     const lines=visible.split('\n');
     const start=lines.findIndex(line=>line.trim())+1;
     if(start){
@@ -168,7 +173,7 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    // Invalidate legacy Spec Kit requests that included an entry still needed for binding.
    const evidenceRole=workflowScope==='spec-kit'&&workflow==='entry'&&!excluded?'\0native-entry':'';
    const metadata=source.page&&{topicId:source.page.topicId,title:source.page.title,scope:source.page.scope,status:source.page.status};
-   inputs.push(path+'\0'+digest(convention?(source.page?.status==='confirmed'?visible:''):ownership.length?filterContent(actual,projected):visible)+
+   inputs.push(path+'\0'+digest(convention?(source.page?.status==='confirmed'?visible:''):ownership.length?filter(actual,projected):visible)+
     evidenceRole+(metadata?'\0'+JSON.stringify(metadata):''));
    if(outsideBusinessScope)continue;
    if(purpose==='research'&&path===gitlabPath)profile.gitlabJobs=discoverGitlabJobs(path,visible);
@@ -200,16 +205,17 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    job.reason='Command could not be verified against scanned project checks';
   }
  }
- const external=await discoverNativeSources(root,options,{...discovery,managedProjectPaths:[...managed].filter(([,ownership])=>ownership.some(item=>item.kind==='file')).map(([path])=>path),onWarning:message=>{profile.unknowns.push(message);discovery?.onWarning?.(message);},onDiagnostic:diagnostic=>{(profile.nativeDiagnostics??=[]).push(diagnostic);discovery?.onDiagnostic?.(diagnostic);}});for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,projection,declaredSources,scopes,actualFiles};
+ const external=await discoverNativeSources(root,options,{...discovery,managedProjectPaths:[...managed].filter(([,ownership])=>ownership.some(item=>item.kind==='file')).map(([path])=>path),onWarning:message=>{profile.unknowns.push(message);discovery?.onWarning?.(message);},onDiagnostic:diagnostic=>{(profile.nativeDiagnostics??=[]).push(diagnostic);discovery?.onDiagnostic?.(diagnostic);}});for(const [key,sources]of Object.entries(external)){const agent=key as Agent;profile.skillSources??={};profile.skillSources[agent]=[...(profile.skillSources[agent]??[]),...sources];profile.nativeEntries??={};profile.nativeEntries[agent]=[...(profile.nativeEntries[agent]??[]),...sources.map(s=>s.name)];}inputs.push('native-sources\0'+digest(JSON.stringify(external)));profile.fingerprint=digest(inputs.join('\n')+'\n'+READ_POLICY_VERSION+'\n'+JSON.stringify({unknowns:profile.unknowns,truncated:profile.truncated}));return {profile,projection,declaredFor,scopes,actualFiles};
 }
 
-function projectSource(path:string,actual:string,raw:string,ownership:Ownership[],selected:string[],registered?:ConventionReceipt,declared?:string[]):ReturnType<typeof readConventionDocument> {
+function projectSource(path:string,actual:string,raw:string,ownership:Ownership[],selected:string[],registered:ConventionReceipt[],declared:string[]|undefined,filter:typeof filterContent):ReturnType<typeof readConventionDocument> {
  const projected=projectInput(raw,ownership,true);
- const visible=projected===null?'':filterContent(actual,projected);
- const result=readConventionDocument(path,visible,!!registered);
+ const visible=projected===null?'':filter(actual,projected);
+ const result=readConventionDocument(path,visible,registered.length>0);
  const page=result.page;
  if(!page)return result;
- if(registered&&(registered.scope!==page.scope||registered.topicId!==page.topicId)||declared&&!declared.includes(page.scope)||
+ if(registered.some(receipt=>receipt.scope!==page.scope||receipt.topicId!==page.topicId)||
+    declared&&!declared.includes(page.scope)||
     !scopesOverlap(selected,[page.scope])){
   return {researchText:visible.split('\n').map(()=>'').join('\n'),warnings:[path+': convention scope or identity unavailable; verify the declared mapping']};
  }
@@ -218,7 +224,7 @@ function projectSource(path:string,actual:string,raw:string,ownership:Ownership[
 
 export interface ReaderDependencies {expectedFingerprint?:string}
 export async function repositoryReader(root:string,options:SetupOptions,dependencies:ReaderDependencies={}){
- const {profile,projection,declaredSources,scopes,actualFiles}=await inventory(root,options);
+ const {profile,projection,declaredFor,scopes,actualFiles}=await inventory(root,options);
  root=profile.root;
  if(dependencies.expectedFingerprint&&profile.fingerprint!==dependencies.expectedFingerprint)throw new Error('reader source fingerprint changed during preparation');
  if(profile.researchBlocked)throw new Error(profile.researchBlocked);
@@ -226,7 +232,10 @@ export async function repositoryReader(root:string,options:SetupOptions,dependen
  const pages=new Map(profile.conventions?.map(page=>[page.path,page]));
  const conventionPaths=new Set(profile.conventionPaths);
  const sourceScopes=new Map<string,readonly string[]>();
- for(const [path,declared] of declaredSources)if(allowed.has(path))sourceScopes.set(path,declared.filter(scope=>scopesOverlap(scopes,[scope])));
+ for(const path of allowed){
+  const declared=declaredFor(path,actualFiles.get(path)!);
+  if(declared)sourceScopes.set(path,declared.filter(scope=>scopesOverlap(scopes,[scope])));
+ }
  for(const path of conventionPaths){
   const page=pages.get(path);
   sourceScopes.set(path,page?.status==='confirmed'?[page.scope]:[]);

@@ -207,7 +207,9 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  for(const job of state.plan.jobs){
   const seeds=allowed.filter(path=>job.seedPaths.some(scope=>scopeContains(scope,path)));
   const evidence=await Promise.all(seeds.slice(0,32).map(async path=>[path,(await read(path,1).catch(()=>undefined))?.evidence.digest]));
-  const inputs=signature({job:{...job,status:'pending'},seeds,evidence});
+  const policy=projectRuleDraftPolicy(job,state)??documentDraftPolicy;
+  const inputs=signature({job:{...job,status:'pending'},seeds,evidence,research:state.plan.research,
+   context:policy.context,authority,versions,templateSourcesDigest});
   jobInputs.set(job.logicalId,inputs);
   const prior=state.candidates[job.logicalId];
   if(prior&&(prior.inputs!==inputs||prior.digest!==candidateDigest(prior.content,prior.pages)||

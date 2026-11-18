@@ -127,6 +127,21 @@ test('the next project tool waits for the first writer to finish',()=>fixture(as
  assert.deepEqual(journal.map(item=>item.operation.integrationId),['openwiki']);
 }));
 
+test('a reused PID cannot block a completed project writer receipt',()=>fixture(async(root,stateRoot)=>{
+ const pin=(await loadUpstreamLock()).find(item=>item.integrationId==='openwiki')!;
+ const operation=await prepareSoftwareInstall(root,'openwiki',pin.version,pin.packageIntegrity);
+ if('pending' in operation||'reused' in operation)assert.fail('fixture tool did not need an install');
+ const approval=await saveNativeOperations(root,join(stateRoot,'previews'),[operation]);
+ assert.equal((await dispatch(approval,{stateRoot,launch:actual=>completeFixtureInstall(root,actual)})).status,'done');
+ const path=join(stateRoot,signature(root)+'.operations.json');
+ const journal=JSON.parse(await readFile(path,'utf8'));
+ journal.operations[0].identity={pid:process.pid};
+ await saveDurable(path,JSON.stringify(journal));
+ await assertNoUnknownWriters(root,stateRoot);
+ assert.equal((await dispatch(approval,{stateRoot,launch:async()=>assert.fail('completed operation dispatched again')})).status,'done');
+ assert.equal((await pendingOperations(root,stateRoot))[0].identity,undefined);
+}));
+
 test('pending_record_is_durable_before_dispatch',()=>fixture(async(root,state)=>{
  const op=await prepareSoftwareInstall(root,'openwiki','0.7.3',(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!.packageIntegrity);if('pending' in op||'reused' in op)throw Error('fixture');
  const approval=await saveNativeOperations(root,join(state,'previews'),[op]);let dispatched=0;

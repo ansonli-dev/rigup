@@ -21,7 +21,7 @@ import {assertNoUnknownWriters,operationExecutor,pendingOperations,queryOperatio
 import {privateDirectory,signature,saveCache} from '../generator/cache.js';
 import {digest} from '../analyzer/evidence.js';
 import {scanRepository} from '../analyzer/repository.js';
-import {atomicProjectWrite} from './manifest.js';
+import {atomicProjectWrite,ExclusiveLinkError} from './manifest.js';
 import {targetPath,ownedContent} from './ownership.js';
 import {applyRecordPath,loadManifest,readApplyRecord,sourceReview,type Manifest,type SourceReview,type Transaction} from './baseline.js';
 import {runProjectChecks,runResolvedProjectChecks} from '../integrations/tools/quality.js';
@@ -56,6 +56,14 @@ async function provenSeed(root:string,target:string,stage:string|undefined){
   const [file,staged]=await Promise.all([target,stage].map(async path=>lstat(await targetPath(root,path),{bigint:true})));
   return file.isFile()&&staged.isFile()&&file.ino!==0n&&file.ino===staged.ino&&file.dev===staged.dev;
  }catch{return false;}
+}
+
+async function seedApplied(root:string,target:string,tx:Transaction,actual:Awaited<ReturnType<typeof readFileState>>){
+ const expected=tx.files[target],progress=tx.seedProgress?.[target],stage=tx.seedStages?.[target];
+ if((!progress||progress==='started'&&!stage)&&matchesFileState(actual,expected.before,expected.beforeMode))return false;
+ if(matchesFileState(actual,expected.after,afterMode(expected))&&
+    (progress==='written'||progress==='started'&&await provenSeed(root,target,stage)))return true;
+ throw Error(seedReconciliation+' File: '+target);
 }
 
 function assertPreviewFileTransitions(tx:Transaction,data:PreviewData):void{
@@ -309,11 +317,8 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(tx)for(const f of data.files){
    const actual=await readFileState(root,f.target),expected=tx.files[f.target];
    const before=matchesFileState(actual,expected.before,expected.beforeMode),after=matchesFileState(actual,expected.after,afterMode(expected));
-   if(f.seed){
-    const progress=tx.seedProgress?.[f.target];
-    if(!(progress?after:before)||progress==='started'&&!await provenSeed(root,f.target,tx.seedStages?.[f.target]))
-     throw Error(seedReconciliation+' File: '+f.target);
-   }else if(!before&&!after)throw Error('interrupted target content or mode changed; preserve local edits and re-preview: '+f.target);
+   if(f.seed)await seedApplied(root,f.target,tx,actual);
+   else if(!before&&!after)throw Error('interrupted target content or mode changed; preserve local edits and re-preview: '+f.target);
   }
   await assertSources();
   if(!tx) {
@@ -400,10 +405,8 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
      if(tx!.seedStages)delete tx!.seedStages[f.target];
      await saveDurable(statePath,JSON.stringify(tx));
     };
-    if(progress[f.target]){
+    if(await seedApplied(root,f.target,tx,actual)){
      const stage=tx.seedStages?.[f.target];
-     if(!matchesFileState(actual,expected.after,afterMode(expected))||
-        progress[f.target]==='started'&&!await provenSeed(root,f.target,stage))throw Error(seedReconciliation+' File: '+f.target);
      if(progress[f.target]==='started'){
       await written();
       if(stage)await unlink(await targetPath(root,stage));
@@ -411,14 +414,21 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
      completed++;step(f.target,'reused');
      continue;
     }
-    if(!matchesFileState(actual,expected.before,expected.beforeMode))throw Error(seedReconciliation+' File: '+f.target);
     progress[f.target]='started';
     await saveDurable(statePath,JSON.stringify(tx));
     await dependencies.hook?.('before-seed');
-    await atomicProjectWrite(root,f.target,Buffer.from(f.next!),expected.afterMode,true,undefined,recordMode,async()=>{
-     await dependencies.hook?.('after-seed-link');
-     await written();
-    });
+    try{
+     await atomicProjectWrite(root,f.target,Buffer.from(f.next!),expected.afterMode,true,undefined,recordMode,async()=>{
+      await dependencies.hook?.('after-seed-link');
+      await written();
+     });
+    }catch(error){
+     if(error instanceof ExclusiveLinkError&&tx.seedStages?.[f.target]){
+      delete tx.seedStages[f.target];
+      await saveDurable(statePath,JSON.stringify(tx));
+     }
+     throw error;
+    }
     completed++;step(f.target);report.written.push(f.target);await dependencies.hook?.('after-file');
     continue;
    }

@@ -15,7 +15,7 @@ import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {startProcess} from '../integrations/tools/windows-process.mjs';
 import {assertNpmNode,defaultNpmRegistry,resolveProjectNpm} from '../integrations/tools/npm-resolution.js';
 import {assertInstallDestination,clearInstallStage,createInstallStage,installDirectoryIdentity,ownedInstallStage,publishInstallStage,stagedInstall,validInstallStage,type InstallStage} from './install-staging.js';
-import {essentialEnvironment,operationNpmRegistry} from '../runtime-inputs.js';
+import {essentialEnvironment,operationNpmRegistry,selectedNpmRegistry} from '../runtime-inputs.js';
 import {targetPath} from './ownership.js';
 import type {PreviewData} from './preview.js';
 export interface OperationResult {globalReceipt?:GlobalNpmReceipt;status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
@@ -87,7 +87,7 @@ export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateR
   }
  }
  for(const item of await pendingOperations(root,state)){
-  if(item.identity&&await writerAlive(item.identity))throw new Error('previous writing process still active; project blocked');
+  if(item.stage==='dispatching'&&item.identity&&await writerAlive(item.identity))throw new Error('previous writing process still active; project blocked');
   if(item.stage==='prepared'&&!item.installStage||item.result?.status==='done')continue;
   const operation=item.operation;
   if(operation.kind==='install'){
@@ -162,10 +162,13 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   });
  }
  if(record){
-  if(record.identity&&await writerAlive(record.identity))return {status:'unknown',message:'Previous writing process has not exited; project remains blocked'};
+  if(record.stage==='dispatching'&&record.identity&&await writerAlive(record.identity))return {status:'unknown',message:'Previous writing process has not exited; project remains blocked'};
   if(record.stage!=='prepared'||record.installStage) {
    const result=operation.kind==='install'?await queryPublishedInstall(root,operation,record.installStage):await queryOperation(operation);
-   if(result.status==='done'){record.stage='terminal';record.result=result;await persist();return result;}
+   if(result.status==='done'){
+    record.stage='terminal';record.result=result;delete record.identity;
+    await persist();return result;
+   }
    if(operation.kind!=='install'&&!await resumableNativeOperation(operation))return {status:'unknown',message:'Prior dispatch may have happened; manual reconciliation required before retry'};
   }
  }
@@ -196,7 +199,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  const cancelledBeforeDispatch={status:'pending',message:'Cancelled before dispatch'} as const;
  if(dependencies.signal?.aborted)return cancelledBeforeDispatch;
  const terminal=async(result:OperationResult)=>{
-  record.stage='terminal';record.result=result;await persist();return result;
+  record.stage='terminal';record.result=result;delete record.identity;await persist();return result;
  };
  const acceptInstall=async(staged:SetupOperation,stage:InstallStage,verified:OperationResult):Promise<OperationResult>=>{
   if(verified.status!=='done')return verified;
@@ -244,7 +247,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   const verified=await queryOperation(dispatched);
   return terminal(stage?await acceptInstall(dispatched,stage,verified):verified);
  };
- const command=dispatched.parameters.executable==='npm'?await resolveProjectNpm(root,dispatched.parameters.args):
+ const command=dispatched.parameters.executable==='npm'?await resolveProjectNpm(root,dispatched.parameters.args,await selectedNpmRegistry(root)):
   {...dispatched.parameters,env:operation.kind==='initialize'?nativeEnvironment(dispatched):essentialEnvironment()};
  return protectedOperationCommand(command,root,operation.timeoutMs,{signal:dependencies.signal,markDispatching,registryPending,restoreUndispatched,finish});
 }

@@ -68,7 +68,17 @@ export class ResearchValidationError extends Error {
 const diagnosticFields=new Set(['observations','guidance','supportingEvidence','counterEvidence','sourceRef','evidence','coverage','scope','unknowns']);
 
 interface CounterexampleSearch {query:string;scope:string[];matches?:Evidence[]}
-export interface ResearchEvidenceReceipt {citations:Evidence[];searches:CounterexampleSearch[]}
+export interface ResearchEvidenceReceipt {citations:Evidence[];searches:CounterexampleSearch[];sourceScopes?:[string,string[]][]}
+
+function citedSourceScopes(citations:readonly Evidence[],reader:RepositoryReader):[string,string[]][]{
+ const paths=[...new Set(citations.map(citation=>citation.path))].sort();
+ const bindings:[string,string[]][]=[];
+ for(const path of paths){
+  const scopes=reader.sourceScopes?.get(path);
+  if(scopes)bindings.push([path,[...new Set(scopes)].sort()]);
+ }
+ return bindings;
+}
 type ConventionCoverage={independentSupports?:unknown;counterexampleSearched?:unknown;counterexampleQueries?:unknown};
 export function conventionEvidenceGap(observation:{supportingEvidence:Evidence[];coverage?:ConventionCoverage}):string|undefined{
  const {supportingEvidence,coverage}=observation;
@@ -87,7 +97,8 @@ async function searchMatches(reader:RepositoryReader,query:string,scope:string[]
 export async function researchEvidenceCurrent(receipt:ResearchEvidenceReceipt|undefined,reader:RepositoryReader):Promise<boolean>{
  if(!receipt)return false;
  try{
-  await validateResearch({observations:[],citations:receipt.citations},reader);
+  const current=await validateResearch({observations:[],citations:receipt.citations},reader);
+  if(JSON.stringify(current.receipt.sourceScopes)!==JSON.stringify(receipt.sourceScopes??[]))return false;
   for(const search of receipt.searches){
    const current=await searchMatches(reader,search.query,search.scope).catch(()=>undefined);
    if(JSON.stringify(current)!==JSON.stringify(search.matches))return false;
@@ -183,7 +194,7 @@ export async function validateResearch(data:unknown,reader:RepositoryReader,expo
   if(item.classification==='suggestion'&&!['reference-only','needs-decision'].includes(item.guidanceDisposition))warn('Suggestion requires review before adoption');
   if(item.classification!=='suggestion'&&!item.supportingEvidence.length)warn('Supporting evidence is missing');
  }
- return {receipt:{citations,searches:[...searches.values()]},warnings,blockedConventions};
+ return {receipt:{citations,searches:[...searches.values()],sourceScopes:citedSourceScopes(citations,reader)},warnings,blockedConventions};
 }
 
 export class ResearchFailure extends Error {
