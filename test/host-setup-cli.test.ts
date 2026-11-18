@@ -24,6 +24,14 @@ const put=async(path:string,value:unknown)=>{
 const args=(root:string,hosts='claude')=>['init',root,'--agents',hosts,'--sdd','superpowers','--prepare-native'];
 const missing=(path:string)=>assert.rejects(stat(path),{code:'ENOENT'});
 
+function approvalLines(output:string[],host:string,from=0){
+ const lines=output.slice(from).join('').trimEnd().split('\n');
+ const start=lines.findIndex(line=>new RegExp('^'+host+'[:：]','i').test(line));
+ assert.ok(start!==-1,lines.join('\n'));
+ const end=lines.findIndex((line,index)=>index>start&&!/^  /.test(line));
+ return lines.slice(start,end===-1?undefined:end);
+}
+
 function cli(root:string,home:string){
  const stateRoot=join(home,'state'),questions:Parameters<NonNullable<CliIO['ask']>>[0][]=[],reports:Record<string,unknown>[]=[];
  const output:string[]=[];
@@ -129,6 +137,95 @@ async function fakeOmp(io:CliIO,home:string,{probe={code:0,output:'omp/99.0.0'},
  return {archive,requests,commands,base,target,lock};
 }
 
+test('native approval transcript names who can run in a partially blocked guided init',()=>project(root=>project(async home=>{
+ const {io,output,reports}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ delete io.services!.nativeSetup!.env!.CLAUDE_CONFIG_DIR;
+ const {commands}=await fakeOmp(io,home,{offline:true});
+ await put(join(home,'.omp','agent','config.yml'),'disabledProviders: [claude-plugins]\n');
+ let prompts=0;
+ io.ask=async question=>{
+  if(prompts++===0){
+   assert.match(question.message,/Claude.*only.*OMP/i);
+   assert.deepEqual(question.choices,['Cancel','Approve']);
+   assert.equal(question.defaults,undefined);
+   const claude=approvalLines(output,'claude');
+   assert.equal(claude.length,3);
+   assert.ok(claude[2].includes(join('~','.claude')));
+   assert.match(claude[2],/only \.claude\.json/);
+   const omp=approvalLines(output,'omp');
+   assert.ok(omp.length<=3,omp.join('\n'));
+   assert.match(omp[0],/download-failed/);
+   assert.match(omp.join('\n'),/Claude project plugin/i);
+   assert.doesNotMatch(output.join(''),/Probe CLI|Evidence:|draft the fix commands|does not authenticate|plugin.*link/);
+  }
+  return ['Approve'];
+ };
+ assert.equal(await runCli(['init',root,'--agents','claude,omp','--sdd','superpowers','--tools','none','--language','en'],io),3,output.join(''));
+ assert.equal(prompts,2);
+ assert.deepEqual(steps,['marketplace','install']);
+ assert.deepEqual(commands,[]);
+ assert.deepEqual(finalPreparation(reports).hosts.map(({status})=>status),['ready','manual']);
+ assert.equal((output.join('').match(/^Next:/gm)??[]).length,1);
+})));
+
+test('native approval transcript treats the OMP plan as a fallback to Claude reuse',()=>project(root=>project(async home=>{
+ const {io,output,reports}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps,{cliVersion:'2.1.327 (Claude Code)'});
+ const {archive,commands,requests}=await fakeOmp(io,home);
+ await put(join(home,'.env'),'FIXTURE_KEY=fixture-value\n');
+ let prompts=0;
+ io.ask=async()=>{
+  if(prompts++===0){
+   const omp=approvalLines(output,'omp'),preview=output.join('');
+   assert.equal(omp.length,3,omp.join('\n'));
+   assert.match(omp[1],/if.*Claude.*link/i);
+   assert.ok(omp[1].includes(archive.pin.version));
+   assert.match(omp[2],/fallback.*writes/i);
+   assert.equal(omp[2].split(join('~','.omp')).length-1,1);
+   assert.doesNotMatch(preview,/Probe CLI|Checked .*\.env|sha512-|\.tgz|omp-plugins\.lock\.json|does not authenticate/);
+  }
+  return ['Approve'];
+ };
+ assert.equal(await runCli(args(root,'claude,omp'),io),0,output.join(''));
+ assert.deepEqual(steps,['marketplace','install']);
+ assert.deepEqual(requests,[latestUrl]);
+ assert.deepEqual(commands,[]);
+ assert.deepEqual(finalPreparation(reports).blockers,[]);
+ const transcript=output.join('');
+ assert.equal((transcript.match(/^Claude:.*installed.*Reopen Claude/gm)??[]).length,1);
+ assert.equal((transcript.match(/^OMP:.*Claude.*Reopen OMP/gm)??[]).length,1);
+ assert.doesNotMatch(transcript,/Observed change|2\.1\.327|plugin uninstall|Evidence:/);
+})));
+
+test('native approval transcript reflects the selected OMP profile and leaves an already-ready Claude alone',()=>project(root=>project(async home=>{
+ const {io,output}=cli(root,home);
+ await fakeClaude(io,root,home,[]);
+ const launch=io.services!.nativeSetup!.launch!;
+ for(const step of ['marketplace','install'])await launch({executable:'fixture',args:[step],env:{}},root);
+ const {commands}=await fakeOmp(io,home);
+ const env=io.services!.nativeSetup!.env!,profile='fixture',base=join('~','.omp','profiles',profile);
+ env.OMP_PROFILE=profile;
+ await put(join(home,'.omp','profiles',profile,'agent','config.yml'),'disabledProviders: [claude-plugins]\n');
+ let expected=base;
+ if(process.platform!=='win32'){
+  env.XDG_DATA_HOME=join(home,'separate data');
+  await mkdir(join(env.XDG_DATA_HOME,'omp','profiles',profile),{recursive:true});
+  expected=join('~','separate data','omp','profiles',profile,'plugins');
+ }
+ io.ask=async()=>{
+  assert.equal(approvalLines(output,'claude').length,1);
+  const omp=approvalLines(output,'omp');
+  assert.equal(omp.length,3,omp.join('\n'));
+  assert.doesNotMatch(omp[1],/cannot be reused/);
+  assert.ok(omp[2].includes(expected),omp[2]);
+  assert.equal(omp[2].split(base).length-1,1);
+  return ['Cancel'];
+ };
+ assert.equal(await runCli(args(root,'claude,omp'),io),130,output.join(''));
+ assert.deepEqual(commands,[]);
+})));
+
 test('native approval requires explicit consent and allows an unrelated settings change after preview',()=>project(root=>project(async home=>{
  const {io,stateRoot,output}=cli(root,home),steps:string[]=[];
  await fakeClaude(io,root,home,steps);
@@ -170,8 +267,12 @@ for(const change of ['disabled plugin','review policy','Claude destination'])tes
 test('native preparation verifies a completed step before retry, and recognizes a Claude import without an OMP write',()=>project(root=>project(async home=>{
  const {io,output,reports}=cli(root,home),steps:string[]=[];
  await fakeClaude(io,root,home,steps,{failInstall:true});
- assert.equal(await runCli(args(root),io),1);
- assert.equal(finalPreparation(reports).blockers[0]?.code,'install-command-failed');
+ assert.equal(await runCli([...args(root),'--verbose'],io),1);
+ const failed=finalPreparation(reports);
+ assert.equal(failed.blockers[0]?.code,'install-command-failed');
+ assert.ok(failed.progress.find(item=>item.step==='marketplace')?.changes?.length);
+ assert.deepEqual(failed.progress.find(item=>item.step==='install')?.changes,[]);
+ assert.doesNotMatch(output.join(''),/claude plugin uninstall/);
  assert.deepEqual(steps,['marketplace','install']);
  await rm(join(home,'bin'),{recursive:true});
  await fakeClaude(io,root,home,steps);
@@ -179,7 +280,8 @@ test('native preparation verifies a completed step before retry, and recognizes 
  const {requests,commands}=await fakeOmp(io,home,{offline:true});
  assert.equal(await runCli(args(root,'claude,omp'),io),0,output.join(''));
  assert.deepEqual(steps,['marketplace','install','install']);
- assert.match(output.join(''),/omp:.*recognized.*Claude/i);
+ assert.match(output.join(''),/^OMP:.*Claude.*Reopen OMP/m);
+ assert.equal((output.join('').match(/^OMP:.*Reopen OMP/gm)??[]).length,1);
  assert.doesNotMatch(output.join(''),/SUPPRESSED_HOST_OUTPUT/);
  assert.deepEqual(requests,[latestUrl]);
  assert.deepEqual(commands,[]);
@@ -279,7 +381,7 @@ test('guided review stays read-only and an active host can approve native setup'
  try{
   process.chdir(root);process.env.CLAUDECODE='1';
   assert.equal(await runCli(args(root),io),0,output.join(''));
-  assert.match(output.join(''),/reload.*host session/i);
+  assert.equal((output.join('').match(/^Claude:.*installed.*Reopen Claude/gm)??[]).length,1);
  }finally{process.chdir(originalCwd);if(original===undefined)delete process.env.CLAUDECODE;else process.env.CLAUDECODE=original;}
  assert.equal(asked,2);
  assert.deepEqual(steps,['marketplace','install']);
@@ -290,7 +392,7 @@ test('mixed native preparation finishes only the approved eligible host, leaving
  await fakeClaude(io,root,home,steps);
  assert.equal(await runCli(args(root,'codex,claude'),io),3);
  assert.deepEqual(steps,['marketplace','install']);
- assert.match(output.join(''),/codex: missing native entry/);
+ assert.match(output.join(''),/^Codex: .*manual setup/m);
 })));
 
 test('OMP approves latest once, tolerates registrations and config overlays, and reuses the recognized link',()=>project(root=>project(async home=>{
@@ -318,7 +420,7 @@ test('OMP approves latest once, tolerates registrations and config overlays, and
   assert.deepEqual(commands,[]);
   return ['Approve'];
  };
- assert.equal(await runCli(args(root,'omp'),io),0,output.join(''));
+ assert.equal(await runCli([...args(root,'omp'),'--verbose'],io),0,output.join(''));
  assert.equal(commands.length,2);
  assert.equal(await realpath(target),commands[1][2]);
  assert.deepEqual(requests,[latestUrl,archive.pin.tarball]);
@@ -330,6 +432,54 @@ test('OMP approves latest once, tolerates registrations and config overlays, and
  assert.deepEqual(requests,[latestUrl,archive.pin.tarball]);
  assert.equal(commands.length,2);
 })));
+
+test('native outcome summary offers one next action and never offers uninstall after a no-change failure',()=>project(root=>project(async home=>{
+ const {io,output,reports}=cli(root,home);
+ await fakeOmp(io,home,{probe:{code:0,output:'omp/18.1.13'}});
+ const setup=io.services!.nativeSetup!,launch=setup.launch!;
+ setup.launch=(command,cwd)=>command.args.includes('--version')?launch(command,cwd):Promise.resolve({code:19,output:'PRIVATE_HOST_OUTPUT'});
+ const invoke=async(verbose:boolean)=>{
+  output.length=0;
+  assert.equal(await runCli([...args(root,'omp,codex'),...(verbose?['--verbose']:[])],io),1,output.join(''));
+  const report=finalPreparation(reports);
+  assert.deepEqual(report.progress.find(item=>item.step==='link')?.changes,[]);
+  assert.equal(report.blockers[0].code,'install-command-failed');
+  const text=output.join('');
+  assert.match(text,/install-command-failed.*exit 19|exit 19.*install-command-failed/);
+  assert.doesNotMatch(text,/plugin uninstall|PRIVATE_HOST_OUTPUT|draft the fix commands|does not authenticate/);
+  assert.equal((text.match(/^Next:/gm)??[]).length,1);
+  if(verbose)assert.match(text,/Evidence:/);
+  else{
+   assert.match(text,/--verbose for details/);
+   assert.doesNotMatch(text,/Evidence:|Verified OMP package stored/);
+  }
+ };
+ await invoke(false);
+ await invoke(true);
+})));
+
+test('native outcome summary offers detailed uninstall advice for the step that changed files',()=>project(root=>project(async home=>{
+ const {io,output,reports}=cli(root,home),config=join(home,'.omp','agent','config.yml');
+ await fakeOmp(io,home,{afterLink:()=>put(config,'disabledProviders: [omp-plugins]\n')});
+ assert.equal(await runCli([...args(root,'omp'),'--verbose'],io),1,output.join(''));
+ assert.ok(finalPreparation(reports).progress.find(item=>item.step==='link')?.changes?.length);
+ assert.match(output.join(''),/omp plugin uninstall @loneexile\/omp-superpowers/);
+})));
+
+test('native outcome summary reads the safe stderr field and keeps child and blocker codes',async()=>{
+ const {nativeFailureText}=await import('../src/integrations/host-setup/index.js');
+ const reason='The omp link command failed.';
+ const blocker={host:'omp' as const,code:'install-command-failed',reason,evidence:[],suggest:[],agent_can_draft:true};
+ const item={host:'omp' as const,step:'link' as const,status:'stopped' as const,message:reason,code:19,blocker};
+ const permission=nativeFailureText(blocker,{...item,stderrSummary:'EPERM: permission denied while creating a symbolic link.'});
+ assert.match(permission,/EPERM.*symbolic link/);
+ assert.match(permission,/exit 19/);
+ assert.match(permission,/install-command-failed/);
+ const generic=nativeFailureText({...blocker,host:'claude'},{...item,host:'claude',stderrSummary:'Terminal reported an unknown error.\nSee the host logs.'});
+ assert.match(generic,/Terminal reported an unknown error\..*See the host logs\./);
+ assert.doesNotMatch(generic,/\n/);
+ assert.match(nativeFailureText(blocker,item),/The omp link command failed\./);
+});
 
 test('OMP approval keeps an integrity failure out of both the store and link',()=>project(root=>project(async home=>{
  const {io,stateRoot,reports}=cli(root,home),{commands,requests,archive,target}=await fakeOmp(io,home,{badArchive:true});
@@ -365,7 +515,8 @@ test('an OMP rescan blocker includes write paths, shadowing evidence and undo, t
  for(const path of [target,lock,dotenv+' (PI_CONFIG_DIR)',config+' (skills.customDirectories)',config+' (extensions)'])assert.ok(blocker.evidence.includes(path),path);
  assert.ok(blocker.suggest.includes('omp plugin uninstall '+ompId));
  assert.ok(result.progress.find(item=>item.step==='link')?.changes?.includes(target));
- assert.match(output.join(''),/blocker omp-not-recognized-after-install/);
+ assert.match(output.join(''),/omp-not-recognized-after-install/);
+ assert.doesNotMatch(output.join(''),/plugin uninstall|Evidence:/);
  assert.doesNotMatch(output.join('')+JSON.stringify(result),/private-path|SUPPRESSED_HOST_OUTPUT/);
  await put(config,initial);
  assert.equal(await runCli(args(root,'omp'),io),0);
@@ -420,27 +571,35 @@ test('a fresh Claude marketplace needs separate approval of the catalog SHA befo
  await put(join(free,'git.cmd'),'@echo off\r\nexit /b 0\r\n');
  const env=io.services!.nativeSetup!.env!;
  env.PATH=env.RIGUP_CONSUMER_PATH=free;
- let approvals=0;
+ let approvals=0,previousOutput=0;
  io.ask=async()=>{
   approvals++;
+  const lines=approvalLines(output,'claude',previousOutput);
+  previousOutput=output.length;
+  assert.equal(lines.length,3,lines.join('\n'));
   assert.deepEqual(steps,approvals===1?[]:['marketplace']);
-  if(approvals===1)assert.ok(!output.join('').includes(sha));
-  else{
-   assert.ok(output.join('').includes(sha));
-   assert.match(output.join(''),/catalog version unavailable/);
+  if(approvals===1){
+   assert.ok(!lines[1].includes(sha));
+   assert.match(lines[1],/marketplace.*ask for approval/i);
+  }else{
+   assert.ok(lines[1].includes(sha));
+   assert.match(lines[1],/catalog version unavailable/);
+   assert.ok(lines[2].includes(join(root,'.claude')));
   }
   return approvals===1?['Approve']:['Cancel'];
  };
  assert.equal(await runCli(args(root),io),130,output.join(''));
  assert.equal(approvals,2);
  assert.deepEqual(steps,['marketplace']);
+ assert.doesNotMatch(output.join(''),/Reopen Claude|Use --verbose|^Next:/m);
+ assert.ok(finalPreparation(reports).progress.find(item=>item.step==='marketplace')?.changes?.length);
  await missing(join(home,'.claude/plugins/installed_plugins.json'));
  await put(join(catalog(home),'.git/config'),'[remote "origin"]\n url = https://mirror.example/official.git\n');
  io.ask=async()=>{
   approvals++;
   return ['Approve'];
  };
- assert.equal(await runCli(args(root),io),0,output.join(''));
+ assert.equal(await runCli([...args(root),'--verbose'],io),0,output.join(''));
  assert.equal(approvals,3);
  assert.deepEqual(steps,['marketplace','install']);
  assert.match(output.join(''),/CLI version 99\.0\.0 differs from the verified 2\.1\.273/);
@@ -451,9 +610,14 @@ test('cached Claude version and SHA shown at approval cannot drift before dispat
  const {io,reports,output}=cli(root,home),steps:string[]=[],sha='c'.repeat(40);
  await fakeClaude(io,root,home,steps,{catalogVersion:'8.7.6',installedVersion:'8.7.6',sha});
  await io.services!.nativeSetup!.launch!({executable:'fixture',args:['marketplace'],env:{}},root);
+ await rm(join(root,'.claude','settings.json'));
  steps.length=0;
  io.ask=async()=>{
-  assert.match(output.join(''),new RegExp('Superpowers 8\\.7\\.6 at '+sha));
+  const lines=approvalLines(output,'claude');
+  assert.equal(lines.length,3,lines.join('\n'));
+  assert.match(lines[1],/marketplace.*add.*install/);
+  assert.ok(lines[1].includes(sha)&&lines[1].includes('8.7.6'));
+  assert.equal(lines[2].split(join(root,'.claude')).length-1,1);
   await put(catalogFile(home),catalogEntry('d'.repeat(40),'8.7.7'));
   return ['Approve'];
  };
@@ -496,6 +660,8 @@ test('recognized user-scope Claude and foreign OMP installs need neither a launc
  assert.equal(requests,0);
  assert.equal(launches,0);
  assert.deepEqual(questions,[]);
+ for(const host of ['claude','omp'])assert.equal(approvalLines(output,host).length,1);
+ assert.doesNotMatch(output.join(''),/Reopen|Superpowers is installed/);
 })));
 
 test('a previously recognized OMP source that disappears during approval reports drift',()=>project(root=>project(async home=>{
@@ -548,7 +714,7 @@ test('native Superpowers renders a Chinese approval while passing the stable App
  assert.deepEqual(questions.map(question=>question.message),['批准准备原生 Superpowers 吗？','批准安装这个 Claude Superpowers 目标吗？']);
  for(const question of questions)assert.deepEqual(question.choices,[{value:'Cancel',label:'取消'},{value:'Approve',label:'批准'}]);
  assert.match(output.join(''),/目录未提供版本/);
- assert.match(output.join(''),/已安装 Superpowers 7\.0\.2/);
+ assert.match(output.join(''),/^Claude：Superpowers 已安装，请重新打开 Claude。$/m);
  assert.match(output.join(''),/结果: 原生准备完成/);
  assert.deepEqual(steps,['marketplace','install']);
 })));
@@ -557,18 +723,26 @@ test('native blocker advice is localized and the machine report is independent o
  const {io,output,questions}=cli(root,home);
  const env=io.services!.nativeSetup!.env!;
  env.PATH=env.RIGUP_CONSUMER_PATH=join(home,'missing-bin');
- const invoke=async(language:string)=>{
+ const invoke=async(language:string,verbose=false)=>{
   output.length=0;
   let json='';
-  const exit=await runCli([...args(root,'omp'),'--language',language,'--json'],{...io,write:text=>json+=text});
+  const exit=await runCli([...args(root,'omp'),'--language',language,'--json',...(verbose?['--verbose']:[])],{...io,write:text=>json+=text});
   assert.equal(exit,3,json);
   return json;
  };
  const english=await invoke('en');
  assert.equal(await invoke('zh-CN'),english);
+ const terse=output.join('');
+ assert.equal(await invoke('zh-CN',true),english);
  assert.deepEqual(JSON.parse(english).nativePreparation.blockers.map((blocker:{code:string})=>blocker.code),['cli-not-runnable']);
- assert.match(output.join(''),/omp 阻塞项 cli-not-runnable/);
- assert.match(output.join(''),/这是 Rigup 生成的阻塞报告/);
- assert.match(output.join(''),/请核实证据文件并起草修复命令/);
+ assert.match(terse,/OMP.*cli-not-runnable/);
+ assert.equal((terse.match(/这是 Rigup 生成的阻塞报告/g)??[]).length,1);
+ assert.doesNotMatch(terse,/证据：/);
+ assert.match(output.join(''),/证据：/);
+ for(const outputIsTTY of [true,false]){
+  output.length=0;
+  assert.equal(await runCli([...args(root,'omp'),'--review','--verbose'],{...io,outputIsTTY}),0);
+  assert.equal((output.join('').match(/draft the fix commands/g)??[]).length,outputIsTTY?0:1);
+ }
  assert.equal(questions.length,0);
 })));

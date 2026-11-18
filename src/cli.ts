@@ -48,7 +48,7 @@ function validLanguage(value:unknown):string|undefined{
 }
 const activateLanguage=(language:string|undefined)=>setLocale(resolveLocale(language,process.env));
 
-async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:string,english?:string):void},display:ReturnType<typeof createCliOutput>):Promise<number>{
+async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:string,english?:string):void},display:ReturnType<typeof createCliOutput>,verbose:boolean):Promise<number>{
  const {state,presentation}=display;
  const fail=(code:number,key:MessageKey,params?:MessageParams)=>{
   io.write(t(key,params)+'\n',translate('en',key,params)+'\n');return code;
@@ -181,7 +181,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     undefined,{fallback:manifest?.options});
    start(selected.documentLanguage??initialLanguage);
    const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:services.report,
-    ask,inspect:!!(values['--review']||values['--dry-run']),canPrompt:nativeTTY&&selected.executionPolicy?.mode!=='review'});
+    ask,verbose,isTTY:nativeTTY,inspect:!!(values['--review']||values['--dry-run']),canPrompt:nativeTTY&&selected.executionPolicy?.mode!=='review'});
    return result==='back'?130:result;
   }catch(error){return failRaw(services.signal?.aborted?130:1,errorMessage(error));}
  }
@@ -410,7 +410,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
     const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:value=>{
      nativePreparation=value.nativePreparation as Record<string,unknown>;
      if(value.installStatus!=='complete'&&value.installStatus!=='up-to-date')services.report?.(value);
-    },ask,inspect:false,canPrompt:true,back});
+    },ask,verbose,isTTY:nativeTTY,inspect:false,canPrompt:true,back});
     if(result==='back'){nativePreparation=undefined;return 'back';}
     if(result===0)return 'ready';
     setupExit=result;return 'stop';
@@ -588,7 +588,7 @@ async function runLocalizedCli(argv:string[],io:CliIO):Promise<number>{
   ...io,...(json?{isTTY:false,ask:undefined,read:undefined}:{ask:io.ask??ui?.ask,read}),
   write:(text,english=text)=>{last=english;write(text);},
   services:{...io.services,report,presentation:display.presentation},
- },display);
+ },display,verbose);
  if(actual.phase==='apply'&&actual.status==='complete'&&display.state.root&&display.state.data?.plan.options.sdd==='openspec'){
   try{
    const {root,data}=display.state;
