@@ -17,7 +17,7 @@ export interface SetupOptions {
   researchBudget?:{maxCalls:number;maxTokens:number};
   readBudget?: {maxFiles:number;maxBytes:number};
   templates?: {source:string;target:string;values?:Record<string,string|number|boolean>}[];
-  mcp?: {id:string;agents:Agent[];url?:string;command?:CommandSpec;envRefs?:string[];bearerTokenEnv?:string}[];
+  mcp?: {id:string;agents?:Agent[];url?:string;command?:CommandSpec;envRefs?:string[];bearerTokenEnv?:string}[];
 }
 export type StepResult<T> =
   | { status: 'complete'; value: T }
@@ -41,7 +41,7 @@ export interface ConventionDraft {topicId:string;title:string;scope:string;quest
 export interface GitlabJobBinding {path:string;job?:string;command?:CommandSpec;coverageStatus:'reusable'|'unavailable';reason?:string}
 export interface HarnessSummary {
  guidance:import('./generator/project-rules.js').GuidanceBinding[];
- checks:import('./analyzer/check-prerequisites.js').SpecializedCheck[];
+ checks:import('./integrations/tools/check-catalog.js').ProjectCheck[];
  ci:GitlabJobBinding[];
 }
 
@@ -54,7 +54,7 @@ export interface SetupOperation {
 }
 export interface NativeInitializationReceipt {version:string;target:string;identity:string}
 
-export interface ManagedAsset {logicalId:string;target:string;ownership:import('./managed-input.js').Ownership;digest:string;baseline?:string;encoding?:'utf8'|'base64';mode?:number;source?:{kind:string;ref:string;digest?:string}}
+export interface ManagedAsset {logicalId:string;target:string;ownership:import('./managed-input.js').Ownership;digest:string;baseline?:string;encoding?:'utf8'|'base64';mode?:number;effectiveMode?:number;source?:{kind:string;ref:string;digest?:string}}
 export interface AssetDisposition {logicalId:string;action:'retain'|'update'|'retire'|'pending';reason:string}
 export type ProjectRulesStatus='pending'|'ready';
 export interface SetupRequirement {integrationId:string;reason:string;nextCommand?:string;agent?:Agent;kind?:'npm-resolution'|'sdd-binding'}
@@ -74,6 +74,10 @@ export function scopeContains(parent:string,child:string):boolean{
 
 export function scopesOverlap(left:readonly string[],right:readonly string[]):boolean{
  return left.some(a=>right.some(b=>scopeContains(a,b)||scopeContains(b,a)));
+}
+
+export function intersectScopes(left:readonly string[],right:readonly string[]):string[]{
+ return [...new Set(left.flatMap(a=>right.flatMap(b=>scopeContains(a,b)?[b]:scopeContains(b,a)?[a]:[])))];
 }
 
 export type CheckKind='build'|'lint'|'test'|'environment'|'eval';

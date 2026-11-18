@@ -261,10 +261,10 @@ test('compatible backend rejects unverifiable final evidence and suppresses raw 
  });
 });
 
-test('compatible backend rejects insecure base URLs and permits explicit loopback HTTP',async()=>{
+test('compatible backend rejects credentials and keeps an explicit HTTP gateway query',async()=>{
  const urls:string[]=[];
  const fetch:typeof globalThis.fetch=async url=>{urls.push(String(url));return response();};
- for(const baseURL of ['https://name:fixture-password@example.test/v1','https://example.test/v1?key=fixture-password','https://example.test/v1#fixture-password','http://localhost.example.test/v1']){
+ for(const baseURL of ['https://name:fixture-password@example.test/v1','https://example.test/v1?key=fixture-password','https://example.test/v1#fixture-password','ftp://example.test/v1']){
   await assert.rejects(openAICompatibleBackend({...credentials,baseURL,fetch}).run(request,reader),(error:unknown)=>{
    assert.ok(error instanceof Error);
    assert.match(error.message,/base URL/);
@@ -274,5 +274,6 @@ test('compatible backend rejects insecure base URLs and permits explicit loopbac
  }
  assert.equal(urls.length,0);
  assert.equal((await openAICompatibleBackend({...credentials,baseURL:'http://127.0.0.1:8080/custom-prefix',fetch}).run(request,reader)).status,'complete');
- assert.deepEqual(urls,['http://127.0.0.1:8080/custom-prefix/chat/completions']);
+ assert.equal((await openAICompatibleBackend({...credentials,baseURL:'http://gateway.internal:8080/custom-prefix?api-version=2026-01',fetch}).run(request,reader)).status,'complete');
+ assert.deepEqual(urls,['http://127.0.0.1:8080/custom-prefix/chat/completions','http://gateway.internal:8080/custom-prefix/chat/completions?api-version=2026-01']);
 });

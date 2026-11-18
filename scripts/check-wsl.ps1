@@ -52,7 +52,7 @@ node scripts/check-wsl.mjs "$stage/fixtures" "$evidence/result.json"
   [IO.File]::WriteAllText((Join-Path $stage 'setup.sh'), $setup.Replace("`r`n", "`n") + "`n", [Text.UTF8Encoding]::new($false))
   wsl -d $distribution -u root --exec bash "$stageLinux/setup.sh" $stageLinux $evidenceLinux $commit
   $result = Get-Content (Join-Path $EvidenceDirectory 'result.json') -Raw | ConvertFrom-Json
-  if ($result.error -or -not $result.cleanup -or $result.cases.Count -ne 7 -or ($result.cases | Where-Object status -ne 'passed')) { throw 'WSL2 verification is incomplete' }
+  if ($result.sourceCommit -ne $commit -or $result.error -or -not $result.cleanup -or $result.cases.Count -ne 7 -or ($result.cases | Where-Object status -ne 'passed')) { throw 'WSL2 verification is incomplete' }
 } finally {
   if ($imported) { wsl --unregister $distribution }
   Remove-Item -LiteralPath $stage -Recurse -Force

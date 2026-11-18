@@ -11,6 +11,7 @@ export function restrictBindings(options:SetupOptions,explicitTools=false):void{
   return agents.length?[{...tool,agents}]:[];
  });
  if(options.mcp)options.mcp=options.mcp.flatMap(mcp=>{
+  if(!mcp.agents)return [mcp];
   const agents=selected(mcp.agents);
   return agents.length?[{...mcp,agents}]:[];
  });

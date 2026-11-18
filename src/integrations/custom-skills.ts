@@ -26,10 +26,13 @@ export async function collectCustomSkill(source:string,targetRoot:string):Promis
    const path=resolve(dir,entry.name);
    if(entry.isDirectory()){await walk(path);continue;}
    if(!entry.isFile()) throw new Error('skill: unsupported resource type');
-   const info=await stat(await safePath(source,relative(source,path)));
+   const resource=await safePath(source,relative(source,path));
+   if(resource!==path)throw Error('skill: symlink resource denied');
+   const info=await stat(resource);
    if(assets.length>=500 || bytes+info.size>5_000_000) throw new Error('skill resource budget exceeded');
-   const content=await readFile(path);bytes+=content.length;
+   const content=await readFile(resource);bytes+=content.length;
    const text=content.toString('utf8');const encoding=Buffer.from(text).equals(content)&&!text.includes('\0') ? 'utf8' : 'base64';
+   if(/-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/.test(text))throw Error('skill: private key material denied');
    const target=posix.join(targetRoot,metadata.name,relative(source,path).split('\\').join('/'));
    assets.push({logicalId:'skill:'+target,target,content:encoding === 'utf8' ? text : content.toString('base64'),encoding,mode:info.mode&0o777,ownership:{kind:'file'},source:{kind:'customer-skill',ref:path,digest:digest(content)}});
   }

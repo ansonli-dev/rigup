@@ -76,8 +76,9 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
   }
  }
  for(const input of options.mcp ?? []) {
-  if(input.agents.some(a=>!options.agents.includes(a))) throw new Error('MCP target agent not selected');
-  const prepared=await prepareCustomerMcp(profile.root,input);push(prepared.assets);warnings.push(...prepared.warnings);requirements.push(...prepared.requirements);
+  const hosts=(input.agents??options.agents).filter(agent=>options.agents.includes(agent));
+  if(!hosts.length)continue;
+  const prepared=await prepareCustomerMcp(profile.root,{...input,agents:hosts});push(prepared.assets);warnings.push(...prepared.warnings);requirements.push(...prepared.requirements);
  }
  if(options.projectRules&&options.agents.length){
   const target='.rigup/rigup-mcp.mjs';

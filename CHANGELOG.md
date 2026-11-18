@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 · 2026-11-18 · Development preview
+
+- Apply approved setup from an active agent session and reload the host after writes. Recheck the approved targets, checks and package pins, and resume verified writes from durable v0.8.0 state. [Issue #78](https://github.com/ansonli-dev/rigup/issues/78)
+- Run native Windows commands and wrapper scripts from normal project and worktree paths. Use effective file modes on WSL filesystems and protect private runtime inputs before publishing them.
+- Honor effective npm registry scopes and verify approved package integrity across project and global installs. Reuse verified installations and incomplete stages during recovery.
+- Resume research using current citations and counterexample searches. Preserve working Host handoffs and record the actual local Codex version for each attempt. Accept company provider gateways, preserve handwritten configuration, and support compact MCP initialization and scoped JUnit patterns.
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.9.0) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.9.0)
+
 ## 0.8.0 · 2026-11-17 · Development preview
 
 - Prepare missing Superpowers for Claude Code and Oh My Pi after explicit terminal approval. Show the project and user destinations, verify the pinned sources and native receipts, and rescan before continuing guided setup. [Issue #75](https://github.com/ansonli-dev/rigup/issues/75)

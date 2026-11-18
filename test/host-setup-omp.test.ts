@@ -8,8 +8,8 @@ import {project} from './helpers.js';
 const id='@loneexile/omp-superpowers';
 const load=()=>import('../src/integrations/host-setup/omp.js').catch(()=>undefined);
 const runtime=(root:string,home:string,env:NodeJS.ProcessEnv={}):HostRuntime=>({
- root,home,env:{HOME:home,...env},stateRoot:join(home,'state'),approved:'runtime',
- program:{file:process.execPath,args:[],identity:'test',paths:[process.execPath]},
+ root,home,env:{HOME:home,...env},stateRoot:join(home,'state'),approved:'runtime',writerRoot:join(home,'state'),
+ program:{file:process.execPath,args:[]},
 });
 const put=async(path:string,value:unknown)=>{
  await mkdir(dirname(path),{recursive:true});
@@ -73,8 +73,14 @@ test('OMP rejects host dotenv files that could silently redirect plugin link',()
  const omp=await load();assert.ok(omp);
  for(const path of [join(home,'.env'),join(home,'.omp','.env'),join(home,'.omp','agent','.env')]){
   await put(path,'XDG_DATA_HOME='+root+'\nPI_CONFIG_FILES=another.yml\n');
-  await assert.rejects(omp.inspectOmp(runtime(root,home)),/can reload.*\.env/);
+  await assert.rejects(omp.inspectOmp(runtime(root,home)),error=>error instanceof Error&&error.message.includes(path));
   const {rm}=await import('node:fs/promises');
   await rm(path);
  }
+})));
+
+for(const key of ['PI_CONFIG_FILES','OMP_CONFIG_FILES'])test('OMP identifies the overlay that blocks link writes: '+key,()=>project(root=>project(async home=>{
+ const omp=await load();assert.ok(omp);
+ await assert.rejects(omp.inspectOmp(runtime(root,home,{[key]:join(home,'config.yaml')})),
+  error=>error instanceof Error&&error.message.includes(key));
 })));

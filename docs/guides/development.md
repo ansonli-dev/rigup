@@ -1,6 +1,6 @@
 # Development and testing
 
-Use a supported Node.js version, npm, and Git. On macOS and Linux, use a C compiler and POSIX tools including `ps`. Install Xcode Command Line Tools on macOS or `build-essential` and `procps` on a minimal Debian/Ubuntu system.
+Use a supported Node.js version, npm, and Git. The portable installer also uses standard POSIX tools, including `ps`.
 
 ```sh
 npm ci
@@ -16,7 +16,7 @@ Run the default checks in a fresh PowerShell 7 terminal with Git for Windows. Th
 
 Use Node.js 22.19 or later in the 22.x line, or 24.2 or later. Record `node --version` with the results. To select another Node version in PowerShell, prepend its directory to a `PATH` built from the Machine and User values so Windows tools and Git remain available. Check `Get-Command tar.exe` after the change.
 
-In a Claude Code or Codex terminal, provider and session variables can affect default tests, especially on older branches. Clear them in the test terminal. Keep live model probes in a separate configured terminal.
+The regular suite exercises local processes and fixture registries without model calls. Keep live model probes in a separate configured terminal. Record the active Node.js version and the architecture when testing in a Parallels Windows guest.
 
 ```powershell
 Get-ChildItem Env: |
@@ -96,7 +96,7 @@ npm run release:check -- "release-out/rigup-$version-darwin-arm64.tar.gz"
 
 `node scripts/release/check-native.mjs ARCHIVE` checks OpenWiki and CodeGraph using the public npm registry. It compares the preview's package identities with installed receipts, verifies the CodeGraph index and no-op update, and makes zero model calls. The local npm registry tests exercise retagging, same-version replacement, original approval recovery, and OpenSpec preparation in an isolated prefix.
 
-1. Update the version and lockfile with `npm version patch --no-git-tag-version` for a patch release. Update the changelog, run the default checks and secret scan, and inspect `npm pack --dry-run --json`.
+1. Update the version and lockfile with `npm version minor --no-git-tag-version` for a minor release or select the appropriate version increment. Update the changelog, run the default checks and secret scan, and inspect `npm pack --dry-run --json`.
 2. Verify CI on the release commit. A manual **Release** dispatch builds and smoke-tests all four targets without publishing.
 3. Set up npm Trusted Publishing before the first automated release. From the verified release commit on `main`, push a new tag matching `package.json`. [First-release setup](#npm-trusted-publishing)
 

@@ -33,6 +33,34 @@ test('cached_semantics_do_not_repeat_backend_calls_and_inventory_aligns',()=>fix
  await generate(profile,opts,backend,inventory,{cacheRoot:cache});assert.equal(requests.length,3);
  await writeFile(root+'/src.txt','changed');await generate(await scanRepository(root,opts),opts,backend,[],{cacheRoot:cache});assert.equal(requests.length,6);
 }));
+test('a refreshed plan invalidates content that consumed its changed research',()=>fixture(async(root,cache)=>{
+ const source=root+'/src.txt';
+ const upstream=fake(),calls:string[]=[];
+ let current='Original requirement';
+ const backend:AnalysisBackend={run:async(request,reader)=>{
+  calls.push(request.expectedOutput!);
+  const response=await upstream.backend.run(request,reader);
+  if(response.status!=='complete')return response;
+  const data=response.value.data as Record<string,unknown>;
+  if(request.expectedOutput==='plan')data.projectSummary=current;
+  if(request.expectedOutput==='content')data.content='# Guide\n\n'+(request.input as {research:{projectSummary:string}}).research.projectSummary+'\n';
+  return response;
+ }};
+ const settings={cacheRoot:cache,runId:'same-run'};
+ const make=async()=>{
+  const profile=await scanRepository(root,opts),reader=await repositoryReader(root,opts);
+  profile.research={model:'fixture',usage:{calls:1,tokens:10},unknowns:[],data:{observations:[],citations:[(await reader.read('src.txt',1,1)).evidence]}};
+  return generate(profile,opts,backend,[],settings);
+ };
+ await writeFile(source,current+'\n');
+ const before=await make();assert.equal(before.status,'complete');
+ current='Revised requirement';
+ await writeFile(source,current+'\n');
+ const result=await make();
+ if(result.status!=='complete')assert.fail('Expected a completed plan');
+ assert.match(result.value.assets.find(asset=>asset.logicalId===job.logicalId)!.content,/Revised requirement/);
+ assert.deepEqual(calls,['plan','content','acceptance','plan','content','acceptance']);
+}));
 test('artifact context upgrades regenerate content and acceptance without resetting plan run or charges',()=>fixture(async(root,cache)=>{
  const settings={...opts,backend:'codex' as const},f=fake(),profile=await scanRepository(root,settings),firstBackend={...f.backend,artifactContextVersion:'first'};
  const first=await generate(profile,settings,firstBackend,[],{cacheRoot:cache,runId:'same-paid-run',spent:{calls:1,tokens:100}});assert.equal(first.status,'complete');if(first.status!=='complete')throw Error('pending');
@@ -408,35 +436,23 @@ test('workflow contexts show the invocable specialized check with its working di
  }
  validateNavigation(assets,profile.files);
 }));
-test('specialized checks describe package-manager, process and database prerequisites from project sources',()=>fixture(async(root)=>{
- await mkdir(root+'/apps/web',{recursive:true});await mkdir(root+'/tests/setup',{recursive:true});
+test('workflow references and GitLab reuse the selected checks without generated service setup',()=>fixture(async(root)=>{
+ await mkdir(root+'/apps/web',{recursive:true});
  await writeFile(root+'/apps/web/package.json',JSON.stringify({scripts:{'test-e2e':'pm2 start "yarn run-mock-server" --name server && yarn playwright test'}}));
  const manifest={scripts:{test:'jest --config .jestrc.json','test:e2e':'jest -i --config jest-e2e.json','migration:up:tests':'NODE_ENV=test ts-node migrate up'},dependencies:{slonik:'^31'}};
  await writeFile(root+'/package.json',JSON.stringify(manifest));
- for(const file of ['.jestrc.json','jest-e2e.json'])await writeFile(root+'/'+file,JSON.stringify({globalSetup:'<rootDir>/tests/setup/jestGlobalSetup.ts'}));
- await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"if (!databaseConfig.database.includes('test')) throw Error('Wrong database');\n");
  const profile=await scanRepository(root,opts);
  const assets=await renderFixed(profile,opts,await prepareIntegrations(profile,opts),[],[]);
  const reference=assets.find(a=>a.target.endsWith('change-deliver/references/project.md'))!.content;
- assert.match(reference,/Yarn.*PATH/);assert.match(reference,/PM2_HOME/);assert.match(reference,/Playwright browsers/);
- assert.match(reference,/npm exec --yes=false -- playwright install/);
- assert.match(reference,/dedicated PostgreSQL test database/);assert.match(reference,/database name.*`test`/);
- assert.match(reference,/Run `npm run migration:up:tests`.*then run.*listed test/);assert.match(reference,/jest-e2e\.json/);
- assert.match(reference,/`npm run test -- --runInBand`/);
+ assert.match(reference,/npm run test-e2e/);
+ assert.match(reference,/npm run test:e2e/);
+ assert.match(reference,/`npm run test`/);
  assert.match(reference,/project.s own test reporter.*Read that result/);
- assert.doesNotMatch(reference,/check-worktree|rigup:receipt/);
+ assert.doesNotMatch(reference,/PM2_HOME|--runInBand|PostgreSQL test database|Playwright browsers|npm run migration|check-worktree|rigup:receipt/);
  assert.deepEqual(profile.commands.test[0].args,['run','test']);
  validateNavigation(assets,profile.files);
- await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"/*\nif (!database.includes('test')) throw Error('comment');\n*/\nif (database.includes('test')) throw Error('Wrong database');\n");
- const unverified=await scanRepository(root,opts);
- assert.deepEqual(unverified.specializedChecks.find(check=>check.command.args.includes('test:e2e'))?.postgres,{config:'jest-e2e.json'});
- assert.deepEqual(unverified.specializedChecks.find(check=>check.command.args.includes('test'))?.command.args,['run','test']);
- const ci=await prepareIntegrations(unverified,{...opts,quality:{gitlab:{checks:['test']}}});
- assert.ok(ci.requirements.some(requirement=>/project-owned CI job/.test(requirement.reason)));
- await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"if (!database.includes('test')) throw Error('Wrong database');\n");
- manifest.scripts.test+=' && node summary.js';
- await writeFile(root+'/package.json',JSON.stringify(manifest));
- assert.ok(!(await scanRepository(root,opts)).specializedChecks.some(check=>check.command.args.includes('test')));
+ const ci=await prepareIntegrations(profile,{...opts,quality:{gitlab:{checks:['test']}}});
+ assert.ok(!ci.requirements.some(requirement=>/project-owned CI job/.test(requirement.reason)));
 }));
 test('multi_agent_sdd_context_uses_each_hosts_native_command_names',()=>fixture(async(root)=>{
  const selected={agents:['claude','codex','opencode'] as ('claude'|'codex'|'opencode')[],backend:'host' as const,sdd:'spec-kit' as const};
@@ -475,10 +491,10 @@ test('customer_release_position_requires_a_verified_release_adapter',()=>fixture
  const assets=await renderFixed(profile,selected,integration,[],[]);assert.ok(!assets.some(a=>a.target.includes('/change-')));
 }));
 test('replanning_can_inspect_filtered_previous_baseline_without_treating_it_as_source_authority',()=>fixture(async(root,cache)=>{
- const previous='# Prior generated guidance\nAll order operations throw DomainError.\napiKey: customer-secret\n';await mkdir(root+'/.rigup/baseline',{recursive:true});await writeFile(root+'/.rigup/baseline/old.md',previous);
+ const previous='# Prior generated guidance\nAll order operations throw DomainError.\napiKey: customer-secret\nclient_secret: |2-\n  multiline-sentinel-first\n  multiline-sentinel-second\n';await mkdir(root+'/.rigup/baseline',{recursive:true});await writeFile(root+'/.rigup/baseline/old.md',previous);
  const old={logicalId:job.logicalId,target:job.target,ownership:{kind:'file' as const},digest:digest(previous),baseline:'.rigup/baseline/old.md',source:{kind:'semantic',ref:'previous'}};
  await writeFile(root+'/.rigup/manifest.json',JSON.stringify({schemaVersion:1,installId:'old',assets:[old]}));
- const f=fake();const backend:AnalysisBackend={run:async(r,reader)=>{if(r.expectedOutput==='plan'){const prior=(r.input as any).previousInventory[0];assert.match(prior.baselineContent,/All order operations throw DomainError/);assert.doesNotMatch(prior.baselineContent,/customer-secret/);assert.equal(prior.authority,'previous-generated-output-only');const result=await f.backend.run(r,reader);if(result.status==='complete')(result.value.data as any).dispositions=[{logicalId:job.logicalId,action:'update',reason:'New evidence invalidates universal rule'}];return result;}return f.backend.run(r,reader);}};
+ const f=fake();const backend:AnalysisBackend={run:async(r,reader)=>{if(r.expectedOutput==='plan'){const prior=(r.input as any).previousInventory[0];assert.match(prior.baselineContent,/All order operations throw DomainError/);assert.doesNotMatch(JSON.stringify(r.input),/customer-secret|multiline-sentinel/);assert.equal(prior.authority,'previous-generated-output-only');const result=await f.backend.run(r,reader);if(result.status==='complete')(result.value.data as any).dispositions=[{logicalId:job.logicalId,action:'update',reason:'New evidence invalidates universal rule'}];return result;}return f.backend.run(r,reader);}};
  assert.equal((await generate(await scanRepository(root,opts),opts,backend,[old],{cacheRoot:cache})).status,'complete');
 }));
 test('candidate_is_saved_before_job_status_becomes_done',()=>fixture(async(root,cache)=>{

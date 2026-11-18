@@ -18,7 +18,7 @@ import {testEnvironment} from './helpers.js';
 import {applyRecordPath,loadManifest} from '../src/installer/baseline.js';
 
 test('real npm keeps the original approval across retag, a same-version replacement and recovery',t=>project(root=>project(cache=>project(state=>npmRegistry(async registry=>{
- testEnvironment(t,{RIGUP_CONSUMER_PATH:''});
+ testEnvironment(t,{RIGUP_CONSUMER_PATH:'',npm_config_cache:join(state,'npm-cache')});
  const wiki=await registry.publish('openwiki','2.0.0',{bin:{openwiki:'dist/cli/cli.js'}},{'dist/cli/cli.js':'#!/usr/bin/env node\n'});
  const codegraph='@colbymchenry/codegraph',packageManifest={bin:{codegraph:'npm-shim.js'},engines:{node:'>=22.19.0'}};
  const files={'npm-shim.js':'#!/usr/bin/env node\n','index.js':`
@@ -89,6 +89,65 @@ test('real npm keeps the original approval across retag, a same-version replacem
  }finally{if(prior===undefined)delete process.env.RIGUP_NPM_REGISTRY;else process.env.RIGUP_NPM_REGISTRY=prior;}
 })))));
 
+test('one approved CLI plan uses effective scoped npmrc, freezes its routes, and keeps auth private',t=>project(root=>project(cache=>project(state=>npmRegistry(wiki=>npmRegistry(async graph=>{
+ const name='@colbymchenry/codegraph',token='synthetic-npmrc-registry-token';
+ const openwiki=await wiki.publish('openwiki','2.0.0',{bin:{openwiki:'dist/cli/cli.js'}},{'dist/cli/cli.js':'#!/usr/bin/env node\n'});
+ await wiki.publish('rigup-scoped-fixture-dependency','1.0.0');
+ const codegraph=await graph.publish(name,'2.1.0',{bin:{codegraph:'npm-shim.js'},dependencies:{'rigup-scoped-fixture-dependency':'1.0.0'}},{'npm-shim.js':'#!/usr/bin/env node\n'});
+ await graph.publish('openwiki','2.2.0',{bin:{openwiki:'dist/cli/cli.js'}},{'dist/cli/cli.js':'#!/usr/bin/env node\n'});
+ const config=join(state,'user.npmrc');
+ const npmrc='registry='+wiki.url+'\n@colbymchenry:registry='+graph.url+'\n//'+new URL(graph.url).host+'/:_authToken=\${RIGUP_NPM_FIXTURE_TOKEN}\n';
+ await writeFile(config,npmrc);
+ testEnvironment(t,{
+  NPM_CONFIG_USERCONFIG:config,npm_config_userconfig:config,NPM_CONFIG_CACHE:join(state,'npm-cache'),npm_config_cache:join(state,'npm-cache'),
+  RIGUP_CONSUMER_PATH:'',RIGUP_NPM_REGISTRY:'',RIGUP_NPM_FIXTURE_TOKEN:token,
+ });
+ await mkdir(join(root,'.rigup'));
+ await writeFile(join(root,'.rigup/config.yaml'),JSON.stringify({
+  agents:['codex'],backend:'host',projectRules:false,
+  tools:['openwiki','codegraph'].map(id=>({id,agents:['codex'],install:true,initialize:false})),
+ }));
+ const {resolveProjectNpm,boundedCommandOutput}=await import('../src/integrations/tools/npm-resolution.js');
+ const run=async(args:string[],expected:number)=>{
+  let output='',diagnostic='';
+  const code=await runCli([...args,'--json'],{cwd:root,isTTY:false,write:text=>output+=text,writeError:text=>diagnostic+=text,
+   services:{cacheRoot:cache,stateRoot:state,npmView:async (argv,cwd,signal)=>{
+    const route=argv.find(arg=>arg.startsWith('--@colbymchenry:registry='))?.split('=')[1]??argv[argv.indexOf('--registry')+1];
+    if(![wiki.url,graph.url].includes(route))throw Error('fixture accepts local registries only');
+    return boundedCommandOutput(await resolveProjectNpm(root,argv),cwd,signal);
+   }}});
+  assert.equal(code,expected,output+diagnostic);
+  assert.ok(!(output+diagnostic).includes(token));
+  return JSON.parse(output);
+ };
+ const approved=await run(['init','--review'],3);
+ assert.equal(approved.executable,true,JSON.stringify(approved));
+ assert.deepEqual(approved.operations.map((op:{registry:string;version:string})=>[op.registry,op.version]),[[wiki.url,'2.0.0'],[graph.url,'2.1.0']]);
+ process.env.RIGUP_NPM_REGISTRY=graph.url;
+ const override=await run(['init','--review'],3);
+ assert.deepEqual(override.operations.map((op:{registry:string})=>op.registry),[graph.url,graph.url]);
+ process.env.RIGUP_NPM_REGISTRY='';
+ await writeFile(config,npmrc.replace('@colbymchenry:registry='+graph.url,'@colbymchenry:registry='+wiki.url));
+ const changed=await run(['update','--apply',approved.previewId],1);
+ assert.match(changed.error,/registry.*changed/i);
+ await writeFile(config,npmrc);
+ const installed=await run(['update','--apply',approved.previewId],0);
+ assert.equal(installed.installStatus,'complete');
+ const manifest=await loadManifest(root);
+ assert.equal(manifest?.installedTools?.openwiki.packageIntegrity,openwiki.integrity);
+ assert.equal(manifest?.installedTools?.codegraph.packageIntegrity,codegraph.integrity);
+ assert.ok(graph.requests.some(request=>request.authorization==='Bearer '+token));
+ assert.ok(wiki.requests.every(request=>!request.authorization));
+ assert.ok(wiki.requests.some(request=>request.path.includes('/rigup-scoped-fixture-dependency/-/')));
+ assert.ok(graph.requests.every(request=>!request.path.includes('rigup-scoped-fixture-dependency')));
+ assert.ok(!JSON.stringify(manifest).includes(token));
+ const lock=JSON.parse(await readFile(join(root,'.rigup/tools/codegraph/package-lock.json'),'utf8'));
+ assert.equal(lock.packages[''].dependencies[name],'2.1.0');
+ const requests=[wiki.requests.length,graph.requests.length];
+ await run(['update','--apply',approved.previewId],0);
+ assert.deepEqual([wiki.requests.length,graph.requests.length],requests);
+}))))));
+
 test('npm SRI normalization validates whole fields, accepts options and rejects malformed digests',async()=>{
  const {normalizeNpmIntegrity}=await import('../src/npm-integrity.mjs');
  const sri=(algorithm:string)=>algorithm+'-'+createHash(algorithm).update('fixture').digest('base64');
@@ -121,6 +180,20 @@ test('a real npm view selects only the latest tag through a scoped internal regi
  }finally{if(previous===undefined)delete process.env.npm_config__authToken;else process.env.npm_config__authToken=previous;}
  assert.deepEqual(await readdir(state),[]);
 }))));
+
+test('npm inspection keeps configured project and prefix cache paths read-only',t=>project(root=>project(prefix=>project(stateRoot=>npmRegistry(async registry=>{
+ const {resolveNpmLatest}=await import('../src/integrations/tools/npm-resolution.js');
+ const p=await registry.publish('openwiki','2.0.0');
+ await writeFile(join(root,'package.json'),'{}');
+ const cache=join(prefix,'npm-cache'),logs=join(root,'npm-logs');
+ await writeFile(join(root,'.npmrc'),'registry='+registry.url+'\ncache='+cache.replaceAll('\\','/')+'\nlogs-dir='+logs.replaceAll('\\','/')+'\n');
+ testEnvironment(t,{npm_config_cache:cache,npm_config_prefix:prefix});
+ assert.equal((await resolveNpmLatest('openwiki',{root,stateRoot,nodeVersion:process.versions.node})).packageIntegrity,p.integrity);
+ await assert.rejects(access(cache),{code:'ENOENT'});
+ await assert.rejects(access(logs),{code:'ENOENT'});
+ assert.deepEqual((await readdir(root)).sort(),['.npmrc','package.json']);
+ assert.deepEqual(await readdir(prefix),[]);
+})))));
 
 test('npm metadata requires a latest tag and accepts an undeclared Node range',()=>project(root=>project(async state=>{
  const {resolveNpmLatest}=await import('../src/integrations/tools/npm-resolution.js');
@@ -164,7 +237,9 @@ test('approved registry survives verified native install staging and reaches dis
    assert.equal(staged.registry,registry);
    const approved=await saveNativeOperations(root,join(state,'previews'),[operation]);
    const result=await operationExecutor(approved,{stateRoot:state,launch:async actual=>{
-    assert.equal(actual.parameters.args[actual.parameters.args.indexOf('--registry')+1],registry);
+    const args=actual.parameters.args;
+    const route=args.find(arg=>arg.startsWith('--@colbymchenry:registry='))?.split('=')[1]??args[args.indexOf('--registry')+1];
+    assert.equal(route,registry);
     return {status:'failed',message:'synthetic network unavailable'};
    }})(operation.id);
    assert.equal(result.status,'failed');

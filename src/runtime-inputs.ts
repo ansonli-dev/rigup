@@ -1,9 +1,10 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import type {SetupOptions} from './types.js';
-import {validateProviderBaseURL} from './analyzer/provider-url.js';
+import {effectiveNpmRegistry,normalizeNpmRegistry} from './integrations/tools/npm-resolution.js';
+import {validateTrackerURL} from './analyzer/provider-url.js';
 import {researchProviderMetadata} from './research/provider-settings.js';
-import {essentialEnvironment,readRuntimeFile,renderRuntimeFile,runtimeEnvPath,writeRuntimeFile,type RuntimeFile} from './runtime-private-env.js';
+import {essentialEnvironment,PrivateInputWriteError,readRuntimeFile,renderRuntimeFile,runtimeEnvPath,writeRuntimeFile,type RuntimeFile} from './runtime-private-env.js';
 
 type Consumer='provider'|'npm'|`customer:${string}`;
 type Source='project-file'|'calling-environment'|'configuration'|'repository-remote';
@@ -34,7 +35,7 @@ async function remoteTarget(root:string,options:SetupOptions):Promise<{value?:st
  const tracker=options.projectConventions?.tracker;
  if(!tracker||!['gitlab','github'].includes(tracker.system))return {};
  if(tracker.reference){
-  try{return {value:validateProviderBaseURL(tracker.reference).href.replace(/\/$/,''),source:'configuration'};}catch{return {};}
+  try{return {value:validateTrackerURL(tracker.reference).href.replace(/\/$/,''),source:'configuration'};}catch{return {};}
  }
  const result=await exec('git',['-C',root,'remote','-v'],{timeout:5000,maxBuffer:32_768,env:essentialEnvironment()}).catch(()=>undefined);
  const targets=new Set<string>();
@@ -43,7 +44,7 @@ async function remoteTarget(root:string,options:SetupOptions):Promise<{value?:st
   const ssh=/^(?:[^@\s]+@)?([A-Za-z0-9.-]+):([^/\s][^\s]*)$/.exec(raw);
   let value=ssh?'https://'+ssh[1]+'/'+ssh[2]:raw;
   try{
-   const url=validateProviderBaseURL(value);
+   const url=validateTrackerURL(value);
    if(tracker.system==='github'&&url.hostname!=='github.com')continue;
    if(tracker.system==='gitlab'&&['github.com','bitbucket.org'].includes(url.hostname))continue;
    if(!/^\/(?:[^/]+\/)+[^/]+\/?$/.test(url.pathname))continue;
@@ -61,8 +62,11 @@ async function declarations(root:string,options:SetupOptions,file:RuntimeFile,mo
  for(const [name,command] of Object.entries(options.customer?.commands??{}))for(const reference of command.envRefs)
   add(reference,'customer:'+name,true,'Selected customer '+name+' command',`customer:${name}`);
  for(const reference of options.customer?.envRefs??[])add(reference,'customer',true,'Selected customer workflow',undefined,'agent host ('+options.agents.join(', ')+')');
- for(const mcp of options.mcp??[])for(const reference of [...(mcp.envRefs??[]),...(mcp.command?.envRefs??[]),...(mcp.bearerTokenEnv?[mcp.bearerTokenEnv]:[])])
-  add(reference,'mcp:'+mcp.id,true,'Selected MCP server',undefined,'agent host ('+mcp.agents.join(', ')+')');
+ for(const mcp of options.mcp??[]){
+  const hosts=(mcp.agents??options.agents).filter(agent=>options.agents.includes(agent));
+  if(hosts.length)for(const reference of [...(mcp.envRefs??[]),...(mcp.command?.envRefs??[]),...(mcp.bearerTokenEnv?[mcp.bearerTokenEnv]:[])])
+   add(reference,'mcp:'+mcp.id,true,'Selected MCP server',undefined,'agent host ('+hosts.join(', ')+')');
+ }
  for(const reference of options.quality?.gitlab?.openwiki?.envRefs??[])
   add(reference,'gitlab:openwiki',true,'Selected OpenWiki CI job',undefined,'GitLab CI variables');
  const remoteCommands=['issue','mr','ci'].filter(name=>options.customer?.commands?.[name]);
@@ -125,7 +129,7 @@ export async function applyRuntimeInputs(root:string,options:SetupOptions,eviden
  const {file,values,text,summary}=await state(root,options,evidence);
  if(!summary.template.needsUpdate)return summary;
  try{await writeRuntimeFile(root,file,text);}
- catch{summary.template.state='pending';summary.template.reason='Keep .rigup/.env unchanged; verify private access and effective ignore for .env and .env.rigup-*.tmp, then retry.';return summary;}
+ catch(error){summary.template.state='pending';summary.template.reason=error instanceof PrivateInputWriteError?error.message:'Keep .rigup/.env unchanged; verify the target and effective ignore for .env and .env.rigup-*.tmp, then retry.';return summary;}
  summary.template.state='written';summary.template.needsUpdate=false;
  summary.template.imported=values.flatMap(input=>input.value&&input.source&&input.source!=='project-file'?[{name:input.name,source:input.source}]:[]);
  return summary;
@@ -148,9 +152,12 @@ export async function selectedNpmRegistry(root:string):Promise<string|undefined>
  const value=effective(file,'RIGUP_NPM_REGISTRY').value;
  if(!value)return;
  try{
-  const url=validateProviderBaseURL(value);
-  return url.href.replace(/\/?$/,'/');
+  return normalizeNpmRegistry(value);
  }catch{throw Error('RIGUP_NPM_REGISTRY must use HTTPS or loopback HTTP and omit credentials, query, and fragment');}
+}
+
+export async function operationNpmRegistry(root:string,name:string,signal?:AbortSignal):Promise<string>{
+ return effectiveNpmRegistry(root,name,await selectedNpmRegistry(root),signal);
 }
 
 export function writeRuntimeSummary(summary:RuntimeSetupSummary,write:(text:string)=>void):void{

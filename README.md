@@ -46,7 +46,7 @@ The macOS and Linux installer downloads a bundle with Node.js and links `rigup` 
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
 ```
 
-For native Windows, use the npm installation with a supported Windows Node.js version, PowerShell 7, and Git for Windows. Use directory names made of ASCII letters, digits, hyphens, and underscores for the Rigup npm prefix, project, and temporary paths. [Installation and Windows path requirements](docs/guides/releases.md#npm)
+For native Windows, use the npm installation with a supported Windows Node.js version, PowerShell 7, and Git for Windows. Project paths can include spaces and Unicode. [Installation and Windows verification](docs/guides/releases.md#npm)
 
 The portable installer uses Git and POSIX tools including `ps`. Linux needs glibc 2.35 or newer, including when using WSL2. [Install, upgrade, and pin a version](docs/guides/releases.md)
 
@@ -71,7 +71,7 @@ rigup init --agents codex --sdd none --tools none --defer-research --dry-run --j
 
 ### 3. Review and use the installed workflow
 
-From an independent terminal, you can approve the OpenSpec foundation preview in the same session. In review mode, inspect the preview and end any affected agent sessions. Run the reported `nextCommand` from a separate terminal, then reopen the agent. Use `change-prepare` to propose a change and `change-deliver` to implement and verify it after approval. [Apply and recovery](docs/guides/usage.md#应用与恢复)
+Review the OpenSpec foundation preview and apply it from your current terminal. Reload affected agents so they use the updated configuration. Use `change-prepare` to propose a change and `change-deliver` to implement and verify it after approval. [Apply and recovery](docs/guides/usage.md#应用与恢复)
 
 ## Project development rules
 

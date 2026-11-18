@@ -69,9 +69,8 @@ test('points to terminal preparation only for an absent workflow',()=>project(ro
  const absent=await prepareIntegrations(await scanNativeEntries(root,opts,{home}),opts,input);
  assert.match(absent.requirements[0].nextCommand??'',/--prepare-native$/);
  await put(root,'.claude/settings.json',{hooks:{}});
- const unsafe=await prepareIntegrations(await scanNativeEntries(root,opts,{home}),opts,input);
- assert.match(unsafe.requirements[0].reason,/unsupported Claude project key.*hooks/i);
- assert.doesNotMatch(unsafe.requirements[0].nextCommand??'',/--prepare-native/);
+ const ordinary=await prepareIntegrations(await scanNativeEntries(root,opts,{home}),opts,input);
+ assert.match(ordinary.requirements[0].nextCommand??'',/--prepare-native$/);
  await claudeReceipt(home,root);
  await put(root,'.claude/settings.json',{enabledPlugins:{[id]:false}});
  const disabled=await prepareIntegrations(await scanNativeEntries(root,opts,{home}),opts);

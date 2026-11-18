@@ -140,7 +140,7 @@ JS
 
 执行实际 `nextCommand`。使用源码 CLI 时，将开头的 `rigup` 替换为 `node "$RIGUP_CLI"`，沿用报告中的续跑参数。遇到无效响应保留原数据与费用，按本轮协议处理。Host 用量在 Rigup 报告中为 unknown，使用单独账本对账。
 
-拿到 `previewId` 后审阅变更，结束受影响的 Claude 会话，再独立 apply。重载后验证实际 `change-prepare` 和 `change-deliver` 读取项目 references 与 OpenSpec 入口。分别记录缺少原生 gate 时停止、补齐后推进、审查时使用原项目依据。检查无变化更新、用户修改和原始文件基线，最后执行 `node "$RIGUP_CLI" doctor "$PROJECT" --json`。生成内容另做人工审核。绑定过期时保留原请求和账本，重新预览。
+拿到 `previewId` 后审阅并应用变更，随后重载受影响的 Claude 会话。验证 `change-prepare` 和 `change-deliver` 实际读取的项目 references 与 OpenSpec 入口。分别记录缺少原生 gate 时停止、补齐后推进、审查时使用原项目依据。检查无变化更新、用户修改和原始文件基线，最后执行 `node "$RIGUP_CLI" doctor "$PROJECT" --json`。生成内容另做人工审核。绑定过期时保留原请求和账本，重新预览。
 
 ## C4 · Claude 与 OpenWiki、CodeGraph
 
@@ -174,11 +174,11 @@ uname -a
 
 先用 Linux 便携包验证 `rigup --version` 和项目根目录 `rigup init` 的 dry-run。[便携包安装](releases.md)
 
-做源码或 Claude 验证时，在 Linux home 下安装符合 `^22.19.0 || >=24.2.0` 的 Linux Node 和 Claude，使用 WSL 内独立登录，执行 C1、C2 及选定场景。核对 `process.platform=linux`、二进制位置、重载与进程恢复。空格/中文路径和 `/mnt/c` 分开测试。drvfs 未启用 metadata 时，先确认安装预检在写入前拒绝不支持的权限；保留已有中断状态，修正挂载和权限后再于原路径恢复。失败先核实 PATH、挂载类型、证书和 `ps`，保留原场景后再开 Linux home fixture。[Node.js 下载](https://nodejs.org/en/download)
+做源码或 Claude 验证时，在 Linux home 下安装符合 `^22.19.0 || >=24.2.0` 的 Linux Node 和 Claude，使用 WSL 内独立登录，执行 C1、C2 及选定场景。核对 `process.platform=linux`、二进制位置、重载与进程恢复。分别在 ext4、启用 metadata 的 drvfs 和未启用 metadata 的 drvfs 上验证普通写入和恢复。未启用 metadata 的 drvfs 应保留实际普通权限，私有凭据写入应在写入凭据值前停止。[WSL2 检查](../compatibility/status.md) · [Node.js 下载](https://nodejs.org/en/download)
 
 ## W2 · 原生 Windows
 
-用 PowerShell 7、符合 `^22.19.0 || >=24.2.0` 的 Windows Node.js 和 Git for Windows，在 NTFS 私有目录做源码探针。记录 Windows build 与架构。POSIX `ps`、进程组、mode/ACL 和 shell hooks 是当前平台移植验证点。原生 GitLab runner 探针使用 Git for Windows 的 Bash，优先于 WSL bash，并设置 HOME/USERPROFILE 和相对 builds/cache 目录；失败 trace 在删除临时项目前脱敏保存。CLI help 与 installer 验收分开记录。[PowerShell 安装](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)
+用 PowerShell 7、符合 `^22.19.0 || >=24.2.0` 的 Windows Node.js 和 Git for Windows，在 NTFS 目录做源码探针。记录 Windows build 与架构。用真实 Git worktree、保留的 `mvnw.cmd`、含空格的路径和命令参数验证启动、取消及恢复。原生 GitLab runner 探针使用 Git for Windows 的 Bash，优先于 WSL bash，并设置 HOME/USERPROFILE 和相对 builds/cache 目录。失败 trace 在删除临时项目前脱敏保存。[PowerShell 安装](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)
 
 用单独的 PowerShell 终端跑下面的默认测试，先清除 `ANTHROPIC*`、`CLAUDE*`、`CODEX*` 和 `OPENAI*` 环境变量。需要登录的 live 探针在另一个已配置的终端运行。 [Windows 测试准备](development.md#windows-and-agent-sessions)
 

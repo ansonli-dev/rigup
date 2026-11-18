@@ -49,7 +49,7 @@ test('review handoff shell command round-trips hostile directory names without e
   const output=process.platform==='win32'
     ? await runWindowsPowerShell('function rigup { [Console]::Write(($args -join [char]0) + [char]0) }; '+report.nextCommand)
     : await exec('sh',['-c','rigup() { printf "%s\\0" "$@"; }\n'+report.nextCommand],{cwd:control});
-  assert.deepEqual(output.stdout.split('\0').slice(0,-1),['update',root,'--apply',report.previewId,'--sessions-ended']);
+  assert.deepEqual(output.stdout.split('\0').slice(0,-1),['update',root,'--apply',report.previewId]);
   assert.ok(!(await readdir(control)).some(name=>name==='dollar-marker'||name==='tick-marker'));
 }));
 

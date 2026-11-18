@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, readdir, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, readdir, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {runCli} from '../src/cli.js';
@@ -257,8 +257,8 @@ test('host_pending_returns_3_and_preserves_project_bytes',()=>project(async root
 test('review_mode_waits_only_when_selected',()=>project(async root=>project(async cache=>project(async state=>{
  let out='';assert.equal(await runCli(['init','--agents','codex','--review'],{cwd:root,isTTY:false,write:s=>out+=s,services:{cacheRoot:cache,stateRoot:state}}),3);assert.match(out,/--apply/);assert.deepEqual(await readdir(root),[]);
 }))));
-test('continuation_rejects_changed_inputs_without_project_writes',()=>project(async root=>project(async cache=>project(async state=>{
- const {writeFile}=await import('node:fs/promises');let out='';const io={cwd:root,isTTY:false,write:(s:string)=>out+=s,services:{cacheRoot:cache,stateRoot:state}};assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--backend','host','--dry-run'],io),3);const id=out.match(/--continue ([a-f0-9]{64})/)![1];await writeFile(root+'/new.ts','changed');out='';assert.equal(await runCli(['update','--continue',id],io),1);assert.match(out,/changed/);assert.deepEqual(await readdir(root),['new.ts']);
+test('continuation_preserves_the_run_after_ordinary_edits_without_project_writes',()=>project(async root=>project(async cache=>project(async state=>{
+ const {writeFile}=await import('node:fs/promises');let out='';const io={cwd:root,isTTY:false,write:(s:string)=>out+=s,services:{cacheRoot:cache,stateRoot:state}};assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--backend','host','--dry-run'],io),3);const id=out.match(/--continue ([a-f0-9]{64})/)![1];await writeFile(root+'/new.ts','changed');out='';assert.equal(await runCli(['update','--continue',id],io),3,out);assert.match(out,/Pending host research/);assert.ok(out.includes('--continue '+id));assert.deepEqual(await readdir(root),['new.ts']);
 }))));
 test('apply_id_cannot_redirect_cli_to_a_different_project_root',()=>project(async root=>project(async other=>project(async cache=>project(async state=>{
  const {preview}=await import('../src/installer/preview.js');const {scanRepository}=await import('../src/analyzer/repository.js');const options={agents:[],backend:'host' as const};const p=await preview({root:other,fingerprint:(await scanRepository(other,options)).fingerprint,options,assets:[{logicalId:'a',target:'other.md',content:'must not write',ownership:{kind:'file'},source:{kind:'test',ref:'test'}}],operations:[],dispositions:[],warnings:[],requirements:[],versions:{}},[],{cacheRoot:cache+'/previews'});let out='';assert.equal(await runCli(['update','--apply',p.previewId,'--sessions-ended'],{cwd:root,isTTY:false,write:s=>out+=s,services:{cacheRoot:cache,stateRoot:state}}),1);assert.match(out,/root|project/);assert.deepEqual(await readdir(other),[]);
@@ -293,26 +293,38 @@ test('partial_native_api_key_reference_reaches_the_tty_model_and_secret_guide',(
  }finally{if(previousModel===undefined)delete process.env.ANTHROPIC_MODEL;else process.env.ANTHROPIC_MODEL=previousModel;if(previousKey===undefined)delete process.env.RIGUP_TEST_NAMED_API_KEY;else process.env.RIGUP_TEST_NAMED_API_KEY=previousKey;}
 }))));
 
-test('OpenSpec preparation reports the required session acknowledgement in JSON',t=>project(root=>project(async bin=>{
+test('explicit OpenSpec preparation runs with an active session and reports the reload reminder',t=>project(root=>project(async control=>{
  const {delimiter}=await import('node:path');
- await writeOpenSpecFixture(bin,'console.log(process.argv.includes("--version")?"1.16.0":JSON.stringify({root:null}));');
- const path=process.env.PATH;
- process.env.PATH=bin+delimiter+path;
- t.after(()=>{process.env.PATH=path;});
- const original=process.env.CLAUDECODE;
- process.env.CLAUDECODE='1';
- t.after(()=>{if(original===undefined)delete process.env.CLAUDECODE;else process.env.CLAUDECODE=original;});
- t.mock.method(process,'cwd',()=>root);
- let output='';
- const code=await runCli(['init','--agents','claude','--sdd','openspec','--prepare-openspec','--json'],{
-  cwd:root,isTTY:false,write:s=>output+=s,
- });
- const report=JSON.parse(output);
- assert.equal(code,3,output);
- assert.equal(report.nextCommand,report.resumeCommand);
- assert.match(report.nextCommand,/--prepare-openspec --install-scope global --sessions-ended$/);
- assert.ok(report.requiredInput.some((item:string)=>item.includes('--sessions-ended')));
- assert.deepEqual(await readdir(root),[]);
+ const bin=join(control,'bin');
+ await writeOpenSpecFixture(bin,String.raw`
+const fs=require('node:fs'),path=require('node:path');
+switch(process.argv[2]){
+ case '--version': console.log('1.16.0');break;
+ case 'list': console.log(JSON.stringify({root:fs.existsSync('openspec/config.yaml')?{path:process.cwd(),source:'nearest'}:null}));break;
+ case 'init':
+  fs.mkdirSync('openspec/specs',{recursive:true});fs.mkdirSync('openspec/changes/archive',{recursive:true});
+  fs.writeFileSync('openspec/config.yaml','schema: spec-driven\n');
+  fs.writeFileSync('openspec/specs/.gitkeep','');fs.writeFileSync('openspec/changes/archive/.gitkeep','');
+  for(const name of ['openspec-propose','openspec-apply-change','openspec-archive-change']){
+   const dir=path.join('.agents','skills',name);fs.mkdirSync(dir,{recursive:true});
+   fs.writeFileSync(path.join(dir,'SKILL.md'),'---\nname: '+name+'\ndescription: OpenSpec fixture.\n---\n');
+  }break;
+ default:process.exitCode=2;
+}`);
+ testEnvironment(t,{PATH:bin+delimiter+process.env.PATH,CLAUDECODE:'1'});
+ const cwd=process.cwd();
+ try{
+  process.chdir(root);
+  let output='',diagnostic='';
+  const code=await runCli(['init','--agents','codex','--sdd','openspec','--prepare-openspec','--json'],{
+   cwd:root,isTTY:false,write:s=>output+=s,writeError:s=>diagnostic+=s,
+   services:{stateRoot:join(control,'state'),cacheRoot:join(control,'cache')},
+  });
+  assert.equal(code,0,output+diagnostic);
+  assert.equal(JSON.parse(output).nativeWorkflow,'ready');
+  assert.match(diagnostic,/reload.*host session/i);
+  assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/schema: spec-driven/);
+ }finally{process.chdir(cwd);}
 })));
 
 test('CLI list options accept PowerShell array strings, split args and repeated flags',t=>project(root=>project(cache=>project(async state=>{

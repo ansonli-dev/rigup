@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,readFile,rm,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
-import {openspecFixturePath,project} from './helpers.js';
+import {openspecFixturePath,project,testEnvironment} from './helpers.js';
 import {runCli} from '../src/cli.js';
 import {openResearchMcp} from '../src/research/mcp-workflow.js';
 import {quoteShell} from '../src/shell-command.js';
@@ -20,6 +20,35 @@ function cli(root:string,cacheRoot:string,stateRoot:string,writeError?:(text:str
  };
 }
 const empty={observations:[],unknowns:[]};
+
+test('MCP lists and calls tools after negotiation and ignores extra argument fields',t=>fixture(async(root,cacheRoot,stateRoot)=>{
+ const run=cli(root,cacheRoot,stateRoot);
+ const base=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',base.previewId],0);
+ const home=join(cacheRoot,'home');await mkdir(home);
+ testEnvironment(t,{HOME:home,USERPROFILE:home});
+ const {Readable,Writable}=await import('node:stream');
+ const {serveResearchMcp}=await import('../src/research/mcp-stdio.js');
+ const requests=[
+  {id:1,method:'tools/list'},
+  {id:2,method:'initialize',params:{protocolVersion:'2025-11-25'}},
+  {id:3,method:'tools/list'},
+  {id:4,method:'tools/call',params:{name:'rigup_begin',arguments:{root,mode:'init',clientMetadata:{fixture:true}}}},
+  {id:5,method:'tools/call',params:{name:'rigup_begin',arguments:{root}}},
+  {id:6,method:'tools/call',params:{name:'rigup_begin',arguments:{root,mode:false}}},
+  {id:7,method:'tools/call',params:{name:'unknown_tool',arguments:{root,mode:'init'}}},
+ ];
+ const input=Readable.from(requests.map(request=>JSON.stringify({jsonrpc:'2.0',...request})+'\n'));
+ let text='';
+ const output=new Writable({write(chunk,_encoding,done){text+=String(chunk);done();}});
+ await serveResearchMcp(['--host','claude'],{cwd:root,input,output});
+ const replies=Object.fromEntries(text.trim().split('\n').map(line=>{const value=JSON.parse(line);return [value.id,value];}));
+ assert.equal(replies[1].error.code,-32002);
+ assert.equal(replies[2].result.protocolVersion,'2025-11-25');
+ assert.equal(replies[3].result.tools[0].inputSchema.additionalProperties,true);
+ assert.equal(replies[4].result.structuredContent.status,'planning');
+ for(const id of [5,6,7])assert.equal(replies[id].error.code,-32602);
+}));
 
 test('provider-free MCP setup, job replay and finish require independent apply',()=>fixture(async(root,cacheRoot,stateRoot)=>{
  await writeFile(join(root,'README.md'),'# Store\nRun the narrow check for your change.\n');
@@ -79,7 +108,7 @@ test('provider-free MCP setup, job replay and finish require independent apply',
  assert.ok(!unchanged.previewId);
 }));
 
-test('MCP rejects excluded citations, a different root, and source drift',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+test('MCP rejects excluded citations and refreshes a digestless job without changing sessions',()=>fixture(async(root,cacheRoot,stateRoot)=>{
  await writeFile(join(root,'README.md'),'current text\n');
  await writeFile(join(root,'.rigupignore'),'/secret-notes.md\n');
  await writeFile(join(root,'secret-notes.md'),'excluded text\n');
@@ -93,13 +122,69 @@ test('MCP rejects excluded citations, a different root, and source drift',()=>fi
   topic:'Hidden',coverageStatus:'reusable',scope:['.'],consumers:[],gaps:[],sourceRef:{path:'secret-notes.md',startLine:1,endLine:1}
  }]}}),/outside reader inventory/);
  await writeFile(join(root,'README.md'),'edited text\n');
- await assert.rejects(()=>mcp.call('rigup_next_page',{runId:begin.runId}),/changed/);
+ const updated=await mcp.call('rigup_submit_plan',{runId:begin.runId,jobId:begin.job?.id,data:{...empty,citations:[{path:'README.md',startLine:1,endLine:1}]}});
+ assert.equal(updated.runId,begin.runId);
+ assert.equal(updated.job?.stage,'analysis');
+ assert.notEqual(updated.job?.id,begin.job?.id);
+ assert.match(updated.instructions??'',/read.*evidence/i);
+ assert.equal((await mcp.call('rigup_begin',{root,mode:'update'})).runId,begin.runId);
  await writeFile(join(root,'other.md'),'Outside the configured research scope\n');
  await writeFile(join(root,'.rigup','config.yaml'),'scope: [README.md]\ndocumentLanguage: zh-CN\n');
  const narrowed=await mcp.call('rigup_begin',{root,mode:'update'});
  assert.notEqual(narrowed.runId,begin.runId);
  assert.deepEqual(narrowed.job?.seedPaths,['README.md']);
  assert.equal(narrowed.job?.options.documentLanguage,'zh-CN');
+}));
+
+test('MCP reuses accepted pages across unrelated edits and refreshes only stale page evidence',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ await mkdir(join(root,'src'));
+ for(const name of ['plan','alpha','beta','support','other'])await writeFile(join(root,'src',name+'.ts'),name+' fixture\n');
+ const run=cli(root,cacheRoot,stateRoot);
+ const foundation=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',foundation.previewId],0);
+ const mcp=await openResearchMcp(root,'claude',{cacheRoot,stateRoot});
+ const begin=await mcp.call('rigup_begin',{root,mode:'init'}),runId=begin.runId;
+ const planning=await mcp.call('rigup_submit_plan',{runId,jobId:begin.job?.id,data:empty});
+ const artifacts=['alpha','beta'].map(logicalId=>({
+  logicalId,target:'docs/rigup/'+logicalId+'.md',purpose:'Document the fixture',consumer:'agent-entry',required:true,reason:'Capture the accepted workflow',
+  sourceRefs:[{path:'src/plan.ts',startLine:1,endLine:1}],seedPaths:[],relatedArtifacts:[],acceptance:['Preserve approved scope'],
+ }));
+ let page=await mcp.call('rigup_submit_plan',{runId,jobId:planning.job?.id,data:{...empty,artifacts,dispositions:[]}});
+ const submitPage=async(jobId:string|undefined,name:string)=>{
+  const path='src/'+name+'.ts';
+  const observations=name==='alpha'?[{
+   topic:'Routine',classification:'convention',statement:'Use the routine',scope:['src'],
+   supportingEvidence:[{path,startLine:1,endLine:1},{path:'src/support.ts',startLine:1,endLine:1}],counterEvidence:[],
+   coverage:{independentSupports:2,counterexampleSearched:true,counterexampleQueries:['deviant routine']},
+  }]:[];
+  return mcp.call('rigup_submit_page',{runId,jobId,data:{...empty,observations,citations:[{path,startLine:1,endLine:1}],content:'Existing workflow for '+name+'.\n'}});
+ };
+ const accept=(jobId?:string)=>mcp.call('rigup_submit_page',{runId,jobId,data:{...empty,accepted:true,reason:'Evidence supports this page'}});
+ assert.equal(page.job?.artifact,'alpha');
+ page=await accept((await submitPage(page.job?.id,'alpha')).job?.id);
+ assert.equal(page.job?.artifact,'beta');
+ assert.equal((await accept((await submitPage(page.job?.id,'beta')).job?.id)).status,'ready');
+ await writeFile(join(root,'src','other.ts'),'unrelated edit\n');
+ const unchanged=await mcp.call('rigup_begin',{root,mode:'update'});
+ assert.equal(unchanged.runId,runId);
+ assert.equal(unchanged.status,'ready');
+ await writeFile(join(root,'src','alpha.ts'),'new source for this page only\n');
+ const stale=await mcp.call('rigup_begin',{root,mode:'update'});
+ assert.equal(stale.runId,runId);
+ assert.equal(stale.job?.artifact,'alpha');
+ assert.equal((await accept((await submitPage(stale.job?.id,'alpha')).job?.id)).status,'ready');
+ await writeFile(join(root,'src','counter.ts'),'deviant routine\n');
+ const counterexample=await mcp.call('rigup_begin',{root,mode:'update'});
+ assert.equal(counterexample.runId,runId);
+ assert.equal(counterexample.job?.artifact,'alpha');
+ assert.equal((await accept((await submitPage(counterexample.job?.id,'alpha')).job?.id)).status,'ready');
+ const final=await mcp.call('rigup_finish',{runId});
+ await run(['update','--apply',final.previewId!],0);
+ assert.equal((await mcp.call('rigup_begin',{root,mode:'update'})).status,'noop');
+ await writeFile(join(root,'src','discovered.ts'),'new evidence after apply\n');
+ const next=await mcp.call('rigup_begin',{root,mode:'update'});
+ assert.notEqual(next.runId,runId);
+ assert.equal(next.job?.stage,'analysis');
 }));
 
 test('rigup_finish retries blocked npm resolution and keeps an approved version across retagging',()=>fixture(async(root,cacheRoot,stateRoot)=>{
@@ -222,8 +307,9 @@ test('review reports a locally edited owned entry block before pending research'
 test('harness MCP reconciles effective pending before returning noop or a cached approval',()=>fixture(async(root,cacheRoot,stateRoot)=>{
  const {apply}=await import('../src/installer/apply.js');
  const {doctor}=await import('../src/installer/doctor.js');
- const source=join(root,'README.md'),original='# Service\nUse the scoped error helper.\n';
- await writeFile(source,original);
+ const {confirmedHarnessSource}=await import('./helpers.js');
+ const authority=await confirmedHarnessSource(root,{agents:['claude'],backend:'host',projectRules:true});
+ const source=join(root,authority.path),original=await readFile(source,'utf8');
  const run=cli(root,cacheRoot,stateRoot);
  const initial=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
  await run(['update','--apply',initial.previewId,'--sessions-ended'],0);
@@ -233,8 +319,8 @@ test('harness MCP reconciles effective pending before returning noop or a cached
   assert.notEqual(begin.status,'noop');
   const runId=begin.runId;
   if(begin.status==='planning'){
-   const plan=await mcp.call('rigup_submit_plan',{runId,jobId:begin.job?.id,data:{...empty,guidance:[]}});
-   const ready=await mcp.call('rigup_submit_plan',{runId,jobId:plan.job?.id,data:{...empty,guidance:[],artifacts:[],dispositions:[]}});
+   const plan=await mcp.call('rigup_submit_plan',{runId,jobId:begin.job?.id,data:{...empty,guidance:begin.job?.sourceGuidance??[]}});
+   const ready=await mcp.call('rigup_submit_plan',{runId,jobId:plan.job?.id,data:{...empty,guidance:plan.job?.sourceGuidance??[],artifacts:[],dispositions:[]}});
    assert.equal(ready.status,'ready');
   }else assert.equal(begin.status,'ready');
   const result=await mcp.call('rigup_finish',{runId});

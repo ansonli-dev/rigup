@@ -1,12 +1,18 @@
 import {mkdir,rename,open,link,rm,lstat} from 'node:fs/promises';
-import {dirname,join} from 'node:path';
+import {dirname} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {renameWithRetry} from '../atomic-rename.js';
 import {targetPath} from './ownership.js';
 import {syncDirectory} from '../sync-directory.js';
-import {assertPrivateAccess,createWindowsPrivateDirectory} from '../private-access.js';
-import {platformFileMode} from './file-state.js';
-export async function atomicProjectWrite(root:string,target:string,content:Buffer,mode?:number,exclusive=false,verifyCurrent?:()=>Promise<void>):Promise<void>{
+import {stagedFileMode} from './filesystem-modes.js';
+export class ExclusiveLinkError extends Error{
+ constructor(target:string,cause:unknown){
+  const exists=(cause as NodeJS.ErrnoException).code==='EEXIST';
+  super(exists?'Target already exists: '+target:'Cannot create '+target+' exclusively. Use a filesystem that supports hard links for this target, then resume the original approval.',{cause});
+ }
+}
+export async function atomicProjectWrite(root:string,target:string,content:Buffer,mode=0o600,exclusive=false,
+ verifyCurrent?:()=>Promise<void>,recordMode?:(mode:number,stage?:string)=>Promise<void>,afterLink?:()=>Promise<void>):Promise<void>{
  const path=await targetPath(root,target);
  const directory=dirname(path);
  const verifyPath=async()=>{
@@ -15,10 +21,10 @@ export async function atomicProjectWrite(root:string,target:string,content:Buffe
  await mkdir(directory,{recursive:true});
  await verifyPath();
  const parent=await lstat(directory,{bigint:true});
- if(!parent.isDirectory()||parent.ino===0n)throw new Error('target parent identity unavailable');
+ if(!parent.isDirectory())throw Error('Target parent is not a directory: '+directory);
  const verifyParent=async()=>{
   const current=await lstat(directory,{bigint:true});
-  if(!current.isDirectory()||current.dev!==parent.dev||current.ino!==parent.ino)throw new Error('target parent changed during write');
+  if(!current.isDirectory()||parent.ino!==0n&&current.ino!==0n&&(current.dev!==parent.dev||current.ino!==parent.ino))throw new Error('target parent changed during write');
  };
  const verify=async()=>{
   await verifyPath();
@@ -27,30 +33,39 @@ export async function atomicProjectWrite(root:string,target:string,content:Buffe
  };
  const suffix='.rigup-'+randomUUID()+'.tmp';
  const temporary=path+suffix;
- const privateStaging=process.platform==='win32'&&(mode??0o600)===0o600;
- const staged=privateStaging?join(temporary,'content'):temporary;
- const removeTemporary=async()=>{
-  if(await targetPath(root,target.replace(/\/$/,'')+suffix)!==temporary)throw new Error('temporary path changed during write');
-  await verifyParent();
-  await rm(temporary,{recursive:privateStaging,force:true});
- };
+ let created=false,keepStage=false;
  try{
-  if(privateStaging)await createWindowsPrivateDirectory(temporary,'Cannot create a private project record');
-  const handle=await open(staged,'wx',mode??0o600);
+  const handle=await open(temporary,'wx',mode);
+  created=true;
+  let observed:number;
   try{
-   if(mode!==undefined)await handle.chmod(mode);
-   const info=await handle.stat();
-   if((info.mode&0o777)!==platformFileMode(mode??0o600))throw Error('Target filesystem did not retain the requested file mode');
-   if(privateStaging)await assertPrivateAccess(staged,info,'Cannot protect a private project record');
+   observed=await stagedFileMode(handle,mode,target);
    await handle.writeFile(content);await handle.sync();
   }finally{await handle.close();}
-  if(exclusive){await verify();await link(staged,path);}
-  else await renameWithRetry(()=>rename(staged,path),verify);
- }catch(error){
-  // A failed write may have discovered a moved or redirected parent.
-  await removeTemporary().catch(()=>{});
-  throw error;
+  await recordMode?.(observed,exclusive?target+suffix:undefined);
+  if(exclusive){
+   await verify();
+   try{await link(temporary,path);}catch(error){
+    throw new ExclusiveLinkError(target,error);
+   }
+   keepStage=!!afterLink;
+   if(afterLink){
+    await syncDirectory(directory);
+    await afterLink();
+   }
+   keepStage=false;
+  }else{
+   await renameWithRetry(()=>rename(temporary,path),verify);
+   created=false;
+  }
+ }finally{
+  if(created&&!keepStage){
+   try{
+    if(await targetPath(root,target.replace(/\/$/,'')+suffix)===temporary){
+     await verifyParent();await rm(temporary,{force:true});
+    }
+   }catch{/* A replaced parent may contain a different temporary file. */}
+  }
  }
- if(exclusive||privateStaging)await removeTemporary();
  await syncDirectory(directory);
 }

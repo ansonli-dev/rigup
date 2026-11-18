@@ -16,7 +16,7 @@ async function write(path:string,value:unknown){
  await writeFile(path,typeof value==='string'?value:JSON.stringify(value));
 }
 function runtime(root:string,home:string):HostRuntime{
- return {root,home,stateRoot:join(home,'state'),env:{HOME:home},program:{file:process.execPath,args:[],identity:'fixture',paths:[process.execPath]},approved:'runtime'};
+ return {root,home,stateRoot:join(home,'state'),writerRoot:join(home,'state'),env:{HOME:home,PATH:process.env.PATH},program:{file:process.execPath,args:[]},approved:'runtime'};
 }
 async function marketplace(home:string,source:unknown={source:'url',url:'https://github.com/obra/superpowers.git',sha}){
  const path=join(home,'.claude/plugins/marketplaces',market);
@@ -42,11 +42,11 @@ test('Claude skips a registered marketplace only after verifying the exact cache
  }
 })));
 
-test('Claude rejects unsafe or duplicate project settings and cannot adopt a stale enabled flag',()=>project(root=>project(async home=>{
+test('Claude rejects duplicate settings, wrong marketplace source and explicit Superpowers conflicts',()=>project(root=>project(async home=>{
  const c=await load();assert.ok(c,'Claude recipe is missing');
  const scope=runtime(root,home),path=join(root,'.claude/settings.json');
  for(const [settings,reason] of [
-  [{hooks:{}},/unsupported Claude project key.*hooks/i],
+  [{extraKnownMarketplaces:{[market]:{source:{source:'github',repo:'example/other'}}}},/marketplace/],
   ['{"model":"a","model":"b"}',/invalid.*settings/i],
   [{enabledPlugins:{[id]:false}},/explicitly disabled/],
   [{enabledPlugins:{[id]:true}},/enabled without.*receipt/],
@@ -54,6 +54,19 @@ test('Claude rejects unsafe or duplicate project settings and cannot adopt a sta
   await write(path,settings);
   await assert.rejects(c.inspectClaude(scope),reason);
  }
+})));
+
+test('Claude accepts unrelated Git settings, project settings and installed plugins',()=>project(root=>project(async home=>{
+ const c=await load();assert.ok(c);
+ await write(join(root,'.git/config'),'[includeIf "gitdir:~/code/"]\n path = ~/.gitconfig-work\n[credential]\n helper = manager\n[lfs]\n repositoryformatversion = 0\n');
+ const source={source:'github',repo:'example/unrelated'};
+ await write(join(root,'.claude/settings.json'),{hooks:{},env:{NODE_ENV:'development'},
+  enabledPlugins:{'unrelated@custom':true},extraKnownMarketplaces:{custom:{source}}});
+ await write(join(home,'.claude/plugins/known_marketplaces.json'),{custom:{source,installLocation:join(home,'custom')}});
+ await write(join(home,'.claude/plugins/installed_plugins.json'),{version:2,plugins:{'unrelated@custom':[{scope:'user'}]}});
+ const checked=await c.inspectClaude(runtime(root,home));
+ assert.equal(checked.market,'missing');
+ assert.equal(checked.installed,undefined);
 })));
 
 test('Claude installation checks all resolved required entries against the exact scoped receipt',()=>project(root=>project(async home=>{
@@ -66,9 +79,11 @@ test('Claude installation checks all resolved required entries against the exact
  for(const name of names)await write(join(path,'skills',name,'SKILL.md'),'---\nname: '+name+'\ndescription: Native fixture\n---\n');
  const receipt=join(home,'.claude/plugins/installed_plugins.json');
  const installed={scope:'project',projectPath:root,installPath:path,version:'7.0.2',gitCommitSha:sha};
- await write(receipt,{version:2,plugins:{[id]:[{...installed,projectPath:home}]}});
+ await write(receipt,{version:2,plugins:{[id]:[{...installed,scope:'user'}]}});
  await assert.rejects(c.inspectClaude(scope),/different scope/);
- await write(receipt,{version:2,plugins:{[id]:[installed]}});
+ await write(receipt,{version:2,plugins:{[id]:[installed,installed]}});
+ await assert.rejects(c.inspectClaude(scope),/conflicting install receipt/);
+ await write(receipt,{version:2,plugins:{[id]:[{...installed,projectPath:home},installed]}});
  const checked=await c.inspectClaude(scope);
  const opts={agents:['claude' as const],tools:[],backend:'host' as const,sdd:'superpowers' as const};
  const profile=await scanNativeEntries(root,opts,{home});

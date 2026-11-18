@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {loadOptions} from '../src/config.js';
+import {configurationCandidate,loadOptions} from '../src/config.js';
 test('fresh setup defaults to the available Codex agent',async()=>{
  const root=await mkdtemp(join(tmpdir(),'rigup-default-'));try{assert.deepEqual((await loadOptions(root,{})).agents,['codex']);}finally{await rm(root,{recursive:true,force:true});}
 });
@@ -13,6 +13,25 @@ async function fixture(body:string, fn:(root:string)=>Promise<void>) {
  try { await mkdir(join(root,'.rigup')); await writeFile(join(root,'.rigup/config.yaml'),body); await fn(root); }
  finally { await rm(root,{recursive:true,force:true}); }
 }
+test('configuration warns about unknown keys and retains them alongside dynamic MCP and reuse defaults',()=>fixture([
+ '# Maintainer notes','customSetting: keep-written-value # Keep this comment','backend: host','agents: [codex]',
+ 'mcp:','  - id: local-fixture','    command:','      executable: node','      args: [serve.js, --max-token=100]',
+ 'tools:','  - id: openwiki','    agents: [codex]','',
+].join('\n'),async root=>{
+ const warnings:string[]=[];
+ const options=await loadOptions(root,{},undefined,{onWarning:message=>warnings.push(message)});
+ assert.match(warnings.join('\n'),/customSetting.*unknown/i);
+ assert.doesNotMatch(JSON.stringify(options),/customSetting|keep-written-value/);
+ assert.equal(options.mcp?.[0]?.agents,undefined);
+ assert.deepEqual(options.mcp?.[0]?.command,{executable:'node',args:['serve.js','--max-token=100'],cwd:'.',envRefs:[]});
+ assert.equal(options.tools?.[0]?.install,false);
+ assert.equal(options.tools?.[0]?.initialize,false);
+ const candidate=await configurationCandidate(root,{...options,agents:['claude']});
+ assert.match(candidate.content,/# Maintainer notes\ncustomSetting: keep-written-value # Keep this comment/);
+ assert.match(candidate.content,/agents:\s+(?:\[ claude \]|- claude)/);
+ const {parse}=await import('yaml');
+ assert.equal(parse(candidate.content).mcp[0].agents,undefined);
+}));
 test('explicit_options_override_project_config', async () => {
  await fixture(`agents: [claude]
 backend: host

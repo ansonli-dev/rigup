@@ -21,9 +21,9 @@ export interface AnalysisBackend {
  topicEvidence?:boolean;
  /** This backend checks the durable budget before dispatch, including zero-cost recovery. */
  durableBudget?:true;
+ advisoryBudget?:true;
  run(request:ResearchRequest,reader:RepositoryReader):Promise<StepResult<ResearchResult>>;
 }
-const searched=new WeakMap<RepositoryReader,Set<string>>();
 const guidanceLists=['scope','consumers','gaps'] as const;
 const stringArray=(value:unknown)=>Array.isArray(value)&&value.every(item=>typeof item==='string');
 
@@ -67,9 +67,50 @@ export class ResearchValidationError extends Error {
 }
 const diagnosticFields=new Set(['observations','guidance','supportingEvidence','counterEvidence','sourceRef','evidence','coverage','scope','unknowns']);
 
-export async function validateResearch(data:unknown,reader:RepositoryReader,exportedEvidence?:readonly Evidence[],exportedSourceEvidence?:readonly (EvidenceRead|Evidence)[]):Promise<void>{
+interface CounterexampleSearch {query:string;scope:string[];matches?:Evidence[]}
+export interface ResearchEvidenceReceipt {citations:Evidence[];searches:CounterexampleSearch[];sourceScopes?:[string,string[]][]}
+
+function citedSourceScopes(citations:readonly Evidence[],reader:RepositoryReader):[string,string[]][]{
+ const paths=[...new Set(citations.map(citation=>citation.path))].sort();
+ const bindings:[string,string[]][]=[];
+ for(const path of paths){
+  const scopes=reader.sourceScopes?.get(path);
+  if(scopes)bindings.push([path,[...new Set(scopes)].sort()]);
+ }
+ return bindings;
+}
+type ConventionCoverage={independentSupports?:unknown;counterexampleSearched?:unknown;counterexampleQueries?:unknown};
+export function conventionEvidenceGap(observation:{supportingEvidence:Evidence[];coverage?:ConventionCoverage}):string|undefined{
+ const {supportingEvidence,coverage}=observation;
+ if(!Number.isInteger(coverage?.independentSupports)||Number(coverage?.independentSupports)<2||
+  new Set(supportingEvidence.map(e=>e.digest)).size<2||new Set(supportingEvidence.map(e=>e.path)).size<2)return 'Independent support is incomplete';
+ if(coverage?.counterexampleSearched!==true||!Array.isArray(coverage.counterexampleQueries)||!coverage.counterexampleQueries.length||
+  coverage.counterexampleQueries.some(q=>typeof q!=='string'||!q.trim()||q.length>240))return 'A replayable counterexample query is needed';
+}
+
+async function searchMatches(reader:RepositoryReader,query:string,scope:string[]){
+ const paths=new Set((await reader.list()).filter(path=>scope.some(parent=>scopeContains(parent,path))));
+ const matches=(await reader.search(query,{paths,limit:7})).filter(result=>paths.has(result.evidence.path));
+ return matches.slice(0,7).map(({evidence})=>evidence);
+}
+
+export async function researchEvidenceCurrent(receipt:ResearchEvidenceReceipt|undefined,reader:RepositoryReader):Promise<boolean>{
+ if(!receipt)return false;
+ try{
+  const current=await validateResearch({observations:[],citations:receipt.citations},reader);
+  if(JSON.stringify(current.receipt.sourceScopes)!==JSON.stringify(receipt.sourceScopes??[]))return false;
+  for(const search of receipt.searches){
+   const current=await searchMatches(reader,search.query,search.scope).catch(()=>undefined);
+   if(JSON.stringify(current)!==JSON.stringify(search.matches))return false;
+  }
+  return true;
+ }catch{return false;}
+}
+
+export async function validateResearch(data:unknown,reader:RepositoryReader,exportedEvidence?:readonly Evidence[],exportedSourceEvidence?:readonly (EvidenceRead|Evidence)[]){
  if(!data || typeof data !== 'object' || Array.isArray(data)) throw new ResearchValidationError('research: expected object');
  const verified=new Set<string>();
+ const citations:Evidence[]=[],searches=new Map<string,CounterexampleSearch>(),warnings:string[]=[],blockedConventions:number[]=[];
  const exported=exportedEvidence&&new Set(exportedEvidence.map(e=>citationKey(e.path,e.startLine,e.endLine,e.digest)));
  const read=reader.evidencePass?.()??reader.read.bind(reader);
  async function walk(value:unknown,location='research'):Promise<void>{
@@ -94,6 +135,7 @@ export async function validateResearch(data:unknown,reader:RepositoryReader,expo
    catch{throw new ResearchValidationError('evidence: source unavailable, denied, or range invalid',location);}
    if(real.evidence.digest !== obj.digest) throw new ResearchValidationError('evidence: digest mismatch',location);
    verified.add(key);
+   citations.push(real.evidence);
    return;
   }
   for(const [field,value] of Object.entries(obj)) await walk(value,location.length<128?location+'.'+(diagnosticFields.has(field)?field:'[field]'):'research.[nested]');
@@ -133,18 +175,26 @@ export async function validateResearch(data:unknown,reader:RepositoryReader,expo
   if(!item || typeof item !== 'object' || typeof item.statement !== 'string' || !Array.isArray(item.scope) || !Array.isArray(item.supportingEvidence) || !Array.isArray(item.counterEvidence)) throw new ResearchValidationError('observation: required fields',location);
   checkScope(item.scope,[...item.supportingEvidence,...item.counterEvidence],location);
   if(!['explicit-rule','convention','local-pattern','suggestion'].includes(item.classification)) throw new ResearchValidationError('classification: invalid',location);
-  if(item.classification === 'convention' && (!Number.isInteger(item.coverage?.independentSupports) || item.coverage.independentSupports < 2 || item.coverage?.counterexampleSearched !== true || new Set(item.supportingEvidence.map((e:Evidence)=>e.digest)).size < 2)) throw new ResearchValidationError('convention: independent support and counterexample search required',location);
+  const warn=(reason:string)=>warnings.push(location+': '+reason);
   if(item.classification === 'convention') {
-   if(!Array.isArray(item.coverage?.counterexampleQueries) || !item.coverage.counterexampleQueries.length || item.coverage.counterexampleQueries.some((q:unknown)=>typeof q !== 'string' || !q.trim())) throw new ResearchValidationError('convention: counterexample query evidence required',location);
-   const completed=searched.get(reader)??new Set<string>();searched.set(reader,completed);
-   for(const query of item.coverage.counterexampleQueries)if(!completed.has(query)){
-    try{await reader.search(query);}catch{throw new ResearchValidationError('convention: counterexample search unavailable',location);}completed.add(query);
+   const gap=conventionEvidenceGap(item);
+   let blocked=!!gap;
+   if(gap)warn(gap);
+   const scope=item.scope.filter((path:unknown):path is string=>typeof path==='string'&&isConventionScope(path)).sort();
+   const queries=(Array.isArray(item.coverage?.counterexampleQueries)?item.coverage.counterexampleQueries:[])
+    .filter((query:unknown):query is string=>typeof query==='string'&&!!query.trim()&&query.length<=240);
+   for(const query of new Set<string>(queries)){
+    const key=JSON.stringify([scope,query]);
+    if(!searches.has(key))searches.set(key,{query,scope,matches:await searchMatches(reader,query,scope).catch(()=>undefined)});
+    if(!searches.get(key)?.matches){blocked=true;warn('Counterexample search is unavailable');}
    }
+   if(blocked)blockedConventions.push(index);
   }
-  if(item.counterEvidence.length && !item.exceptions?.length && item.guidanceDisposition !== 'needs-decision') throw new ResearchValidationError('unexplained counterexample requires decision',location);
-  if(item.classification === 'suggestion' && !['reference-only','needs-decision'].includes(item.guidanceDisposition)) throw new ResearchValidationError('suggestion: cannot become a rule',location);
-  if(item.classification !== 'suggestion' && !item.supportingEvidence.length) throw new ResearchValidationError('evidence: support required',location);
+  if(item.counterEvidence.length&&!item.exceptions?.length&&item.guidanceDisposition!=='needs-decision')warn('Unexplained counterexample requires a decision');
+  if(item.classification==='suggestion'&&!['reference-only','needs-decision'].includes(item.guidanceDisposition))warn('Suggestion requires review before adoption');
+  if(item.classification!=='suggestion'&&!item.supportingEvidence.length)warn('Supporting evidence is missing');
  }
+ return {receipt:{citations,searches:[...searches.values()],sourceScopes:citedSourceScopes(citations,reader)},warnings,blockedConventions};
 }
 
 export class ResearchFailure extends Error {

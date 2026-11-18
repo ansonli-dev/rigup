@@ -2,8 +2,10 @@ import {parse as parseToml} from 'smol-toml';
 import {parseTree,createScanner,SyntaxKind,type Node,type ParseError} from 'jsonc-parser';
 import {parseDocument,Parser,isMap,isSeq,isScalar,isAlias} from 'yaml';
 import {extname} from 'node:path';
-export const READ_POLICY_VERSION='7';
+export const READ_POLICY_VERSION='8';
 export const secretName=/(^\.env($|\.)|^(?:\.auth|\.netrc|_netrc|\.git-credentials|\.npmrc|\.pypirc|\.pgpass|\.dockercfg)(?:[.~].*)?$|\.(pem|key|p12|pfx|keystore)(?:\.(?:bak|old|backup|orig|save|tmp)|~)?$|credentials|id_rsa|id_ed25519)/i;
+const envExample=/^\.env\.example$/i;
+export const evidenceSecretName=(name:string)=>secretName.test(name)&&!envExample.test(name);
 const sensitive=/token|password|passwd|secret|credential|authorization|api[-_]?key|private[-_]?key|^(?:auth|authentication|creds|cookies?|set[-_]?cookie|localStorage|sessionStorage)$/i;
 const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|cookies?|b|credentials?)$/i;
 const credentialAssignment=/(?:token|password|passwd|secret|credentials?|creds|authorization|api[-_]?key|private[-_]?key)[\w-]*["']?\s*[:=]|(?:^|[\s"'])auth(?:entication)?["']?\s*[:=]/i;
@@ -13,13 +15,72 @@ function redactComment(token:string):string {
  const prefix=token.startsWith('/*')?'/*':token.startsWith('//')?'//':'#';
  return prefix+' [REDACTED]'+(token.match(/\r\n|\r|\n/g)??[]).join('')+(prefix==='/*'?' */':'');
 }
-export function filterContent(path:string,raw:string):string {
- if(path.split(/[\\/]/).some(part=>secretName.test(part))) throw new Error('sensitive file denied');
+function filterEnvExample(raw:string):string {
+ const entry=/^([ \t]*(?:export[ \t]+)?([a-z_]\w*)[ \t]*=[ \t]*)("(?:\\[\s\S]|[^"\\])*"|'[^']*'|\x60[^\x60]*\x60|[^#\r\n]*)([ \t]*#[^\r\n]*)?$/gim;
+ const placeholder=/^(?:\$\{[A-Z_]\w*\}|\$[A-Z_]\w*|<[\w -]+>|(?:your|example|placeholder)[-_][\w-]+|change[-_]?me|replace[-_]?me)$/i;
+ let result='',offset=0;
+ const comments=(text:string)=>{
+  if(text.split(/\r?\n/).some(line=>line.trim()&&!line.trimStart().startsWith('#')))throw Error('unsupported env example syntax');
+  return text.replace(/#[^\r\n]*/g,redactComment);
+ };
+ for(const match of raw.matchAll(entry)){
+  result+=comments(raw.slice(offset,match.index));
+  const [,prefix,key,value,comment]=match;
+  const unquoted=value.trim().replace(/^(['"\x60])([\s\S]*)\1$/,'$2');
+  const sensitiveValue=sensitive.test(key)||structuredCredentialAssignment(unquoted);
+  const visible=sensitiveValue&&unquoted&&!placeholder.test(unquoted)?'"[REDACTED]"'+(value.match(/\r\n|\r|\n/g)??[]).join(''):value;
+  result+=prefix+visible+(comment?redactComment(comment.trimStart()):'');
+  offset=match.index+match[0].length;
+ }
+ return result+comments(raw.slice(offset));
+}
+
+function filterProse(raw:string):string {
+ const lines=raw.split('\n'),unchecked:string[]=[];
+ const assignment=/^([ \t]*)(["']?)([A-Za-z_][\w.-]*)\2([ \t]*[:=][ \t]*)(.*)$/;
+ for(let index=0;index<lines.length;index++){
+  const match=assignment.exec(lines[index]);
+  if(!match||!sensitive.test(match[3])){unchecked.push(lines[index]);continue;}
+  const [,indent,quote,key,separator,remainder]=match;
+  const value=remainder.trim();
+  lines[index]=indent+quote+key+quote+separator+'[REDACTED]';
+  if(/^[&*!]/.test(value)||value.endsWith('\\')||
+     /^[|>]/.test(value)&&!/^[|>](?:[1-9][+-]?|[+-][1-9]?)?(?:\s+#.*)?$/.test(value))throw Error('unsupported sensitive format');
+  if(/^[\[{]/.test(value)){
+   try{JSON.parse(value);}catch{throw Error('unsupported sensitive format');}
+  }
+  const delimiter=/^("|'|\x60)\1\1/.exec(value)?.[0]??(/^["'\x60]/.test(value)?value[0]:undefined);
+  const closes=(text:string)=>delimiter&&text.replace(/\\[\s\S]/g,'').includes(delimiter);
+  if(delimiter&&!closes(value.slice(delimiter.length))){
+   while(index+1<lines.length){
+    const closed=closes(lines[index+1]);
+    lines[++index]='';
+    if(closed)break;
+   }
+  }
+  while(index+1<lines.length&&(!lines[index+1].trim()||/^[ \t]*/.exec(lines[index+1])![0].length>indent.length))lines[++index]='';
+  if(!value&&/^\s*-(?:\s|$)/.test(lines[index+1]??''))throw Error('unsupported sensitive format');
+ }
+ const unfiltered=unchecked.join('\n');
+ if(structuredCredentialAssignment(unfiltered)||/\[.*env.*\]/i.test(unfiltered))throw Error('unsupported sensitive format');
+ return lines.join('\n');
+}
+
+export const filterContent=(path:string,raw:string)=>filter(path,raw,false);
+
+// Legacy apply snapshots depend on the v0.8 inventory's file admission.
+export const filterLegacyInstallationContent=(path:string,raw:string)=>filter(path,raw,true);
+
+function filter(path:string,raw:string,legacy:boolean):string{
+ const parts=path.split(/[\\/]/);
+ if(parts.some(legacy?part=>secretName.test(part):evidenceSecretName)) throw new Error('sensitive file denied');
  if(/-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/.test(raw))throw Error('private key material denied');
  if(raw.includes('\0')) throw new Error('binary file denied');
  const extension=extname(path).toLowerCase();
  let text=raw;
- if(extension === '.toml') {
+ if(!legacy&&envExample.test(parts.at(-1)??'')){
+  text=filterEnvExample(raw);
+ }else if(extension === '.toml') {
   const parsed=parseToml(raw);const secrets=new Set<unknown>();
   function collect(value:unknown,hidden=false):void {
    if(Array.isArray(value)){let next=false;for(const item of value){collect(item,hidden||next);next=typeof item==='string'&&credentialFlag.test(item);}}
@@ -36,7 +97,7 @@ export function filterContent(path:string,raw:string):string {
    return '"[REDACTED]"'+'\n'.repeat((token.match(/\n/g)||[]).length);
   });
   if([...secrets].some(value=>typeof value !== 'string')) throw new Error('unsupported non-string sensitive TOML value');
- } else if(extension === '.jsonc') {
+ } else if(extension === '.jsonc'||!legacy&&extension === '.json') {
   const errors:ParseError[]=[];const tree=parseTree(raw,errors,{allowTrailingComma:true});
   if(errors.length || !tree) throw new Error('unsupported JSONC syntax');
   const spans:{start:number;end:number;replacement?:string}[]=[];
@@ -52,7 +113,7 @@ export function filterContent(path:string,raw:string):string {
   const scanner=createScanner(raw,false);
   for(let kind=scanner.scan();kind!==SyntaxKind.EOF;kind=scanner.scan())if(kind===SyntaxKind.LineCommentTrivia||kind===SyntaxKind.BlockCommentTrivia){const start=scanner.getTokenOffset(),end=start+scanner.getTokenLength();const original=raw.slice(start,end),replacement=redactComment(original);if(replacement!==original)spans.push({start,end,replacement});}
   for(const span of spans.sort((a,b)=>b.start-a.start)) text=text.slice(0,span.start)+(span.replacement??'"[REDACTED]"')+text.slice(span.end);
- } else if(['.json','.yaml','.yml'].includes(extension)) {
+ } else if(['.yaml','.yml'].includes(extension)||legacy&&extension==='.json') {
   const doc=parseDocument(raw);if(doc.errors.length) throw new Error('unsupported configuration syntax');
   const spans:{start:number;end:number;replacement?:string}[]=[];
   function walk(node:any,hidden=false):void {
@@ -77,11 +138,16 @@ export function filterContent(path:string,raw:string):string {
    const original=text.slice(span.start,span.end);
    text=text.slice(0,span.start)+(span.replacement??'"[REDACTED]"'+'\n'.repeat((original.match(/\n/g)||[]).length))+text.slice(span.end);
   }
- } else if(credentialAssignment.test(raw) || /\[.*env.*\]/i.test(raw)) {
+ } else if(!legacy&&/\.(?:mdx?|rst|adoc|txt)$/.test(extension)&&structuredCredentialAssignment(raw)){
+  text=filterProse(raw);
+ } else {
+  const declarations=/^\s*(?:readonly\s+)?[$\w]+\??\s*:\s*(?:string|number|boolean|undefined|unknown|never|symbol|bigint)(?:\[\])?\s*;[ \t]*$/gm;
+  const values=!legacy&&/\.(?:[cm]?ts|tsx)$/.test(extension)?raw.replace(declarations,''):raw;
   // Unknown sensitive syntax cannot be safely exported using line heuristics.
-  throw new Error('unsupported sensitive format');
+  if(credentialAssignment.test(values)||/\[.*env.*\]/i.test(values))throw new Error('unsupported sensitive format');
  }
- return text.replace(/https?:\/\/[^\s"'<>]+/g,url=>{
+ const urls=legacy?/https?:\/\/[^\s"'<>]+/g:/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi;
+ return text.replace(urls,url=>{
   try {const parsed=new URL(url);if(parsed.username || parsed.password){parsed.username='';parsed.password='';}for(const key of [...parsed.searchParams.keys()]) if(sensitive.test(key)) parsed.searchParams.set(key,'[REDACTED]');return parsed.toString();}catch{return '[REDACTED-URL]';}
  });
 }

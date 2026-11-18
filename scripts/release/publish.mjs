@@ -101,7 +101,7 @@ export async function validateReleaseAssets({
 
     const smoke = await readJson(join(directory, smokeName));
     verifyReceipt(smoke, metadata, 'smoke', {
-      lifecycle: ['help', 'version', 'preview', 'session handoff', 'independent apply', 'no-op', 'doctor'],
+      lifecycle: ['help', 'version', 'preview', 'active-session apply', 'host reload reminder', 'no-op', 'doctor'],
       relocated: true,
       throughPathSymlink: true,
       originalBusinessPreserved: true,

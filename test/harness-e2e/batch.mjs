@@ -57,10 +57,7 @@ async function createBatchDirectory(out) {
   const directory = await mkdtemp(join(parent, 'rigup-harness-'));
   try {
     const stat = await lstat(directory);
-    if (process.platform === 'win32') {
-      const {assertPrivateAccess} = await import('../../src/private-access.ts');
-      await assertPrivateAccess(directory, stat, 'Evaluation output needs a private ACL');
-    } else if (stat.mode & 0o077) throw new Error('Evaluation output is not private');
+    if (process.platform !== 'win32' && stat.mode & 0o077) throw new Error('Evaluation output is not private');
     return directory;
   } catch (error) {
     await rm(directory, {recursive: true, force: true});

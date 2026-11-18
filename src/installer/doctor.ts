@@ -87,7 +87,7 @@ export async function doctor(root:string,options:DoctorOptions={}):Promise<Insta
    const actual=await readFileState(root,asset.target);
    const local=ownedContent(actual.bytes?.toString(asset.encoding==='base64'?'base64':'utf8'),asset.ownership);
    if(local===undefined)add('config',asset.logicalId,'failed','Owned target or selector missing');
-   else if(asset.mode!==undefined&&actual.mode!==platformFileMode(asset.mode))add('config',asset.logicalId,'pending','Local file mode differs from the managed baseline; user chmod preserved, review actual executable permissions');
+   else if(asset.mode!==undefined&&actual.mode!==platformFileMode(asset.effectiveMode??asset.mode))add('config',asset.logicalId,'pending','Local file mode differs from the managed baseline; user chmod preserved, review actual executable permissions');
    else if(equalOwnedContent(asset.ownership,local,baseline))add('config',asset.logicalId,'configured','Owned content present');
    else add('config',asset.logicalId,'pending','Local modification preserved; capability needs review');
   }

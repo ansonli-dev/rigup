@@ -3,11 +3,18 @@ import {parseDocument,isSeq,stringify} from 'yaml';
 import type {PreparedAsset} from '../registry.js';
 import {targetPath} from '../../installer/ownership.js';
 import {digest} from '../../analyzer/evidence.js';
+import {secretName} from '../../analyzer/read-policy.js';
 import type {CommandSpec,GitlabJobBinding,SetupOptions} from '../../types.js';
 import {quotePosixShell} from '../../shell-command.js';
 import {npmScriptName,projectRelativePath} from '../tools/project-check.mjs';
 export const isGitlabWiring=(id:string):boolean=>id==='gitlab:jobs'||id==='gitlab:include';
 
+export function validJunitReportPath(value:unknown):value is string{
+ if(typeof value!=='string'||!projectRelativePath(value)||/[$:{}[\]]/.test(value))return false;
+ const parts=value.split('/');
+ if(parts.some(part=>secretName.test(part)||['.git','.rigup','.superpowers'].includes(part.toLowerCase())))return false;
+ return !/[?*]/.test(value)||parts.length>1&&!/[?*]/.test(parts[0])&&/\.xml$/i.test(parts.at(-1)!);
+}
 const gitlabKeywords=new Set(['after_script','before_script','cache','default','image','include','services','stages','types','variables','workflow']);
 const mapping=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const changesContext=(value:Record<string,unknown>)=>
@@ -55,6 +62,7 @@ export function discoverGitlabJobs(path:string,text:string):GitlabJobBinding[]{
 }
 export async function prepareGitlab(root:string,selection:NonNullable<SetupOptions['quality']>['gitlab'],commands:CommandSpec[]):Promise<{assets:PreparedAsset[];requirements:{integrationId:string;reason:string}[]}>{
  const assets:PreparedAsset[]=[];const requirements:{integrationId:string;reason:string}[]=[];if(!selection)return {assets,requirements};
+ if(selection.reportPaths?.some(path=>!validJunitReportPath(path)))throw Error('quality.gitlab.reportPaths: use repository-relative JUnit report paths');
  let text='';try{text=await readFile(await targetPath(root,'.gitlab-ci.yml'),'utf8');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
  const doc=parseDocument(text);if(doc.errors.length){requirements.push({integrationId:'gitlab',reason:'Existing CI YAML is invalid; preserve it and repair manually'});return {assets,requirements};}
  const existing=doc.toJS();const stages=existing?.stages;

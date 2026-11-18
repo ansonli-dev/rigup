@@ -1,6 +1,6 @@
 import {posix} from 'node:path';
 import {scopeContains,scopesOverlap,validateTopicId,type Evidence,type ManagedAsset,type StepResult} from '../types.js';
-import type {RepositoryReader,ResearchResult} from '../analyzer/backend.js';
+import {conventionEvidenceGap,type RepositoryReader,type ResearchResult} from '../analyzer/backend.js';
 import {digest} from '../analyzer/evidence.js';
 import {collectTopicEvidence,topicEvidenceRequests,type TopicEvidenceBatch} from '../analyzer/topic-evidence.js';
 import {artifactVerdict,relativeTarget,type ArtifactDraftPolicy,type ArtifactJob,type ArtifactPage} from './artifacts.js';
@@ -46,6 +46,7 @@ interface RuleObservation {
  supportingEvidence:Evidence[];
  counterEvidence:Evidence[];
  exceptions?:unknown[];
+ coverage?:Parameters<typeof conventionEvidenceGap>[0]['coverage'];
  gap?:string;
 }
 
@@ -196,6 +197,7 @@ export function prepareProjectRules(data:Record<string,unknown>,files:string[],r
   bind('reusable',documented.filter(ref=>!guidance.some(binding=>sameScope(binding)&&binding.sourceRef?.path===ref.path)));
   if(documented.length||observation.guidanceDisposition!=='follow-existing')continue;
   if(classification==='convention'){
+   if(conventionEvidenceGap(observation)){bind('needs-decision',supportingEvidence);continue;}
    const supports=scopeSupportingPaths(supportingEvidence,scopes);
    if(scopes.includes('.')||supports.size<2||scopes.some(path=>![...supports].some(file=>within(file,path))))continue;
   }else{

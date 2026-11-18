@@ -35,13 +35,16 @@ test('research continuation keeps its explicit limit and stops at an unrelated i
  await writeOpenSpecCodexEntries(root);
  testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  let output='';
- const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
+ const backend={advisoryBudget:true as const,run:async()=>({status:'pending-host' as const,requestId:'fixture',
+  requestPath:join(cache,'host','fixture.request.json'),nextCommand:'continue'})};
+ const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}};
  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--review','--research-tokens','1','--json'],io),3,output);
  const id=JSON.parse(output).nextCommand.match(/--continue ([a-f0-9]{64})/)[1];
  const continuation=await loadContinuation(root,id,io.services);
  assert.equal(JSON.parse(await readFile(state+'/runs/'+id+'.json','utf8')).researchTokens,1);
  output='';assert.equal(await runCli(['update','--continue',id,'--json'],io),3);
- assert.equal(JSON.parse(output).researchBudget.limit,1);
+ assert.equal(JSON.parse(output).phase,'research');
+ assert.equal(JSON.parse(await readFile(state+'/runs/'+id+'.json','utf8')).researchTokens,1);
 
  const options=continuation.options;
  const plan=await preview({root,options,fingerprint:(await scanRepository(root,options)).fingerprint,
@@ -57,6 +60,23 @@ test('research continuation keeps its explicit limit and stops at an unrelated i
 test('configured_automation_runs_without_yes_or_no_prompt_switches_and_json_is_one_object',()=>fixture(async(root,cache,state)=>{
  await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml','agents: [codex]\nbackend: host\nmcp:\n  - id: docs\n    agents: [codex]\n    url: https://example.org/mcp\n');let stdout='',stderr='',reads=0;
  const code=await runCli(['init','--json'],{cwd:root,isTTY:true,write:s=>stdout+=s,writeError:s=>stderr+=s,read:async()=>{reads++;throw Error('JSON must not read stdin');},services:{cacheRoot:cache,stateRoot:state}});assert.equal(code,0);assert.equal(reads,0);const report=JSON.parse(stdout);assert.equal(report.installStatus,'complete');assert.equal(report.phase,'apply');assert.match(stderr,/Generate/);assert.ok((await readdir(root+'/.codex')).includes('config.toml'));
+}));
+test('CLI configure keeps handwritten keys and binds an implicit MCP to its selected host',()=>fixture(async(root,cache,state)=>{
+ await mkdir(join(root,'.rigup'));
+ const config=join(root,'.rigup','config.yaml');
+ const retained='teamWorkflow: keep-this # maintained by the team';
+ await writeFile(config,[retained,'agents: [codex]','backend: host','projectRules: false','mcp:','  - id: docs','    url: https://example.test/mcp',''].join('\n'));
+ let output='',diagnostic='';
+ const code=await runCli(['init','--configure','--agents','claude','--json'],{cwd:root,isTTY:false,write:text=>output+=text,
+  writeError:text=>diagnostic+=text,services:{cacheRoot:cache,stateRoot:state}});
+ assert.equal(code,0,output+diagnostic);
+ assert.equal(JSON.parse(output).installStatus,'complete');
+ assert.match(diagnostic,/teamWorkflow.*unknown/i);
+ const text=await readFile(config,'utf8');
+ assert.ok(text.includes(retained));
+ const {parse}=await import('yaml');
+ assert.equal(parse(text).mcp[0].agents,undefined);
+ assert.equal(JSON.parse(await readFile(join(root,'.mcp.json'),'utf8')).mcpServers.docs.url,'https://example.test/mcp');
 }));
 test('required_missing_credentials_are_pending_before_research_not_placeholder_success',()=>fixture(async(root,cache,state)=>{
  let out='',calls=0;const code=await runCli(['init','--agents','codex','--sdd','openspec','--backend','native','--json'],{cwd:root,isTTY:false,write:s=>out+=s,services:{cacheRoot:cache,stateRoot:state}});assert.equal(code,3);const report=JSON.parse(out);assert.ok(report.requiredInput.length);assert.deepEqual(await readdir(root),[]);
@@ -118,11 +138,19 @@ test('failure_after_preview_is_present_in_the_final_json_report',()=>fixture(asy
  let stdout='';const code=await runCli(['init','--agents','codex','--run-checks','test','--json'],{cwd:root,isTTY:false,write:s=>stdout+=s,services:{cacheRoot:cache,stateRoot:state,runChecks:async()=>{throw Error('existing check runner failed');}}});
  assert.equal(code,1);assert.match(JSON.parse(stdout).error,/existing check runner failed/);
 }));
-test('research_reader_budget_survives_lifecycle_pause_and_new_cli_instance',()=>fixture(async(root,cache,state)=>{
+test('CLI resume keeps the research run after an unrelated edit without a cumulative read limit',()=>fixture(async(root,cache,state)=>{
  await writeFile(root+'/source.txt','source');await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({agents:['codex'],sdd:'openspec',backend:'host',readBudget:{maxFiles:1,maxBytes:1000}}));
- const backend={run:async(_r:any,reader:any)=>{await reader.read('source.txt',1);return {status:'pending-host' as const,requestId:'fixture',requestPath:cache+'/fixture.json',nextCommand:'continue'};}};
+ const runs:string[]=[];
+ const backend={run:async(request:any,reader:any)=>{
+  runs.push(request.runId);assert.equal((await reader.read('source.txt',1)).content,'source');
+  return {status:'pending-host' as const,requestId:'fixture',requestPath:cache+'/fixture.json',nextCommand:'continue'};
+ }};
  let output='';const io=()=>({cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}});
- assert.equal(await runCli(['init','--json'],io()),3);output='';assert.equal(await runCli(['update','--json'],io()),1);assert.match(JSON.parse(output).error,/reader.*budget/);
+ assert.equal(await runCli(['init','--json'],io()),3);
+ await writeFile(join(root,'z-unrelated.txt'),'different file');
+ output='';
+ assert.equal(await runCli(['update','--resume','--json'],io()),3);
+ assert.equal(runs.length,2);assert.equal(new Set(runs).size,1);
 }));
 test('resume finds the saved OpenSpec research after optional external entries become visible',t=>fixture(async(root,cache,state)=>project(async home=>{
  await writeOpenSpecCodexEntries(root);
@@ -143,10 +171,10 @@ test('resume finds the saved OpenSpec research after optional external entries b
   await writeFile(external+'/SKILL.md','---\nname: openspec-update-change\ndescription: Fixture revision\n---\n');
   output='';
   assert.equal(await runCli([...args,'--resume'],io),1);
-  assert.match(JSON.parse(output).error,/previous OpenSpec discovery/i);
-  assert.equal(calls,1);
+  assert.match(JSON.parse(output).error,/simulated interrupted dispatch/i);
+  assert.equal(calls,2);
   assert.deepEqual(await readdir(state+'/runs'),records);
-  assert.equal(await readFile(state+'/runs/'+records[0],'utf8'),oldRecord);
+  assert.equal(JSON.parse(await readFile(state+'/runs/'+records[0],'utf8')).runId,JSON.parse(oldRecord).runId);
  }finally{
   if(previousHome===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previousHome;
  }

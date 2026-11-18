@@ -93,8 +93,8 @@ export async function readManagedGlobalInstall(id,launcher,stateRoot=join(homedi
  const receipt=await readGlobalInstallRecord(join(stateRoot,'global-npm-'+hash({name,prefix})+'.json'));
  const published=record.stage==='terminal'&&record.result?.status==='done'&&approval.name===name&&approval.bin===id&&
   receipt?.prefix===prefix&&receipt.version===approval.install?.version&&receipt.packageIntegrity===approval.install?.packageIntegrity&&
-  receipt.registry===approval.install?.registry&&/^[a-f0-9]{64}$/.test(receipt.launcherIdentity)&&
-  ['approval','version','packageIntegrity','registry','prefix','launcherIdentity'].every(key=>receipt[key]===record.result.globalReceipt?.[key]);
+  receipt.registry===approval.install?.registry&&(receipt.launcher===launcher||/^[a-f0-9]{64}$/.test(receipt.launcherIdentity))&&
+  ['approval','version','packageIntegrity','registry','prefix','launcher','launcherIdentity'].every(key=>receipt[key]===record.result.globalReceipt?.[key]);
  return {prefix,approval,published,receipt:published?receipt:undefined};
 }
 

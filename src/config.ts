@@ -5,8 +5,13 @@ import {validateTopicId,type SetupOptions} from './types.js';
 import {isCheckSelector} from './integrations/tools/check-catalog.js';
 import {projectRelativePath} from './integrations/tools/project-check.mjs';
 import {validateRemoteMcp} from './integrations/tools/customer-mcp.js';
+import {validJunitReportPath} from './integrations/gitlab/ci.js';
+import type {CommandSpec} from './types.js';
 
-async function readConfig(path: string, required = false): Promise<Record<string, unknown>> {
+const optionKeys=new Set(['agents','backend','projectRules','documentLanguage','quality','customer','executionPolicy','profile','templates','mcp','readBudget','researchBudget','scope','model','sdd','tools','customSkills','projectConventions']);
+const commandDefaults=(command:CommandSpec):CommandSpec=>({...command,cwd:command.cwd??'.',envRefs:command.envRefs??[]});
+
+async function readConfig(path:string,required=false,onWarning?:(message:string)=>void):Promise<Record<string,unknown>> {
   let source: string;
   try { source = await readFile(path, 'utf8'); }
   catch (error) {
@@ -18,7 +23,12 @@ async function readConfig(path: string, required = false): Promise<Record<string
   }
   let value:unknown;try{value=parse(source);}catch{throw new Error('config: invalid YAML syntax');}
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('config: expected mapping');
-  return value as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(value).filter(([key])=>{
+   if(optionKeys.has(key))return true;
+   const field=/^[\w.-]{1,80}$/.test(key)?key:'unrecognized field';
+   onWarning?.(field+': unknown top-level configuration key');
+   return false;
+  }));
 }
 
 export function normalizeDocumentLanguage(value: unknown): string {
@@ -31,7 +41,7 @@ export function normalizeDocumentLanguage(value: unknown): string {
 
 export function validateOptions(value: Record<string, unknown>): void {
   for (const key of Object.keys(value)) {
-    if (!['agents','backend','projectRules','documentLanguage','quality','customer','executionPolicy','profile','templates','mcp','readBudget','researchBudget','scope','model','sdd','tools','customSkills','projectConventions'].includes(key)) throw new Error(key + ': unknown field');
+    if (!optionKeys.has(key)) throw new Error(key + ': unknown field');
   }
   if (value.documentLanguage !== undefined) normalizeDocumentLanguage(value.documentLanguage);
   if(value.projectRules!==undefined&&typeof value.projectRules!=='boolean')throw Error('projectRules: expected boolean');
@@ -42,7 +52,7 @@ export function validateOptions(value: Record<string, unknown>): void {
    for(const key of ['preCommit','prePush'])if(q[key]!==undefined&&(!Array.isArray(q[key])||(q[key] as unknown[]).some(k=>!isCheckSelector(k))))throw new Error('quality.'+key+': existing check kinds or {cwd, script} required');
    if(q.maxPushCommits!==undefined&&(!Number.isSafeInteger(q.maxPushCommits)||Number(q.maxPushCommits)<1))throw new Error('quality.maxPushCommits: positive integer required');
    if(q.gitlab!==undefined){const g=q.gitlab as Record<string,unknown>;if(!g||typeof g!=='object'||Array.isArray(g)||Object.keys(g).some(k=>!['checks','reportPaths','openwiki'].includes(k))||!Array.isArray(g.checks)||g.checks.some(k=>!isCheckSelector(k)))throw new Error('quality.gitlab: invalid selection');
-    if(g.reportPaths!==undefined&&(!Array.isArray(g.reportPaths)||g.reportPaths.some(p=>typeof p!=='string'||p.startsWith('/')||p.split('/').includes('..')||p.includes('\\')||/[?*]/.test(p))))throw new Error('quality.gitlab.reportPaths: exact relative report paths required');
+    if(g.reportPaths!==undefined&&(!Array.isArray(g.reportPaths)||g.reportPaths.some(path=>!validJunitReportPath(path))))throw Error('quality.gitlab.reportPaths: use repository-relative paths or XML patterns inside a report directory');
     if(g.openwiki!==undefined){const w=g.openwiki as Record<string,unknown>;if(!w||typeof w!=='object'||Object.keys(w).some(k=>!['envRefs','sourcePaths'].includes(k))||!Array.isArray(w.envRefs)||w.envRefs.some(v=>typeof v!=='string'||!/^[A-Z_][A-Z0-9_]*$/.test(v))||!Array.isArray(w.sourcePaths)||!w.sourcePaths.length||w.sourcePaths.some(p=>typeof p!=='string'||p.startsWith('/')||p.split('/').includes('..')||p.startsWith('openwiki/')||p==='**/*'))throw new Error('quality.gitlab.openwiki: explicit environment references and source-only paths required');}
    }
   }
@@ -58,7 +68,7 @@ export function validateOptions(value: Record<string, unknown>): void {
    if(!Array.isArray(value.tools)) throw new Error('tools: expected list');
    for(const [i,tool] of value.tools.entries()) {
     if(!tool || typeof tool !== 'object' || !['openwiki','codegraph'].includes(tool.id)) throw new Error('tools.'+i+'.id: unsupported');
-    if(typeof tool.install !== 'boolean' || typeof tool.initialize !== 'boolean') throw new Error('tools.'+i+': explicit install/initialize booleans required');
+    if(tool.install!==undefined&&typeof tool.install!=='boolean'||tool.initialize!==undefined&&typeof tool.initialize!=='boolean')throw Error('tools.'+i+': install/initialize must be booleans');
     if(!Array.isArray(tool.agents) || tool.agents.some((a:unknown)=>!['claude','codex','opencode','omp'].includes(String(a)))) throw new Error('tools.'+i+'.agents: invalid');
    }
   }
@@ -134,14 +144,15 @@ export function validateOptions(value: Record<string, unknown>): void {
       const required=key === 'templates'  ? ['source','target'] : ['id'];
       for(const name of required) if(typeof v[name] !== 'string' || !v[name]) throw new Error(field+'.'+name+': required');
       if(key === 'mcp') {
-        if(!Array.isArray(v.agents) || !v.agents.length || v.agents.some(a=>!['claude','codex','opencode','omp'].includes(a))) throw new Error(field+'.agents: required');
+        if(v.agents!==undefined&&(!Array.isArray(v.agents)||!v.agents.length||v.agents.some(a=>!['claude','codex','opencode','omp'].includes(a))))throw Error(field+'.agents: invalid');
         if((v.url === undefined) === (v.command === undefined)) throw new Error(field+': choose url or command');
         validateRemoteMcp(v.url,v.bearerTokenEnv,field);
         if(v.command !== undefined) {
          const command=v.command as Record<string,unknown>;
          if(!command || typeof command !== 'object' || Array.isArray(command)) throw new Error(field+'.command: expected object');
          for(const name of Object.keys(command)) if(!['executable','args','cwd','envRefs'].includes(name)) throw new Error(field+'.command.'+name+': unknown field');
-         if(typeof command.executable !== 'string' || !command.executable || typeof command.cwd !== 'string' || !Array.isArray(command.args) || command.args.some(a=>typeof a !== 'string')) throw new Error(field+'.command: executable/args/cwd required');
+         if(typeof command.executable!=='string'||!command.executable||command.cwd!==undefined&&typeof command.cwd!=='string'||
+            !Array.isArray(command.args)||command.args.some(arg=>typeof arg!=='string'))throw Error(field+'.command: executable and args required, cwd must be a string');
          for(const [argIndex,arg] of (command.args as string[]).entries()) {
           const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|cookies?|credentials?)(?:=|$)/i;
           const executableName=command.executable.split(/[\\/]/).at(-1)!.replace(/\.exe$/i,'').toLowerCase();
@@ -151,12 +162,13 @@ export function validateOptions(value: Record<string, unknown>): void {
            const credential=curlShort?.[1] ? curlShort[1].replace(/^=/,'') : arg.includes('=') ? arg.slice(arg.indexOf('=')+1) : (command.args as string[])[argIndex+1];
            if(typeof credential !== 'string' || !/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(credential)) throw new Error(field+'.command.args: credential values forbidden; use declared environment references');
           }
-          const header=arg.match(/(?:authorization|proxy-authorization|cookies?|set[-_]?cookie|(?:[A-Za-z0-9_-]*[-_])?(?:api[-_]?key|token))\s*[:=]\s*(?:Bearer\s+|Basic\s+)?(.+)$/i);
-          if(header&&!/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(header[1]))throw new Error(field+'.command.args: literal header credential forbidden; use an environment reference');
+          const header=arg.replace(/^(?:--header=|-H=?)/,'').match(/^([A-Za-z][\w-]*)\s*:\s*(?:Bearer\s+|Basic\s+)?(.+)$/i);
+          if(header&&/^(?:authorization|proxy-authorization|cookie|set-cookie|(?:[\w-]+[-_])?(?:api[-_]?key|token))$/i.test(header[1])&&
+             !/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(header[2]))throw Error(field+'.command.args: literal header credential forbidden; use an environment reference');
           for(const ref of arg.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g))if(![...(Array.isArray(command.envRefs)?command.envRefs:[]),...(Array.isArray(v.envRefs)?v.envRefs:[])].includes(ref[1]))throw new Error(field+'.command.args: undeclared environment reference');
           if(/^https?:\/\//i.test(arg)) {const url=new URL(arg);if(url.username||url.password||[...url.searchParams.keys()].some(k=>/token|password|secret|auth|key|cookies?/i.test(k))) throw new Error(field+'.command.args: credential URL forbidden');}
          }
-         if(!Array.isArray(command.envRefs) || command.envRefs.some(r=>typeof r !== 'string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(r))) throw new Error(field+'.command.envRefs: invalid');
+         if(command.envRefs!==undefined&&(!Array.isArray(command.envRefs)||command.envRefs.some(r=>typeof r!=='string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(r))))throw Error(field+'.command.envRefs: invalid');
         }
         if(v.envRefs !== undefined && (!Array.isArray(v.envRefs) || v.envRefs.some(r=>typeof r !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r)))) throw new Error(field+'.envRefs: invalid');
         if(v.bearerTokenEnv!==undefined&&Array.isArray(v.envRefs)&&v.envRefs.length)throw Error(field+'.envRefs: remote authentication uses only bearerTokenEnv');
@@ -171,11 +183,11 @@ export function validateOptions(value: Record<string, unknown>): void {
 
 export type SetupOverrides=Partial<Omit<SetupOptions,'sdd'>>&{sdd?:SetupOptions['sdd']|'none'};
 
-export async function loadOptions(root: string, overrides: SetupOverrides, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions;onSelections?:(selections:{agents:boolean;sdd:boolean})=>void}={}): Promise<SetupOptions> {
-  const project = approvedOptions ? {...approvedOptions} : await readConfig(join(root,'.rigup','config.yaml'));
+export async function loadOptions(root: string, overrides: SetupOverrides, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions;onSelections?:(selections:{agents:boolean;sdd:boolean})=>void;onWarning?:(message:string)=>void}={}): Promise<SetupOptions> {
+  const project = approvedOptions ? {...approvedOptions} : await readConfig(join(root,'.rigup','config.yaml'),false,defaults.onWarning);
   validateOptions(project); validateOptions(overrides);
   const profilePath = approvedOptions ? undefined : overrides.profile ?? project.profile ?? defaults.fallback?.profile;
-  const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath), true) : {};
+  const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath),true,defaults.onWarning) : {};
   validateOptions(profile);
   const fallback:Partial<SetupOptions>=approvedOptions?{}:defaults.fallback??{};
   const layers=[fallback,profile,project,overrides];
@@ -189,6 +201,10 @@ export async function loadOptions(root: string, overrides: SetupOverrides, appro
   if(options.model&&modelLayer>backendLayer)options.backend='native';
   else if(options.backend==='codex'&&options.model)delete options.model;
   validateOptions(options as unknown as Record<string,unknown>);
+  if(options.tools)options.tools=options.tools.map(tool=>({...tool,install:tool.install??false,initialize:tool.initialize??false}));
+  if(options.mcp)options.mcp=options.mcp.map(mcp=>mcp.command?{...mcp,command:commandDefaults(mcp.command)}:mcp);
+  if(options.customer?.commands)options.customer={...options.customer,commands:Object.fromEntries(
+   Object.entries(options.customer.commands).map(([name,command])=>[name,commandDefaults(command)]))};
   if(options.projectConventions?.topics)options.projectConventions={...options.projectConventions,
    topics:options.projectConventions.topics.map(topic=>({...topic,scope:[...new Set(topic.scope)]}))};
   return options;
@@ -198,7 +214,7 @@ export async function configurationCandidate(root:string,options:SetupOptions):P
  const {parseDocument}=await import('yaml');let source='';try{source=await readFile(join(root,'.rigup/config.yaml'),'utf8');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
  const doc=parseDocument(source);if(doc.errors.length)throw new Error('config: invalid YAML syntax');const previous=doc.toJS()??{};
  const persisted={...options,sdd:options.sdd??'none'};
- for(const key of Object.keys(previous))if(!(key in persisted))doc.delete(key);
+ for(const key of Object.keys(previous))if(optionKeys.has(key)&&!(key in persisted))doc.delete(key);
  for(const [key,value] of Object.entries(persisted))if(value!==undefined&&JSON.stringify(previous[key])!==JSON.stringify(value))doc.set(key,value);
  return {logicalId:'rigup:configuration',target:'.rigup/config.yaml',content:doc.toString(),ownership:{kind:'file'},source:{kind:'configuration',ref:'1'}};
 }

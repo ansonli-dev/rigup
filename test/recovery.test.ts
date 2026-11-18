@@ -1,3 +1,6 @@
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {setTimeout as wait} from 'node:timers/promises';
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {loadUpstreamLock} from '../src/integrations/registry.js';
 import {project} from './helpers.js';import {acquireLock} from '../src/installer/lock.js';
@@ -26,15 +29,17 @@ test('same_target_lock_prevents_second_apply',()=>fixture(async(root,state)=>{
 test('a malformed process identity leaves the existing lock in place',()=>fixture(async(root,state)=>{
  const lock=await acquireLock(root,{stateRoot:state});
  const path=state+'/'+signature(lock.root)+'.lock';
- const record=JSON.stringify({root:lock.root,id:lock.id,identity:{pid:process.pid,started:null}});
+ const record=JSON.stringify({root:lock.root,id:lock.id,identity:{pid:0,started:null}});
  await writeFile(path,record);
- await assert.rejects(()=>acquireLock(root,{stateRoot:state,recover:true}),/process identity cannot be confirmed/);
+ await assert.rejects(()=>acquireLock(root,{stateRoot:state,recover:true}),/lock.*process|process identity cannot be confirmed/i);
  assert.equal(await readFile(path,'utf8'),record);
  await lock.release();
 }));
 test('a concurrent lock recovery cannot replace the stale lock while its guard is held',()=>fixture(async(root,state)=>{
  const path=state+'/'+signature(root)+'.lock';
- const stale=JSON.stringify({root,id:'stale',identity:{pid:process.pid,started:process.platform==='win32'?'win32:111111111111111111':'previous process'}});
+ const former=spawn(process.execPath,['-e','process.exit(0)'],{stdio:'ignore'});
+ const pid=former.pid;await once(former,'exit');assert.ok(pid);
+ const stale=JSON.stringify({root,id:'stale',identity:{pid,started:'v0.8 legacy timestamp'}});
  await writeFile(path,stale,{mode:0o600});
  await writeFile(path+'.recovery','other controller',{mode:0o600});
  await assert.rejects(()=>acquireLock(root,{stateRoot:state,recover:true}),/recovery.*in progress/);
@@ -43,6 +48,100 @@ test('a concurrent lock recovery cannot replace the stale lock while its guard i
  const next=await acquireLock(root,{stateRoot:state,recover:true});
  await next.release();
 }));
+async function awaitPid(file:string){
+ const deadline=Date.now()+5000;
+ while(Date.now()<deadline){
+  const pid=Number(await readFile(file,'utf8').catch(()=>0));
+  if(pid>0)return pid;
+  await wait(30);
+ }
+ throw Error('The fixture did not start: '+file);
+}
+
+for(const resource of [undefined,'native-host:omp','openspec:fixture-prefix'])test(
+ 'a real live lock excludes another controller and a dead legacy PID can be recovered: '+(resource??'project'),
+ ()=>fixture(async(root,stateRoot)=>{
+  const module=new URL('../src/installer/lock.ts',import.meta.url).href;
+  const path=join(stateRoot,signature(resource?{resource}:root)+'.lock');
+  const ready=join(stateRoot,'ready');
+  const payload={root,stateRoot,resource,ready};
+  const program="import {writeFileSync} from 'node:fs';const spec="+JSON.stringify(payload)+";"+
+   "const {acquireLock}=await import("+JSON.stringify(module)+");"+
+   "await acquireLock(spec.root,spec);writeFileSync(spec.ready,String(process.pid));setInterval(()=>{},10000);";
+  const owner=spawn(process.execPath,['--import','tsx','--input-type=module','-e',program],{stdio:'ignore'});
+  const exit=once(owner,'exit');
+  try{
+   const pid=await awaitPid(ready);
+   const record=JSON.parse(await readFile(path,'utf8'));
+   assert.equal(record.pid,pid);
+   await assert.rejects(acquireLock(root,{stateRoot,resource,recover:true}),/locked|occupied/);
+   owner.kill('SIGKILL');await exit;
+   await writeFile(path,JSON.stringify({root,id:record.id,identity:{pid,started:'v0.8 legacy timestamp'}}));
+   const next=await acquireLock(root,{stateRoot,resource,recover:true});
+   try{assert.notEqual(next.id,record.id);}finally{await next.release();}
+  }finally{owner.kill('SIGKILL');await exit;}
+ }));
+
+test('a writer with a dead controller continues to exclude the shared host resource',()=>fixture((root,stateRoot)=>project(async other=>{
+ const module=new URL('../src/integrations/host-setup/runtime.ts',import.meta.url).href;
+ const marker=join(root,'writer.pid');
+ const writer="require('node:fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},10000);";
+ const command={executable:process.execPath,args:['-e',writer,marker],env:{}};
+ const program="const {withHostWriter}=await import("+JSON.stringify(module)+");"+
+  "await withHostWriter("+JSON.stringify({root,stateRoot})+",'omp',r=>r.run("+JSON.stringify(command)+","+
+  JSON.stringify(root)+",15000,async()=>undefined));";
+ const owner=spawn(process.execPath,['--import','tsx','--input-type=module','-e',program],{stdio:'ignore'});
+ const exit=once(owner,'exit');
+ let writerPid:number|undefined;
+ try{
+  writerPid=await awaitPid(marker);
+  owner.kill('SIGKILL');await exit;
+  const {withHostWriter}=await import('../src/integrations/host-setup/runtime.js');
+  await assert.rejects(withHostWriter({root:other,stateRoot},'omp',async()=>assert.fail('second writer started')),/still active|occupied/);
+  await assert.rejects(assertNoUnknownWriters(root,stateRoot),/still active/);
+ }finally{
+  owner.kill('SIGKILL');await exit;
+  if(writerPid)try{process.kill(writerPid,'SIGKILL');}catch{}
+ }
+})));
+
+test('the next project tool waits for the first writer to finish',()=>fixture(async(root,stateRoot)=>{
+ const pins=await loadUpstreamLock(),cacheRoot=join(stateRoot,'previews');
+ const operations:SetupOperation[]=[];
+ for(const id of ['openwiki','codegraph'] as const){
+  const pin=pins.find(item=>item.integrationId===id)!;
+  const operation=await prepareSoftwareInstall(root,id,pin.version,pin.packageIntegrity);
+  if('pending' in operation||'reused' in operation)assert.fail('fixture tool did not need an install');
+  operations.push(operation);
+ }
+ const {preview}=await saveNativeOperations(root,cacheRoot,operations);
+ const launched:string[]=[];
+ const result=await apply(preview.previewId,{cacheRoot,stateRoot,operation:{launch:async operation=>{
+  launched.push(operation.integrationId);
+  if(operation.integrationId==='openwiki')await wait(200);
+  return {status:'pending',message:'fixture pauses before publication'};
+ }}});
+ assert.equal(result.status,'pending');
+ assert.deepEqual(launched,['openwiki']);
+ const journal=await pendingOperations(root,stateRoot);
+ assert.deepEqual(journal.map(item=>item.operation.integrationId),['openwiki']);
+}));
+
+test('a reused PID cannot block a completed project writer receipt',()=>fixture(async(root,stateRoot)=>{
+ const pin=(await loadUpstreamLock()).find(item=>item.integrationId==='openwiki')!;
+ const operation=await prepareSoftwareInstall(root,'openwiki',pin.version,pin.packageIntegrity);
+ if('pending' in operation||'reused' in operation)assert.fail('fixture tool did not need an install');
+ const approval=await saveNativeOperations(root,join(stateRoot,'previews'),[operation]);
+ assert.equal((await dispatch(approval,{stateRoot,launch:actual=>completeFixtureInstall(root,actual)})).status,'done');
+ const path=join(stateRoot,signature(root)+'.operations.json');
+ const journal=JSON.parse(await readFile(path,'utf8'));
+ journal.operations[0].identity={pid:process.pid};
+ await saveDurable(path,JSON.stringify(journal));
+ await assertNoUnknownWriters(root,stateRoot);
+ assert.equal((await dispatch(approval,{stateRoot,launch:async()=>assert.fail('completed operation dispatched again')})).status,'done');
+ assert.equal((await pendingOperations(root,stateRoot))[0].identity,undefined);
+}));
+
 test('pending_record_is_durable_before_dispatch',()=>fixture(async(root,state)=>{
  const op=await prepareSoftwareInstall(root,'openwiki','0.7.3',(await loadUpstreamLock()).find(r=>r.integrationId==='openwiki')!.packageIntegrity);if('pending' in op||'reused' in op)throw Error('fixture');
  const approval=await saveNativeOperations(root,join(state,'previews'),[op]);let dispatched=0;

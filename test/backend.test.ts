@@ -122,10 +122,9 @@ test('Anthropic generation caps honor defaults, overrides, and remaining tokens'
  assert.deepEqual(limits,[16384,32_000,500,990]);
 });
 
-test('EOF recovery retries the same authorized file within its read budget',()=>project(async root=>{
+test('EOF recovery retries the same authorized file while preserving redaction',()=>project(async root=>{
  await writeFile(join(root,'config.yaml'),'token: fixture-secret\nname: visible');
- const budget={calls:0,bytes:0};
- const repo=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:3,maxBytes:1000}},{budget});
+ const repo=await repositoryReader(root,{agents:[],backend:'host',readBudget:{maxFiles:3,maxBytes:1000}});
  let turns=0;
  const backend=nativeBackend({apiKey:'fixture',model:'claude-auto[1m]',fetch:async(url,init)=>{
   if(String(url).endsWith('/count_tokens'))return new Response(null,{status:405});
@@ -143,16 +142,17 @@ test('EOF recovery retries the same authorized file within its read budget',()=>
  }});
  const result=await backend.run({...request,root,budget:{maxCalls:4,maxTokens:50_000}},repo);
  assert.equal(result.status,'complete');
- assert.equal(turns,3);assert.equal(budget.calls,2);
+ assert.equal(turns,3);
 }));
 
-for(const [kind,path,calls] of [['out-of-scope','outside/private.txt',0],['symlink','allowed/link.txt',0],['read-budget','allowed/visible.txt',2000]] as const){
+for(const [kind,path] of [['out-of-scope','outside/private.txt'],['symlink','allowed/link.txt'],['oversize','allowed/visible.txt']] as const){
 test(`${kind} denied reads never return EOF metadata or continue generation`,t=>project(async root=>{
  await mkdir(join(root,'allowed'));await mkdir(join(root,'outside'));
  await writeFile(join(root,'allowed','visible.txt'),'line');await writeFile(join(root,'outside','private.txt'),'private');
  if(kind==='symlink')try{await symlink(join(root,'outside','private.txt'),join(root,'allowed','link.txt'));}
  catch(error){if(process.platform==='win32'&&(error as NodeJS.ErrnoException).code==='EPERM'){t.skip('Windows file symlink privilege is unavailable');return;}throw error;}
-  const repo=await repositoryReader(root,{agents:[],backend:'host',scope:['allowed']},{budget:{calls,bytes:0}});
+  const repo=await repositoryReader(root,{agents:[],backend:'host',scope:['allowed'],readBudget:{maxBytes:128}});
+  if(kind==='oversize')await writeFile(join(root,path),'beyond the file limit'.repeat(12));
   let sent=0;
   const backend=nativeBackend({apiKey:'fixture',model:'fixture',fetch:async url=>{
    sent++;
@@ -252,12 +252,12 @@ test('single_example_and_copied_support_cannot_be_promoted_to_convention',async(
  const evidence={path:'a.ts',startLine:1,endLine:1,digest:'same'};
  const sources:RepositoryReader={...reader,read:async(path,startLine,endLine)=>({content:'same',evidence:{...evidence,path,startLine,endLine}})};
  const observation={statement:'Reuse handler pattern',classification:'convention',scope:['src'],supportingEvidence:[evidence],counterEvidence:[],coverage:{independentSupports:1,counterexampleSearched:true},guidanceDisposition:'follow-existing'};
- await assert.rejects(validateResearch({observations:[observation]},sources),/convention/);
- await assert.rejects(validateResearch({observations:[{...observation,supportingEvidence:[evidence,{...evidence,path:'copy.ts'}],coverage:{independentSupports:2,counterexampleSearched:true}}]},sources),/independent|copied|convention/);
+ assert.match((await validateResearch({observations:[observation]},sources)).warnings.join('\n'),/independent support/i);
+ assert.match((await validateResearch({observations:[{...observation,supportingEvidence:[evidence,{...evidence,path:'copy.ts'}],coverage:{independentSupports:2,counterexampleSearched:true}}]},sources)).warnings.join('\n'),/independent support/i);
 });
 test('suggestions_do_not_become_rules_and_missing_refutation_is_not_promoted',async()=>{
  const base={statement:'Use a new style',classification:'suggestion',scope:['src'],supportingEvidence:[],counterEvidence:[],guidanceDisposition:'follow-existing'};
- await assert.rejects(validateResearch({observations:[base]},reader),/suggestion/);
+ assert.match((await validateResearch({observations:[base]},reader)).warnings.join('\n'),/suggestion requires review/i);
 });
 test('conflicting recommendations may remain suggestions awaiting a human decision',async()=>{
  const observation={topic:'query access',statement:'The existing recommendations conflict; do not choose a rule automatically',classification:'suggestion',scope:['src'],supportingEvidence:[],counterEvidence:[],guidanceDisposition:'needs-decision'};
@@ -300,7 +300,7 @@ test('provider_cannot_invoke_exec_even_after_reading_source_instructions',async(
  await assert.rejects(backend.run({...request,budget:{maxCalls:6,maxTokens:10000}},maliciousReader),/unsupported read tool/);
  assert.deepEqual(names,[['list','read','search'],['list','read','search']]);
 });
-test('host_response_changes_in_phase_versions_run_or_templates_are_rejected',async()=>{
+test('host response remains bound to run, phase and policy and changed inputs reissue the stage',async()=>{
  const {hostBackend}=await import('../src/analyzer/host.js');const fs=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const cache=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-context-')));
  const changedRoot=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-context-root-')));
@@ -308,8 +308,13 @@ test('host_response_changes_in_phase_versions_run_or_templates_are_rejected',asy
   const pending=await hostBackend({cacheRoot:cache}).run(request,reader);if(pending.status !== 'pending-host') throw new Error('pending expected');
   const exported=JSON.parse(await fs.readFile(pending.requestPath,'utf8'));const responsePath=join(cache,'response.json');
   await fs.writeFile(responsePath,JSON.stringify({requestId:pending.requestId,requestDigest:exported.requestDigest,data:{observations:[],unknowns:[]},model:'fixture'}));
-  const changes:Partial<ResearchRequest>[]=[{kind:'artifact-plan'},{versions:{policy:'2'}},{runId:'other-run'},{templateSourcesDigest:'changed'},{previousInventoryDigest:'changed'},{artifact:'other-artifact'},{root:changedRoot},{budget:{maxCalls:3,maxTokens:10000}}];
+  const changes:Partial<ResearchRequest>[]=[{kind:'artifact-plan'},{versions:{policy:'2'}},{runId:'other-run'},{artifact:'other-artifact'},{root:changedRoot}];
   for(const change of changes) await assert.rejects(hostBackend({cacheRoot:cache,responsePath}).run({...request,...change},reader),/context|digest|matching/);
+  for(const change of [{templateSourcesDigest:'changed'},{previousInventoryDigest:'changed'}]){
+   const next=await hostBackend({cacheRoot:cache,responsePath}).run({...request,...change},reader);
+   assert.equal(next.status,'pending-host');assert.notEqual(next.requestId,pending.requestId);
+  }
+  assert.equal((await hostBackend({cacheRoot:cache,responsePath}).run({...request,budget:{maxCalls:3,maxTokens:10000}},reader)).status,'complete');
  }finally{await fs.rm(cache,{recursive:true,force:true});await fs.rm(changedRoot,{recursive:true,force:true});}
 });
 test('host_symlinked_cache_cannot_create_project_directories',async()=>{
@@ -336,14 +341,15 @@ test('host_roundtrips_all_research_kinds_across_processes',async()=>{
    const first=await run({cacheRoot:cache,responsePath},req);const replay=await run({cacheRoot:cache,responsePath},req);
    assert.equal(first.status,'complete');assert.deepEqual(replay,first);assert.equal(first.value.usage.tokens,'unknown');
   }
-  await assert.rejects(run({cacheRoot:cache},{...request,kind:'artifact-content',artifact:'fourth-job',budget:{maxCalls:3,maxTokens:10000}}),/budget/);
+  assert.equal((await run({cacheRoot:cache},{...request,kind:'artifact-content',artifact:'fourth-job',budget:{maxCalls:3,maxTokens:10000}})).status,'pending-host');
+  assert.ok(!(await fs.readdir(cache)).some(name=>name.endsWith('.budget.json')));
  }finally{await fs.rm(cache,{recursive:true,force:true});}
 });
 test('unexplained_counterexamples_require_decision_instead_of_follow_existing',async()=>{
  const sources:RepositoryReader={...reader,read:async(path,startLine,endLine)=>({content:path,evidence:{path,startLine,endLine:endLine!,digest:path}})};
  const ev=(path:string)=>({path,startLine:1,endLine:1,digest:path});
  const observation={statement:'Handlers use mapper',classification:'convention',scope:['src'],supportingEvidence:[ev('src/a.ts'),ev('src/b.ts')],counterEvidence:[ev('src/c.ts')],coverage:{independentSupports:2,counterexampleSearched:true},exceptions:[],unknowns:['why c differs'],guidanceDisposition:'follow-existing'};
- await assert.rejects(validateResearch({observations:[observation]},sources),/decision|counterexample/);
+ assert.match((await validateResearch({observations:[observation]},sources)).warnings.join('\n'),/counterexample requires a decision/i);
  await assert.doesNotReject(()=>validateResearch({observations:[{...observation,classification:'local-pattern',guidanceDisposition:'needs-decision'}]},sources));
 });
 test('reusable_guidance_blocks_redundant_inference_and_partial_guidance_limits_gaps',async()=>{
@@ -356,21 +362,25 @@ test('convention_requires_replayable_counterexample_search',async()=>{
  const sources:RepositoryReader={...reader,read:async(path,startLine,endLine)=>({content:path,evidence:{path,startLine,endLine:endLine!,digest:path}})};
  const ev=(path:string)=>({path,startLine:1,endLine:1,digest:path});
  const observation={statement:'Pattern',classification:'convention',scope:['src'],supportingEvidence:[ev('src/a.ts'),ev('src/b.ts')],counterEvidence:[],coverage:{independentSupports:2,counterexampleSearched:true},guidanceDisposition:'follow-existing'};
- await assert.rejects(validateResearch({observations:[observation]},sources),/query/);
+ assert.match((await validateResearch({observations:[observation]},sources)).warnings.join('\n'),/query/);
  let searches=0;
  const counted={...sources,search:async()=>{searches++;return [];}};
  const valid={observations:[{...observation,coverage:{...observation.coverage,counterexampleQueries:['alternative(']}}]};
  await validateResearch(valid,counted);await validateResearch(valid,counted);
- assert.equal(searches,1);
+ assert.equal(searches,2);
 });
-test('host_new_instance_does_not_reset_run_request_budget',async()=>{
+test('host budget is advisory and repeat exports keep the original request',async()=>{
  const {hostBackend}=await import('../src/analyzer/host.js');const fs=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const cache=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-budget-')));
  try {
   const req={...request,budget:{maxCalls:1,maxTokens:1000}};
   const first=await hostBackend({cacheRoot:cache}).run(req,reader);assert.equal(first.status,'pending-host');
   const replay=await hostBackend({cacheRoot:cache}).run(req,reader);assert.deepEqual(replay,first);
-  await assert.rejects(hostBackend({cacheRoot:cache}).run({...req,kind:'artifact-plan'},reader),/budget/);
+  const warnings:string[]=[];
+  const continued=await hostBackend({cacheRoot:cache,onDiagnostic:message=>warnings.push(message)}).run({...req,kind:'artifact-plan',spent:{calls:1,tokens:'unknown'}},reader);
+  assert.equal(continued.status,'pending-host');
+  assert.match(warnings.join('\n'),/budget/);
+  assert.ok(!(await fs.readdir(cache)).some(name=>name.endsWith('.budget.json')));
  }finally{await fs.rm(cache,{recursive:true,force:true});}
 });
 test('conflicting_guidance_is_not_resolved_to_follow_existing',async()=>{
@@ -450,20 +460,21 @@ test('native_honors_configured_base_url_without_following_redirects',async()=>{
  const requests:string[]=[];
  const ambient=process.env.ANTHROPIC_CUSTOM_HEADERS;
  process.env.ANTHROPIC_CUSTOM_HEADERS='Authorization: Bearer unrelated\nX-Org-Token: fixture-token';
- const backend=nativeBackend({apiKey:'fixture',model:'fixture',baseURL:'https://example.test/anthropic',fetch:async(url,init)=>{
+ const backend=nativeBackend({apiKey:'fixture',model:'fixture',baseURL:'http://gateway.internal:8080/anthropic?api-version=2026-01&route=a&route=b',fetch:async(url,init)=>{
   requests.push(String(url));
   assert.equal(init?.redirect,'error');
   const headers=new Headers(init?.headers);
   assert.equal(headers.get('x-api-key'),'fixture');
   assert.equal(headers.has('authorization'),false);
   assert.equal(headers.has('x-org-token'),false);
-  if(String(url).endsWith('/count_tokens'))return Response.json({input_tokens:10});
+  if(new URL(String(url)).pathname.endsWith('/count_tokens'))return Response.json({input_tokens:10});
   return Response.json({id:'msg_fixture',type:'message',role:'assistant',model:'served-model',content:[{type:'text',text:'{"observations":[],"unknowns":[]}'}],stop_reason:'end_turn',usage:{input_tokens:10,output_tokens:5,cache_read_input_tokens:5}});
  }});
  const result=await backend.run(request,reader).finally(()=>{if(ambient===undefined)delete process.env.ANTHROPIC_CUSTOM_HEADERS;else process.env.ANTHROPIC_CUSTOM_HEADERS=ambient;});
  assert.equal(result.status,'complete');
  if(result.status==='complete')assert.deepEqual(result.value.usage,{calls:2,tokens:20});
- assert.deepEqual(requests,['https://example.test/anthropic/v1/messages/count_tokens','https://example.test/anthropic/v1/messages']);
+ assert.deepEqual(requests,['http://gateway.internal:8080/anthropic/v1/messages/count_tokens?api-version=2026-01&route=a&route=b',
+  'http://gateway.internal:8080/anthropic/v1/messages?api-version=2026-01&route=a&route=b']);
 });
 test('native_treats_malformed_generation_usage_as_unknown',async()=>{
  const recorded:unknown[]=[];

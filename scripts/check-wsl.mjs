@@ -5,7 +5,6 @@ import {chmod,lstat,mkdir,mkdtemp,readFile,readdir,realpath,rm,statfs,writeFile}
 import {join} from 'node:path';
 import {apply} from '../dist/installer/apply.js';
 import {applyRecordPath} from '../dist/installer/baseline.js';
-import {assertSupportedFileModes} from '../dist/installer/filesystem-modes.js';
 import {preview} from '../dist/installer/preview.js';
 import {scanRepository} from '../dist/analyzer/repository.js';
 import {readRuntimeFile,writeRuntimeFile} from '../dist/runtime-private-env.js';
@@ -57,17 +56,19 @@ async function fixture(parent,name){
  const approved=await preview(plan,[],{cacheRoot,stateRoot});assert.equal(approved.executable,true);
  return {root,cacheRoot,stateRoot,previewId:approved.previewId};
 }
-const guidance=/cannot retain requested mode.*observed.*Linux home.*metadata.*Preserve the interrupted installation journal/s;
-async function successful(parent,name){
+async function successful(parent,name,exactModes){
  const data=await fixture(parent,name);
- const before=await tree(data.root);
- await assertSupportedFileModes(data.root,[{target:'managed.txt',mode:0o644},{target:'run.sh',mode:0o755}]);
- assert.deepEqual(await tree(data.root),before,'preflight must remove its empty probes');
  const result=await apply(data.previewId,data);assert.equal(result.status,'complete');assert.equal(result.exitCode,0);
- for(const [path,mode] of [['managed.txt',0o644],['run.sh',0o755],['.rigup/manifest.json',0o600]])assert.equal((await lstat(join(data.root,path))).mode&0o777,mode);
+ const observed={};
+ for(const [path,mode] of [['managed.txt',0o644],['run.sh',0o755],['.rigup/manifest.json',0o600]]){
+  const actual=(await lstat(join(data.root,path))).mode&0o777;
+  if(exactModes)assert.equal(actual,mode);
+  observed[path]=actual.toString(8).padStart(4,'0');
+ }
  assert.equal(await readFile(join(data.root,'managed.txt'),'utf8'),'managed\n');
+ execFileSync(join(data.root,'run.sh'),[],{cwd:data.root});
  assert.deepEqual((await apply(data.previewId,data)).written,[]);
- report.cases.push({name,status:'passed',apply:'complete',replayWrites:0,modes:['0644','0755','0600']});
+ report.cases.push({name,status:'passed',apply:'complete',replayWrites:0,modes:observed});
 }
 async function runtime(parent,name,supported){
  const root=join(parent,name);await mkdir(join(root,'.rigup'),{recursive:true,mode:0o700});
@@ -80,38 +81,35 @@ async function runtime(parent,name,supported){
   assert.equal(after.entries.get('SYNTHETIC_VALUE')?.value,'not-a-credential');
   assert.equal((await lstat(join(root,'.rigup/.env'))).mode&0o777,0o600);
  }else{
-  await assert.rejects(write);assert.deepEqual(await tree(root),bytes,'denied private writes must preserve all bytes');
+  await assert.rejects(write,error=>error.message.includes(join(root,'.rigup/.env'))&&/process environment/.test(error.message));assert.deepEqual(await tree(root),bytes,'denied private writes must preserve all bytes');
   await assert.rejects(lstat(join(root,'.rigup/.env')),{code:'ENOENT'});
  }
  report.cases.push({name,status:'passed',privateInput:supported?'0600 read/write':'denied before private bytes'});
 }
 try{
- await successful(control,'linux-ext4');await runtime(control,'linux-ext4-private',true);
+ await successful(control,'linux-ext4',true);await runtime(control,'linux-ext4-private',true);
  mountDrive(false);
  report.withoutMetadata=execFileSync('findmnt',['-J','-T',mountedRoot,'-o','FSTYPE,OPTIONS'],{encoding:'utf8'}).trim();
  assert.doesNotMatch(report.withoutMetadata,/\bmetadata\b/);
- const unsupported=await fixture(mountedRoot,'without-metadata');
- const original=await tree(unsupported.root);let applyHooks=0;
- await assert.rejects(apply(unsupported.previewId,{...unsupported,hook:async()=>{applyHooks++;}}),guidance);
- assert.equal(applyHooks,0);assert.deepEqual(await tree(unsupported.root),original);
- await assert.rejects(readFile(applyRecordPath(unsupported.root,unsupported.stateRoot)),{code:'ENOENT'});
- report.cases.push({name:'drvfs-without-metadata',status:'passed',apply:'denied',projectUnchanged:true,preparedJournal:false,applyHooks});
+ await successful(mountedRoot,'drvfs-without-metadata',false);
  await runtime(mountedRoot,'without-metadata-private',false);
  mountDrive(true);
  report.withMetadata=execFileSync('findmnt',['-J','-T',mountedRoot,'-o','FSTYPE,OPTIONS'],{encoding:'utf8'}).trim();
  assert.match(report.withMetadata,/\bmetadata\b/);
- await successful(mountedRoot,'with-metadata');await runtime(mountedRoot,'with-metadata-private',true);
+ await successful(mountedRoot,'with-metadata',true);await runtime(mountedRoot,'with-metadata-private',true);
+ mountDrive(false);
  const interrupted=await fixture(mountedRoot,'resume-same-path');
  await assert.rejects(apply(interrupted.previewId,{...interrupted,hook:async point=>{if(point==='after-file')throw Error('controlled interruption');}}),/controlled interruption/);
- const journalPath=applyRecordPath(interrupted.root,interrupted.stateRoot),journal=await readFile(journalPath),partial=await tree(interrupted.root);
- assert.equal(JSON.parse(journal).status,'prepared');
- mountDrive(false);
- await assert.rejects(apply(interrupted.previewId,{...interrupted,recover:true}),guidance);
- assert.deepEqual(await readFile(journalPath),journal);assert.deepEqual(await tree(interrupted.root),partial);
- mountDrive(true);
- const resumed=await apply(interrupted.previewId,{...interrupted,recover:true});assert.equal(resumed.status,'complete');assert.equal(resumed.exitCode,0);
+ const journalPath=applyRecordPath(interrupted.root,interrupted.stateRoot),journal=JSON.parse(await readFile(journalPath,'utf8'));
+ assert.equal(journal.status,'prepared');
+ const actual=(await lstat(join(interrupted.root,'managed.txt'))).mode&0o777;
+ assert.equal(journal.files['managed.txt'].effectiveAfterMode??journal.files['managed.txt'].afterMode,actual);
+ const resumed=await apply(interrupted.previewId,{...interrupted,recover:true});
+ assert.equal(resumed.status,'complete');assert.equal(resumed.exitCode,0);
+ assert.deepEqual(resumed.written,['run.sh']);
  assert.equal(JSON.parse(await readFile(journalPath,'utf8')).status,'complete');
- report.cases.push({name:'drvfs-metadata-loss-and-recovery',status:'passed',deniedJournalUnchanged:true,deniedProjectUnchanged:true,resumed:'complete'});
+ report.cases.push({name:'drvfs-recovery-with-observed-mode',status:'passed',observedMode:actual.toString(8),resumed:'complete',repeatedWrites:0});
+
 }catch(error){report.error=String(error);process.exitCode=1;}
 finally{
  try{

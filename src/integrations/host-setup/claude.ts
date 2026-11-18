@@ -1,49 +1,38 @@
+import {execFile} from 'node:child_process';
 import {mkdir,readdir,realpath,writeFile} from 'node:fs/promises';
-import {dirname,join,relative} from 'node:path';
+import {dirname,isAbsolute,join,relative} from 'node:path';
+import {promisify} from 'node:util';
 import type {ProjectProfile} from '../../analyzer/repository.js';
-import {signature} from '../../generator/cache.js';
 import {isRecord} from '../../private-record.js';
-import {absoluteHostPath,canonicalHostDirectory,checkedDirectory,nativeJson,readNativeFile,statIfPresent,withinPath} from './host-files.js';
+import {essentialEnvironment} from '../../runtime-private-env.js';
+import {absoluteHostPath,canonicalHostDirectory,checkedDirectory,nativeJson,statIfPresent,withinPath} from './host-files.js';
 import {claudeManagedRoot,claudePlugin} from './manual.js';
 import {claudeMarket,claudeRepo,claudeSha,claudeSource,claudeVersion} from './pins.js';
 import {bindingFrom} from './receipt.js';
-import {nativeChildEnv,trustedHelper,type HostRuntime} from './runtime.js';
+import {hostGit,nativeChildEnv,type HostLocations,type HostRuntime} from './runtime.js';
 
-const allowed=new Set(['permissions','enabledPlugins','extraKnownMarketplaces','model','outputStyle','language','includeCoAuthoredBy','cleanupPeriodDays']);
-const knobs=new Set(['strictKnownMarketplaces','blockedMarketplaces']);
+const exec=promisify(execFile);
 const official=(source:unknown)=>isRecord(source)&&Object.keys(source).length===2&&source.source==='github'&&source.repo===claudeRepo;
 export type ClaudeStep='marketplace'|'install';
 export const claudeArgs=(step:ClaudeStep)=>['--setting-sources','user','plugin',...(step==='marketplace'?['marketplace','add',claudeRepo]:['install',claudePlugin]),'--scope','project'];
 
-async function gitConfig(dir:string,cached=false){
- const path=join(dir,'config'),doc=await readNativeFile(path);
- if(await statIfPresent(join(dir,'config.worktree'))||await statIfPresent(join(dir,'commondir')))
-  throw Error('Git worktree configuration can change native scope; prepare Claude manually');
- if(!doc)return;
- // Git reads repository config independently of --setting-sources. Do not
- // let repository includes, filters or URL rewrites reach its subprocesses.
- let section='';
- const safe:Record<string,string[]>={
-  core:['repositoryformatversion','filemode','bare','logallrefupdates','ignorecase','precomposeunicode','symlinks','autocrlf','protectntfs','longpaths'],
-  remote:['url','fetch','pushurl'],submodule:['active'],branch:['remote','merge','rebase'],user:['name','email'],
- };
- for(const raw of doc.bytes.toString('utf8').split(/\r?\n/)){
-  const line=raw.trim();
-  if(!line||line.startsWith('#')||line.startsWith(';'))continue;
-  const header=/^\[([a-z]+)(?: "[^"\\\x00-\x1f]+")?\]$/i.exec(line);
-  if(header){section=header[1].toLowerCase();if(Object.hasOwn(safe,section))continue;}
-  const entry=/^([a-z]+)\s*=\s*[^\x00-\x1f]*$/i.exec(line);
-  if(cached&&section==='remote'&&entry?.[1].toLowerCase()==='url'&&line.split('=').slice(1).join('=').trim()!=='https://github.com/'+claudeRepo+'.git')throw Error('The cached Claude marketplace repository has a different remote');
-  if(!entry||line.endsWith('\\')||!safe[section]?.includes(entry[1].toLowerCase()))
-   throw Error('Git repository configuration contains unsupported settings; prepare Claude manually');
- }
- return doc.identity;
+async function verifyCatalogRemote(catalog:string,runtime:HostLocations){
+ if(!await statIfPresent(join(catalog,'.git')))return;
+ const git=await hostGit(runtime);
+ const result=await exec(git,['-C',catalog,'config','--local','--get','remote.origin.url'],{
+  env:essentialEnvironment(runtime.env),timeout:5000,maxBuffer:4096,windowsHide:true,
+ }).catch(()=>undefined);
+ const url='https://github.com/'+claudeRepo;
+ if(result?.stdout.trim()!==url&&result?.stdout.trim()!==url+'.git')
+  throw Error('The cached Claude marketplace repository has a different remote: '+catalog);
 }
 
-export async function inspectClaude(runtime:HostRuntime){
+export async function inspectClaude(runtime:HostLocations){
  const {root,home,env}=runtime;
  const config=await canonicalHostDirectory(env.CLAUDE_CONFIG_DIR??join(home,'.claude'));
- const project=join(root,'.claude','settings.json'),local=join(root,'.claude','settings.local.json');
+ const projectConfig=await canonicalHostDirectory(join(root,'.claude'));
+ if(!withinPath(root,projectConfig))throw Error('Claude project settings resolve outside the selected project: '+projectConfig);
+ const project=join(projectConfig,'settings.json'),local=join(projectConfig,'settings.local.json');
  const user=join(config,'settings.json'),plugins=join(config,'plugins');
  const known=join(plugins,'known_marketplaces.json'),registry=join(plugins,'installed_plugins.json');
  const catalogRoot=join(plugins,'marketplaces',claudeMarket),catalog=join(catalogRoot,'.claude-plugin','marketplace.json');
@@ -58,31 +47,28 @@ export async function inspectClaude(runtime:HostRuntime){
   documents.push(...names.map(name=>join(dropIns,name)));
  }
  if(withinPath(root,config))throw Error('Claude configuration must be outside the project');
- const stamps:Record<string,string|undefined>={};
  const read=async (path:string,label:string,limit?:number)=>{
-  try{const doc=await nativeJson(path,limit);stamps[path]=doc?.identity;return doc?.value;}
-  catch{throw Error('Invalid, redirected or unreadable '+label+'; reconcile it before retrying');}
+  try{return (await nativeJson(path,limit))?.value;}
+  catch{throw Error('Invalid or unreadable '+label+': '+path);}
  };
  await read(configFile,'Claude user state',4_000_000);
- let projectEnabled=false,enabled=false,declared=false,projectOutsideMarket:unknown={};
+ let projectEnabled=false,enabled=false,declared=false;
  for(const path of documents){
   const value=await read(path,'Claude settings');
   if(!value)continue;
-  for(const key of Object.keys(value))if(!allowed.has(key)&&!(path!==project&&path!==local&&knobs.has(key)))
-   throw Error('Unsupported Claude '+(path===project||path===local?'project key':'settings key')+(/^\w{1,80}$/.test(key)?' '+key:'')+'; prepare manually');
-  if(path===project)projectOutsideMarket=Object.fromEntries(Object.entries(value).filter(([key])=>key!=='extraKnownMarketplaces'));
   if(value.extraKnownMarketplaces!==undefined){
    const markets=value.extraKnownMarketplaces;
-   if(!isRecord(markets)||Object.entries(markets).some(([name,item])=>name!==claudeMarket||
-    !isRecord(item)||Object.keys(item).length!==1||!official(item.source)))
-    throw Error('Claude settings declare another or non-official marketplace; prepare manually');
+   if(!isRecord(markets)||Object.hasOwn(markets,claudeMarket)&&
+    (!isRecord(markets[claudeMarket])||!official(markets[claudeMarket].source)))
+    throw Error('Claude settings declare a non-official '+claudeMarket+' marketplace: '+path);
    if(path===project&&Object.hasOwn(markets,claudeMarket))declared=true;
   }
   if(value.enabledPlugins!==undefined){
-   if(!isRecord(value.enabledPlugins)||Object.entries(value.enabledPlugins).some(([id,v])=>id!==claudePlugin||typeof v!=='boolean'))
-    throw Error('Claude settings include an unsupported plugin declaration; prepare manually');
-   if(value.enabledPlugins[claudePlugin]===false)throw Error('Claude Superpowers is explicitly disabled in effective settings');
-   if(value.enabledPlugins[claudePlugin]===true){enabled=true;if(path===project)projectEnabled=true;}
+   const plugins=value.enabledPlugins;
+   if(!isRecord(plugins)||Object.hasOwn(plugins,claudePlugin)&&typeof plugins[claudePlugin]!=='boolean')
+    throw Error('Invalid Claude Superpowers setting: '+path);
+   if(plugins[claudePlugin]===false)throw Error('Claude Superpowers is explicitly disabled: '+path);
+   if(plugins[claudePlugin]===true){enabled=true;if(path===project)projectEnabled=true;}
   }
  }
  const markets=await read(known,'Claude marketplace registry',2_000_000);
@@ -90,47 +76,53 @@ export async function inspectClaude(runtime:HostRuntime){
  const recorded=installRegistry?.plugins;
  if(installRegistry&&(installRegistry.version!==2||!isRecord(recorded)))throw Error('Unsupported Claude installed plugin registry');
  const records=isRecord(recorded)?recorded[claudePlugin]:undefined;
+ const conflict=()=>Error('Claude Superpowers has a different scope or conflicting install receipt: '+registry);
+ if(records!==undefined&&!Array.isArray(records))throw conflict();
+ const scoped=[];
+ for(const item of records??[]){
+  if(!isRecord(item)||!['project','local'].includes(String(item.scope))||
+     typeof item.projectPath!=='string'||!isAbsolute(item.projectPath))throw conflict();
+  const projectPath=await realpath(item.projectPath).catch(()=>absoluteHostPath(item.projectPath as string));
+  if(relative(root,projectPath)!=='')continue;
+  if(item.scope!=='project')throw conflict();
+  scoped.push(item);
+ }
+ if(scoped.length>1)throw conflict();
+ const pinned=(item:unknown)=>isRecord(item)&&item.version===claudeVersion&&item.gitCommitSha===claudeSha&&
+  typeof item.installPath==='string'&&isAbsolute(item.installPath)&&relative(install,absoluteHostPath(item.installPath))==='';
  let installed:string|undefined;
- if(records!==undefined){
-  const item=Array.isArray(records)&&records.length===1?records[0]:undefined;
-  if(!isRecord(item)||item.scope!=='project'||typeof item.projectPath!=='string'||
-     relative(root,absoluteHostPath(item.projectPath))!==''||relative(root,await realpath(item.projectPath))!=='')
-   throw Error('Claude Superpowers has a different scope or conflicting install receipt; reconcile it manually');
-  if(item.version!==claudeVersion||item.gitCommitSha!==claudeSha||item.enabled===false||typeof item.installPath!=='string'||
-     relative(install,absoluteHostPath(item.installPath))!==''||!await checkedDirectory(install))
-   throw Error('Claude Superpowers receipt does not match the pinned source; reconcile it manually');
-  if(!projectEnabled)throw Error('Claude Superpowers receipt has no enabled project setting; reconcile it manually');
+ if(scoped.length){
+  const [item]=scoped;
+  if(!pinned(item)||item.enabled===false||!await checkedDirectory(install))
+   throw Error('Claude Superpowers receipt does not match the pinned source: '+registry);
+  if(!projectEnabled)throw Error('Claude Superpowers receipt has no enabled project setting: '+project);
   installed=install;
  }else{
-  if(enabled)throw Error('Claude Superpowers is enabled without an exact install receipt; reconcile it manually');
-  if(await statIfPresent(packageRoot))throw Error('Claude Superpowers cache exists without its exact receipt; reconcile it manually');
+  if(enabled)throw Error('Claude Superpowers is enabled without an exact install receipt: '+registry);
+  if(await statIfPresent(install)&&!records?.some(pinned))
+   throw Error('Claude Superpowers cache exists without a pinned receipt: '+install);
  }
  const registered=markets?.[claudeMarket];
  let market:'missing'|'ready'='missing';
  if(registered!==undefined){
-  if(!isRecord(registered)||!official(registered.source)||typeof registered.installLocation!=='string'||
-     relative(catalogRoot,absoluteHostPath(registered.installLocation))!==''||
-     Object.keys(registered).some(key=>!['source','installLocation','lastUpdated','autoUpdate'].includes(key)))
+  if(!isRecord(registered)||!official(registered.source)||typeof registered.installLocation!=='string'||!isAbsolute(registered.installLocation)||
+     relative(catalogRoot,absoluteHostPath(registered.installLocation))!=='')
    throw Error('The Claude marketplace name is already registered to a different source or path');
   const contents=await read(catalog,'official Claude marketplace catalog',2_000_000);
   const items=contents?.name===claudeMarket&&Array.isArray(contents.plugins)?contents.plugins.filter(item=>isRecord(item)&&item.name==='superpowers'):[];
   const item=items.length===1?items[0]:undefined;
   const source=item?.source;
-  if(!item||Object.keys(item).some(key=>!['name','description','category','source','homepage'].includes(key))||
-     !isRecord(source)||Object.keys(source).length!==3||source.source!=='url'||source.url!==claudeSource||source.sha!==claudeSha)
+  if(!isRecord(source)||Object.keys(source).length!==3||source.source!=='url'||source.url!==claudeSource||source.sha!==claudeSha)
    throw Error('The official cached catalog does not advertise the pinned Superpowers source; prepare Claude manually');
-  stamps[catalogRoot]=await gitConfig(join(catalogRoot,'.git'),true);
+  await verifyCatalogRemote(catalogRoot,runtime);
   market='ready';
- }else if(await statIfPresent(catalogRoot)||isRecord(recorded)&&Object.keys(recorded).length){
-  throw Error('Adding the Claude marketplace could touch existing plugins or a partial cache; reconcile it manually');
+ }else if(await statIfPresent(catalogRoot)){
+  throw Error('The Claude marketplace cache has no matching registration: '+catalogRoot);
  }
  if(installed&&market==='missing')throw Error('Claude install receipt lacks the official marketplace');
- stamps[root]=await gitConfig(join(root,'.git'));
  for(const directory of [dirname(project),config,plugins,dirname(catalogRoot),dirname(packageRoot),backups])await checkedDirectory(directory);
  const paths=[project,local,user,known,registry,catalog,install,configFile,backups,policy];
- return {market,installed,declared,project,config,configFile,backups,known,registry,catalogRoot,install,paths,
-  invariants:signature([projectOutsideMarket,...Object.entries(stamps).filter(([path])=>![project,known,registry,catalog,catalogRoot,configFile].includes(path))]),
-  snapshot:signature({stamps,market,installed,paths})};
+ return {market,installed,declared,project,config,configFile,backups,known,registry,catalogRoot,install,paths};
 }
 
 export function claudeRecognized(receipt:Awaited<ReturnType<typeof inspectClaude>>,profile:ProjectProfile){
@@ -155,8 +147,4 @@ export function claudeGitEnv(path:string,denyRefresh:boolean):NodeJS.ProcessEnv{
 export function claudeCommand(runtime:HostRuntime,temp:string,step:ClaudeStep){
  return {executable:runtime.program.file,args:[...runtime.program.args,...claudeArgs(step)],
   env:{...nativeChildEnv(runtime,temp),...claudeGitEnv(temp,step==='install')}};
-}
-
-export async function claudeGitIdentity(runtime:HostRuntime){
- return trustedHelper('git',runtime);
 }

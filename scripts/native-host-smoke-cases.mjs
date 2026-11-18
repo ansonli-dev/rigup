@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawnSync,execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {copyFile,mkdir,readFile,realpath,rm,stat,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,realpath,stat,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -77,6 +77,7 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
    assert.equal(link,store);
    const data=await readFile(join(dirname(store),'source.tgz'));
    assert.equal('sha512-'+createHash('sha512').update(data).digest('base64'),integrity);
+   assert.equal((await readFile(join(dirname(store),'complete'),'utf8')).trim(),integrity);
    assert.ok((await checks(['omp'])).omp.length>=4);
    return lock;
   };
@@ -106,25 +107,18 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  await first.passiveAbsent();
  result.cases.push({name:'read-only, piped, real stdout redirection, cancellation and EOF',status:'passed'});
 
- const canary=join(first.root,'canary-ran'),local=join(first.root,'.claude/settings.local.json');
- const dangerous=JSON.stringify({hooks:{SessionStart:[{hooks:[{type:'command',command:'touch '+JSON.stringify(canary)}]}]},
-  statusLine:{type:'command',command:'touch '+JSON.stringify(canary)}},null,2);
+ const local=join(first.root,'.claude/settings.local.json');
  const drift=await first.interactive('claude',async()=>{
   await mkdir(dirname(local));
-  await writeFile(local,dangerous);
+  await writeFile(local,JSON.stringify({enabledPlugins:{[id]:false}}));
  });
  assertExit(drift,3);
- assert.equal(await exists(canary),false);
  assert.equal(await exists(first.env.CLAUDE_CONFIG_DIR),false);
- await rm(dirname(local),{recursive:true});
- if(windows){
-  for(const name of ['git.exe','helper.dll'])await copyFile(process.execPath,join(first.root,name));
-  const blocked=await first.interactive('claude','approve');assertExit(blocked,3);assert.equal(blocked.approval,false);
-  assert.match(blocked.output,/executable or DLL/);
-  assert.equal(await exists(first.env.CLAUDE_CONFIG_DIR),false);
-  for(const name of ['git.exe','helper.dll'])await rm(join(first.root,name));
- }
- result.cases.push({name:'post-preview project canaries and Windows cwd helper checks',status:'passed',windows});
+ const ordinarySettings=JSON.stringify({env:{RIGUP_NATIVE_SMOKE:'development'},hooks:{}});
+ await writeFile(local,ordinarySettings);
+ const wrapper='@echo off\r\nexit /b 97\r\n';
+ for(const name of ['mvnw.cmd','gradlew.bat'])await writeFile(join(first.root,name),wrapper);
+ result.cases.push({name:'target setting changed after approval; no native writes',status:'passed'});
 
  const native=await first.interactive('claude,omp','approve');
  assertExit(native,0);assert.equal(native.approval,true);
@@ -134,8 +128,36 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
  assert.equal(await exists(join(first.state,'native-packages')),false);
  assertExit(first.direct('claude,omp'),0);
  assert.deepEqual(await first.claudeReceipt(),firstReceipt);
+ assert.equal(await readFile(local,'utf8'),ordinarySettings);
+ for(const name of ['mvnw.cmd','gradlew.bat'])assert.equal(await readFile(join(first.root,name),'utf8'),wrapper);
  result.cases.push({name:'Claude project registration and install, conditional OMP import and no-op',status:'passed',
   claude:{projectScope:true,gitCommitSha:sha,version:'7.0.2'},ompUserWrite:false});
+
+ const parentSettings=await readFile(join(first.root,'.claude/settings.json'),'utf8');
+ const git=(...args)=>execFileSync('git',['-C',first.root,'-c','core.hooksPath=','-c','init.templateDir=',...args],{env:first.env,stdio:'pipe'});
+ git('init','-q');
+ git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','--no-gpg-sign','-qm','fixture');
+ git('config','--local','credential.helper','');
+ git('config','--local','lfs.repositoryformatversion','0');
+ const linkedRoot=join(stage,'linked worktree'),nestedRoot=join(first.root,'nested package');
+ git('worktree','add','--detach',linkedRoot);
+ await mkdir(nestedRoot);
+ const registry=join(first.env.CLAUDE_CONFIG_DIR,'plugins/installed_plugins.json');
+ for(const target of [linkedRoot,nestedRoot]){
+  assertExit(await run(first.cfg('claude').map(arg=>arg===first.root?target:arg),first.env,'approve'),0);
+  const settings=await content(join(target,'.claude/settings.json'));
+  assert.equal(settings.enabledPlugins[id],true);
+  assert.equal(settings.extraKnownMarketplaces[market].source.repo,'anthropics/claude-plugins-official');
+  const records=(await content(registry)).plugins[id];
+  const resolved=await Promise.all(records.map(async item=>({item,path:await realpath(item.projectPath)})));
+  const receipt=resolved.find(entry=>entry.path===target)?.item;
+  assert.equal(receipt?.installPath,firstReceipt.installPath);
+  assert.equal(receipt?.gitCommitSha,sha);
+  assert.equal(receipt?.scope,'project');
+ }
+ assert.equal(await readFile(join(first.root,'.claude/settings.json'),'utf8'),parentSettings);
+ assert.equal((await content(registry)).plugins[id].length,3);
+ result.cases.push({name:'worktree and monorepo scopes reuse verified Claude cache',status:'passed',projects:3});
 
  const scratch=join(stage,'git transport scratch');
  await mkdir(scratch,{mode:0o700});

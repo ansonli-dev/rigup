@@ -1,5 +1,12 @@
 # Validation status
 
+## Single-user setup in v0.9.0
+
+- Native Windows ARM64 in Parallels passed real Maven batch execution, literal arguments, worktree setup, process cancellation, and inherited cache permissions. The scoped registry tests used two local registries and verified the approved version and integrity across retagging and recovery. Native Windows x64 CI exercises the corresponding wrapper paths. [Windows x64 wrapper job](https://github.com/ansonli-dev/rigup/actions/runs/44234037375/job/134565730527)
+- WSL2 covered ext4 and drvfs with and without metadata. Ordinary writes kept effective modes and repeat apply reused them. The private-input checks covered successful protected writes on ext4 and metadata-enabled drvfs and refusal before writing secret values on drvfs without metadata. [WSL2 filesystem evidence](https://github.com/ansonli-dev/rigup/actions/runs/44237576857/job/134577322468)
+- OpenCode fixtures cover official git-backed packages and verified local Superpowers loader layouts. For a custom local plugin, use OpenCode's skill tool to confirm the active entries. [Official installation layouts](https://github.com/obra/superpowers/blob/v7.0.2/.opencode/INSTALL.md)
+- The published v0.8.0 CLI provided completed and interrupted npm fixtures and an original Host continuation command. The candidate reused the staged npm result after the old writer exited, consumed an unchanged Host citation after an unrelated edit, and reissued analysis when the cited line changed.
+
 ## Native Superpowers preparation
 
 The packaged CLI ran with genuine Claude Code 2.1.273 and Oh My Pi 18.1.13 in real terminals on Ubuntu x64, native Windows x64 (PowerShell 7.6.9, ConPTY), and macOS arm64. It verified the Claude project receipt at Git commit `22f0b463e7a5e579904dd6211a520321035526f7` and the enabled, pinned OMP link. The two mixed cases verified the Claude-import shortcut and OMP package priority. Windows covered npm shim resolution and paths with spaces for this preparation flow. Redirection, cancellation, and project canaries checked for no unintended writes. [Test run](https://github.com/ansonli-dev/rigup/actions/runs/44076981293) · [Sanitized receipts](https://github.com/ansonli-dev/rigup/tree/main/docs/compatibility/evidence/2026-11-17-native-superpowers)
