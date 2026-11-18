@@ -3,7 +3,7 @@ import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {writeFileSync} from 'node:fs';
 import {chmod,mkdir,readFile,readdir,rm,stat,writeFile} from 'node:fs/promises';
-import {devNull} from 'node:os';
+import {homedir} from 'node:os';
 import {isAbsolute,join,relative} from 'node:path';
 import {test} from 'node:test';
 import {promisify} from 'node:util';
@@ -18,7 +18,9 @@ import {loadPreview} from '../src/installer/preview.js';
 import {project,testEnvironment} from './helpers.js';
 
 const exec=promisify(execFile);
-const gitEnv={...process.env,GIT_CONFIG_GLOBAL:devNull,GIT_CONFIG_NOSYSTEM:'1',GIT_TERMINAL_PROMPT:'0'};
+const gitConfig=join(homedir(),'claim-fixture.gitconfig');
+writeFileSync(gitConfig,'');
+const gitEnv={...process.env,GIT_CONFIG_GLOBAL:gitConfig,GIT_CONFIG_NOSYSTEM:'1',GIT_TERMINAL_PROMPT:'0'};
 const git=async (cwd:string,...args:string[])=>(await exec('git',args,{cwd,env:gitEnv})).stdout;
 const failUnexpected=async()=>{throw Error('Claim must not run an external operation');};
 const cliServices=(workspace:string)=>({
