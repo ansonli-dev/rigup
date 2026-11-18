@@ -83,7 +83,7 @@ function readGlobalRecords(path:string,prefix:string){
     typeof approval.install.version!=='string'||typeof approval.install.packageIntegrity!=='string'||typeof approval.install.registry!=='string'||typeof record.authorizationRef!=='string')return false;
    if(record.controllerLockId!==undefined&&typeof record.controllerLockId!=='string')return false;
    if(record.stage==='dispatching'&&!record.identity)return false;
-   if(record.identity!==undefined&&(!isRecord(record.identity)||!Number.isSafeInteger(record.identity.pid)||record.identity.pid<1||typeof record.identity.started!=='string'))return false;
+   if(record.identity!==undefined&&(!isRecord(record.identity)||!Number.isSafeInteger(record.identity.pid)||record.identity.pid<1))return false;
    if(record.stage==='terminal'&&(!isRecord(record.result)||!['done','failed','pending','unknown'].includes(record.result.status)))return false;
    return record.result?.status!=='done'||isRecord(record.result.globalReceipt)&&record.result.globalReceipt.approval===signature(approval);
   });
@@ -106,11 +106,6 @@ export async function runGlobalNpmInstall(operation:SetupOperation,input:{stateR
  const approval=operation.global!;assertGlobalOperation(approval.root,operation);
  const stateRoot=await privateDirectory(input.stateRoot??defaultStateRoot(),approval.root);
  const path=globalRecordsPath(stateRoot,approval.prefix);
- if(input.recover){
-  const previousLock=await readDurableRecord<{id:string}>(join(stateRoot,signature({resource:'openspec:'+approval.prefix})+'.lock'),'Global npm lock');
-  const previous=previousLock&&await readGlobalRecords(path,approval.prefix);
-  if(previousLock&&!previous?.records.some(record=>record.controllerLockId===previousLock.id))throw Error('Legacy global lock lacks writer evidence; resume with the original version or reconcile manually');
- }
  // All packages and projects share the historical OpenSpec lock identity.
  const lock=await acquireLock(approval.root,{stateRoot,resource:'openspec:'+approval.prefix,recover:input.recover});
  let stage:string|undefined;
@@ -151,7 +146,7 @@ export async function runGlobalNpmInstall(operation:SetupOperation,input:{stateR
   const dispatch=async(args:string[],finish:(code:number|null,cancelled:boolean)=>Promise<OperationResult>)=>{
    const current=await validate();
    const command={executable:current.npm.file,args:[...current.npm.args??[],...args],env:commandEnvironment(current.path)};
-   return protectedOperationCommand(command,stage!,operation.timeoutMs,{signal:input.signal,identity:()=>record!.identity,
+   return protectedOperationCommand(command,stage!,operation.timeoutMs,{signal:input.signal,
     markDispatching:async identity=>{record!.identity=identity;record!.stage='dispatching';delete record!.result;await persist();},
     registryPending:async()=>{try{await validate();return undefined;}catch(error){return {status:'pending',message:(error as Error).message};}},
     restoreUndispatched:async()=>{record!.stage='prepared';delete record!.identity;await persist();return {status:'pending',message:'Cancelled before global dispatch'};},finish});

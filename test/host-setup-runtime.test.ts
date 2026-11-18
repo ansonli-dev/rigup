@@ -170,10 +170,10 @@ test('native resource lock recovery recognizes a live writer across time zones',
  const previous=process.env.TZ;
  try{
   process.env.TZ='UTC';
-  const first=await acquireLock(root,{stateRoot:state,resource:'test-native',recover:true,trustedProcess:true});
+  const first=await acquireLock(root,{stateRoot:state,resource:'test-native',recover:true});
   try{
    process.env.TZ='Asia/Shanghai';
-   await assert.rejects(acquireLock(other,{stateRoot:state,resource:'test-native',recover:true,trustedProcess:true}),/occupied/);
+   await assert.rejects(acquireLock(other,{stateRoot:state,resource:'test-native',recover:true}),/locked/i);
   }finally{await first.release();}
  }finally{if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous;}
 }))));

@@ -41,7 +41,7 @@ export interface ConventionDraft {topicId:string;title:string;scope:string;quest
 export interface GitlabJobBinding {path:string;job?:string;command?:CommandSpec;coverageStatus:'reusable'|'unavailable';reason?:string}
 export interface HarnessSummary {
  guidance:import('./generator/project-rules.js').GuidanceBinding[];
- checks:import('./analyzer/check-prerequisites.js').SpecializedCheck[];
+ checks:import('./integrations/tools/check-catalog.js').ProjectCheck[];
  ci:GitlabJobBinding[];
 }
 

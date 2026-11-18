@@ -14,10 +14,10 @@ import {digest,safePath,sliceEvidence,type EvidenceRead,type ReadEvidence} from 
 import {filterContent,secretName,READ_POLICY_VERSION} from './read-policy.js';
 import type {SearchSelection} from './backend.js';
 import {loadResearchIgnore,workflowEvidenceKind} from './research-ignore.js';
-import {checkPrerequisites,hasTestDatabaseGuard,jestSetupPath,linkDatabaseGuards,type SpecializedCheck} from './check-prerequisites.js';
+import type {ProjectCheck} from '../integrations/tools/check-catalog.js';
 const exec=promisify(execFile);
 const specializedScripts=['test:e2e','test-e2e','check-types','typecheck','deps:validate','test'];
-export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,import('../integrations/tools/installed-state.js').ToolInstallReceipt>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeDiagnostics?:NativeDiagnostic[];nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:SpecializedCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;conventions?:ConventionPage[];conventionPaths?:string[];extraSourcePaths?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
+export interface ProjectProfile {research?:import('./backend.js').ResearchResult;installedTools?:Record<string,import('../integrations/tools/installed-state.js').ToolInstallReceipt>;initializedTools?:Record<string,import('../types.js').NativeInitializationReceipt>;nativeDiagnostics?:NativeDiagnostic[];nativeEntries?:Partial<Record<import('../types.js').Agent,string[]>>;skillSources?:Partial<Record<import('../types.js').Agent,import('../integrations/registry.js').SkillSource[]>>;root:string;fingerprint:string;files:string[];researchFiles?:string[];ignoreFingerprint?:string;git:{available:boolean;head?:string};commands:Record<string,CommandSpec[]>;specializedChecks:ProjectCheck[];gitlabJobs?:GitlabJobBinding[];gitlabReviewRequired?:true;checkCoverageIncomplete?:true;checkManifests?:string[];declaredSources?:Record<string,Evidence>;conventions?:ConventionPage[];conventionPaths?:string[];extraSourcePaths?:string[];unknowns:string[];truncated:boolean;readPolicyVersion:string;researchBlocked?:string}
 export async function scanRepository(root:string,options:SetupOptions,discovery:NativeDiscoveryOptions={},generatedScopes:string[]=[]):Promise<ProjectProfile>{
  return (await inventory(root,options,discovery,generatedScopes)).profile;
 }
@@ -65,7 +65,6 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
  const quality=options.quality;
  const configuredScripts=[...(quality?.preCommit??[]),...(quality?.prePush??[]),...(quality?.gitlab?.checks??[])]
   .filter(ref=>typeof ref!=='string');
- const jestSetups=new Map<string,string>(),testGuards=new Set<string>();
  const maxFiles=options.readBudget?.maxFiles ?? 2000;const maxBytes=options.readBudget?.maxBytes ?? 8_000_000;
  async function walk(dir:string):Promise<void>{
   for(const entry of (await readdir(dir,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){
@@ -149,13 +148,6 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
    inputs.push(path+'\0'+digest(convention?(source.page?.status==='confirmed'?visible:''):ownership.length?filterContent(path,projected):visible)+
     evidenceRole+(metadata?'\0'+JSON.stringify(metadata):''));
    if(outsideBusinessScope)continue;
-   if(/\.[cm]?[jt]s$/.test(entry.name)&&hasTestDatabaseGuard(visible))testGuards.add(path);
-   if(/jest.*\.json$/i.test(entry.name)){
-    try{
-     const setup=jestSetupPath(path,JSON.parse(visible).globalSetup);
-     if(setup)jestSetups.set(path,setup);
-    }catch{/* Other JSON configuration has no recognized Jest setup. */}
-   }
    if(purpose==='research'&&path===gitlabPath)profile.gitlabJobs=discoverGitlabJobs(path,visible);
    if(entry.name === 'package.json') {
     try {
@@ -167,14 +159,13 @@ async function inventory(root:string,options:SetupOptions,discovery:NativeDiscov
      for(const script of checks){
       if(typeof scripts?.[script]!=='string'||!scripts[script].trim())continue;
       const command={executable:'npm',args:['run',script],cwd,envRefs:[]};
-      profile.specializedChecks.push({command,source:path,...checkPrerequisites(scripts[script],manifest,cwd)});
+      profile.specializedChecks.push({command,source:path});
      }
     }catch{profile.unknowns.push(path+': unsupported package manifest');}
    }
   }
  }
  await walk(root);
- profile.specializedChecks=linkDatabaseGuards(profile.specializedChecks,jestSetups,testGuards);
  if(purpose==='research'){
   if(profile.truncated||!!options.scope?.length&&!options.scope.includes('.')||
     profile.unknowns.some(note=>/(?:^|\/)package\.json:/.test(note)))profile.checkCoverageIncomplete=true;

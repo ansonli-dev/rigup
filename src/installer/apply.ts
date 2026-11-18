@@ -308,17 +308,11 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(dependencies.signal?.aborted)return cancelled();
   const completedOperations=new Set<string>();
   const execute=operationExecutor(data,{...dependencies.operation,stateRoot:lock.stateRoot,signal:dependencies.signal},restoringApproval);
-  for(let index=0;index<operations.length;){
+  for(const operation of operations){
    if(dependencies.signal?.aborted)return cancelled();
-   const first=operations[index],next=operations[index+1];
-   const batch=!first.global&&!next?.global&&first.kind==='install'&&next?.kind==='install'&&first.integrationId!==next.integrationId?[first,next]:[first];
-   index+=batch.length;
-   const reused=new Map<string,OperationResult>();
-   for(const operation of batch){
-    if(operation.prerequisiteIds.some(id=>!completedOperations.has(id)))throw Error('Operation prerequisite not completed');
-    if(operation.global)continue;
-    const receipt=operation.kind==='initialize'?tx.initialized?.[operation.integrationId]:tx.receipts[operation.integrationId];
-    if(!receipt)continue;
+   if(operation.prerequisiteIds.some(id=>!completedOperations.has(id)))throw Error('Operation prerequisite not completed');
+   const receipt=operation.global?undefined:operation.kind==='initialize'?tx.initialized?.[operation.integrationId]:tx.receipts[operation.integrationId];
+   if(receipt){
     const result=await queryOperation(operation);
     if(result.status!=='done')throw Error('receipted external state changed');
     if(operation.kind==='initialize'){
@@ -326,38 +320,37 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     }else{
      const approved=tx.receipts[operation.integrationId],actual=result.receipt;
      if(!actual||actual.version!==approved.version||actual.packageLockDigest!==approved.packageLockDigest||
-      approved.packageIntegrity!==undefined&&normalizeNpmIntegrity(approved.packageIntegrity)!==actual.packageIntegrity)throw Error('receipted external state changed');
+      approved.packageIntegrity!==undefined&&normalizeNpmIntegrity(approved.packageIntegrity)!==actual.packageIntegrity)
+      throw Error('receipted external state changed');
     }
-    reused.set(operation.id,result);
-   }
-   // Wait for every operation in the batch before releasing the lock or starting initialization.
-   const outcomes=await Promise.allSettled(batch.map(async operation=>{
-    const result=reused.get(operation.id);
-    if(result)return result;
-    step(operation.id);
-    return execute(operation.id);
-   }));
-   const rejection=outcomes.find(outcome=>outcome.status==='rejected');
-   if(rejection?.status==='rejected'&&!operations.some(operation=>operation.global))throw rejection.reason;
-   const results:OperationResult[]=outcomes.map(outcome=>outcome.status==='rejected'?{status:'failed',message:(outcome.reason as Error).message}:outcome.value);
-   report.operations.push(...results);
-   for(const [i,operation] of batch.entries()){
-    const result=results[i];
-    if(result.status!=='done')continue;
+    report.operations.push(result);
     completedOperations.add(operation.id);completed++;
-    if(reused.has(operation.id)){step(operation.id,'reused');continue;}
-    if(operation.global){
-     const key=signature(operation.global);
-     if(result.globalReceipt?.approval!==key)throw Error('Global installation lacks its approved receipt');
-     completedGlobals.set(key,result);
-    }
-    else if(operation.kind==='initialize'){if(!result.nativeReceipt)throw Error('native initialization lacks verifiable receipt');tx.initialized![operation.integrationId]=result.nativeReceipt;}
-    else {if(!result.receipt)throw Error('external operation lacks verifiable receipt');tx.receipts[operation.integrationId]=result.receipt;}
-    if(operation.global)tx.report={...report};
-    step(operation.id);await saveDurable(statePath,JSON.stringify(tx));await dependencies.hook?.('after-operation');
+    step(operation.id,'reused');
+    continue;
    }
-   const incomplete=results.find(result=>result.status!=='done');
-   if(incomplete)return {...report,nextCommand:resumeCommand,exitCode:dependencies.signal?.aborted?130:incomplete.status==='failed'?1:3,status:incomplete.status==='failed'?'failed':'pending'};
+   step(operation.id);
+   let result:OperationResult;
+   try{result=await execute(operation.id);}catch(error){
+    if(!operations.some(operation=>operation.global))throw error;
+    result={status:'failed',message:(error as Error).message};
+   }
+   report.operations.push(result);
+   if(result.status!=='done')return {...report,nextCommand:resumeCommand,
+    exitCode:dependencies.signal?.aborted?130:result.status==='failed'?1:3,status:result.status==='failed'?'failed':'pending'};
+   completedOperations.add(operation.id);completed++;
+   if(operation.global){
+    const key=signature(operation.global);
+    if(result.globalReceipt?.approval!==key)throw Error('Global installation lacks its approved receipt');
+    completedGlobals.set(key,result);
+    tx.report={...report};
+   }else if(operation.kind==='initialize'){
+    if(!result.nativeReceipt)throw Error('native initialization lacks verifiable receipt');
+    tx.initialized![operation.integrationId]=result.nativeReceipt;
+   }else{
+    if(!result.receipt)throw Error('external operation lacks verifiable receipt');
+    tx.receipts[operation.integrationId]=result.receipt;
+   }
+   step(operation.id);await saveDurable(statePath,JSON.stringify(tx));await dependencies.hook?.('after-operation');
   }
   await verifyGlobalInstalls(true);
   if(operations.length)await assertSources();

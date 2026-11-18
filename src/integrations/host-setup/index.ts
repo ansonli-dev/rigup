@@ -162,7 +162,7 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
  };
  const stateRoot=input.stateRoot??initial.runtime.stateRoot??defaultStateRoot();
  try{
-  const lock=await acquireLock(root,{stateRoot,recover:true,trustedProcess:true});
+  const lock=await acquireLock(root,{stateRoot,recover:true});
   try{
    await assertNoUnknownWriters(root,lock.stateRoot);
    if(await currentReviewPolicy(root))return fail('The project now requires review; native preparation needs a fresh plan.',3);

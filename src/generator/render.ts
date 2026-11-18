@@ -64,7 +64,7 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
    if(binding&&openSpecCommand)lines.push(openSpecCommand);
    if(binding?.projectSources?.length)lines.push(...binding.projectSources.map(path=>'- '+link(refTarget,path)));
    for(const b of customerBindings)if(b.nativeName)lines.push('- Invoke existing native customer skill: '+inline(b.nativeName)+'. Preserve its gates.');
-   if(projectRulesPending)lines.push('','Project rules are pending. For the touched paths, read applicable AGENTS.md or CLAUDE.md files and repository contribution guidance. Use the checks below.',...(options.projectRules?['Use the Rigup MCP research tools to prepare a rules preview. Ask the user to apply the preview from an independent terminal after ending affected sessions.']:[]));
+   if(projectRulesPending)lines.push('','Project rules are pending. For the touched paths, read applicable AGENTS.md or CLAUDE.md files and repository contribution guidance. Use the checks below.',...(options.projectRules?['Use the Rigup MCP research tools to prepare a rules preview. Ask the user to review and approve the preview before applying it, then reload the host session.']:[]));
    if(rules||refs.length||reused.size){
     lines.push('','## Project guidance','');
     if(rules)lines.push('- Before planning or editing, use the scopes in the '+link(refTarget,rules.target,'project development rules index')+' to open the topics and original guidance that apply to the changed paths.');
@@ -76,21 +76,8 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
    }
    if(checks.length||hookSources.length){
     lines.push('','## Existing checks','','Working directories are relative to the repository root.');
-    for(const {command,source,tools,postgres} of checks){
-     const run=codeSpan([command.executable,...command.args].join(' '));
-     const prerequisite=postgres?' · dedicated PostgreSQL test database':tools?.includes('playwright')?' · Playwright environment':'';
-     lines.push('- '+run+' from '+codeSpan(command.cwd)+' · '+link(refTarget,source)+prerequisite);
-     if(name!=='change-deliver')continue;
-     if(tools?.includes('yarn'))lines.push('  - Put the project’s Yarn version on PATH and verify it with '+codeSpan('yarn --version')+'.');
-     if(tools?.includes('playwright'))lines.push('  - Install missing Playwright browsers in this package with '+codeSpan('npm exec --yes=false -- playwright install')+'. Check the Playwright configuration for local URLs and ports.');
-     if(tools?.includes('pm2'))lines.push('  - Use a private temporary '+codeSpan('PM2_HOME')+' for this run. After the check, stop that instance with '+codeSpan('npm exec --offline --yes=false -- pm2 kill')+' from the same directory and environment.');
-     if(postgres?.guard){
-      lines.push('  - Load the project test environment in the authorized terminal. Verify the reachable, dedicated PostgreSQL test database in '+link(refTarget,postgres.config)+'.');
-      lines.push('  - '+link(refTarget,postgres.guard)+' requires that the database name contain '+codeSpan('test')+'. Confirm it before migrations or tests.');
-      if(postgres.migration)lines.push('  - Run '+codeSpan('npm run '+postgres.migration)+' in '+codeSpan(command.cwd)+' against the confirmed test database, then run the listed test in its working directory.');
-      if(postgres.runInBand)lines.push('  - Run suites and separate checks sharing this database one at a time.');
-     }else if(postgres)lines.push('  - Verify the project’s test setup and its database guard before running the test or any migrations. Use a dedicated PostgreSQL test database in the authorized terminal.');
-    }
+    for(const {command,source} of checks)
+     lines.push('- '+codeSpan([command.executable,...command.args].join(' '))+' from '+codeSpan(command.cwd)+' · '+link(refTarget,source));
     if(hookSources.length)lines.push('','Check triggers',...hookSources.map(path=>'- '+link(refTarget,path)));
    }
    if(options.projectConventions?.tracker)lines.push('','Tracker convention '+inline(JSON.stringify(options.projectConventions.tracker)));

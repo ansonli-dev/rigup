@@ -115,8 +115,7 @@ function windowsCommand(executable:string,args:string[],cwd:string,env:NodeJS.Pr
 function startWindowsCommand(executable:string,args:string[],{cwd=process.cwd(),env=process.env}:Options,input:string):LiveProcess{
  const child=startWindowsProcess({executable,args,cwd,env});
  const stdout=child.stdout!,stderr=child.stderr!;
- const completed=child.completed.then(({code,unavailable,remaining,interrupted})=>{
-  if(remaining)throw new LiveProcessCleanupError('Windows live probe reported lingering descendants or could not confirm process-tree exit');
+ const completed=child.completed.then(({code,unavailable,interrupted})=>{
   if(unavailable)throw Error('Windows live probe process unavailable');
   return interrupted?null:code;
  });

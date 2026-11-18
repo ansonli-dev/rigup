@@ -6,7 +6,7 @@ import type {ProjectProfile} from '../../analyzer/repository.js';
 import type {CheckSelector,SetupOptions} from '../../types.js';
 import type {IntegrationPreparation} from '../registry.js';
 import {prepareGitlab} from '../gitlab/ci.js';
-import {checkCommand,selectedChecks} from './check-catalog.js';
+import {selectedChecks} from './check-catalog.js';
 import {executeCheck} from './project-check.mjs';
 import {runtimeEnvironment} from '../../runtime-inputs.js';
 
@@ -46,13 +46,7 @@ export async function prepareQuality(profile:ProjectProfile,options:SetupOptions
  if(q.gitlab){
   const checks=commands(q.gitlab.checks);
   if(profile.gitlabReviewRequired)return result;
-  const ci=await prepareGitlab(profile.root,q.gitlab,checks.flatMap(check=>{
-   if(check.postgres||check.tools?.includes('pm2')){
-    result.requirements.push({integrationId:'gitlab',reason:'Use a project-owned CI job to provision the services for '+check.command.args.join(' ')+' in '+check.command.cwd+'.'});
-    return [];
-   }
-   return [check.command];
-  }));
+  const ci=await prepareGitlab(profile.root,q.gitlab,checks.map(check=>check.command));
   result.assets.push(...ci.assets);result.requirements.push(...ci.requirements);
   result.warnings.push('Verify the native GitLab jobs with the target runner. Provision selected tools and dependencies in that environment.');
  }
@@ -71,7 +65,7 @@ export async function runProjectChecks(profile:ProjectProfile,selectors:CheckSel
    continue;
   }
   if(!check){results.push({name,status:'pending',message:'No existing command; not evaluated'});continue;}
-  const {reason,...result}=await executeCheck(checkCommand(check),profile.root,{signal});
+  const {reason,...result}=await executeCheck(check.command,profile.root,{signal});
   results.push({name,...result,message:reason,fingerprint:profile.fingerprint,commit:profile.git.head??'unavailable',environment:{node:process.version,platform:process.platform}});
  }
  return results;

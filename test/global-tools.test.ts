@@ -151,11 +151,12 @@ test('host continuation retains global consent, hands off, then second project r
  assert.deepEqual(JSON.parse(json).operations,[]);
 }));
 
-test('legacy stale prefix lock without writer evidence refuses recovery',t=>globalFixture(t,async({root,prefix,stateRoot})=>{
+test('a dead PID from a legacy prefix lock can be recovered',t=>globalFixture(t,async({root,prefix,stateRoot})=>{
  const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
  await saveDurable(join(stateRoot,signature({resource:'openspec:'+prefix})+'.lock'),JSON.stringify({root,id:'legacy',identity:{pid:2147483647,started:'old'}}));
- await assert.rejects(runGlobalNpmInstall(globalNpmInstallOperation(approval),{stateRoot,authorizationRef:'approved',recover:true}),/original version|writer evidence/);
- await assert.rejects(access(globalLauncher(prefix,'openwiki')),{code:'ENOENT'});
+ const result=await runGlobalNpmInstall(globalNpmInstallOperation(approval),{stateRoot,authorizationRef:'approved',recover:true});
+ assert.equal(result.status,'done',result.message);
+ await access(globalLauncher(prefix,'openwiki'));
 }));
 
 import {queryGlobalNpmInstall} from '../src/integrations/tools/global-npm.js';
@@ -230,8 +231,8 @@ test('an unrelated completed package does not prove an old prefix lock writer ex
  const first=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
  assert.equal((await runGlobalNpmInstall(globalNpmInstallOperation(first),{stateRoot,authorizationRef:'first'})).status,'done');
  const second=await planGlobalNpmInstall(root,'codegraph',{stateRoot});
- await saveDurable(join(stateRoot,signature({resource:'openspec:'+prefix})+'.lock'),JSON.stringify({root,id:'unrecorded-controller',identity:{pid:2147483647,started:'old'}}));
- await assert.rejects(runGlobalNpmInstall(globalNpmInstallOperation(second),{stateRoot,authorizationRef:'second',recover:true}),/writer evidence|original version/);
+ await saveDurable(join(stateRoot,signature({resource:'openspec:'+prefix})+'.lock'),JSON.stringify({root,id:'unrecorded-controller',identity:{pid:process.pid,started:'old'}}));
+ await assert.rejects(runGlobalNpmInstall(globalNpmInstallOperation(second),{stateRoot,authorizationRef:'second',recover:true}),/locked/i);
 }));
 
 test('cancelling the second global package reports the first and resumes both original approvals',t=>globalFixture(t,async({root,prefix,stateRoot,cacheRoot})=>{

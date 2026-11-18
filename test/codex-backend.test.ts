@@ -177,45 +177,28 @@ test('remaining Codex budget and cancellation are checked before invoking the mo
 test('missing local Codex reports unavailable without asking for an unrelated API key',()=>fixture(async(root,cache,request,reader)=>{
  const prior=process.env.PATH;process.env.PATH='/private/tmp/rigup-no-codex-binary';try{const backend=await createBackend({cacheRoot:cache});await assert.rejects(()=>backend.run(request,reader),/Codex.*(available|installed|unavailable)/);}finally{process.env.PATH=prior;}
 }));
-test('Codex process is stopped if its durable process identity cannot be recorded',()=>project(async control=>{
- const {invokeCodex}=await import('../src/analyzer/codex-process.js');await mkdir(control+'/bin');await mkdir(control+'/workspace');
+test('Codex never starts if its durable process ID cannot be recorded',()=>project(async control=>{
+ const {invokeCodex}=await import('../src/analyzer/codex-process.js');
+ const bin=join(control,'bin'),root=join(control,'workspace'),launched=join(control,'launched');
+ await mkdir(bin);await mkdir(root);
+ const script='require("node:fs").writeFileSync('+JSON.stringify(launched)+',"started");setInterval(()=>{},1000);';
  if(process.platform==='win32'){
-  const {windowsJobActive}=await import('../src/integrations/tools/windows-process.mjs');
-  const bin=join(control,'bin'),pkg=join(bin,'node_modules','@openai','codex'),launched=join(control,'launched');
+  const pkg=join(bin,'node_modules','@openai','codex');
   await mkdir(join(pkg,'bin'),{recursive:true});
   await writeFile(join(pkg,'package.json'),JSON.stringify({name:'@openai/codex',version:'0.166.0',bin:{codex:'bin/codex.js'}}));
-  await writeFile(join(pkg,'bin','codex.js'),`require('node:fs').writeFileSync(${JSON.stringify(launched)},'started');setInterval(()=>{},1000);`);
+  await writeFile(join(pkg,'bin','codex.js'),script);
   await writeFile(join(bin,'codex.cmd'),'@echo off\r\nexit /b 91\r\n');
-  const old=process.env.PATH;process.env.PATH=[bin,old].filter(Boolean).join(delimiter);
-  let job:string|undefined;
-  try{
-   await assert.rejects(()=>invokeCodex({cwd:join(control,'workspace'),args:[],prompt:'must not be delivered',output:join(control,'output'),onStart:async identity=>{
-    job=identity.windowsJob;throw Error('durable identity failed');
-   }}),/durable identity failed/);
-   assert.ok(job);
-   assert.equal(await windowsJobActive(job),false);
-   await assert.rejects(readFile(launched),{code:'ENOENT'});
-  }finally{if(old===undefined)delete process.env.PATH;else process.env.PATH=old;}
-  return;
- }
- await writeFile(control+'/bin/ps','#!/bin/sh\nexit 1\n',{mode:0o755});
- const release=join(control,'release');
- await writeFile(control+'/bin/codex','#!'+process.execPath+'\n'+
-  `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(control+'/pid')},String(process.pid));process.stdin.resume();
-  setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0);},25);setTimeout(()=>process.exit(0),5000);\n`,{mode:0o755});
- const old=process.env.PATH;process.env.PATH=control+'/bin:'+old;let pid:number|undefined;
+ }else await writeFile(join(bin,'codex'),'#!'+process.execPath+'\n'+script,{mode:0o755});
+ const old=process.env.PATH;process.env.PATH=[bin,old].filter(Boolean).join(delimiter);
+ let pid:number|undefined;
  try{
-  await assert.rejects(()=>invokeCodex({cwd:control+'/workspace',args:[],prompt:'must not be delivered',output:control+'/output',onStart:async()=>{}}));
-  for(let i=0;i<50;i++){try{pid=Number(await readFile(control+'/pid','utf8'));break;}catch{await new Promise(done=>setTimeout(done,10));}}
-  if(pid){await new Promise(done=>setTimeout(done,50));assert.throws(()=>process.kill(pid!,0),{code:'ESRCH'});}
- }finally{
-  if(old===undefined)delete process.env.PATH;else process.env.PATH=old;
-  await writeFile(release,'');
-  for(let i=0;pid&&i<40;i++){
-   try{process.kill(pid,0);}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')break;throw error;}
-   await new Promise(done=>setTimeout(done,25));
-  }
- }
+  await assert.rejects(()=>invokeCodex({cwd:root,args:[],prompt:'must not be delivered',output:join(control,'output'),onStart:async identity=>{
+   pid=identity.pid;throw Error('durable identity failed');
+  }}),/durable identity failed/);
+  assert.ok(pid);
+  assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
+  await assert.rejects(readFile(launched),{code:'ENOENT'});
+ }finally{if(old===undefined)delete process.env.PATH;else process.env.PATH=old;}
 }));
 
 test('Codex recovery requires a well-formed saved outcome and its existing reservation',()=>fixture(async(_root,cache,request,reader)=>{

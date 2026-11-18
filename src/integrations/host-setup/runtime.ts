@@ -3,7 +3,7 @@ import {access,realpath,rm,stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {basename,delimiter,dirname,extname,isAbsolute,join,resolve} from 'node:path';
 import {acquireLock,defaultStateRoot,type ProjectLock} from '../../installer/lock.js';
-import {protectedOperationCommand,hostWriterPath,nativeWriterStateRoot,readHostWriter,writerAlive,type WriterIdentity} from '../../installer/operations.js';
+import {protectedOperationCommand,hostWriterPath,nativeWriterStateRoot,readHostWriter,writerAlive} from '../../installer/operations.js';
 import {isRecord,saveDurable} from '../../private-record.js';
 import {syncDirectory} from '../../sync-directory.js';
 import {absoluteHostPath,canonicalHostDirectory,nativeJson,withinPath} from './host-files.js';
@@ -120,24 +120,23 @@ export async function withHostWriter<T>(
  lock:Pick<ProjectLock,'root'|'stateRoot'>,host:SetupHost,
  work:(runner:{run:typeof run})=>Promise<T>,signal?:AbortSignal,writerRoot=lock.stateRoot,
 ){
- const resource=await acquireLock(lock.root,{stateRoot:writerRoot,resource:'native-host:'+host,recover:true,trustedProcess:true});
+ const resource=await acquireLock(lock.root,{stateRoot:writerRoot,resource:'native-host:'+host,recover:true});
  const record=hostWriterPath(resource.stateRoot,host);
  const clear=async()=>{await rm(record,{force:true});await syncDirectory(resource.stateRoot);};
  try{
   const previous=await readHostWriter(resource.stateRoot,host);
   if(previous){
-   if(await writerAlive(previous.identity,true))throw Error('Previous '+host+' writing process still active; retry after it exits');
+   if(await writerAlive(previous.identity))throw Error('Previous '+host+' writing process still active; retry after it exits');
    await clear();
   }
   return await work({run});
  }finally{await resource.release();}
 
  async function run(command:HostCommand,cwd:string,timeoutMs:number,recheck:()=>Promise<string|undefined>,capture?: (chunk:Buffer)=>void){
-  let writer:WriterIdentity|undefined,code:number|null=null,cancelled=false,dispatched=false;
+  let code:number|null=null,cancelled=false,dispatched=false;
   const result=await protectedOperationCommand(command,cwd,Math.min(timeoutMs,900_000),{
    signal,launcher:{cwd:resource.stateRoot,env:command.env},stdout:capture,
-   identity:()=>writer,
-   markDispatching:async identity=>{await saveDurable(record,JSON.stringify({root:resource.root,host,identity}));writer=identity;},
+   markDispatching:async identity=>{await saveDurable(record,JSON.stringify({root:resource.root,host,identity}));},
    registryPending:async()=>{
     let blocked:string|undefined;
     try{blocked=await recheck();}catch{blocked='Native prerequisites changed or could not be rechecked; review a fresh plan';}

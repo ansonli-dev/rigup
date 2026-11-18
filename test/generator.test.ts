@@ -408,35 +408,23 @@ test('workflow contexts show the invocable specialized check with its working di
  }
  validateNavigation(assets,profile.files);
 }));
-test('specialized checks describe package-manager, process and database prerequisites from project sources',()=>fixture(async(root)=>{
- await mkdir(root+'/apps/web',{recursive:true});await mkdir(root+'/tests/setup',{recursive:true});
+test('workflow references and GitLab reuse the selected checks without generated service setup',()=>fixture(async(root)=>{
+ await mkdir(root+'/apps/web',{recursive:true});
  await writeFile(root+'/apps/web/package.json',JSON.stringify({scripts:{'test-e2e':'pm2 start "yarn run-mock-server" --name server && yarn playwright test'}}));
  const manifest={scripts:{test:'jest --config .jestrc.json','test:e2e':'jest -i --config jest-e2e.json','migration:up:tests':'NODE_ENV=test ts-node migrate up'},dependencies:{slonik:'^31'}};
  await writeFile(root+'/package.json',JSON.stringify(manifest));
- for(const file of ['.jestrc.json','jest-e2e.json'])await writeFile(root+'/'+file,JSON.stringify({globalSetup:'<rootDir>/tests/setup/jestGlobalSetup.ts'}));
- await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"if (!databaseConfig.database.includes('test')) throw Error('Wrong database');\n");
  const profile=await scanRepository(root,opts);
  const assets=await renderFixed(profile,opts,await prepareIntegrations(profile,opts),[],[]);
  const reference=assets.find(a=>a.target.endsWith('change-deliver/references/project.md'))!.content;
- assert.match(reference,/Yarn.*PATH/);assert.match(reference,/PM2_HOME/);assert.match(reference,/Playwright browsers/);
- assert.match(reference,/npm exec --yes=false -- playwright install/);
- assert.match(reference,/dedicated PostgreSQL test database/);assert.match(reference,/database name.*`test`/);
- assert.match(reference,/Run `npm run migration:up:tests`.*then run.*listed test/);assert.match(reference,/jest-e2e\.json/);
- assert.match(reference,/`npm run test -- --runInBand`/);
+ assert.match(reference,/npm run test-e2e/);
+ assert.match(reference,/npm run test:e2e/);
+ assert.match(reference,/`npm run test`/);
  assert.match(reference,/project.s own test reporter.*Read that result/);
- assert.doesNotMatch(reference,/check-worktree|rigup:receipt/);
+ assert.doesNotMatch(reference,/PM2_HOME|--runInBand|PostgreSQL test database|Playwright browsers|npm run migration|check-worktree|rigup:receipt/);
  assert.deepEqual(profile.commands.test[0].args,['run','test']);
  validateNavigation(assets,profile.files);
- await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"/*\nif (!database.includes('test')) throw Error('comment');\n*/\nif (database.includes('test')) throw Error('Wrong database');\n");
- const unverified=await scanRepository(root,opts);
- assert.deepEqual(unverified.specializedChecks.find(check=>check.command.args.includes('test:e2e'))?.postgres,{config:'jest-e2e.json'});
- assert.deepEqual(unverified.specializedChecks.find(check=>check.command.args.includes('test'))?.command.args,['run','test']);
- const ci=await prepareIntegrations(unverified,{...opts,quality:{gitlab:{checks:['test']}}});
- assert.ok(ci.requirements.some(requirement=>/project-owned CI job/.test(requirement.reason)));
- await writeFile(root+'/tests/setup/jestGlobalSetup.ts',"if (!database.includes('test')) throw Error('Wrong database');\n");
- manifest.scripts.test+=' && node summary.js';
- await writeFile(root+'/package.json',JSON.stringify(manifest));
- assert.ok(!(await scanRepository(root,opts)).specializedChecks.some(check=>check.command.args.includes('test')));
+ const ci=await prepareIntegrations(profile,{...opts,quality:{gitlab:{checks:['test']}}});
+ assert.ok(!ci.requirements.some(requirement=>/project-owned CI job/.test(requirement.reason)));
 }));
 test('multi_agent_sdd_context_uses_each_hosts_native_command_names',()=>fixture(async(root)=>{
  const selected={agents:['claude','codex','opencode'] as ('claude'|'codex'|'opencode')[],backend:'host' as const,sdd:'spec-kit' as const};

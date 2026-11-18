@@ -1,8 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir,symlink,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,symlink,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {parse} from 'yaml';
+import {setTimeout as wait} from 'node:timers/promises';
 import {scanRepository} from '../src/analyzer/repository.js';
 import {renderFixed} from '../src/generator/render.js';
 import {prepareIntegrations} from '../src/integrations/registry.js';
@@ -36,15 +37,52 @@ test('a prepared workflow refers to native checks and emits no verification runt
  assert.equal((await command()).exitCode,0);
 }));
 
-test('optional installer checks bound inherited output when a detached child holds the pipes',()=>project(async root=>{
- const windows=process.platform==='win32';
- const delay=windows?12_000:1_100;
- const linger=windows?'setTimeout(()=>{},12000);':'';
- await writeFile(join(root,'check.mjs'),"import {spawn} from 'node:child_process';spawn(process.execPath,['-e','setTimeout(()=>{},"+delay+")'],{detached:true,stdio:'inherit'}).unref();"+linger+"\n");
- const result=await executeCheck({executable:process.execPath,args:['check.mjs'],cwd:'.',envRefs:[]},root,{timeoutMs:windows?4_000:150});
- assert.equal(result.status,'pending');
- assert.match(result.reason,/timed out/);
- assert.ok(result.durationMs<(windows?10_000:900),JSON.stringify(result));
+test('check uses exit zero while a descendant still holds the output pipes',()=>project(async root=>{
+ const path=join(root,'descendant.pid');
+ await writeFile(join(root,'check.mjs'),"import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';\n"+
+  "const child=spawn(process.execPath,['-e','setTimeout(()=>{},12000)'],{detached:true,stdio:'inherit'});"+
+  "writeFileSync(process.argv[2],String(child.pid));child.unref();\n");
+ try{
+  const result=await executeCheck({executable:process.execPath,args:['check.mjs',path],cwd:'.',envRefs:[]},root,{timeoutMs:5000});
+  assert.equal(result.status,'passed',JSON.stringify(result));
+  assert.equal(result.exitCode,0);
+  assert.ok(result.durationMs<5000);
+ }finally{
+  const pid=Number(await readFile(path,'utf8').catch(()=>0));
+  if(pid>0)try{process.kill(pid,'SIGKILL');}catch{}
+ }
+}));
+
+test('cancelling a check stops the actual process',()=>project(async root=>{
+ const path=join(root,'check.pid'), controller=new AbortController();
+ await writeFile(join(root,'check.mjs'),"import {writeFileSync} from 'node:fs';writeFileSync(process.argv[2],String(process.pid));setInterval(()=>{},10_000);\n");
+ const running=executeCheck({executable:process.execPath,args:['check.mjs',path],cwd:'.',envRefs:[]},root,{signal:controller.signal,timeoutMs:7000});
+ try{
+  let pid=0;
+  const deadline=Date.now()+5000;
+  while(!pid&&Date.now()<deadline){
+   pid=Number(await readFile(path,'utf8').catch(()=>0));
+   if(!pid)await wait(25);
+  }
+  assert.ok(pid>0);
+  controller.abort();
+  const result=await running;
+  assert.equal(result.exitCode,130,JSON.stringify(result));
+  assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
+ }finally{controller.abort();await running;}
+}));
+
+test('checks preserve declared argv and env without injecting service settings',()=>project(async root=>{
+ const key='RIGUP_CHECK_FIXTURE_VALUE';
+ const command={executable:process.execPath,args:['probe.mjs','\${'+key+'}','--literal'],cwd:'.',envRefs:[key],
+  tools:['pm2'],testDatabase:true};
+ await writeFile(join(root,'probe.mjs'),"import assert from 'node:assert/strict';\n"+
+  "assert.deepEqual(process.argv.slice(2),['check value','--literal']);"+
+  "assert.equal(process.env.PM2_HOME,'explicit-pm2-home');assert.equal(process.env.NODE_ENV,'development');\n");
+ const result=await executeCheck(command,root,{env:{...process.env,[key]:'check value',PM2_HOME:'explicit-pm2-home',NODE_ENV:'development'}});
+ assert.equal(result.exitCode,0,JSON.stringify(result));
+ assert.equal(result.status,'passed');
+ assert.equal(result.command.args[1],'\${'+key+'}');
 }));
 
 test('optional checks reject a junction or symlink outside the project',()=>project(async root=>project(async outside=>{
@@ -56,7 +94,7 @@ test('optional checks reject a junction or symlink outside the project',()=>proj
 })));
 
 test('native CI reuses explicitly selected npm scripts and deduplicates generic selection',()=>project(async root=>{
- await writeFile(join(root,'package.json'),JSON.stringify({scripts:{test:'node test.mjs','verify:contracts':'node verify-contracts.mjs'}}));
+ await writeFile(join(root,'package.json'),JSON.stringify({dependencies:{pg:'1.0.0'},scripts:{test:'jest --config jest-e2e.json','verify:contracts':'node verify-contracts.mjs'}}));
  const configured={...options,quality:{gitlab:{checks:['test' as const,{cwd:'.',script:'test'},{cwd:'.',script:'verify:contracts'}]}}};
  const prepared=await prepareQuality(await scanRepository(root,configured),configured);
  assert.deepEqual(prepared.requirements,[]);

@@ -18,7 +18,7 @@ import {withinPath as within} from '../../npm-command.mjs';
 import type {Agent,SetupOptions} from '../../types.js';
 import {agents} from '../agents/index.js';
 import {assertNpmNode,boundedCommandOutput,defaultNpmRegistry,isStableNpmVersion,resolveNpmLatest,resolveProjectNpm,type NpmView,type ResolvedNpmPackage} from '../tools/npm-resolution.js';
-import {startWindowsProcess} from '../tools/windows-process.mjs';
+import {startProcess} from '../tools/windows-process.mjs';
 import {resolveSddBinding,unqualifiedSkillName} from './binding.js';
 import {openspecInitArgs,openspecPackage,openspecPreparationCommand,type OpenSpecInstallScope} from './openspec.js';
 import {installProjectOpenSpec,readOpenSpecPreparation,saveOpenSpecPreparation,verifiedProjectOpenSpec,type OpenSpecPreparationRecord} from './openspec-project.js';
@@ -34,19 +34,14 @@ const hostScopes=(agent:Agent)=>[agents[agent].skillDirectory,agents[agent].skil
 async function writingCommand(program:Program,args:string[],cwd:string,path:string[],signal?:AbortSignal,extraEnv?:NodeJS.ProcessEnv,timeout=20_000){
  const argv=[...(program.args??[]),...args];
  const env=commandEnvironment(path,extraEnv);
- if(!windows){
-  try{await boundedCommandOutput({executable:program.file,args:argv,env},cwd,signal,timeout);}
-  catch{signal?.throwIfAborted();throw Error('OpenSpec command failed; inspect its installation or retry the approved preparation.');}
-  return;
- }
  signal?.throwIfAborted();
- const child=startWindowsProcess({executable:program.file,args:argv,cwd,env,captureOutput:false});
+ const child=startProcess({executable:program.file,args:argv,cwd,env,captureOutput:false});
  const timer=setTimeout(child.stop,timeout);
  signal?.addEventListener('abort',child.stop,{once:true});
  try{
   if(signal?.aborted)child.stop();else child.start();
   const result=await child.completed;
-  if(result.code!==0||result.remaining||result.unavailable||result.interrupted)throw Error('Protected OpenSpec command did not complete');
+  if(result.code!==0||result.unavailable||result.interrupted)throw Error('Protected OpenSpec command did not complete');
  }finally{
   clearTimeout(timer);signal?.removeEventListener('abort',child.stop);
   child.stop();await child.completed;
