@@ -27,7 +27,7 @@ test('non-interactive native setup exposes missing CLI evidence in JSON and text
   {host:'omp',code:'cli-not-runnable'},
  ]);
  assert.deepEqual(report.nativePreparation.blockers[0].evidence,[bin]);
- assert.match(errors.join(''),/blocker cli-not-runnable/);
+ assert.match(errors.join(''),/cli-not-runnable/);
  assert.match(errors.join(''),/draft the fix commands.*user approve/);
 })));
 

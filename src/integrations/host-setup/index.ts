@@ -1,5 +1,5 @@
 import {mkdir,mkdtemp,rm} from 'node:fs/promises';
-import {isAbsolute,join,relative} from 'node:path';
+import {basename,dirname,isAbsolute,join,relative,sep} from 'node:path';
 import {scanNativeEntries,type ProjectProfile} from '../../analyzer/repository.js';
 import {terminalText} from '../../cli-output.js';
 import {privateDirectory} from '../../generator/cache.js';
@@ -15,7 +15,7 @@ import {NativeBlocker,toBlocker,type Blocker} from './blockers.js';
 import {t,translate} from '../../i18n/index.js';
 import {choice} from '../../prompt.js';
 import {claudeArgs,claudeCommand,claudeRecognized,inspectClaude,prepareClaudeScratch,type ClaudeStep,type ClaudeTarget} from './claude.js';
-import {stamp,statIfPresent} from './host-files.js';
+import {stamp,statIfPresent,withinPath} from './host-files.js';
 import {claudePlugin,ompPackage,superpowersManual,superpowersReadiness,supportedHost} from './manual.js';
 import {storePackage,verifyOmpStore} from './omp-archive.js';
 import {resolveOmpPin,type OmpPin} from './omp-pin.js';
@@ -431,70 +431,146 @@ function describeOutcome(description:ReturnType<typeof describeNativePreparation
  return {...description,hosts,blockers,progress};
 }
 
-function nativeProgressMessage(item:NativeProgress):string{
- if(item.blocker||item.status==='manual'||item.status==='uncertain')return item.message;
+const hostName:Record<Agent,string>={claude:'Claude',omp:'OMP',codex:'Codex',opencode:'OpenCode'};
+
+function approvalScopes(action:Planned,steps:readonly Step[]):string{
+ const writes=steps.flatMap(step=>step.writes);
+ const scopes:{path:string;note:string}[]=[];
+ const add=(path:string,note='')=>{
+  if(!scopes.some(item=>relative(item.path,path)===''))scopes.push({path,note});
+ };
+ if(action.host==='claude'){
+  const {config,configFile}=action.recipe;
+  for(const {path,level} of writes){
+   if(level==='project')add(dirname(path),t('native.sharedSettings'));
+   else if(withinPath(config,path))add(config);
+   else if(path===configFile)add(dirname(path),t('native.onlyFile',{file:basename(path)}));
+   else add(path);
+  }
+ }else{
+  const {plugins}=action.recipe;
+  const directories=writes.map(({path,level})=>({level,path:level==='config'&&withinPath(plugins,path)?plugins:path}));
+  for(const {path,level} of directories){
+   if(directories.some(other=>other.level===level&&relative(other.path,path)!==''&&withinPath(other.path,path)))continue;
+   const pluginSubdir=level==='config'&&withinPath(path,plugins)?relative(path,plugins):'';
+   add(path,pluginSubdir?t('native.includesPlugins',{dir:pluginSubdir}):undefined);
+  }
+ }
+ const {home}=action.runtime;
+ return scopes.map(({path,note})=>{
+  if(!withinPath(home,path))return path+note;
+  const rel=relative(home,path);
+  return (rel?join('~',rel):'~'+sep)+note;
+ }).join(', ');
+}
+
+type DiagnosticProgress=NativeProgress&{stderrSummary?:string};
+const permissionError=(item?:DiagnosticProgress)=>/\b(?:EPERM|EACCES)\b/.test(item?.stderrSummary??'');
+
+export function nativeFailureText(blocker:Blocker,item?:DiagnosticProgress):string{
+ const diagnostic=item?.stderrSummary?.trim().replace(/\s*[\r\n]+\s*/g,' ');
+ const reason=permissionError(item)?t('native.permissionDenied'):
+  blocker.code==='cli-not-runnable'?t('native.cliUnavailable',{host:hostName[blocker.host]}):
+  blocker.code==='download-failed'&&!item?t('native.downloadUnavailable'):blocker.reason;
+ const exit=item?.code===undefined?'':t('native.exit',{code:item.code??t('native.unknownExit')});
+ return reason+' ('+blocker.code+')'+exit+(diagnostic?' '+t('native.hostMessage',{message:diagnostic}):'');
+}
+
+function nativeProgressDetail(item:NativeProgress):string|undefined{
  if(item.stage==='version'){
   const version=verifiedVersion(item.host);
   return item.cliVersion?t('native.versionDiffers',{detected:item.cliVersion,version}):t('native.versionUncompared',{version});
  }
  if(item.stage==='store')return t('native.ompStored',{path:item.message.slice('Verified OMP package stored at '.length)});
- if(item.status==='recognized'){
-  if(!item.step)return t('native.imported');
-  if(item.step==='marketplace')return t('native.marketplaceVerified');
-  const ready=t('native.recognized');
-  if(!item.installedSha)return ready;
-  const receipt=item.installedVersion?
-   t('native.receiptVersion',{version:item.installedVersion,sha:item.installedSha}):t('native.receiptSha',{sha:item.installedSha});
-  return ready+' '+receipt;
- }
- if(item.status==='ready')return t('native.ready');
- return item.step?t('native.canceledAfterDispatch'):item.message;
+ if(item.status==='recognized'&&item.step==='marketplace')return t('native.marketplaceVerified');
+ if(item.installedSha)return item.installedVersion?
+  t('native.receiptVersion',{version:item.installedVersion,sha:item.installedSha}):t('native.receiptSha',{sha:item.installedSha});
+ if(item.step&&item.status==='stopped'&&!item.blocker)return t('native.canceledAfterDispatch');
 }
 
 function nativeManualText(host:Agent){
- const command=superpowersManual[host];
  if(host==='omp')return t('native.manualOmp');
  if(host==='codex')return t('native.manualCodex');
  if(host==='opencode')return t('native.manualOpenCode');
- return command;
+ return superpowersManual[host];
 }
 
 export async function nativeSetupInteraction(root:string,hosts:Agent[],input:NativeSetupServices,ui:{
  write:(message:string)=>void;report?:(value:Record<string,unknown>)=>void;
- ask:import('../../prompt.js').Ask;inspect:boolean;canPrompt:boolean;back?:boolean;
+ ask:import('../../prompt.js').Ask;inspect:boolean;canPrompt:boolean;verbose:boolean;isTTY:boolean;back?:boolean;
 }):Promise<0|1|3|130|'back'>{
- const {sessionReloadNotice}=await import('../../installer/session.js');
  const {nativePreparationCommand}=await import('./manual.js');
  const plan=await planNativePreparation(root,hosts,input),description=describeNativePreparation(plan);
- const ready=plan.entries.every(entry=>entry.status==='ready'),hasAction=plan.entries.some(entry=>entry.action);
+ const actions=plan.entries.flatMap(entry=>entry.action?[entry.action]:[]);
+ const claudeAction=actions.find(action=>action.host==='claude');
+ const ready=plan.entries.every(entry=>entry.status==='ready'),hasAction=actions.length>0;
  const nextCommand=nativePreparationCommand(root,hosts);
  const write=(message:string)=>ui.write(terminalText(message)+'\n');
- const writeBlockers=(blockers:Blocker[])=>{
-  for(const blocker of blockers){
-   write(t('native.blocker',{host:blocker.host,code:blocker.code,reason:blocker.reason}));
-   for(const path of blocker.evidence)write('  '+t('native.evidence',{path}));
-   for(const command of blocker.suggest)write('  '+t('native.suggest',{command}));
-  }
-  if(blockers.length)write(t('native.agentNote'));
+ const writeHost=(host:Agent,message:string)=>write(t('native.hostStatus',{host:hostName[host],message}));
+ const writeEvidence=(blocker:Blocker)=>{
+  for(const path of blocker.evidence)write('  '+t('native.evidence',{path}));
  };
- const report=(exitCode:RunCode,outcome=describeOutcome(description,[]),pending:string[]=[])=>
+ const writeAgentNote=(blockers:Blocker[])=>{
+  if(!ui.isTTY&&blockers.length)write(t('native.agentNote'));
+ };
+ const report=(exitCode:RunCode,outcome=describeOutcome(description,[]),pending:string[]=[])=>{
   ui.report?.({phase:'native-preparation',installStatus:ui.inspect?'not-applicable':exitCode===0?(ready?'up-to-date':'complete'):exitCode===3?'pending':'failed',
    nativePreparation:outcome,pending,...(!ready&&exitCode!==0&&(hasAction||outcome.blockers.length)?{nextCommand}:{})});
- const writeStep=(step:Step,target?:ClaudeTarget)=>{
-  const pin=step.id==='marketplace'?t('native.marketplacePin'):target?
-   target.version?t('native.superpowersPin',{version:target.version,sha:target.sha}):t('native.shaOnlyPin',{sha:target.sha}):step.pin;
-  write('  '+step.command+' ('+pin+')');
+ };
+ const writeNext=(action:string)=>{
+  write(t('native.next',{action}));
+  if(!ui.verbose)write(t('native.detailsHint'));
+ };
+ const writeResolution=(outcome:ReturnType<typeof describeOutcome>,last:Map<Agent,NativeProgress>)=>{
+  const unresolved=outcome.hosts.filter(entry=>entry.status==='manual');
+  const blockerFor=(host:Agent)=>outcome.blockers.find(blocker=>blocker.host===host);
+  const urgent=unresolved.find(({host})=>blockerFor(host)?.code==='native-writer-unverified');
+  const newlyBlocked=unresolved.find(({host})=>last.get(host)?.blocker&&
+   !description.blockers.some(blocker=>blocker.host===host&&blocker.code===blockerFor(host)?.code));
+  const entry=urgent??newlyBlocked??unresolved[0];
+  if(!entry)return;
+  const {host}=entry,code=blockerFor(host)?.code,params={host:hostName[host]};
+  if(urgent)return writeNext(t('native.checkWriter',params));
+  if(permissionError(last.get(host)))return writeNext(t('native.checkPermissions',params));
+  if(code==='cli-not-runnable')return writeNext(t('native.installCli',params));
+  if(code==='host-plugin-disabled')return writeNext(t('native.checkSettings',params));
+  if(code==='download-failed'&&!newlyBlocked)return writeNext(t('native.retryRegistry',{command:nextCommand}));
+  writeNext(code?nextCommand+' --review':nativeManualText(host));
+ };
+ const stepPin=(step:Step,target?:ClaudeTarget)=>step.id==='marketplace'?t('native.marketplacePin'):target?
+  target.version?t('native.superpowersPin',{version:target.version,sha:target.sha}):t('native.shaOnlyPin',{sha:target.sha}):step.pin;
+ const writeStepDetails=(step:Step,target?:ClaudeTarget)=>{
+  write('  '+step.command+' ('+stepPin(step,target)+')');
   for(const item of step.writes)write('    '+t(`native.${item.level}`)+': '+item.path+
    (item.level==='project'?t('native.sharedSettings'):''));
  };
- for(const entry of description.hosts){
-  write(entry.host+': '+(entry.status==='ready'?t('native.ready'):entry.reason??entry.status));
-  if(entry.launcher)write('  '+t('native.verifyCli',{version:entry.launcher.verifiedVersion,command:entry.launcher.versionCommand,
-   work:entry.launcher.temporaryUnder,state:entry.launcher.writerState}));
-  const action=plan.entries.find(({host})=>host===entry.host)?.action;
-  for(const step of entry.steps)writeStep(step,action?.host==='claude'?action.recipe.target:undefined);
-  if(entry.envReport){
-   const {files,pathKeys,unreadable}=entry.envReport;
+ const writeApproval=(action:Planned,steps:readonly Step[],target?:ClaudeTarget)=>{
+  const {host}=action,fallback=host==='omp'&&!!claudeAction;
+  writeHost(host,t('native.missing'));
+  const packageVersion=action.host==='omp'?ompPackage+'@'+action.pin.version:undefined;
+  const commands=steps.map(step=>{
+   const pin=target&&step.id==='install'?stepPin(step,target):
+    packageVersion&&!step.command.includes(packageVersion)?packageVersion:undefined;
+   return step.command+(pin?' ('+pin+')':'');
+  }).join(' → ');
+  const followup=host==='claude'&&!target?' '+t('native.marketplaceConditional'):'';
+  write('  '+t(fallback?'native.fallbackCommand':'native.willRun',{command:commands+followup}));
+  write('  '+t(fallback?'native.fallbackWrites':'native.willWrite',{paths:approvalScopes(action,steps)}));
+ };
+ for(const [index,entry] of plan.entries.entries()){
+  const {host,status,action,blocker}=entry,target=action?.host==='claude'?action.recipe.target:undefined;
+  if(action)writeApproval(action,action.steps,target);
+  else{
+   writeHost(host,status==='ready'?t('native.ready'):blocker?nativeFailureText(blocker):t('native.manualRequired'));
+   if(host==='omp'&&status==='manual'&&claudeAction)write('  '+t('native.ompReusePossible'));
+  }
+  if(!ui.verbose)continue;
+  const {launcher,envReport,steps}=description.hosts[index];
+  if(launcher)write('  '+t('native.verifyCli',{version:launcher.verifiedVersion,command:launcher.versionCommand,
+   work:launcher.temporaryUnder,state:launcher.writerState}));
+  for(const step of steps)writeStepDetails(step,target);
+  if(envReport){
+   const {files,pathKeys,unreadable}=envReport;
    for(const file of new Set([...files,...pathKeys.map(item=>item.file)])){
     const keys=pathKeys.filter(item=>item.file===file).map(item=>item.key);
     if(unreadable.includes(file))write('  '+t('native.envUnreadable',{file}));
@@ -502,37 +578,64 @@ export async function nativeSetupInteraction(root:string,hosts:Agent[],input:Nat
     else write('  '+t('native.envChecked',{file}));
    }
   }
-  if(entry.conditional)write('  '+t(entry.host==='claude'?'native.marketplaceConditional':'native.conditional'));
-  if(entry.manual)write('  '+t('native.manual',{command:nativeManualText(entry.host)}));
+  if(blocker)writeEvidence(blocker);
  }
- writeBlockers(description.blockers);
- if(hasAction)write(t('native.actionNotice'));
  if(input.signal?.aborted){report(130);return 130;}
- if(ui.inspect||ready){report(0);return 0;}
- if(!hasAction){report(3,undefined,['Some native workflow prerequisites need manual preparation.']);return 3;}
+ if(ui.inspect||ready){writeAgentNote(description.blockers);report(0);return 0;}
+ if(!hasAction){
+  writeResolution(describeOutcome(description,[]),new Map());
+  writeAgentNote(description.blockers);
+  report(3,undefined,['Some native workflow prerequisites need manual preparation.']);return 3;
+ }
  if(!ui.canPrompt){
-  write(t('native.approvalRequired'));write(nextCommand);report(3,undefined,[translate('en','native.approvalRequired')]);return 3;
+  write(t(ui.isTTY?'native.reviewRequired':'native.approvalRequired'));
+  writeNext(ui.isTTY?nextCommand+' --review':t('native.runInTerminal',{command:nextCommand}));
+  writeAgentNote(description.blockers);
+  report(3,undefined,[translate('en','native.approvalRequired')]);return 3;
  }
  const approvals=[choice('Cancel',t('choice.cancel')),choice('Approve',t('choice.approve'))];
- const answer=await ui.ask({message:t('native.approvePrompt'),choices:approvals,back:ui.back});
+ const blocked=plan.entries.filter(entry=>entry.status==='manual');
+ const message=blocked.length?t('native.approvePartial',{
+  eligible:actions.map(action=>hostName[action.host]).join(', '),blocked:blocked.map(entry=>hostName[entry.host]).join(', '),
+ }):t('native.approvePrompt');
+ const answer=await ui.ask({message,choices:approvals,back:ui.back});
  if(answer==='back'&&ui.back)return 'back';
  if(!Array.isArray(answer)||answer.length!==1||answer[0]!=='Approve'||input.signal?.aborted){report(130);return 130;}
- const reload=await sessionReloadNotice(root);
- if(reload)write(t('cli.restartHost'));
  const result=await executeNativePreparation(plan,input,async (step,target)=>{
-  writeStep(step,target);
+  if(claudeAction)writeApproval(claudeAction,[step],target);
+  if(ui.verbose)writeStepDetails(step,target);
   const answer=await ui.ask({message:t('native.approveClaude'),choices:approvals});
   return Array.isArray(answer)&&answer.length===1&&answer[0]==='Approve';
  });
- for(const item of result.progress){
-  write(item.host+': '+nativeProgressMessage(item)+(item.code!==undefined?t('native.exit',{code:item.code??t('native.unknownExit')}):''));
-  for(const path of item.changes??[])write('  '+t('native.observed',{path}));
-  if(item.undo)write('  '+t('native.manualRemove',{command:item.undo}));
-  if(item.status==='manual'||item.status==='stopped'||item.status==='uncertain')write('  '+t('native.manual',{command:nativeManualText(item.host)}));
- }
  const outcome=describeOutcome(description,result.progress);
- writeBlockers(outcome.blockers);
- if(result.exitCode!==0)write(t('native.retry',{command:nextCommand}));
+ const last=new Map(result.progress.map(item=>[item.host,item]));
+ for(const entry of outcome.hosts){
+  const item=last.get(entry.host);
+  if(item?.status==='recognized'&&item.step!=='marketplace'){
+   writeHost(entry.host,item.step?t('native.installed',{host:hostName[entry.host]}):t('native.imported'));
+  }else if(result.exitCode!==130){
+   if(entry.status==='manual'){
+    const blocker=outcome.blockers.find(blocker=>blocker.host===entry.host);
+    writeHost(entry.host,blocker?nativeFailureText(blocker,item?.blocker===blocker?item:undefined):t('native.manualRequired'));
+   }else if(item?.status==='ready'&&!item.stage&&plan.entries.find(planned=>planned.host===entry.host)?.status!=='ready'){
+    writeHost(entry.host,t('native.ready'));
+   }
+  }
+ }
+ if(ui.verbose)for(const item of result.progress){
+  const detail=nativeProgressDetail(item);
+  if(detail)writeHost(item.host,detail+(item.code!==undefined?t('native.exit',{code:item.code??t('native.unknownExit')}):''));
+  for(const path of item.changes??[])write('  '+t('native.observed',{path}));
+  if(item.blocker&&!description.blockers.includes(item.blocker))writeEvidence(item.blocker);
+  if(item.changes?.length){
+   if(item.undo)write('  '+t('native.manualRemove',{command:item.undo}));
+   for(const command of item.blocker?.suggest??[])write('  '+t('native.suggest',{command}));
+  }
+ }
+ if(result.exitCode!==0&&result.exitCode!==130){
+  writeResolution(outcome,last);
+  writeAgentNote(outcome.blockers);
+ }
  report(result.exitCode,outcome,result.progress.filter(item=>['stopped','manual','uncertain'].includes(item.status)).map(item=>item.message));
  return result.exitCode;
 }
