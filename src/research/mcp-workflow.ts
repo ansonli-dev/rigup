@@ -220,7 +220,7 @@ async function advanceResearch(root:string,host:Agent,state:ResearchState,path:s
   }
   if(!refresh&&submission&&state.accepted[submission.id]!==submission.digest)throw Error('The submitted job is not pending for this research run');
  };
- const backend:AnalysisBackend={artifactContextVersion:'mcp-3',run:async(request:ResearchRequest,reader)=>{
+ const backend:AnalysisBackend={artifactContextVersion:'mcp-3',advisoryBudget:true,run:async(request:ResearchRequest,reader)=>{
   const model='host-agent/'+host;
   const expectedOutput=request.expectedOutput??'analysis';
   const stage:JobStage=expectedOutput==='content'?'page':expectedOutput;

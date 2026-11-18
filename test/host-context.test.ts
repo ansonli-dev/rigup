@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import {project} from './helpers.js';
 import {scanRepository,repositoryReader} from '../src/analyzer/repository.js';
 import {hostBackend} from '../src/analyzer/host.js';
@@ -12,7 +13,10 @@ async function fixture(fn:(root:string,cache:string,request:ResearchRequest,read
  await writeFile(root+'/src/service.ts','export const projectBehavior = true;\n');
  await writeFile(root+'/package.json',JSON.stringify({dependencies:{react:'^18.3.1'}}));
  await writeFile(root+'/docs/yarn.lock.md','Handwritten project guidance must remain visible.\n');
- for(const name of locks)await writeFile(root+'/'+name,'LOCK_BODY_MUST_NOT_BE_SENT '+name+'\n');
+ for(const name of locks){
+  const body='LOCK_BODY_MUST_NOT_BE_SENT '+name;
+  await writeFile(root+'/'+name,name.endsWith('.json')?JSON.stringify({name:body}):body+'\n');
+ }
  const options={agents:['codex' as const],backend:'codex' as const};const profile=await scanRepository(root,options);
  const request:ResearchRequest={kind:'analyze',runId:'context-fixture',root,fingerprint:profile.fingerprint,options,versions:{prompt:'4',read:'4'},budget:{maxCalls:12,maxTokens:1200000},previousInventoryDigest:'none',templateSourcesDigest:'none'};
  await fn(root,cache,request,await repositoryReader(root,options));
@@ -22,6 +26,28 @@ async function exported(cache:string,request:ResearchRequest,reader:RepositoryRe
  assert.equal(result.status,'pending-host');if(result.status!=='pending-host')throw Error('expected pending export');
  return {result,body:JSON.parse(await readFile(result.requestPath,'utf8'))};
 }
+test('a named host export can be reformatted and consumed after an unrelated edit',()=>fixture(async(root,cache,request,reader)=>{
+ const requestPath=join(cache,'named.request.json'),responsePath=join(cache,'reply.json');
+ const pending=await hostBackend({cacheRoot:cache,requestPath}).run(request,reader);
+ assert.equal(pending.status,'pending-host');
+ const delivery=JSON.parse(await readFile(requestPath,'utf8'));
+ await writeFile(requestPath,JSON.stringify(delivery));
+ const source=(await reader.read('src/service.ts',1,1)).evidence;
+ await writeFile(join(root,'docs','unrelated.md'),'Unrelated change before response\n');
+ const options=request.options as Parameters<typeof scanRepository>[1];
+ const current={...request,fingerprint:(await scanRepository(root,options)).fingerprint};
+ const nextReader=await repositoryReader(root,options);
+ await writeFile(responsePath,JSON.stringify({requestId:delivery.requestId,requestDigest:delivery.requestDigest,
+  model:'legacy host fixture',data:{observations:[],unknowns:[],citations:[source]}}));
+ const result=await hostBackend({cacheRoot:cache,responsePath}).run(current,nextReader);
+ assert.equal(result.status,'complete');
+ assert.equal(result.value.model,'legacy host fixture');
+ assert.equal(await readFile(requestPath,'utf8'),JSON.stringify(delivery));
+ const occupied=join(cache,'existing.json');
+ await writeFile(occupied,'{"note":"preserve this file"}');
+ await assert.rejects(hostBackend({cacheRoot:cache,requestPath:occupied}).run(current,nextReader),/export target/);
+ assert.equal(await readFile(occupied,'utf8'),'{"note":"preserve this file"}');
+}));
 test('dependency context omits lock bodies even when an older complete snapshot exists',()=>fixture(async(_root,cache,request,reader)=>{
  const full=await exported(cache,{...request,runId:'manual-context'},reader);
  assert.match(JSON.stringify(full.body),/LOCK_BODY_MUST_NOT_BE_SENT/);
@@ -130,7 +156,7 @@ test('harness acceptance checks the planned index links while retaining confirme
  assert.match(body.context.input.job.acceptance[0],/original guidance listed in job\.ruleTopics/);
 }));
 
-test('harness does not reset the budget of an older research run on resume',()=>fixture(async(root,cache)=>{
+test('harness resumes an older run without discarding its recorded consumption',()=>fixture(async(root,cache)=>{
  const {executeLifecycle}=await import('../src/lifecycle.js');
  const {readdir,rename}=await import('node:fs/promises');
  const settings={agents:['codex' as const],backend:'host' as const,projectRules:true};
@@ -154,7 +180,10 @@ test('harness does not reset the budget of an older research run on resume',()=>
  record.versions={...record.versions,prompt:'12'};
  const original=JSON.stringify(record);
  await writeFile(directory+'/'+older+'.json',original);
- await assert.rejects(executeLifecycle(root,settings,{review:true,resume:true},()=>{},services),/earlier evidence contract/);
- assert.equal(requests,2);
+ assert.equal(await executeLifecycle(root,settings,{review:true,resume:true},()=>{},services),3);
+ assert.equal(requests,3);
+ const resumed=JSON.parse(await readFile(directory+'/'+run,'utf8'));
+ assert.equal(resumed.runId,record.runId);
+ assert.deepEqual(resumed.spent,{calls:1,tokens:15});
  assert.equal(await readFile(directory+'/'+older+'.json','utf8'),original);
 }));

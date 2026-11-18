@@ -122,7 +122,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   ...[...completedGlobals.values()].filter(result=>!report.operations.some(item=>item.globalReceipt?.approval===result.globalReceipt?.approval)),
   ...report.operations,
  ];
- const resumeCommand='rigup update '+quoteShell(root)+' --apply '+previewId+' --resume --sessions-ended';
+ const resumeCommand='rigup update '+quoteShell(root)+' --apply '+previewId+' --resume';
  const verifyGlobalInstalls=async(all=false)=>{
   for(const approval of globalOperations){
    const prior=completedGlobals.get(signature(approval));

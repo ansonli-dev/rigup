@@ -300,7 +300,7 @@ test('provider_cannot_invoke_exec_even_after_reading_source_instructions',async(
  await assert.rejects(backend.run({...request,budget:{maxCalls:6,maxTokens:10000}},maliciousReader),/unsupported read tool/);
  assert.deepEqual(names,[['list','read','search'],['list','read','search']]);
 });
-test('host_response_changes_in_phase_versions_run_or_templates_are_rejected',async()=>{
+test('host response remains bound to run, phase and policy and changed inputs reissue the stage',async()=>{
  const {hostBackend}=await import('../src/analyzer/host.js');const fs=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const cache=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-context-')));
  const changedRoot=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-context-root-')));
@@ -308,8 +308,13 @@ test('host_response_changes_in_phase_versions_run_or_templates_are_rejected',asy
   const pending=await hostBackend({cacheRoot:cache}).run(request,reader);if(pending.status !== 'pending-host') throw new Error('pending expected');
   const exported=JSON.parse(await fs.readFile(pending.requestPath,'utf8'));const responsePath=join(cache,'response.json');
   await fs.writeFile(responsePath,JSON.stringify({requestId:pending.requestId,requestDigest:exported.requestDigest,data:{observations:[],unknowns:[]},model:'fixture'}));
-  const changes:Partial<ResearchRequest>[]=[{kind:'artifact-plan'},{versions:{policy:'2'}},{runId:'other-run'},{templateSourcesDigest:'changed'},{previousInventoryDigest:'changed'},{artifact:'other-artifact'},{root:changedRoot},{budget:{maxCalls:3,maxTokens:10000}}];
+  const changes:Partial<ResearchRequest>[]=[{kind:'artifact-plan'},{versions:{policy:'2'}},{runId:'other-run'},{artifact:'other-artifact'},{root:changedRoot}];
   for(const change of changes) await assert.rejects(hostBackend({cacheRoot:cache,responsePath}).run({...request,...change},reader),/context|digest|matching/);
+  for(const change of [{templateSourcesDigest:'changed'},{previousInventoryDigest:'changed'}]){
+   const next=await hostBackend({cacheRoot:cache,responsePath}).run({...request,...change},reader);
+   assert.equal(next.status,'pending-host');assert.notEqual(next.requestId,pending.requestId);
+  }
+  assert.equal((await hostBackend({cacheRoot:cache,responsePath}).run({...request,budget:{maxCalls:3,maxTokens:10000}},reader)).status,'complete');
  }finally{await fs.rm(cache,{recursive:true,force:true});await fs.rm(changedRoot,{recursive:true,force:true});}
 });
 test('host_symlinked_cache_cannot_create_project_directories',async()=>{
@@ -336,7 +341,8 @@ test('host_roundtrips_all_research_kinds_across_processes',async()=>{
    const first=await run({cacheRoot:cache,responsePath},req);const replay=await run({cacheRoot:cache,responsePath},req);
    assert.equal(first.status,'complete');assert.deepEqual(replay,first);assert.equal(first.value.usage.tokens,'unknown');
   }
-  await assert.rejects(run({cacheRoot:cache},{...request,kind:'artifact-content',artifact:'fourth-job',budget:{maxCalls:3,maxTokens:10000}}),/budget/);
+  assert.equal((await run({cacheRoot:cache},{...request,kind:'artifact-content',artifact:'fourth-job',budget:{maxCalls:3,maxTokens:10000}})).status,'pending-host');
+  assert.ok(!(await fs.readdir(cache)).some(name=>name.endsWith('.budget.json')));
  }finally{await fs.rm(cache,{recursive:true,force:true});}
 });
 test('unexplained_counterexamples_require_decision_instead_of_follow_existing',async()=>{
@@ -363,14 +369,18 @@ test('convention_requires_replayable_counterexample_search',async()=>{
  await validateResearch(valid,counted);await validateResearch(valid,counted);
  assert.equal(searches,2);
 });
-test('host_new_instance_does_not_reset_run_request_budget',async()=>{
+test('host budget is advisory and repeat exports keep the original request',async()=>{
  const {hostBackend}=await import('../src/analyzer/host.js');const fs=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const cache=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'rigup-budget-')));
  try {
   const req={...request,budget:{maxCalls:1,maxTokens:1000}};
   const first=await hostBackend({cacheRoot:cache}).run(req,reader);assert.equal(first.status,'pending-host');
   const replay=await hostBackend({cacheRoot:cache}).run(req,reader);assert.deepEqual(replay,first);
-  await assert.rejects(hostBackend({cacheRoot:cache}).run({...req,kind:'artifact-plan'},reader),/budget/);
+  const warnings:string[]=[];
+  const continued=await hostBackend({cacheRoot:cache,onDiagnostic:message=>warnings.push(message)}).run({...req,kind:'artifact-plan',spent:{calls:1,tokens:'unknown'}},reader);
+  assert.equal(continued.status,'pending-host');
+  assert.match(warnings.join('\n'),/budget/);
+  assert.ok(!(await fs.readdir(cache)).some(name=>name.endsWith('.budget.json')));
  }finally{await fs.rm(cache,{recursive:true,force:true});}
 });
 test('conflicting_guidance_is_not_resolved_to_follow_existing',async()=>{

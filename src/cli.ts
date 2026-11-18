@@ -153,7 +153,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
      for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
      const resume=setup.needsProject
       ?'rigup init '+quoteShell(root)+' --agents '+quoteShellList(prepared.plan.options.agents)+' --sdd openspec'+(prepared.plan.projectRules==='pending'?' --defer-research':'')+' --review'
-      :'rigup update '+quoteShell(root)+' --apply '+applyId+' --sessions-ended'+(flags.resume?' --resume':'');
+      :'rigup update '+quoteShell(root)+' --apply '+applyId+(flags.resume?' --resume':'');
      reportOpenSpecPending(setup,resume,presentation.notice,services.report);
      return 3;
     }

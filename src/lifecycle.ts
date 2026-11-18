@@ -1,6 +1,6 @@
 import {createProgressReporter,type RunProgressEvent} from './progress.js';
 import {RIGUP_VERSION} from './version.js';
-import {readFile,readdir,stat} from 'node:fs/promises';
+import {readdir,stat} from 'node:fs/promises';
 import {readDurableRecord,saveDurable} from './private-record.js';
 import {configurationCandidate} from './config.js';
 import {researchEvidenceCurrent,validateResearch,ResearchFailure,type ResearchEvidenceReceipt} from './analyzer/backend.js';
@@ -21,7 +21,6 @@ import {PROMPT_VERSION} from './analyzer/prompts.js';
 import {READ_POLICY_VERSION} from './analyzer/read-policy.js';
 import {generate,generateFoundation,inventorySignature,prepareGeneration} from './generator/generate.js';
 import {sourceGuidance} from './generator/harness.js';
-import {STAGE_EVIDENCE_POLICY} from './analyzer/stage-context.js';
 import {DOCUMENT_POLICY_VERSION} from './generator/document-policy.js';
 import {TEMPLATE_VERSION} from './generator/render.js';
 import {privateDirectory,signature,readCache,saveCache} from './generator/cache.js';
@@ -249,22 +248,14 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    if(!matchesSelection(run))throw Error('durable research options changed; reconciliation required');
    run.consent=consent;
    if(flags.researchTokens!==undefined)run.researchTokens=flags.researchTokens;
-   await saveDurable(runPath,JSON.stringify(run));researchResumeId=consent;let responseConsumed=false;
+   await saveDurable(runPath,JSON.stringify(run));researchResumeId=consent;
    const continuation=(requestPath:string)=>'rigup update '+quote(root)+' --continue '+consent+' --response '+quote(requestPath.replace(/(?:\.request)?\.json$/,'.response.json'));
    const reader=await repositoryReader(root,options,{expectedFingerprint:profile.fingerprint});
    const durableNative=!services.backend&&backendKind==='native';let activeNativeBase=run.spent;
    const providerBackend=openAI?openAICompatibleBackend:nativeBackend;
-   const rawBackend:AnalysisBackend=services.backend??(backendKind==='host'?{artifactContextVersion:STAGE_EVIDENCE_POLICY,run:async(request,reader)=>{
-    if(flags.response&&!responseConsumed){
-     const response=JSON.parse(await readFile(flags.response,'utf8'));if(typeof response.requestId!=='string'||!/^[a-f0-9]{64}$/.test(response.requestId))throw new Error('host response request identity invalid');
-     const original=await readCache<any>(join(requests,response.requestId+'.request.json'));if(!original)throw new Error('original host request missing');
-     const common=(value:Record<string,unknown>)=>{const {kind,artifact,expectedOutput,input,spent,...rest}=value;return {...rest,promptVersion:PROMPT_VERSION,readPolicyVersion:READ_POLICY_VERSION};};
-     if(signature(common(original.context))!==signature(common(request as unknown as Record<string,unknown>)))throw new Error('host response does not match current run context');
-     const accepted=await readCache<any>(join(requests,response.requestId+'.accepted.json'));
-     if(accepted){await hostBackend({cacheRoot:requests,responsePath:flags.response}).run(original.context,reader);responseConsumed=true;}
-    }
-    const result=await hostBackend({cacheRoot:requests,requestPath:responseConsumed?undefined:flags.request,responsePath:responseConsumed?undefined:flags.response}).run(request,reader);if(result.status==='complete'&&flags.response)responseConsumed=true;return result;
-   }}:backendKind==='codex'?codexBackend({cacheRoot:join(base,'codex'),stateRoot:join(lock.stateRoot,'codex'),nativeEntryPaths:prepared.integration.bindings.flatMap(binding=>binding.projectSources??[]),signal:services.signal,tokenLimit:run.researchTokens,onDispatch:stage=>emit({...active,task:stage==='analyze'?'project evidence analysis':active.task,waiting:'Codex model response',next:'validate '+stage+' result'}),onUsage:async usage=>{run.spent=usage;await saveDurable(runPath,JSON.stringify(run));}}):providerBackend({apiKey,model,baseURL,maxOutputTokens:services.provider?.maxOutputTokens??(environment.RIGUP_MAX_OUTPUT_TOKENS===undefined?undefined:Number(environment.RIGUP_MAX_OUTPUT_TOKENS)),onDiagnostic:message=>notice('Provider: '+message+'\n'),signal:services.signal,onUsage:async usage=>{run.spent={calls:activeNativeBase.calls+usage.calls,tokens:activeNativeBase.tokens==='unknown'||usage.tokens==='unknown'?'unknown':activeNativeBase.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));}}));
+   const rawBackend:AnalysisBackend=services.backend??(backendKind==='host'
+    ?hostBackend({cacheRoot:requests,requestPath:flags.request,responsePath:flags.response,allowPriorResponse:true,onDiagnostic:message=>notice(message+'\n')})
+    :backendKind==='codex'?codexBackend({cacheRoot:join(base,'codex'),stateRoot:join(lock.stateRoot,'codex'),nativeEntryPaths:prepared.integration.bindings.flatMap(binding=>binding.projectSources??[]),signal:services.signal,tokenLimit:run.researchTokens,onDispatch:stage=>emit({...active,task:stage==='analyze'?'project evidence analysis':active.task,waiting:'Codex model response',next:'validate '+stage+' result'}),onDiagnostic:message=>notice(message+'\n'),onUsage:async usage=>{run.spent=usage;await saveDurable(runPath,JSON.stringify(run));}}):providerBackend({apiKey,model,baseURL,maxOutputTokens:services.provider?.maxOutputTokens??(environment.RIGUP_MAX_OUTPUT_TOKENS===undefined?undefined:Number(environment.RIGUP_MAX_OUTPUT_TOKENS)),onDiagnostic:message=>notice('Provider: '+message+'\n'),signal:services.signal,onUsage:async usage=>{run.spent={calls:activeNativeBase.calls+usage.calls,tokens:activeNativeBase.tokens==='unknown'||usage.tokens==='unknown'?'unknown':activeNativeBase.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));}}));
    const addUsage=async(usage:{calls:number|'unknown';tokens:number|'unknown'})=>{run.spent={calls:run.spent.calls+(typeof usage.calls==='number'?usage.calls:1),tokens:run.spent.tokens==='unknown'||usage.tokens==='unknown'?'unknown':run.spent.tokens+usage.tokens};await saveDurable(runPath,JSON.stringify(run));};
    const backend:AnalysisBackend=backendKind==='native'||backendKind==='codex'&&!!services.backend?{artifactContextVersion:rawBackend.artifactContextVersion,topicEvidence:rawBackend.topicEvidence,run:async(request,source)=>{
     if(run.spent.calls>=budget.maxCalls||run.spent.tokens==='unknown'||run.spent.tokens>=budget.maxTokens)throw new ResearchFailure('restored research budget exhausted or unknown');

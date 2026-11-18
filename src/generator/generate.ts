@@ -146,8 +146,8 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
  const completed=()=>state.plan?.jobs.filter(j=>{const c=state.candidates[j.logicalId];return c?.accepted&&c.digest===candidateDigest(c.content,c.pages);}).length??0;
  const run=async(expectedOutput:'plan'|'content'|'acceptance',input:unknown,artifact?:string):Promise<StepResult<ResearchResult&{evidence?:ResearchEvidenceReceipt}>>=>{
   dependencies.onProgress?.({stage:'generation',unit:'artifacts',task:artifact??'artifact-plan',completed:completed(),total:state.plan?.jobs.length,waiting:options.backend==='host'?'host research response':'provider '+expectedOutput,next:expectedOutput==='acceptance'?'save accepted candidate':'validate candidate',status:'running'});
-  if(!backend.durableBudget&&state.spent.calls>=budget.maxCalls)throw new Error('generation request budget exhausted');
-  const result=await backend.run({kind:expectedOutput==='plan'?'artifact-plan':'artifact-content',expectedOutput,input,artifact,runId:state.runId,root:profile.root,fingerprint:profile.fingerprint,options,...(authority.length?{sourceGuidance:authority}:{}),effectiveModel:dependencies.effectiveModel,versions,budget,...(options.backend!=='host'?{spent:state.spent}:{}),previousInventoryDigest:state.inputInventory,templateSourcesDigest},reader);
+  if(!backend.durableBudget&&!backend.advisoryBudget&&state.spent.calls>=budget.maxCalls)throw new Error('generation request budget exhausted');
+  const result=await backend.run({kind:expectedOutput==='plan'?'artifact-plan':'artifact-content',expectedOutput,input,artifact,runId:state.runId,root:profile.root,fingerprint:profile.fingerprint,options,...(authority.length?{sourceGuidance:authority}:{}),effectiveModel:dependencies.effectiveModel,versions,budget,spent:state.spent,previousInventoryDigest:state.inputInventory,templateSourcesDigest},reader);
   if(result.status==='complete') {
    const {receipt,warnings}=await validateResearch(result.value.data,reader);
    state.spent.calls+=typeof result.value.usage.calls==='number'?result.value.usage.calls:1;
@@ -176,7 +176,7 @@ export async function generate(profile:ProjectProfile,options:SetupOptions,backe
     inventoryPolicy:'Previous generated baselines are comparison context, never evidence of project policy. Reconcile their claims against current source evidence; do not preserve invalidated rules. Local edits remain protected by three-way preview.',
    },{
     previousAssets:fixedInventory,run:input=>run('plan',input),
-    evidence:backend.topicEvidence?{analysis:profile.research?.data,reader,callsLeft:budget.maxCalls-state.spent.calls,state,persist}:undefined,
+    evidence:backend.topicEvidence?{analysis:profile.research?.data,reader,callsLeft:backend.advisoryBudget?Infinity:budget.maxCalls-state.spent.calls,state,persist}:undefined,
    });
    if(planned.status==='pending-host')return planned;
    const data=planned.value;

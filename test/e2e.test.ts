@@ -35,13 +35,16 @@ test('research continuation keeps its explicit limit and stops at an unrelated i
  await writeOpenSpecCodexEntries(root);
  testEnvironment(t,{PATH:await openspecFixturePath(root,cache)});
  let output='';
- const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
+ const backend={advisoryBudget:true as const,run:async()=>({status:'pending-host' as const,requestId:'fixture',
+  requestPath:join(cache,'host','fixture.request.json'),nextCommand:'continue'})};
+ const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}};
  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--review','--research-tokens','1','--json'],io),3,output);
  const id=JSON.parse(output).nextCommand.match(/--continue ([a-f0-9]{64})/)[1];
  const continuation=await loadContinuation(root,id,io.services);
  assert.equal(JSON.parse(await readFile(state+'/runs/'+id+'.json','utf8')).researchTokens,1);
  output='';assert.equal(await runCli(['update','--continue',id,'--json'],io),3);
- assert.equal(JSON.parse(output).researchBudget.limit,1);
+ assert.equal(JSON.parse(output).phase,'research');
+ assert.equal(JSON.parse(await readFile(state+'/runs/'+id+'.json','utf8')).researchTokens,1);
 
  const options=continuation.options;
  const plan=await preview({root,options,fingerprint:(await scanRepository(root,options)).fingerprint,
@@ -118,11 +121,19 @@ test('failure_after_preview_is_present_in_the_final_json_report',()=>fixture(asy
  let stdout='';const code=await runCli(['init','--agents','codex','--run-checks','test','--json'],{cwd:root,isTTY:false,write:s=>stdout+=s,services:{cacheRoot:cache,stateRoot:state,runChecks:async()=>{throw Error('existing check runner failed');}}});
  assert.equal(code,1);assert.match(JSON.parse(stdout).error,/existing check runner failed/);
 }));
-test('research_reader_budget_survives_lifecycle_pause_and_new_cli_instance',()=>fixture(async(root,cache,state)=>{
+test('CLI resume keeps the research run after an unrelated edit without a cumulative read limit',()=>fixture(async(root,cache,state)=>{
  await writeFile(root+'/source.txt','source');await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml',JSON.stringify({agents:['codex'],sdd:'openspec',backend:'host',readBudget:{maxFiles:1,maxBytes:1000}}));
- const backend={run:async(_r:any,reader:any)=>{await reader.read('source.txt',1);return {status:'pending-host' as const,requestId:'fixture',requestPath:cache+'/fixture.json',nextCommand:'continue'};}};
+ const runs:string[]=[];
+ const backend={run:async(request:any,reader:any)=>{
+  runs.push(request.runId);assert.equal((await reader.read('source.txt',1)).content,'source');
+  return {status:'pending-host' as const,requestId:'fixture',requestPath:cache+'/fixture.json',nextCommand:'continue'};
+ }};
  let output='';const io=()=>({cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state,backend}});
- assert.equal(await runCli(['init','--json'],io()),3);output='';assert.equal(await runCli(['update','--json'],io()),1);assert.match(JSON.parse(output).error,/reader.*budget/);
+ assert.equal(await runCli(['init','--json'],io()),3);
+ await writeFile(join(root,'z-unrelated.txt'),'different file');
+ output='';
+ assert.equal(await runCli(['update','--resume','--json'],io()),3);
+ assert.equal(runs.length,2);assert.equal(new Set(runs).size,1);
 }));
 test('resume finds the saved OpenSpec research after optional external entries become visible',t=>fixture(async(root,cache,state)=>project(async home=>{
  await writeOpenSpecCodexEntries(root);
@@ -143,10 +154,10 @@ test('resume finds the saved OpenSpec research after optional external entries b
   await writeFile(external+'/SKILL.md','---\nname: openspec-update-change\ndescription: Fixture revision\n---\n');
   output='';
   assert.equal(await runCli([...args,'--resume'],io),1);
-  assert.match(JSON.parse(output).error,/previous OpenSpec discovery/i);
-  assert.equal(calls,1);
+  assert.match(JSON.parse(output).error,/simulated interrupted dispatch/i);
+  assert.equal(calls,2);
   assert.deepEqual(await readdir(state+'/runs'),records);
-  assert.equal(await readFile(state+'/runs/'+records[0],'utf8'),oldRecord);
+  assert.equal(JSON.parse(await readFile(state+'/runs/'+records[0],'utf8')).runId,JSON.parse(oldRecord).runId);
  }finally{
   if(previousHome===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previousHome;
  }

@@ -21,6 +21,7 @@ export interface AnalysisBackend {
  topicEvidence?:boolean;
  /** This backend checks the durable budget before dispatch, including zero-cost recovery. */
  durableBudget?:true;
+ advisoryBudget?:true;
  run(request:ResearchRequest,reader:RepositoryReader):Promise<StepResult<ResearchResult>>;
 }
 const guidanceLists=['scope','consumers','gaps'] as const;
