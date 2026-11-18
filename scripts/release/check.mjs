@@ -139,7 +139,6 @@ export async function checkRelease({archive}) {
     assert.equal((await run(['--version'])).stdout.trim(), info.version);
     const handshake = await pipe('rigup', ['mcp', '--host', 'codex'], {cwd: project, env: cliEnv}, [
       {jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25'}},
-      {jsonrpc:'2.0',method:'notifications/initialized'},
       {jsonrpc:'2.0',id:2,method:'tools/list'},
     ].map(value => JSON.stringify(value)).join('\n')+'\n');
     const replies = handshake.trim().split('\n').map(line => JSON.parse(line));
@@ -149,13 +148,11 @@ export async function checkRelease({archive}) {
       (await run(['init', '--sdd', 'none', '--tools', 'none', '--dry-run', '--json'])).stdout,
     );
     assert.ok(preview.previewId);
-    const handoff = JSON.parse((await run(['update', '--apply', preview.previewId, '--json'], [3])).stdout);
-    assert.equal(handoff.exitCode, 3);
-    const applied = JSON.parse(
-      (await run(['update', '--apply', preview.previewId, '--sessions-ended', '--json'])).stdout,
-    );
+    const applyRun = await run(['update', '--apply', preview.previewId, '--json']);
+    const applied = JSON.parse(applyRun.stdout);
     assert.equal(applied.installStatus, 'complete');
-    const noOp = JSON.parse((await run(['update', '--sessions-ended', '--json'])).stdout);
+    assert.match(applyRun.stderr, /reload.*host session/i);
+    const noOp = JSON.parse((await run(['update', '--json'])).stdout);
     assert.deepEqual(noOp.written, []);
     const doctor = JSON.parse((await run(['doctor', '--json'], [0, 3])).stdout);
     assert.ok(doctor.diagnostics.filter((d) => d.category === 'config').every((d) => d.state === 'configured'));
@@ -191,7 +188,7 @@ export async function checkRelease({archive}) {
       systemNodeOrNpmOnCliPath: false,
       relocated: true,
       throughPathSymlink: true,
-      lifecycle: ['help', 'version', 'preview', 'session handoff', 'independent apply', 'no-op', 'doctor'],
+      lifecycle: ['help', 'version', 'preview', 'active-session apply', 'host reload reminder', 'no-op', 'doctor'],
       originalBusinessPreserved: true,
       standaloneRunnerWithoutRigupApplication: true,
       consumerNodeExplicitlyProvided: true,

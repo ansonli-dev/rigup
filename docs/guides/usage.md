@@ -72,7 +72,9 @@ mcp:
 
 CLI provider 和显式选择的 `customer.commands.environment` 可以读取各自声明的本地输入。后者通过 `--run-checks environment` 执行，仅向该命令传入声明的引用；参数中的 `${NAME}` 以无 shell 的临时参数展开，保存的命令仍保留引用。恢复安装时保留历史检查，但只有本次实际执行的检查能验证当前输入。宿主启动的 MCP 和 GitLab CI 从宿主或 runner 获取凭据，本地存在同名变量不能证明它们已配置或连接。生成本地 GitLab include 不需要 token 或远端地址。远端目标只从明确配置或唯一兼容 Git remote 推导。
 
-自动安装 OpenSpec、OpenWiki 或 CodeGraph 可使用 `RIGUP_NPM_REGISTRY` 指定不含凭据的 HTTPS registry（本机回环地址也支持 HTTP）。包版本、完整性和依赖检查继续执行。预览批准的 registry 在执行前再次核对，改变来源后需要重新审阅。OpenWiki 原生生成的 GitHub workflow 仍由 OpenWiki 管理。
+自动安装 OpenSpec、OpenWiki 或 CodeGraph 使用 npm 的有效 scope registry，再使用通用 registry。npm 沿用用户的 `.npmrc`、代理、CA 和缓存。`RIGUP_NPM_REGISTRY` 可覆盖本次安装的两种 registry 设置，值须为无凭据的 HTTPS 地址或回环 HTTP 地址。预览按包列出实际 registry、版本和完整性。来源变化后需重新审阅，已核验的暂存可用原批准恢复。
+
+项目 YAML 中的未知顶层键会产生告警，重配时保留手写值和注释。MCP 省略 `agents` 时跟随本次最终选中的宿主。命令默认在项目根运行，环境引用默认为空。工具省略 `install` 或 `initialize` 时只复用现有工具。自定义模板会替换已提供的值，保留其他占位文本。
 
 ## 发现并补齐项目约定
 
@@ -114,7 +116,7 @@ rigup init . --agents 'claude,omp' --sdd superpowers --prepare-native
 | Claude Code | 项目共享的 `.claude/settings.json`、Claude 用户配置目录中的市场和插件缓存及本机状态。Rigup 核对官方市场中 Superpowers 7.0.2 的固定 Git 提交，再验证该项目的收据。 |
 | Oh My Pi | OMP 用户插件目录中的 `omp-plugins.lock.json`、链接及相关本机状态，以及 Rigup 私有状态中的固定包 `@loneexile/omp-superpowers@7.0.2-omp.3`。Rigup 校验下载的 SHA-512，只链接该包。若此次 Claude 项目安装已为 OMP 提供完整入口，会跳过用户级链接。 |
 
-`--review` 和 `--dry-run` 只检查准备计划，检查成功返回 0；不会启动宿主或下载。配置处于 Review 模式、JSON 输出、终端输出重定向或任一端不是 TTY 时，都不会进入安装确认。普通独立准备仍需手工操作时返回 3，执行或校验失败返回 1，取消返回 130。必须在独立终端明确选择 Approve。TTY 仅防误操作，不能识别输入来源；可在宿主权限中禁止 agent 执行 `rigup init`。Rigup 可能无法识别正在运行的 OMP 会话。
+`--review` 和 `--dry-run` 检查准备计划，检查成功返回 0。Review 模式、JSON 输出和重定向保留预览交接。独立准备需要后续操作时返回 3，执行或校验失败返回 1，取消返回 130。交互安装须在终端明确选择 Approve。改动使用中的宿主配置后，按提示重载宿主。
 
 失败后查看报告中的已验证或可能写入的内容，再重跑相同命令。Rigup 会使用已验证的现场状态，跳过成功步骤。若报告无法确认写入进程已退出，应先等待进程退出或手动核对状态。已验证的 Claude 项目安装可用 `claude plugin uninstall superpowers@claude-plugins-official --scope project --keep-data` 移除；共享市场缓存不应随意删除。OMP 链接可用 `omp plugin uninstall @loneexile/omp-superpowers` 解除。有效链接仍使用 Rigup 私有目录中的固定包。
 
@@ -124,7 +126,7 @@ rigup init . --agents 'claude,omp' --sdd superpowers --prepare-native
 
 ```sh
 rigup init --defer-research --review
-rigup update --apply PREVIEW_ID --sessions-ended
+rigup update --apply PREVIEW_ID
 ```
 
 基础设置完成后重载宿主，审核项目的 Rigup MCP 配置并启用它。要生成规则，可告诉 agent「为当前项目生成 Rigup 规则，从 `rigup_begin` 开始」。宿主按工具返回的任务执行分析、计划、内容和独立验收。服务端保存续跑状态，`rigup_finish` 只交付预览。退役旧条目时，在审阅列出的删除项后向 `rigup_finish` 提供相应 `retireIds`，再从独立终端应用。
@@ -141,7 +143,7 @@ rigup update --apply PREVIEW_ID --sessions-ended
 
 ## 研究后端与预算
 
-CLI 支持 `anthropic` 和 `openai-compatible`。配置 `RIGUP_PROVIDER`、`RIGUP_MODEL_ID` 和 provider 的密钥变量。Anthropic 使用 `ANTHROPIC_API_KEY`，OpenAI 兼容接口使用 `OPENAI_API_KEY`。可用 `RIGUP_BASE_URL` 指定 HTTPS API 根路径，`RIGUP_API_KEY_ENV` 指定自定义密钥变量名。已声明的 `.rigup/.env` 非空值优先于调用环境；调用环境优先于本机私有 `~/.config/rigup/provider.json` 中同一 provider 的设置。`--model` 覆盖本轮模型 ID。网关模型名按配置原样发送。没有 provider 凭据时可在 agent 内使用 Rigup MCP。
+CLI 支持 `anthropic` 和 `openai-compatible`。配置 `RIGUP_PROVIDER`、`RIGUP_MODEL_ID` 和对应的密钥变量。Anthropic 使用 `ANTHROPIC_API_KEY`，OpenAI 兼容接口使用 `OPENAI_API_KEY`。`RIGUP_BASE_URL` 接受 HTTP 或 HTTPS API 根路径、本地网关和 `api-version` 等非秘密查询参数。密钥通过 `RIGUP_API_KEY_ENV` 指定的变量提供。请求禁止重定向。`.rigup/.env` 的已声明非空值优先于调用环境，其次取本机私有 `~/.config/rigup/provider.json` 中同一 provider 的设置。`--model` 覆盖本轮模型 ID。没有 provider 凭据时可在 agent 内使用 Rigup MCP。
 
 ```sh
 rigup update --review --model MODEL_ID --json
@@ -151,27 +153,29 @@ rigup update --review --model MODEL_ID --json
 
 `maxCalls` 统计实际 HTTP 请求，Anthropic 的远程 `count_tokens` 也计一次。该端点返回 404/405 时，本次后端会话改用保守的序列化 UTF-8 字节估算并报告此情况；其他错误不会静默降级。生成仍必须返回可信的实际 token 用量，未知消费保留在私有运行状态中等待对账。CLI provider 只能请求经过过滤的读取、清单和搜索；授权读取超过文件末尾时可获得过滤后的行数重试，无效最终结果至多在原剩余预算内修复一次并重新完整校验。MCP 宿主的模型费用由宿主记录。源码、配置或读取范围变化时会重新校验相关结果。
 
+直接调用 API 时执行预算上限。Codex 和 Host 文件交接会报告预算告警。Codex 按 `--version` 记录每次尝试的实际版本。`RIGUP_CODEX_TIMEOUT_MS` 接受正整数毫秒，默认 300000。超时或取消后，下一次续跑为当前阶段创建独立尝试。有效的已接受结果和原版本记录可继续复用。
+
 旧项目的后端设置和私有请求续跑参数继续用于兼容已有运行。新设置使用 CLI provider 或 Rigup MCP。续跑旧研究时以原报告里的命令为准。
 
 ## 应用与恢复
 
 ```sh
 rigup update --review --json
-rigup update --apply PREVIEW_ID --sessions-ended --json
+rigup update --apply PREVIEW_ID --json
 rigup update --resume --review --json
 ```
 
-以实际报告中的命令和预览 ID 为准。审阅写入和检查选择，结束会加载待改配置的 agent 会话，再从独立终端 apply。应用后重载宿主。没有文件、归属或工具操作变化时，审阅返回 `installStatus: up-to-date` 和退出码 0。基础接线完成而规则仍待生成时，返回退出码 3，并说明如何从宿主或 CLI 开始研究。
+以实际报告中的命令和预览 ID 为准。审阅写入、检查和软件范围后，可在当前会话 apply。应用后重载受影响的宿主。无变更时审阅返回 `installStatus: up-to-date` 和退出码 0。基础接线完成、规则待生成时返回退出码 3，并给出研究入口。
 
 Rigup 比较上次生成的基线、本地文件和新候选。非重叠改动可合并，冲突保留本地内容，等待用户处理后重新预览。审阅时，手工改过的宿主入口标记块会单独列为冲突。JSON 报告用 `installStatus: conflict` 标识冲突，在 `error` 中列出阻塞原因。要继续更新，可把自定义内容移到标记之外并恢复块内的托管内容，然后运行 `nextCommand` 给出的审阅命令。混合配置按拥有的键、表或标记块更新，完整文件也核对权限位。需要显式退役时使用 `--retire logicalId,...`。
 
 文本归属比较接受 CRLF/LF 差异，实际内容和权限编辑仍受保护。新 clone 缺少本机基线时，与确定性候选一致的受管部分可在审阅后登记归属，并保留原文件字节；不同内容仍是冲突。批准目标的摘要、模式和恢复记录保持精确匹配。
 
-中断后保留项目 `.rigup/` 和私有状态 `~/.local/state/rigup/`。普通候选与请求位于 `~/.cache/rigup/`。先核实 controller 和原生写入进程已退出，再在原项目路径运行 `rigup update --resume --review`。Rigup 从持久记录恢复原有选择和批准的预览。复核后，在独立终端执行报告中含 `--apply`、`--sessions-ended` 和 `--resume` 的命令。输入或权限前置变化时先对账，再生成新预览。对未确认的副作用保留记录，等待身份和结果核实。
+中断后保留项目 `.rigup/` 和私有状态 `~/.local/state/rigup/`。普通候选与请求位于 `~/.cache/rigup/`。在原项目路径运行 `rigup update --resume --review`，复核恢复的选择和批准预览，再执行报告中的 `--apply` 与 `--resume` 命令。仍在运行的写入进程会阻止重试。相关输入、目标或检查声明变化时，报告列出需要复核的路径。
 
-Windows 上，新建的私有缓存和状态目录使用独立的 ACL。若错误指出已有目录继承了额外权限，请先结束相关 Rigup 进程并检查错误中列出的路径和账号。保留已有数据，由目录所有者修正 ACL 后重试。如果报错的缓存目录来自失败的首次运行且为空，可先将它改名，再让 Rigup 重新创建。若报错路径是可被其他账号修改的父目录，请先修正该父目录的权限。
+Windows 缓存和状态目录使用文件系统现有的目录权限。发布私有 `.rigup/.env` 前，Rigup 为同目录的空临时文件设置当前用户专用 ACL，再写入值并原子发布。
 
-安装前会用空临时文件检查相关目录是否能保存所需普通权限和私有记录权限。WSL 的 drvfs 挂载若未启用 metadata、始终报告 0777，会在写入项目或开始原生安装前停止。将新 checkout 放在 Linux home 文件系统，或修正原挂载的 metadata 和现有权限后在原路径恢复。保留中断日志，不要靠删除日志或放宽私有权限强行继续。
+普通写入和恢复记录文件系统实际保存的权限。WSL 的 drvfs 在未启用 metadata 时也可保存普通项目文件。私有值需要文件系统提供受保护的写入权限。无法设置私有权限时，可使用已声明的进程环境变量，报告会指出相关文件。
 
 项目工具安装使用 `.rigup/tools/` 下的专用暂存目录，核验后才移到正式路径。Git 跟踪或忽略规则不符合要求时先保留现场，按报告修正。全局工具按用户前缀串行安装，未核验的残留指向原批准。中断后使用报告里的 `--resume` 命令。独立 OpenSpec 准备也保留原项目和安装范围，已经完成的原生写入会在后续预览取消时继续保留。
 
@@ -183,7 +187,7 @@ Git 项目应用集成后，`.rigup/.gitignore` 会排除本机安装回执、�
 
 项目级 MCP 接线使用相对路径。让宿主 PATH 中第一个 Rigup 与生成项目启动器的版本一致，并提供受支持的 Node.js。启动器在模型研究前检查该可执行文件的版本；不会跳过旧版去选择后面的安装。新 clone 使用启动器内的版本，存在本机 manifest 时二者也必须一致。研究依赖本机建立归属记录。
 
-升级前，先用原版本续跑或对账未完成的语义研究。准备新预览时，会使用新版本的证据格式和独立的预算记录。
+v0.9.0 可恢复受支持的 v0.8.0 已批准写入和旧 Host `--continue … --response …`。研究续跑会复验引用、反例查询及阶段输入。无关编辑可保留已接受页面，相关证据变化会重新发出受影响的任务。
 
 ## OpenWiki 和 CodeGraph
 
@@ -204,7 +208,7 @@ rigup init --agents codex --sdd none --tools openwiki,codegraph --review --json
 
 行为变更使用原生规格的场景和审批。任务记录实际命令与结果，并可链接项目测试报告或 CI 作业。数据库访问需要获准终端时，带上工作目录和已有准备条件。回到交付后读取项目测试报告，或记录退出状态和脱敏摘要。共享测试库检查按顺序运行。
 
-`quality.preCommit` 和 `quality.prePush` 核对已有且启用的项目 hook。项目自己的 hook 决定检查输入和执行方式。GitLab 作业在 CI 的提交检出中直接运行所选项目命令，`reportPaths` 指向项目原本生成的 JUnit 文件。需要专用数据库或进程的检查使用项目已有的 CI 作业。OpenWiki CI 由 runner 提供固定版本工具和所需环境变量。
+`quality.preCommit` 和 `quality.prePush` 核对已有且启用的项目 hook。项目自己的 hook 决定检查输入和执行方式。GitLab 作业运行选中的项目命令，`reportPaths` 接受精确路径或 `reports/junit/**/*.xml` 这样的仓库相对模式。将 JUnit 报告放在专用目录，避免匹配到覆盖率 XML。需要专用数据库或进程的检查使用项目已有的 CI 作业。 [GitLab JUnit 报告](https://docs.gitlab.com/ci/testing/unit_test_reports/)
 
 升级旧安装时，预览会列出待退役的旧启动包装器和检查脚本。旧 hook 由 Rigup 生成时，先把项目自有 hook 配置到项目自己的路径，再按预览的 `--retire` 提示处理旧的受管文件。已有验证记录仍可查阅。
 

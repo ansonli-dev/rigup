@@ -46,7 +46,7 @@ macOS 和 Linux 也可以通过安装器下载内置 Node.js 的便携版。安�
 curl -fsSL --proto '=https' https://raw.githubusercontent.com/ansonli-dev/rigup/main/install.sh | sh
 ```
 
-原生 Windows 使用 npm 安装，需要受支持的 Windows Node.js、PowerShell 7 和 Git for Windows。Rigup 的 npm 安装目录、项目目录和 `TEMP`、`TMP` 临时目录的各级目录名只支持英文字母、数字、连字符（`-`）和下划线（`_`）。含中文、空格或其他符号的路径不在支持范围内。[安装与 Windows 路径要求](docs/guides/releases.md#npm)
+原生 Windows 使用 npm 安装，需要受支持的 Windows Node.js、PowerShell 7 和 Git for Windows。项目路径支持空格和 Unicode。[安装与 Windows 验证](docs/guides/releases.md#npm)
 
 便携版安装器需要 Git 和 `ps` 等 POSIX 工具，Linux（含 WSL2）需要 glibc 2.35 或更新版本。[安装、升级与固定版本](docs/guides/releases.md)
 
@@ -69,7 +69,7 @@ OpenWiki 和 CodeGraph 复用已核验的项目安装或可用的 PATH 安装。
 
 ### 3. 应用并重载
 
-在独立终端完成 OpenSpec 基础初始化时，可以当场确认应用预览。在审阅模式中，先检查预览并结束受影响的 agent 会话，再从独立终端执行报告里的 `nextCommand`。重开 agent 后，用 `change-prepare` 发起提案，审批后用 `change-deliver` 实现和验证。[应用与恢复](docs/guides/usage.md#应用与恢复)
+检查 OpenSpec 基础预览后，可在当前终端确认应用。应用后重载受影响的 agent，使它们读取新的配置。用 `change-prepare` 发起提案，审批后用 `change-deliver` 实现和验证。[应用与恢复](docs/guides/usage.md#应用与恢复)
 
 ## 项目开发规范
 

@@ -14,7 +14,7 @@ const sourceCommit = 'a'.repeat(40);
 const sourceLockSha256 = 'b'.repeat(64);
 const repository = 'ansonli-dev/rigup';
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
-const lifecycle = ['help', 'version', 'preview', 'session handoff', 'independent apply', 'no-op', 'doctor'];
+const lifecycle = ['help', 'version', 'preview', 'active-session apply', 'host reload reminder', 'no-op', 'doctor'];
 const integrity = (text:string) => 'sha512-'+createHash('sha512').update(text).digest('base64');
 const software = ['openwiki','codegraph'].map(id=>({id,version:'2.0.0',packageIntegrity:integrity(id)}));
 
