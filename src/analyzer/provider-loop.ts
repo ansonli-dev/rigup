@@ -81,7 +81,7 @@ async function acceptedResult(request:ResearchRequest,reader:RepositoryReader,te
  let data:unknown;
  try{data=selectResearchOutput(request,JSON.parse(text));}catch{throw new ResearchValidationError('provider returned invalid research JSON');}
  let warnings:string[];
- try{({warnings}=await validateResearch(data,reader,undefined,exportedSourceEvidence));}catch(error){
+ try{({warnings}=await validateResearch(data,reader,undefined,exportedSourceEvidence,{showCitationPaths:false}));}catch(error){
   if(error instanceof ResearchValidationError)throw error;
   throw new ResearchValidationError('provider returned invalid research evidence or structure');
  }
