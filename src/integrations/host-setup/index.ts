@@ -1,5 +1,4 @@
 import {mkdir,mkdtemp,readdir,rm} from 'node:fs/promises';
-import {homedir} from 'node:os';
 import {isAbsolute,join} from 'node:path';
 import {scanNativeEntries,type ProjectProfile} from '../../analyzer/repository.js';
 import {privateDirectory,signature} from '../../generator/cache.js';
@@ -11,7 +10,7 @@ import {assertNoUnknownWriters} from '../../installer/operations.js';
 import {agents as hostInfo,projectCommandRoots} from '../agents/index.js';
 import {quoteShell} from '../../shell-command.js';
 import type {Agent} from '../../types.js';
-import {claudeArgs,claudeCommand,claudeGitIdentity,claudeRecognized,inspectClaude,prepareClaudeScratch,type ClaudeStep} from './claude.js';
+import {claudeArgs,claudeCommand,claudeRecognized,inspectClaude,prepareClaudeScratch,type ClaudeStep} from './claude.js';
 import {checkedFile,stamp,statIfPresent,withinPath} from './host-files.js';
 import {claudePlugin,ompPackage,superpowersManual,superpowersReadiness,supportedHost} from './manual.js';
 import {assertOmpEnvironmentFiles,ompLocations} from './omp-locations.js';
@@ -19,7 +18,7 @@ import {storePackage} from './omp-archive.js';
 import {downloadOmp,inspectOmp,installOmpStore,ompArgs,ompCommand,ompRecognized} from './omp.js';
 import {claudeCliVersion,claudeSha,claudeVersion,ompCliVersion,ompIntegrity,ompTarball,ompVersion} from './pins.js';
 import {bindingFrom} from './receipt.js';
-import {assertWindowsLaunch,consumerEnvironment,inspectHostRuntime,nativeChildEnv,withHostWriter,type HostCommand,type HostRuntime,type NativeInputs,type SetupHost} from './runtime.js';
+import {consumerEnvironment,hostGit,inspectHostRuntime,nativeChildEnv,nativeHome,withHostWriter,type HostCommand,type HostRuntime,type NativeInputs,type SetupHost} from './runtime.js';
 
 export interface NativeSetupServices extends NativeInputs {
  signal?:AbortSignal;
@@ -29,7 +28,7 @@ export interface NativeSetupServices extends NativeInputs {
 type Write={level:'project'|'config'|'cache'|'state';path:string};
 type Step={id:ClaudeStep|'link';command:string;pin:string;writes:Write[];undo?:string};
 type Planned={
- host:'claude';runtime:HostRuntime;recipe:Awaited<ReturnType<typeof inspectClaude>>;git:Awaited<ReturnType<typeof claudeGitIdentity>>;steps:Step[];
+ host:'claude';runtime:HostRuntime;recipe:Awaited<ReturnType<typeof inspectClaude>>;git:string;steps:Step[];
 }|{
  host:'omp';runtime:HostRuntime;recipe:Awaited<ReturnType<typeof inspectOmp>>;steps:Step[];
 };
@@ -45,14 +44,14 @@ const explain=(error:unknown,fallback:string)=>{
 const executionOrder:Agent[]=['claude','omp','codex','opencode'];
 const scan=async(root:string,hosts:Agent[],input:NativeInputs)=>{
  const env=consumerEnvironment(input.env??(input.home?{}:process.env));
- const home=input.home??homedir();
+ const home=nativeHome(input,env);
  return scanNativeEntries(root,{agents:hosts,sdd:'superpowers',backend:'host',
   scope:hosts.flatMap(agent=>[hostInfo[agent].skillDirectory,...projectCommandRoots[agent]])},{home,env});
 };
 async function verifiedExisting(profile:ProjectProfile,host:Agent,input:NativeInputs){
  const ready=superpowersReadiness(profile,host);
  if(ready.status!=='ready'||host!=='omp')return ready;
- const home=input.home??homedir(),env=consumerEnvironment(input.env??(input.home?{}:process.env));
+ const env=consumerEnvironment(input.env??(input.home?{}:process.env)),home=nativeHome(input,env);
  try{await assertOmpEnvironmentFiles(home,env,await ompLocations(home,env));}
  catch(error){return {status:'manual' as const,reason:explain(error,'OMP environment and path overlays could not be verified')};}
  const stateRoot=input.stateRoot??(input.home?join(home,'.local','state','rigup'):defaultStateRoot());
@@ -68,13 +67,13 @@ const commandLine=(runtime:HostRuntime,args:string[])=>[runtime.program.file,...
 async function planHost(root:string,host:SetupHost,input:NativeSetupServices):Promise<Planned>{
  const runtime=await inspectHostRuntime(root,host,input);
  if(host==='claude'){
-  const recipe=await inspectClaude(runtime),git=await claudeGitIdentity(runtime);
+  const recipe=await inspectClaude(runtime),git=await hostGit(runtime);
   const writes:Write[]=[
    {level:'project',path:recipe.project},
    {level:'cache',path:recipe.configFile},{level:'cache',path:recipe.backups},
   ];
   const steps:Step[]=[];
-  if(recipe.market==='missing')steps.push({id:'marketplace',command:commandLine(runtime,claudeArgs('marketplace')),
+  if(recipe.market==='missing'||!recipe.declared)steps.push({id:'marketplace',command:commandLine(runtime,claudeArgs('marketplace')),
    pin:'Current official marketplace metadata',writes:[...writes,{level:'cache',path:recipe.known},{level:'cache',path:recipe.catalogRoot}]});
   steps.push({id:'install',command:commandLine(runtime,claudeArgs('install')),pin:'Superpowers '+claudeVersion+' at '+claudeSha,
    writes:[...writes,{level:'cache',path:recipe.registry},{level:'cache',path:recipe.install}],
@@ -180,7 +179,6 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
      let state:Planned;
      try{state=await fresh();}catch(error){return fail(explain(error,'Native prerequisites changed; review a fresh plan.'),3);}
      if(identity(state)!==identity(approved))return fail('Native prerequisites changed after approval; review a fresh plan.',3);
-     await assertWindowsLaunch(state.runtime,state.recipe.paths.concat(state.host==='claude'?[state.git.path]:[]));
      const scratch=await mkdtemp(join(await privateDirectory(lock.stateRoot,root),'native-'));
      const work=join(scratch,'work');
      try{
@@ -197,7 +195,6 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
         if(identity(trusted)!==identity(state))return 'Native prerequisites changed after approval; review a fresh plan.';
         if(host==='claude'&&(!await checkedFile(join(scratch,'git-config'),{limit:0})||(await readdir(join(scratch,'empty-hooks'))).length))
          return 'The private Git settings changed; review a fresh plan.';
-        await assertWindowsLaunch(trusted.runtime,trusted.recipe.paths.concat(trusted.host==='claude'?[trusted.git.path]:[]));
        }catch(error){return explain(error,'Native prerequisites changed after approval; review a fresh plan.');}
       };
       const run=async(command:HostCommand,cwd:string,timeout:number,capture?:(bytes:Buffer)=>void)=>{
@@ -251,7 +248,7 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
         return end(input.signal?.aborted?130:1);
        if(step.id==='marketplace'){
         if(state.host!=='claude'||after?.host!=='claude'||state.runtime.approved!==after.runtime.approved||
-           state.git.identity!==after.git.identity||state.recipe.invariants!==after.recipe.invariants)
+           state.git!==after.git||state.recipe.invariants!==after.recipe.invariants)
          return fail('Claude settings outside the approved marketplace write changed; review a fresh plan.',3);
         state=after;
        }

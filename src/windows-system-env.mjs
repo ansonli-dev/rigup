@@ -7,6 +7,10 @@ export function windowsSystemPowerShell(){
  return win32.join(root,'System32','WindowsPowerShell','v1.0','powershell.exe');
 }
 
+export function windowsSystemCommand(){
+ return win32.join(win32.dirname(win32.dirname(win32.dirname(windowsSystemPowerShell()))),'cmd.exe');
+}
+
 /** @param {NodeJS.ProcessEnv} [approved] */
 export function windowsSystemEnvironment(approved){
  const shell=win32.dirname(windowsSystemPowerShell());

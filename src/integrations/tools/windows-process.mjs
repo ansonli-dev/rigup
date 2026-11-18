@@ -1,4 +1,4 @@
-import {windowsSystemEnvironment,windowsSystemPowerShell} from '../../windows-system-env.mjs';
+import {windowsSystemCommand,windowsSystemEnvironment,windowsSystemPowerShell} from '../../windows-system-env.mjs';
 import {execFile,spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {statSync} from 'node:fs';
@@ -279,8 +279,22 @@ function environmentBlock(env){
 /** @param {{executable:string,args:string[],cwd:string,env?:NodeJS.ProcessEnv,captureOutput?:boolean,supervisorEnv?:NodeJS.ProcessEnv}} spec */
 export function startWindowsProcess({executable,args,cwd,env=process.env,captureOutput=true,supervisorEnv}){
  if(process.platform!=='win32'||!path.isAbsolute(cwd))throw Error('Windows process supervision unavailable');
- executable=resolveWindowsExecutable(executable,cwd,env);
- const command=[executable,...args].map(quoteArgument).join(' ');
+ let command;
+ if (/\.(?:cmd|bat)$/i.test(executable)){
+  const batch=path.resolve(cwd,executable);
+  const argv=[batch,...args];
+  if(!path.isAbsolute(executable)||argv.some(value=>/["\x00-\x1f]/.test(value)))
+   throw Error('Unsupported argument for Windows batch launcher');
+  const line=argv.map(quoteArgument).join(' ');
+  if(line.length>8000)throw Error('Windows batch command line is too long');
+  executable=windowsSystemCommand();
+  env={...env,RIGUP_BATCH_COMMAND:line};
+  // One expansion transports literal percent signs. Delayed expansion is disabled for exclamation marks.
+  command=quoteArgument(executable)+' /d /v:off /s /c "%RIGUP_BATCH_COMMAND%"';
+ }else{
+  executable=resolveWindowsExecutable(executable,cwd,env);
+  command=[executable,...args].map(quoteArgument).join(' ');
+ }
  if(command.length>=32767)throw Error('Windows command line is too long');
  const job=randomUUID(),block=environmentBlock(env);
  const supervisor=supervisorOptions(undefined,supervisorEnv);

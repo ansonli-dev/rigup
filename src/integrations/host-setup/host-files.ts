@@ -1,6 +1,6 @@
 import {constants} from 'node:fs';
-import {lstat,open,realpath} from 'node:fs/promises';
-import {basename,dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
+import {lstat,open,realpath,stat} from 'node:fs/promises';
+import {basename,dirname,join,parse,relative,resolve,sep} from 'node:path';
 import {visit} from 'jsonc-parser';
 import {isRecord} from '../../private-record.js';
 export {withinPath} from '../../npm-command.mjs';
@@ -14,12 +14,6 @@ const trustedOwner=(info:Info)=>windows||info.uid===0n||info.uid===BigInt(proces
 const unsafeWrite=(info:Info)=>!windows&&(info.mode&0o022n)!==0n;
 
 export function absoluteHostPath(value:string){
- const root=parse(value).root;
- if(!isAbsolute(value)||/[\x00-\x1f\x7f-\x9f\u2028-\u202e\u2066-\u2069]/.test(value)||value.length>8192||
-    windows&&(!/^[a-z]:[\\/]$/i.test(root)||/[<>:"|?*]/.test(value.slice(root.length)))||
-    value.slice(root.length).split(windows?/[\\/]/:/\//).some(part=>
-     part==='..'||windows&&(/[ .]$/.test(part)||/^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:\.|$)/i.test(part))))
-  throw Error('An absolute, unambiguous path is required');
  const path=resolve(value);
  return process.platform==='darwin'?path.replace(/^\/(tmp|var|etc)(?=\/|$)/,'/private/$1'):path;
 }
@@ -47,7 +41,6 @@ export async function checkedDirectory(path:string){
 
 export async function canonicalHostDirectory(value:string){
  let cursor=absoluteHostPath(value);
- await checkedDirectory(cursor);
  const suffix:string[]=[];
  while(!await statIfPresent(cursor)){
   suffix.unshift(basename(cursor));
@@ -55,7 +48,9 @@ export async function canonicalHostDirectory(value:string){
   if(parent===cursor)throw Error('Native directory root is unavailable');
   cursor=parent;
  }
- return join(await realpath(cursor),...suffix);
+ const directory=await realpath(cursor);
+ if(!(await stat(directory)).isDirectory())throw Error('Not a directory: '+cursor);
+ return join(directory,...suffix);
 }
 
 export async function checkedFile(path:string,{hardlinks=false,limit=256_000}={}){
