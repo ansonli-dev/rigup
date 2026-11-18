@@ -127,7 +127,7 @@ import {writeFile,readdir,symlink,realpath} from 'node:fs/promises';
 for(const scope of ['project','global'] as const)test('missing tools offer '+scope+' scope and saving or cancelling writes no software',t=>globalFixture(t,async({root,prefix,stateRoot,cacheRoot})=>{
  const questions:string[]=[];
  let output='';
- const result=await runCli(['init','--agents','claude','--sdd','none','--tools','openwiki,codegraph','--language','en'],{cwd:root,isTTY:true,write:text=>output+=text,ask:async question=>{
+ const result=await runCli(['init','--agents','claude','--sdd','none','--tools','openwiki,codegraph','--language','en','--verbose'],{cwd:root,isTTY:true,write:text=>output+=text,ask:async question=>{
   questions.push(question.message);
   if(question.message.includes('installation scope'))return [scope];
   return ['Save preview, apply later'];

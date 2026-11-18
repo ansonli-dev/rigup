@@ -90,6 +90,8 @@ test('guided first init prepares OpenSpec before tool choices and applies the re
   assert.equal(code,0,first.output());
   assert.equal(answers.length,0);
   assert.ok(first.output().includes('Prepare automatically')&&first.output().indexOf('Prepare automatically')<first.output().indexOf('Optional tools'),first.output());
+  assert.match(first.output(),/Prepared 6 OpenSpec files in openspec\/.*\.agents\/skills\//);
+  assert.ok(first.output().indexOf('Prepared 6 OpenSpec files')<first.output().indexOf('Optional tools'),first.output());
   assert.match(first.output(),/Install complete/);
   assert.match(await readFile(join(root,'.agents/skills/change-prepare/references/project.md'),'utf8'),/Native prepare: openspec-propose/);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/spec-driven/);
@@ -132,6 +134,7 @@ test('a separate init resumes the OpenSpec selection and preserves existing proj
   const resumed=terminal(root,control,['','']);
   assert.equal(await runCli(['init','--language','en'],resumed.io),0,resumed.output());
   assert.doesNotMatch(resumed.output(),/Target agents|Native SDD/);
+  assert.doesNotMatch(resumed.output(),/Prepared \d+ OpenSpec files/);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/# original project config/);
   assert.equal(await readFile(join(proposal,'SKILL.md'),'utf8'),existing);
  }finally{process.env.PATH=path;}

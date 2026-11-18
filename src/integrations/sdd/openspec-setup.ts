@@ -295,8 +295,8 @@ async function publishableNativeFiles(root:string,staged:string,generatedFor:Age
 }
 
 export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approval:OpenSpecPreparation,
- dependencies:{stateRoot?:string;signal?:AbortSignal;recover?:boolean;write:(text:string)=>void;onInstalled?:()=>void}){
- const {stateRoot,signal,recover,write,onInstalled}=dependencies;
+ dependencies:{stateRoot?:string;signal?:AbortSignal;recover?:boolean;write:(text:string)=>void;onInstalled?:()=>void;verbose?:boolean}){
+ const {stateRoot,signal,recover,write,onInstalled,verbose}=dependencies;
  const lock=await acquireLock(root,{stateRoot,recover});
  let stage:string|undefined;
  try{
@@ -374,6 +374,11 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   for(const {target,bytes} of files){
    signal?.throwIfAborted();
    await atomicProjectWrite(root,target,bytes,0o644,true);
+  }
+  if(files.length){
+   const scopes=openSpecProjectScopes(current).filter(scope=>files.some(({target})=>target.startsWith(scope)));
+   write(t('openspec.filesWritten',{count:files.length,scopes:scopes.join(', ')})+'\n');
+   if(verbose)for(const {target} of files)write('  '+target+'\n');
   }
   return await finish(await inspect(cliIdentity));
  }finally{

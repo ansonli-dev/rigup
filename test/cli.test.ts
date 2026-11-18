@@ -72,6 +72,9 @@ test('plain preview describes zero writes and keeps file bodies in private detai
  assert.equal(await runCli(flags,io),0,output);
  assert.match(output,/Nothing was written to the project/);
  assert.doesNotMatch(output,/owned after/);
+ assert.doesNotMatch(output,/Details: |[a-f0-9]{64}/);
+ output='';
+ assert.equal(await runCli([...flags,'--verbose'],io),0,output);
  const details=output.match(/^Details: (.+)$/m)?.[1];
  assert.ok(details);assert.ok(details.startsWith(stateRoot));
  assert.match(await readFile(details,'utf8'),/owned after/);
@@ -123,7 +126,7 @@ test('interactive preview remains visible beside confirmation when stdout is red
  let stdout='',stderr='';
  const code=await runCli(['init','--agents','codex','--sdd','none','--tools','none','--language','en'],{
   cwd:root,isTTY:true,outputIsTTY:false,write:text=>stdout+=text,writeError:text=>stderr+=text,
-  read:async()=>{assert.match(stderr,/Preview [a-f0-9]{64}[\s\S]+Create[\s\S]+Continue\?/);return '3';},
+  read:async()=>{assert.match(stderr,/Project preview[\s\S]+Create[\s\S]+Continue\?/);return '3';},
   services:{cacheRoot,stateRoot},
  });
  assert.equal(code,130,stderr);
@@ -180,7 +183,7 @@ test('foundation reconfiguration retires only the unselected OpenWiki connection
  await invoke([...flags,'--retire','mcp:codex:openwiki,entry:AGENTS.md'],1,true);
  assert.match(output,/retirement contradicts selected/);
  await invoke([...flags,'--retire','mcp:codex:openwiki'],3,true);
- const id=output.match(/Preview ([a-f0-9]{64})/)?.[1];assert.ok(id);
+ const id=output.match(/--apply ([a-f0-9]{64})/)?.[1];assert.ok(id);
  await invoke(['update','--apply',id,'--sessions-ended','--json'],0);
  assert.equal(JSON.parse(output).projectRules,'ready');assert.equal(calls,before);
  assert.match(await readFile(join(root,'.rigup/config.yaml'),'utf8'),/"?tools"?:\s*\[\s*\]/);

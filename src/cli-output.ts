@@ -7,6 +7,7 @@ import type {Diagnostic} from './installer/doctor.js';
 import {absentDigest,platformFileMode} from './installer/file-state.js';
 import {defaultStateRoot} from './installer/lock.js';
 import type {PreviewData} from './installer/preview.js';
+import {agents} from './integrations/agents/index.js';
 import {defaultNpmRegistry} from './integrations/tools/npm-resolution.js';
 import {quoteShell} from './shell-command.js';
 import {t,translate,type MessageKey} from './i18n/index.js';
@@ -46,9 +47,13 @@ export function terminalReason(reason:string):string{
  return key?t(key):reason;
 }
 
-export function writeDoctor(report:InstallReport&{diagnostics:Diagnostic[]},write:(text:string,english?:string)=>void):void{
- if(report.nextCommand)write(report.nextCommand+'\n');
- for(const {category,id,state,reason} of report.diagnostics){
+export function writeDoctor(report:InstallReport&{diagnostics:Diagnostic[]},write:(text:string,english?:string)=>void,
+ options:{verbose:boolean;json:boolean;projectArgument?:string}):void{
+ const detailed=options.verbose||options.json;
+ const attention=report.diagnostics.filter(({state})=>state==='failed'||state==='pending'||state==='reload-required');
+ if(options.json&&report.nextCommand)write(report.nextCommand+'\n');
+ if(!options.json)write(t('doctor.summary',{ready:report.diagnostics.length-attention.length,attention:attention.length})+'\n');
+ for(const {category,id,state,reason} of detailed?report.diagnostics:attention){
   write(t(`doctor.category.${category}`)+' '+id+': '+t(`status.${state}`)+' — '+terminalReason(reason)+'\n',
    category+' '+id+': '+state+' — '+reason+'\n');
  }
@@ -56,6 +61,15 @@ export function writeDoctor(report:InstallReport&{diagnostics:Diagnostic[]},writ
   const params={name,status,time:startedAt??'',commit:commit??''};
   write(t('doctor.check',{...params,status:t(`status.${status}`)})+'\n',translate('en','doctor.check',params)+'\n');
  }
+ if(options.json)return;
+ const project=options.projectArgument?' '+quoteShell(options.projectArgument):'';
+ const next=report.nextCommand??(
+  attention.some(({state})=>state==='failed')?t('doctor.fixFailed'):
+  report.projectRules==='pending'?'rigup update'+project+' --review':
+  attention.some(({category,state})=>category==='environment'&&state==='pending')?t('doctor.fixEnvironment'):
+  attention.some(({state})=>state==='reload-required')?t('doctor.reloadAgents'):
+  attention.length?t('doctor.fixPending'):undefined);
+ if(next)write(t('result.next',{command:terminalText(next)})+'\n');
 }
 
 function operationDetails(operation:PreviewData['preview']['operations'][number]):string {
@@ -90,6 +104,16 @@ function previewPaths(data:PreviewData){
  return changes;
 }
 
+const previewGroups=['agents','guidance','rigup','other'] as const;
+const previewActions=['Create','Update','Delete'] as const;
+const hostTargets=Object.values(agents);
+
+function groupPreviewPath(target:string,documents:ReadonlySet<string>):typeof previewGroups[number]{
+ if(hostTargets.some(host=>target===host.mcpTarget||target.startsWith(host.skillDirectory+'/')))return 'agents';
+ if(documents.has(target)||hostTargets.some(host=>target===host.entry)||target.startsWith('docs/'))return 'guidance';
+ return target.startsWith('.rigup/')?'rigup':'other';
+}
+
 export function applyReason(report:Record<string,unknown>):string|undefined{
  if(report.phase!=='apply')return;
  const installed=report as unknown as InstallReport;
@@ -107,19 +131,22 @@ export function createCliOutput(options:{
 }){
  const {write,verbose,json,stateRoot}=options;
  const state:{root?:string;data?:PreviewData;native?:NativeResult;applyId?:string;error?:string;note?:string;details?:string}={};
- const seen=new Set<string>();
+ const stages=new Map<string,string>();
  const stageLabels:Partial<Record<RunProgressEvent['stage'],MessageKey>>={
-  detect:'stage.detect',research:'stage.research',generation:'stage.generation',preview:'stage.preview',apply:'stage.apply',
+  detect:'stage.detect',openspec:'stage.openspec',research:'stage.research',generation:'stage.generation',preview:'stage.preview',apply:'stage.apply',
  };
  const presentation:LifecyclePresentation={
   progress(event){
    const key=stageLabels[event.stage];
    const label=key?t(key):event.stage;
+   const first=!stages.has(event.stage);
+   if(first)stages.set(event.stage,label);
    if(options.stage)options.stage(label,!!event.requiresUserAction||event.status==='complete'||event.status==='failed');
-   else if(!seen.has(event.stage)){seen.add(event.stage);write(label+'…\n');}
+   else if(first)write(label+'…\n');
   },
   async preview(data){
    state.data=data;
+   state.details=undefined;
    const details=fileDetails(data);
    try{
     const root=await privateDirectory(join(stateRoot??defaultStateRoot(),'details'),data.plan.root);
@@ -128,19 +155,22 @@ export function createCliOutput(options:{
    }catch{/* A preview can proceed if private details are unavailable. */}
    if(!json){
     const changes=previewPaths(data);
-    write(t('lifecycle.preview',{id:data.preview.previewId})+'\n');
-    for(const action of ['Create','Update','Delete'] as const){
-     const paths=changes.filter(change=>change.action===action);
-     if(paths.length)write(t('preview.fileCount',{action:t(`preview.action.${action}`),count:paths.length})+'\n');
+    write((verbose?t('lifecycle.preview',{id:data.preview.previewId}):t('preview.heading'))+'\n');
+    const documents=new Set(data.preview.projectDocuments?.map(item=>item.target));
+    for(const group of previewGroups){
+     const paths=changes.filter(change=>groupPreviewPath(change.target,documents)===group);
+     const counts=previewActions.flatMap(action=>{
+      const count=paths.filter(change=>change.action===action).length;
+      return count?[t(count===1?'preview.oneFile':'preview.fileCount',{action:t(`preview.action.${action}`),count})]:[];
+     });
+     if(counts.length)write(t('preview.group',{category:t(`preview.category.${group}`),counts:counts.join(' · ')})+'\n');
     }
-    const actions=['Create','Update','Delete'];
-    const sorted=changes.sort((a,b)=>actions.indexOf(a.action)-actions.indexOf(b.action)||a.target.localeCompare(b.target));
-    const shown=state.details?sorted.slice(0,15):sorted;
-    for(const change of shown)write('  '+t(`preview.action.${change.action}`)+' '+terminalText(change.target)+'\n');
-    if(shown.length<sorted.length)write('  '+t('preview.more',{count:sorted.length-shown.length})+'\n');
+    if(verbose||!state.details)for(const change of changes)write('  '+t(`preview.action.${change.action}`)+' '+terminalText(change.target)+'\n');
     for(const operation of data.preview.operations)write('  '+terminalText(operationDetails(operation))+'\n');
     if(data.preview.executable)write(t('preview.applyMetadata')+'\n');
-    write((state.details?t('preview.details',{path:terminalText(state.details)}):t('preview.detailsUnavailable'))+'\n');
+    const detailNotice=!state.details?t('preview.detailsUnavailable'):
+     verbose?t('preview.details',{path:terminalText(state.details)}):t('preview.detailHint');
+    write(detailNotice+'\n');
    }
    if(verbose)write(details);
   },
@@ -151,6 +181,7 @@ export function createCliOutput(options:{
   options.stop?.();
   const root=state.root;
   if(json||!root)return;
+  if(stages.size>1)write(t('stage.summary',{stages:[...stages.values()].join(' → ')})+'\n');
   if(report.phase==='native-preparation'){
    const label=code===130?'result.cancelled':code===3?'result.needsAction':code===1?'result.nativeFailed':
     report.installStatus==='not-applicable'?'result.nativePreview':report.installStatus==='up-to-date'?'result.nativeReady':'result.nativeComplete';
@@ -207,5 +238,5 @@ export function createCliOutput(options:{
   }else if(code===1||code===3)next='rigup doctor '+quoteShell(root);
   if(next)write(t('result.next',{command:terminalText(terminalReason(next))})+'\n');
  }
- return {state,presentation,finish};
+ return {state,presentation,finish,verbose,json};
 }

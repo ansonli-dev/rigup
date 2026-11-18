@@ -49,9 +49,9 @@ function validLanguage(value:unknown):string|undefined{
 const activateLanguage=(language:string|undefined)=>setLocale(resolveLocale(language,process.env));
 
 async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:string,english?:string):void},display:ReturnType<typeof createCliOutput>):Promise<number>{
- const {state,presentation}=display;
- const fail=(code:number,key:MessageKey,params?:MessageParams)=>{
-  io.write(t(key,params)+'\n',translate('en',key,params)+'\n');return code;
+ const {state,presentation,verbose,json}=display;
+ const fail=(code:number,key:MessageKey,params?:MessageParams,english=translate('en',key,params))=>{
+  io.write(t(key,params)+'\n',english+'\n');return code;
  };
  const failRaw=(code:number,message:string)=>{io.write(terminalReason(message)+'\n',message+'\n');return code;};
  const configWarnings:string[]=[];
@@ -67,7 +67,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
  const ask:Ask=io.ask??(question=>askLine(promptIO,question));
  const services:LifecycleServices={...io.services};
  const flags:LifecycleFlags={};const overrides:SetupOverrides={};const positional:string[]=[];let applyId:string|undefined,showHelp=false;
- let argumentError:{key:MessageKey;params?:MessageParams}|undefined;
+ let argumentError:{key:MessageKey;params?:MessageParams;english?:string}|undefined;
  const boolean=new Set(['--dry-run','--configure','--review','--sessions-ended','--resume','--defer-research','--prepare-openspec','--prepare-native']);const valued=new Set(['--sdd','--backend','--profile','--language','--response','--request','--apply','--model','--api-key-env','--continue','--research-tokens','--check-host','--install-scope']);const values:Record<string,string>={};
  for(let i=0;i<argv.length;i++){
   const arg=argv[i];
@@ -105,14 +105,19 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    io.write(`${version}\n`);
    return 0;
   }
-  if(arg.startsWith('-'))argumentError??={key:'cli.unknownOption'};
+  if(flag==='--agent')argumentError??={key:'cli.agentFlagHint',english:'Unknown option'};
+  else if(arg.startsWith('-'))argumentError??={key:'cli.unknownOption'};
   else positional.push(arg);
+ }
+ if(!argumentError&&values['--sdd']){
+  try{validateOptions({sdd:values['--sdd']});}
+  catch{argumentError={key:'cli.sddFlagHint',params:{choices:'superpowers, openspec, spec-kit, none'},english:'sdd: unsupported selection'};}
  }
  const invalidCommand=positional.length>2||positional[0]&&!isLifecycleCommand(positional[0]);
  const missingCommand=!positional.length&&!io.isTTY;
  const showUsage=argumentError||showHelp||missingCommand||invalidCommand;
  const usage=()=>{
-  if(argumentError)return fail(2,argumentError.key,argumentError.params);
+  if(argumentError)return fail(2,argumentError.key,argumentError.params,argumentError.english);
   if(showHelp){io.write(t('cli.help'));return 0;}
   if(missingCommand){
    io.write(t('cli.help')+t('cli.chooseCommand')+'\n',translate('en','cli.help')+translate('en','cli.chooseCommand')+'\n');return 2;
@@ -209,7 +214,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    const report=await doctor(root,{checkHost:values['--check-host']?'claude':undefined,runChecks,
     stateRoot:services.stateRoot,signal:services.signal});
    services.report?.({phase:'doctor',installStatus:report.nextCommand?'pending':'not-applicable',...report});
-   writeDoctor(report,io.write);
+   writeDoctor(report,io.write,{verbose,json,projectArgument:positional[1]});
    return report.exitCode;
   }catch(error){return failRaw(1,errorMessage(error));}
  }
@@ -327,15 +332,17 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
   const report=services.report;
   let nativePreparation:Record<string,unknown>|undefined;
   services.report=value=>report?.({...(runtimeSetup?{runtimeSetup}:{}),...(nativePreparation?{nativePreparation}:{}),...value});
-  const nativeDeps={stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write,view:services.npmView};
+  const nativeDeps={stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write,view:services.npmView,verbose};
   const prepareApproved=async(selected:SetupOptions,approval:OpenSpecPreparation)=>{
    const reload=await sessionReloadNotice(root,flags.sessionsEnded);
    if(reload)io.write(t('cli.restartHost')+'\n',reload+'\n');
    state.native=approval.kind!=='existing'?{version:approval.install.version,prefix:approval.prefix}:{version:approval.cliVersion};
+   presentation.progress({stage:'openspec',completed:0});
    const setup=await prepareOpenSpec(root,selected,approval,{...nativeDeps,onInstalled:()=>{
     state.native={...state.native,installed:true};
    }});
    state.native={...state.native,version:setup.cliVersion??state.native.version,ready:!setup.requirements.length};
+   presentation.progress({stage:'openspec',completed:1,status:'complete'});
    return setup;
   };
   const describePreparation=(approval:OpenSpecPreparation)=>{
@@ -399,12 +406,10 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
      if(!values['--language']&&(!options.documentLanguage||options.documentLanguage==='auto')&&language&&language!=='auto')options.documentLanguage=language;
      resumed=true;
      if(draft.scope==='project'||draft.scope==='global')selectedOpenSpecScope=draft.scope;
-     start(options.documentLanguage);
-     io.write(t('openspec.resumeSelection',{agents:draft.agents.join(', ')})+'\n');
     }
    }
   }
-  start();
+  if(!wizard)start();
   const checkWorkflow=async(selected:SetupOptions,back=false):Promise<'ready'|'back'|'stop'>=>{
    if(selected.sdd==='superpowers'&&selected.agents.some(supportedHost)&&firstWorkflow&&wizard&&inlineReview&&!flags.review&&!flags.dryRun&&nativeTTY){
     const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:value=>{
@@ -477,12 +482,16 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    !flags.request&&!flags.response&&!flags.continuation&&(flags.configure||!!values['--sdd']);
   if(wizard){
    const provided={agents:resumed||!!values['--agents'],sdd:resumed||!!values['--sdd'],tools:!!values['--tools']};
-   presentation.progress({stage:'detect',completed:0});
-   const detected=await detectCommands(root);
-   presentation.progress({stage:'detect',completed:1,status:'complete'});
-   if(!provided.agents&&detected.agents.length)io.write(t('cli.detectedAgents',{agents:detected.agents.join(', ')})+'\n');
-   if(!provided.agents&&!configured.agents&&detected.agents.length)options.agents=detected.agents;
    const setup=await onboard(options,promptIO,{configure:!!flags.configure,provided,ask,askLanguage:!values['--language']&&(!options.documentLanguage||options.documentLanguage==='auto'),checkWorkflow:checkSelectedWorkflow?checkWorkflow:undefined,
+    onStart:async selected=>{
+     start(selected.documentLanguage);
+     if(resumed)io.write(t('openspec.resumeSelection',{agents:selected.agents.join(', ')})+'\n');
+     presentation.progress({stage:'detect',completed:0});
+     const detected=await detectCommands(root);
+     presentation.progress({stage:'detect',completed:1,status:'complete'});
+     if(!provided.agents&&detected.agents.length)io.write(t('cli.detectedAgents',{agents:detected.agents.join(', ')})+'\n');
+     if(!provided.agents&&!configured.agents&&detected.agents.length)selected.agents=detected.agents;
+    },
     recommendSdd:configured.sdd?undefined:selected=>detectSdd(root,selected,io.write)});
    if(!setup)return setupExit;
    options=setup;

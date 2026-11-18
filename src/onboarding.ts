@@ -20,6 +20,7 @@ export function restrictBindings(options:SetupOptions,explicitTools=false):void{
 
 export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{
  configure:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools',boolean>>;ask?:Ask;askLanguage?:boolean;
+ onStart?:(options:SetupOptions)=>Promise<void>;
  checkWorkflow?:(options:SetupOptions,back:boolean)=>Promise<'ready'|'back'|'stop'>;
  recommendSdd?:(options:SetupOptions)=>Promise<SetupOptions['sdd']>;
 }):Promise<SetupOptions|null>{
@@ -33,6 +34,7 @@ export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{
   if(language==='en'||language==='zh-CN')options.documentLanguage=language;
   setLocale(resolveLocale(options.documentLanguage,process.env));
  }
+ await settings.onStart?.(options);
  const stages=(['agents','sdd','native','tools'] as const).filter(stage=>stage==='native'||!settings.provided?.[stage]);
  for(let index=0;index<stages.length;index++){
   const stage=stages[index];
