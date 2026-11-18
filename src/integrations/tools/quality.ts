@@ -3,7 +3,7 @@ import {access,constants,readFile,realpath,stat} from 'node:fs/promises';
 import {isAbsolute,posix,relative,resolve,sep} from 'node:path';
 import {promisify} from 'node:util';
 import type {ProjectProfile} from '../../analyzer/repository.js';
-import type {CheckSelector,SetupOptions} from '../../types.js';
+import type {CheckSelector,CommandSpec,SetupOptions} from '../../types.js';
 import type {IntegrationPreparation} from '../registry.js';
 import {prepareGitlab} from '../gitlab/ci.js';
 import {selectedChecks} from './check-catalog.js';
@@ -53,20 +53,31 @@ export async function prepareQuality(profile:ProjectProfile,options:SetupOptions
  return result;
 }
 
-export async function runProjectChecks(profile:ProjectProfile,selectors:CheckSelector[],signal?:AbortSignal,options?:SetupOptions):Promise<import('../../installer/apply.js').CheckResult[]>{
+export interface ResolvedProjectCheck {name:string;command?:CommandSpec;privateEnvironment?:true}
+export function resolveProjectChecks(profile:ProjectProfile,selectors:CheckSelector[],options?:SetupOptions):ResolvedProjectCheck[]{
+ return selectedChecks(profile,selectors).map(({name,check})=>{
+  const environment=options?.customer?.commands?.environment;
+  if(name==='environment'&&environment)return {name,command:environment,privateEnvironment:true};
+  return {name,command:check?.command};
+ });
+}
+
+export function runProjectChecks(profile:ProjectProfile,selectors:CheckSelector[],signal?:AbortSignal,options?:SetupOptions){
+ return runResolvedProjectChecks(profile,resolveProjectChecks(profile,selectors,options),signal,options);
+}
+
+export async function runResolvedProjectChecks(profile:ProjectProfile,checks:ResolvedProjectCheck[],signal?:AbortSignal,options?:SetupOptions):Promise<import('../../installer/apply.js').CheckResult[]>{
  const results:import('../../installer/apply.js').CheckResult[]=[];
- for(const {name,check} of selectedChecks(profile,selectors)){
-  if(name==='environment'&&options?.customer?.commands?.environment){
-   let env:NodeJS.ProcessEnv;
+ for(const {name,command,privateEnvironment} of checks){
+  if(!command){results.push({name,status:'pending',message:'No existing command; not evaluated'});continue;}
+  let env:NodeJS.ProcessEnv|undefined;
+  if(privateEnvironment&&options){
    try{env=await runtimeEnvironment(profile.root,options,'customer:environment');}
    catch{results.push({name,status:'pending',message:'Correct the private runtime input file before running the environment check'});continue;}
-   const {reason,...result}=await executeCheck(options.customer.commands.environment,profile.root,{signal,env});
-   results.push({name,...result,message:reason,fingerprint:profile.fingerprint,commit:profile.git.head??'unavailable',environment:{node:process.version,platform:process.platform}});
-   continue;
   }
-  if(!check){results.push({name,status:'pending',message:'No existing command; not evaluated'});continue;}
-  const {reason,...result}=await executeCheck(check.command,profile.root,{signal});
+  const {reason,...result}=await executeCheck(command,profile.root,{signal,env});
   results.push({name,...result,message:reason,fingerprint:profile.fingerprint,commit:profile.git.head??'unavailable',environment:{node:process.version,platform:process.platform}});
+  if(signal?.aborted)break;
  }
  return results;
 }

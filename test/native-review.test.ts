@@ -86,7 +86,7 @@ test('durable resume preserves local edits and can finish in the active session'
   await access(root+'/.rigup/manifest.json');
  });
 }));
-test('interrupted native output cannot become research after source drift rejects resume',()=>fixture(async(root,cache,state)=>{
+test('interrupted native output stays out of research and resumes after unrelated source edits',()=>fixture(async(root,cache,state)=>{
  await writeFile(root+'/source.js','export const value=1;\n');
  const options:SetupOptions={agents:['codex'],backend:'codex',tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}]};
  const profile=await scanRepository(root,options),prepared=await prepareToolFixture(profile,options);const p=await preview({root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[]},[],{cacheRoot:cache+'/previews'});
@@ -105,9 +105,13 @@ test('interrupted native output cannot become research after source drift reject
   }return queryOperation(op);
  }},hook:async point=>{if(point==='after-operation'&&++completed===2)throw Error('interrupted before manifest');}}),/interrupted/);
  await writeFile(root+'/source.js','export const value=2;\n');
- await assert.rejects(()=>executeLifecycle(root,options,{resume:true,sessionsEnded:true},()=>{},{cacheRoot:cache,stateRoot:state}),/source input changed/);
- const after=await scanRepository(root,options);assert.ok(!after.files.some(p=>p.startsWith('.codegraph/')||p.startsWith('.rigup/native/')));assert.match(after.researchBlocked??'',/native|ownership|reconcile/i);
+ const pending=await scanRepository(root,options);
+ assert.ok(!pending.files.some(p=>p.startsWith('.codegraph/')||p.startsWith('.rigup/native/')));
+ assert.match(pending.researchBlocked??'',/native|ownership|reconcile/i);
  await assert.rejects(()=>repositoryReader(root,options),/native|ownership|reconcile/i);
+ assert.equal(await executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state}),0);
+ const profileAfterResume=await scanRepository(root,options);
+ assert.ok(!profileAfterResume.files.some(p=>p.startsWith('.codegraph/')||p.startsWith('.rigup/native/')));
 }));
 test('resuming approved files does not consume a now invalid research provider',t=>fixture(async(root,cache,state)=>{
  const options:SetupOptions={agents:['codex'],backend:'native',projectRules:true};

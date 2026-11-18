@@ -17,7 +17,7 @@ import {TEMPLATE_VERSION} from '../generator/render.js';
 import {interruptedApplyId} from '../installer/apply.js';
 import {loadManifest,sourceReview,trustedBaseline,type Manifest} from '../installer/baseline.js';
 import {acquireLock,defaultStateRoot} from '../installer/lock.js';
-import {absentDigest,installationInput,LegacyPreviewError,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
+import {absentDigest,approvalInputChange,LegacyPreviewError,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
 import {defaultNpmRegistry,type NpmView} from '../integrations/tools/npm-resolution.js';
 import {inspectOpenSpecForSetup,interruptedOpenSpecPreparation,type OpenSpecRuntimeIdentity} from '../integrations/sdd/openspec-setup.js';
 import {selectedNpmRegistry} from '../runtime-inputs.js';
@@ -76,7 +76,7 @@ async function previewStillCurrent(root:string,data:PreviewData,stateRoot:string
   const expected=files.get(target)!;
   if(!matchesFileState(state,expected.observedDigest,expected.observedMode))return false;
  }
- return await installationInput(root,data.plan,data.files.map(file=>file.target),stateRoot).catch(()=>undefined)===data.inputSnapshot;
+ return !await approvalInputChange(root,data,stateRoot).catch(()=> 'unavailable');
 }
 
 async function installedAssetsMatch(root:string,manifest:Manifest):Promise<boolean>{

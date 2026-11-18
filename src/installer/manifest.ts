@@ -6,7 +6,7 @@ import {targetPath} from './ownership.js';
 import {syncDirectory} from '../sync-directory.js';
 import {stagedFileMode} from './filesystem-modes.js';
 export async function atomicProjectWrite(root:string,target:string,content:Buffer,mode=0o600,exclusive=false,
- verifyCurrent?:()=>Promise<void>,recordMode?:(mode:number)=>Promise<void>):Promise<void>{
+ verifyCurrent?:()=>Promise<void>,recordMode?:(mode:number,stage?:string)=>Promise<void>,afterLink?:()=>Promise<void>):Promise<void>{
  const path=await targetPath(root,target);
  const directory=dirname(path);
  const verifyPath=async()=>{
@@ -27,7 +27,7 @@ export async function atomicProjectWrite(root:string,target:string,content:Buffe
  };
  const suffix='.rigup-'+randomUUID()+'.tmp';
  const temporary=path+suffix;
- let created=false;
+ let created=false,keepStage=false;
  try{
   const handle=await open(temporary,'wx',mode);
   created=true;
@@ -36,19 +36,22 @@ export async function atomicProjectWrite(root:string,target:string,content:Buffe
    observed=await stagedFileMode(handle,mode,target);
    await handle.writeFile(content);await handle.sync();
   }finally{await handle.close();}
-  await recordMode?.(observed);
+  await recordMode?.(observed,exclusive?target+suffix:undefined);
   if(exclusive){
    await verify();
    try{await link(temporary,path);}catch(error){
     if((error as NodeJS.ErrnoException).code==='EEXIST')throw error;
     throw Error('Cannot create '+target+' exclusively on this filesystem. Keep the target as it is and resolve this file before resuming.',{cause:error});
    }
+   keepStage=!!afterLink;
+   await afterLink?.();
+   keepStage=false;
   }else{
    await renameWithRetry(()=>rename(temporary,path),verify);
    created=false;
   }
  }finally{
-  if(created){
+  if(created&&!keepStage){
    try{
     if(await targetPath(root,target.replace(/\/$/,'')+suffix)===temporary){
      await verifyParent();await rm(temporary,{force:true});

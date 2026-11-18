@@ -92,7 +92,7 @@ export async function assertNoUnknownWriters(root:string,stateRoot=defaultStateR
   const operation=item.operation;
   if(operation.kind==='install'){
    if(operationRoot(operation)!==root)throw Error('Interrupted installation project root changed');
-   assertToolOperationRecipe(root,operation,[]);
+   verifiedToolOperationForResume(root,operation,[]);
    if((await queryPublishedInstall(root,operation,item.installStage)).status==='done')continue;
    await assertInstallDestination(root,operation);
    if(item.installStage)await ownedInstallStage(root,stagedInstall(root,operation,item.installStage).protection.target,item.installStage);

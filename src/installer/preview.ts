@@ -26,11 +26,13 @@ import {equalOwnedContent,ownedContent,replaceOwned,selectorsOverlap,targetPath}
 import {isGitlabWiring} from '../integrations/gitlab/ci.js';
 import {conventionKey,documentTargetKey,readConventionDocument,validateConventionTarget,type ConventionReceipt} from '../project-conventions.js';
 import {scopeContains} from '../types.js';
+import {approvedInputs} from './approved-input.js';
+import type {ResolvedProjectCheck} from '../integrations/tools/quality.js';
 export interface PreviewResolution {target:string;selector:Ownership;observedDigest:string;observedMode?:number;action:'adopt'|'restore'|'replace'|'remove'}
 export interface PreviewItem {logicalId:string;target:string;ownership:Ownership;action:MergeResult['action'];reason?:string;observedDigest:string;beforeMode?:number;afterMode?:number;before?:string;after?:string}
 export interface Preview {noChanges?:true;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];projectDocuments?:{target:string;action:'create'|'preserve';reason:string}[];previewId:string;root:string;executable:boolean;runChecks?:SetupPlan['runChecks'];items:PreviewItem[];blockers:string[];operations:SetupPlan['operations'];warnings:string[]}
 export interface PreviewFile {target:string;observedDigest:string;observedMode?:number;next?:string;encoding:'utf8'|'base64';mode?:number;seed?:ConventionReceipt}
-export interface PreviewData {schemaVersion:1;approvalNonce?:string;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2|3;sourceReview?:SourceReview;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
+export interface PreviewData {schemaVersion:1;approvalNonce?:string;modePolicyVersion?:1;nativeDiscoveryVersion?:1;inputSnapshotVersion?:2|3|4;inputs?:Record<string,string>;resolvedChecks?:ResolvedProjectCheck[];resolutions?:PreviewResolution[];reviewEntryBlocks?:boolean;sourceReview?:SourceReview;preview:Preview;plan:SetupPlan;oldManifest?:Manifest;manifestDigest:string;inputSnapshot:string;files:PreviewFile[];assets:ManagedAsset[];baselines:{logicalId:string;content:string;encoding:'utf8'|'base64'}[]}
 export const defaultPreviewCache=()=>join(homedir(),'.cache','rigup','previews');
 const targetKey=(target:string)=>process.platform==='win32'?target.toLowerCase():target;
 export async function readTarget(root:string,target:string):Promise<Buffer|undefined>{return (await readFileState(root,target)).bytes;}
@@ -76,7 +78,8 @@ function reviewedSources(plan:SetupPlan,pending:SourceReview):boolean{
  })));
 }
 
-export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],dependencies:{cacheRoot?:string;stateRoot?:string;skipUnchanged?:boolean;reviewEntryBlocks?:boolean;restoredReview?:PreviewData}={}):Promise<Preview>{
+type PreviewDependencies={cacheRoot?:string;stateRoot?:string;skipUnchanged?:boolean;reviewEntryBlocks?:boolean;restoredReview?:PreviewData};
+async function buildPreview(plan:SetupPlan,resolutions:PreviewResolution[],dependencies:PreviewDependencies):Promise<PreviewData>{
  const root=await realpath(plan.root);if(root!==plan.root)throw new Error('plan root must be canonical');
  const oldManifest=await loadManifest(root);const old=oldManifest?.assets??[];
  const pendingReview=await sourceReview(root,oldManifest,dependencies.stateRoot??defaultStateRoot());
@@ -281,17 +284,55 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
  const publicPreview:Preview={...(plan.projectRules?{projectRules:plan.projectRules}:{}),...(plan.harness?{harness:plan.harness}:{}),...(projectDocuments.length?{projectDocuments}:{}),previewId:'',root,executable:blockers.length===0,runChecks:plan.runChecks??[],items,blockers,operations:plan.operations,warnings:plan.warnings};
  const files:PreviewFile[]=[...fileMap].map(([target,f])=>({target,observedDigest:f.raw?digest(f.raw):absentDigest,observedMode:f.observedMode,next:f.text,encoding:f.encoding,mode:f.text===undefined?undefined:f.mode??0o644,...(creates.has(target)?{seed:creates.get(target)}:{})}));
  const manifestRaw=await readTarget(root,'.rigup/manifest.json');
- const inputSnapshot=await installationInput(root,plan,allTargets,dependencies.stateRoot);
+ const {values:inputs,checks:resolvedChecks}=await approvedInputs(root,plan,allTargets,dependencies.stateRoot);
+ const inputSnapshot=signature(inputs);
  if(dependencies.restoredReview&&plan.projectRules==='ready'&&
-   (!await restoredReviewMatches(root,dependencies.restoredReview,dependencies.stateRoot)||inputSnapshot!==await installationInput(root,plan,allTargets,dependencies.stateRoot))){
+   (!await restoredReviewMatches(root,dependencies.restoredReview,dependencies.stateRoot)||inputSnapshot!==signature((await approvedInputs(root,plan,allTargets,dependencies.stateRoot)).values))){
   throw Error('Previously approved inputs changed during source reconciliation; prepare a new review');
  }
- // Older CLI readers use the discovery marker to verify the full approved scope.
- const data:PreviewData={schemaVersion:1,approvalNonce:randomUUID(),modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:3,...(pendingReview?{sourceReview:pendingReview}:{}),preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,inputSnapshot,files,assets:nextAssets,baselines:baselineRecords};
- if(dependencies.skipUnchanged&&publicPreview.executable&&unchangedInstallation(data))return {...publicPreview,previewId:'',noChanges:true};
- publicPreview.previewId=previewIdentity(data);
- const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),root);await saveCache(join(cache,publicPreview.previewId+'.json'),JSON.stringify({digest:signature(data),data}));
- return publicPreview;
+ return {schemaVersion:1,approvalNonce:randomUUID(),modePolicyVersion:1,nativeDiscoveryVersion:1,inputSnapshotVersion:4,
+  ...(pendingReview?{sourceReview:pendingReview}:{}),preview:publicPreview,plan,oldManifest,manifestDigest:manifestRaw?digest(manifestRaw):absentDigest,
+  inputSnapshot,inputs,resolvedChecks,files,assets:nextAssets,baselines:baselineRecords,
+  ...(resolutions.length?{resolutions}:{}),...(dependencies.reviewEntryBlocks?{reviewEntryBlocks:true}:{})};
+}
+
+export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],dependencies:PreviewDependencies={}):Promise<Preview>{
+ const data=await buildPreview(plan,resolutions,dependencies);
+ const result=data.preview;
+ if(dependencies.skipUnchanged&&result.executable&&unchangedInstallation(data))return {...result,previewId:'',noChanges:true};
+ result.previewId=previewIdentity(data);
+ const cache=await privateDirectory(dependencies.cacheRoot??defaultPreviewCache(),result.root);
+ await saveCache(join(cache,result.previewId+'.json'),JSON.stringify({digest:signature(data),data}));
+ return result;
+}
+
+export async function verifyFreshPreview(data:PreviewData,stateRoot:string){
+ if(data.inputSnapshotVersion!==4)return;
+ const current=await buildPreview(data.plan,data.resolutions??[],{stateRoot,reviewEntryBlocks:data.reviewEntryBlocks});
+ if(!current.preview.executable)return current.preview.blockers;
+ const expected=new Map(data.files.map(file=>[file.target,signature(file)]));
+ for(const file of current.files){
+  if(signature(file)!==expected.get(file.target))throw Error('Preview target changed: '+file.target);
+  expected.delete(file.target);
+ }
+ if(expected.size)throw Error('Preview target changed: '+expected.keys().next().value);
+ const result=(value:PreviewData)=>signature({
+  assets:value.assets,baselines:value.baselines,items:value.preview.items,documents:value.preview.projectDocuments,
+  operations:value.plan.operations,executable:value.preview.executable,checks:value.resolvedChecks,
+ });
+ if(result(current)!==result(data))throw Error('The approved changes or checks changed; prepare a new preview');
+}
+
+export async function approvalInputChange(root:string,data:PreviewData,stateRoot?:string):Promise<string|undefined>{
+ const managed=data.files.map(file=>file.target);
+ if(data.inputSnapshotVersion!==4||!data.inputs){
+  if(await installationInput(root,data.plan,managed,stateRoot)!==data.inputSnapshot)return 'recorded project inputs';
+  return;
+ }
+ const {values,checks}=await approvedInputs(root,data.plan,managed,stateRoot);
+ const paths=new Set([...Object.keys(data.inputs),...Object.keys(values)]);
+ for(const path of paths)if(values[path]!==data.inputs[path])return path;
+ if(signature(checks)!==signature(data.resolvedChecks))return 'expanded project checks';
 }
 
 export async function restoredReviewMatches(root:string,data:PreviewData,stateRoot?:string):Promise<boolean>{
@@ -301,7 +342,7 @@ export async function restoredReviewMatches(root:string,data:PreviewData,stateRo
   const hash=file.next===undefined?absentDigest:digest(Buffer.from(file.next,file.encoding));
   if(!matchesFileState(state,hash,file.mode))return false;
  }
- return await installationInput(root,data.plan,[...files.keys()],stateRoot)===data.inputSnapshot;
+ return !await approvalInputChange(root,data,stateRoot);
 }
 
 export async function installationInput(root:string,plan:SetupPlan,managedTargets:string[],stateRoot?:string):Promise<string>{

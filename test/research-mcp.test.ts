@@ -222,8 +222,9 @@ test('review reports a locally edited owned entry block before pending research'
 test('harness MCP reconciles effective pending before returning noop or a cached approval',()=>fixture(async(root,cacheRoot,stateRoot)=>{
  const {apply}=await import('../src/installer/apply.js');
  const {doctor}=await import('../src/installer/doctor.js');
- const source=join(root,'README.md'),original='# Service\nUse the scoped error helper.\n';
- await writeFile(source,original);
+ const {confirmedHarnessSource}=await import('./helpers.js');
+ const authority=await confirmedHarnessSource(root,{agents:['claude'],backend:'host',projectRules:true});
+ const source=join(root,authority.path),original=await readFile(source,'utf8');
  const run=cli(root,cacheRoot,stateRoot);
  const initial=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
  await run(['update','--apply',initial.previewId,'--sessions-ended'],0);
@@ -233,8 +234,8 @@ test('harness MCP reconciles effective pending before returning noop or a cached
   assert.notEqual(begin.status,'noop');
   const runId=begin.runId;
   if(begin.status==='planning'){
-   const plan=await mcp.call('rigup_submit_plan',{runId,jobId:begin.job?.id,data:{...empty,guidance:[]}});
-   const ready=await mcp.call('rigup_submit_plan',{runId,jobId:plan.job?.id,data:{...empty,guidance:[],artifacts:[],dispositions:[]}});
+   const plan=await mcp.call('rigup_submit_plan',{runId,jobId:begin.job?.id,data:{...empty,guidance:begin.job?.sourceGuidance??[]}});
+   const ready=await mcp.call('rigup_submit_plan',{runId,jobId:plan.job?.id,data:{...empty,guidance:plan.job?.sourceGuidance??[],artifacts:[],dispositions:[]}});
    assert.equal(ready.status,'ready');
   }else assert.equal(begin.status,'ready');
   const result=await mcp.call('rigup_finish',{runId});

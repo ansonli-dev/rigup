@@ -28,7 +28,7 @@ import {privateDirectory,signature,readCache,saveCache} from './generator/cache.
 import {applyRecordPath,loadManifest,readApplyRecord,sourceReview} from './installer/baseline.js';
 import {acquireLock,defaultStateRoot} from './installer/lock.js';
 import {assertNoUnknownWriters} from './installer/operations.js';
-import {installationInput,preview,loadPreview,restoredReviewMatches,type Preview,type PreviewData} from './installer/preview.js';
+import {approvalInputChange,preview,loadPreview,restoredReviewMatches,type Preview,type PreviewData} from './installer/preview.js';
 import {sessionReloadNotice} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
@@ -192,9 +192,9 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
      const {data}=approved;
      const targets=data.files.map(file=>file.target);
      const versions={rigup:RIGUP_VERSION,prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION};
-     const reusable=data.inputSnapshotVersion===3&&(authorityReview?
+     const reusable=(data.inputSnapshotVersion===3||data.inputSnapshotVersion===4)&&(authorityReview?
       data.plan.projectRules==='ready'&&signature(data.plan.versions)===signature(versions)&&await restoredReviewMatches(root,data,lock.stateRoot).catch(()=>false):
-      await installationInput(root,data.plan,targets,lock.stateRoot).catch(()=>undefined)===data.inputSnapshot);
+      !await approvalInputChange(root,data,lock.stateRoot).catch(()=> 'unavailable'));
      if(reusable){
       if(authorityReview)restoredReview=data;
       previousGuidance=tx.report?.harness?.guidance.filter(binding=>binding.sourceRef&&!targets.includes(binding.sourceRef.path)&&
