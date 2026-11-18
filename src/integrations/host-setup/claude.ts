@@ -3,21 +3,20 @@ import {mkdir,readdir,realpath,writeFile} from 'node:fs/promises';
 import {dirname,isAbsolute,join,relative} from 'node:path';
 import {promisify} from 'node:util';
 import type {ProjectProfile} from '../../analyzer/repository.js';
-import {signature} from '../../generator/cache.js';
 import {isRecord} from '../../private-record.js';
 import {essentialEnvironment} from '../../runtime-private-env.js';
 import {absoluteHostPath,canonicalHostDirectory,checkedDirectory,nativeJson,statIfPresent,withinPath} from './host-files.js';
 import {claudeManagedRoot,claudePlugin} from './manual.js';
 import {claudeMarket,claudeRepo,claudeSha,claudeSource,claudeVersion} from './pins.js';
 import {bindingFrom} from './receipt.js';
-import {hostGit,nativeChildEnv,type HostRuntime} from './runtime.js';
+import {hostGit,nativeChildEnv,type HostLocations,type HostRuntime} from './runtime.js';
 
 const exec=promisify(execFile);
 const official=(source:unknown)=>isRecord(source)&&Object.keys(source).length===2&&source.source==='github'&&source.repo===claudeRepo;
 export type ClaudeStep='marketplace'|'install';
 export const claudeArgs=(step:ClaudeStep)=>['--setting-sources','user','plugin',...(step==='marketplace'?['marketplace','add',claudeRepo]:['install',claudePlugin]),'--scope','project'];
 
-async function verifyCatalogRemote(catalog:string,runtime:HostRuntime){
+async function verifyCatalogRemote(catalog:string,runtime:HostLocations){
  if(!await statIfPresent(join(catalog,'.git')))return;
  const git=await hostGit(runtime);
  const result=await exec(git,['-C',catalog,'config','--local','--get','remote.origin.url'],{
@@ -28,7 +27,7 @@ async function verifyCatalogRemote(catalog:string,runtime:HostRuntime){
   throw Error('The cached Claude marketplace repository has a different remote: '+catalog);
 }
 
-export async function inspectClaude(runtime:HostRuntime){
+export async function inspectClaude(runtime:HostLocations){
  const {root,home,env}=runtime;
  const config=await canonicalHostDirectory(env.CLAUDE_CONFIG_DIR??join(home,'.claude'));
  const projectConfig=await canonicalHostDirectory(join(root,'.claude'));
@@ -48,17 +47,15 @@ export async function inspectClaude(runtime:HostRuntime){
   documents.push(...names.map(name=>join(dropIns,name)));
  }
  if(withinPath(root,config))throw Error('Claude configuration must be outside the project');
- const stamps:Record<string,string|undefined>={};
  const read=async (path:string,label:string,limit?:number)=>{
-  try{const doc=await nativeJson(path,limit);stamps[path]=doc?.identity;return doc?.value;}
+  try{return (await nativeJson(path,limit))?.value;}
   catch{throw Error('Invalid or unreadable '+label+': '+path);}
  };
  await read(configFile,'Claude user state',4_000_000);
- let projectEnabled=false,enabled=false,declared=false,projectOutsideMarket:unknown={};
+ let projectEnabled=false,enabled=false,declared=false;
  for(const path of documents){
   const value=await read(path,'Claude settings');
   if(!value)continue;
-  if(path===project)projectOutsideMarket=Object.fromEntries(Object.entries(value).filter(([key])=>key!=='extraKnownMarketplaces'));
   if(value.extraKnownMarketplaces!==undefined){
    const markets=value.extraKnownMarketplaces;
    if(!isRecord(markets)||Object.hasOwn(markets,claudeMarket)&&
@@ -125,9 +122,7 @@ export async function inspectClaude(runtime:HostRuntime){
  if(installed&&market==='missing')throw Error('Claude install receipt lacks the official marketplace');
  for(const directory of [dirname(project),config,plugins,dirname(catalogRoot),dirname(packageRoot),backups])await checkedDirectory(directory);
  const paths=[project,local,user,known,registry,catalog,install,configFile,backups,policy];
- return {market,installed,declared,project,config,configFile,backups,known,registry,catalogRoot,install,paths,
-  invariants:signature([projectOutsideMarket,...Object.entries(stamps).filter(([path])=>![project,known,registry,catalog,catalogRoot,configFile].includes(path))]),
-  snapshot:signature({stamps,market,installed,paths})};
+ return {market,installed,declared,project,config,configFile,backups,known,registry,catalogRoot,install,paths};
 }
 
 export function claudeRecognized(receipt:Awaited<ReturnType<typeof inspectClaude>>,profile:ProjectProfile){

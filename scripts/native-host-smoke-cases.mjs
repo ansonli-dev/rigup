@@ -77,6 +77,7 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
    assert.equal(link,store);
    const data=await readFile(join(dirname(store),'source.tgz'));
    assert.equal('sha512-'+createHash('sha512').update(data).digest('base64'),integrity);
+   assert.equal((await readFile(join(dirname(store),'complete'),'utf8')).trim(),integrity);
    assert.ok((await checks(['omp'])).omp.length>=4);
    return lock;
   };
@@ -148,7 +149,8 @@ export async function smokeNativeHosts({pty,stage,toolEnv,entry,result}){
   assert.equal(settings.enabledPlugins[id],true);
   assert.equal(settings.extraKnownMarketplaces[market].source.repo,'anthropics/claude-plugins-official');
   const records=(await content(registry)).plugins[id];
-  const receipt=records.find(item=>item.projectPath===target);
+  const resolved=await Promise.all(records.map(async item=>({item,path:await realpath(item.projectPath)})));
+  const receipt=resolved.find(entry=>entry.path===target)?.item;
   assert.equal(receipt?.installPath,firstReceipt.installPath);
   assert.equal(receipt?.gitCommitSha,sha);
   assert.equal(receipt?.scope,'project');

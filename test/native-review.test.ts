@@ -58,31 +58,31 @@ test('conflicting Codex model configuration is rejected before dispatch',()=>fix
  assert.equal(code,2);assert.equal(calls,0);
  assert.throws(()=>validateOptions({backend:'codex',model:{provider:'anthropic',model:'choice',apiKeyEnv:'TEAM_KEY'}}),/model|backend/);
 }));
-test('default Codex setup preserves a concrete preview until the affected session ends',()=>fixture(async(root,cache,state)=>{
+test('default lifecycle applies with an active host and advises a reload',()=>fixture(async(root,cache,state)=>{
  const options:SetupOptions={agents:['codex'],backend:'codex',mcp:[{id:'fixture',agents:['codex'],url:'https://example.test/mcp'}]};
  await activeCodex(root,async()=>{
-  const reports:any[]=[];assert.equal(await executeLifecycle(root,options,{},()=>{},{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}),3);
-  assert.equal(reports.at(-1).phase,'handoff');assert.ok(reports.at(-1).previewId);await assert.rejects(access(root+'/.codex/config.toml'));
-  assert.equal(await executeLifecycle(root,options,{sessionsEnded:true},()=>{},{cacheRoot:cache,stateRoot:state}),0);assert.match(await readFile(root+'/.codex/config.toml','utf8'),/example\.test/);
+  const reports:any[]=[];let text='';
+  assert.equal(await executeLifecycle(root,options,{},chunk=>text+=chunk,{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}),0);
+  assert.equal(reports.at(-1).phase,'apply');
+  assert.match(text,/reload.*host session/i);
+  assert.match(await readFile(root+'/.codex/config.toml','utf8'),/example\.test/);
  });
 }));
-test('durable resume applies the same affected-session handoff as normal setup',()=>fixture(async(root,cache,state)=>{
+test('durable resume preserves local edits and can finish in the active session',()=>fixture(async(root,cache,state)=>{
  const options:SetupOptions={agents:['codex'],backend:'codex',mcp:[{id:'fixture',agents:['codex'],command:{executable:'node',args:['server.mjs'],cwd:'.',envRefs:[]}}]};
  const profile=await scanRepository(root,options),prepared=await prepareIntegrations(profile,options);const plan:SetupPlan={root,fingerprint:profile.fingerprint,options,...prepared,versions:{},dispositions:[]};
  const p=await preview(plan,[],{cacheRoot:cache+'/previews'});assert.equal(p.executable,true);
  await assert.rejects(()=>apply(p.previewId,{cacheRoot:cache+'/previews',stateRoot:state,hook:async()=>{throw Error('interrupted after first file');}}),/interrupted/);
  const interruptedConfig=await readFile(root+'/.codex/config.toml','utf8');
  await rm(cache,{recursive:true});
- await activeCodex(root,async()=>{const reports:any[]=[];
-  assert.equal(await executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}),3);
-  assert.equal(reports.at(-1).phase,'handoff');assert.equal(reports.at(-1).previewId,p.previewId);
-  assert.equal(await readFile(root+'/.codex/config.toml','utf8'),interruptedConfig);
-  await assert.rejects(access(root+'/.rigup/manifest.json'));
+ await activeCodex(root,async()=>{
   await writeFile(root+'/.codex/config.toml','# local edit\n'+interruptedConfig);
-  await assert.rejects(()=>executeLifecycle(root,options,{resume:true,sessionsEnded:true},()=>{},{cacheRoot:cache,stateRoot:state}),/interrupted target content/);
+  await assert.rejects(()=>executeLifecycle(root,options,{resume:true},()=>{},{cacheRoot:cache,stateRoot:state}),/interrupted target content/);
   assert.equal(await readFile(root+'/.codex/config.toml','utf8'),'# local edit\n'+interruptedConfig);
   await writeFile(root+'/.codex/config.toml',interruptedConfig);
-  assert.equal(await executeLifecycle(root,options,{resume:true,sessionsEnded:true},()=>{},{cacheRoot:cache,stateRoot:state}),0);
+  let text='';
+  assert.equal(await executeLifecycle(root,options,{resume:true},chunk=>text+=chunk,{cacheRoot:cache,stateRoot:state}),0);
+  assert.match(text,/reload.*host session/i);
   await access(root+'/.rigup/manifest.json');
  });
 }));

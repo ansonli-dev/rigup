@@ -2,7 +2,6 @@ import {constants} from 'node:fs';
 import {access,realpath,rm,stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {basename,delimiter,dirname,extname,isAbsolute,join,resolve} from 'node:path';
-import {signature} from '../../generator/cache.js';
 import {acquireLock,defaultStateRoot,type ProjectLock} from '../../installer/lock.js';
 import {protectedOperationCommand,hostWriterPath,nativeWriterStateRoot,readHostWriter,writerAlive,type WriterIdentity} from '../../installer/operations.js';
 import {isRecord,saveDurable} from '../../private-record.js';
@@ -66,7 +65,7 @@ async function nativeProgram(command:string,root:string,paths:string[]):Promise<
  }
 }
 
-export async function inspectHostRuntime(root:string,host:SetupHost,input:NativeInputs={}){
+export async function inspectHostLocations(root:string,host:SetupHost,input:NativeInputs={}){
  root=await realpath(root);
  const env=consumerEnvironment(input.env??(input.home?{}:process.env));
  const externalDirectory=async(key:string,value:string)=>{
@@ -101,10 +100,15 @@ export async function inspectHostRuntime(root:string,host:SetupHost,input:Native
  const writerRoot=await externalDirectory('Rigup native writer state',nativeWriterStateRoot(input.stateRoot));
  const paths=pathEntries(root,env.RIGUP_CONSUMER_PATH??env.PATH??'');
  env.PATH=paths.join(delimiter);
- const program=await nativeProgram(host,root,paths);
+ return {root,home,stateRoot,writerRoot,env};
+}
+export type HostLocations=Awaited<ReturnType<typeof inspectHostLocations>>;
+
+export async function inspectHostRuntime(root:string,host:SetupHost,input:NativeInputs={}){
+ const locations=await inspectHostLocations(root,host,input);
+ const program=await nativeProgram(host,locations.root,pathEntries(locations.root,locations.env.PATH??''));
  if(!program)throw Error(host+' was not found on PATH; install the supported CLI and retry');
- const approved=signature({home,root,stateRoot,writerRoot,env,program});
- return {root,home,stateRoot,writerRoot,env,program,approved};
+ return {...locations,program};
 }
 export type HostRuntime=Awaited<ReturnType<typeof inspectHostRuntime>>;
 
@@ -150,7 +154,7 @@ export async function withHostWriter<T>(
  }
 }
 
-export async function hostGit(runtime:HostRuntime){
+export async function hostGit(runtime:HostLocations){
  const program=await nativeProgram('git',runtime.root,pathEntries(runtime.root,runtime.env.PATH??''));
  if(!program||windows&&extname(program.file).toLowerCase()!=='.exe')
   throw Error('Native Claude setup requires Git on PATH');

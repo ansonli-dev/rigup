@@ -14,7 +14,7 @@ import {loadManifest} from './installer/baseline.js';
 import {loadPreview} from './installer/preview.js';
 import {apply,interruptedApplyOptions,interruptedInstallApplyId,interruptedSeedApplyId} from './installer/apply.js';
 import {doctor} from './installer/doctor.js';
-import {sessionHandoffRequired} from './installer/session.js';
+import {sessionReloadNotice} from './installer/session.js';
 import {defaultStateRoot} from './installer/lock.js';
 import {executeLifecycle,loadContinuation,type LifecycleServices,type LifecycleFlags} from './lifecycle.js';
 import {inspectOpenSpec,openSpecProjectScopes,OpenSpecReceiptError,planOpenSpecPreparation,preparationScope,prepareOpenSpec,reportOpenSpecPending,type OpenSpecPreparation} from './integrations/sdd/openspec-setup.js';
@@ -146,12 +146,6 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    state.data=prepared;
    if(!prepared.preview.executable)throw new Error('preview is blocked; prepare a new preview');
    if(flags.runChecks&&JSON.stringify([...flags.runChecks].sort())!==JSON.stringify([...(prepared.plan.runChecks??[])].sort()))throw new Error('apply checks differ from approved preview; prepare a new preview with --run-checks');
-   if(await sessionHandoffRequired(root,flags.sessionsEnded)){
-    const nextCommand='rigup update '+quoteShell(root)+' --apply '+applyId+' --sessions-ended'+(flags.resume?' --resume':'');
-    const message='End affected sessions and apply from an independent terminal.';
-    services.report?.({phase:'handoff',installStatus:'pending',...prepared.preview,pending:[message],nextCommand});
-    return 3;
-   }
    if(!manifest&&prepared.plan.options.sdd==='openspec'){
     const setup=await inspectOpenSpec(root,prepared.plan.options,services.signal,undefined,{stateRoot:services.stateRoot,scope:'project'});
     if(services.signal?.aborted)return 130;
@@ -164,6 +158,8 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
      return 3;
     }
    }
+   const reload=await sessionReloadNotice(root,flags.sessionsEnded);
+   if(reload)io.write(reload+'\n');
    presentation.progress({stage:'apply',completed:0});
    presentation.applying(applyId);
    const report=await apply(applyId,{cacheRoot,stateRoot:services.stateRoot,recover:flags.resume,signal:services.signal,runChecks:services.runChecks});
@@ -235,6 +231,8 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
   services.report=value=>report?.({...(runtimeSetup?{runtimeSetup}:{}),...(nativePreparation?{nativePreparation}:{}),...value});
   const nativeDeps={stateRoot:services.stateRoot,signal:services.signal,recover:flags.resume,write:io.write,view:services.npmView};
   const prepareApproved=async(selected:SetupOptions,approval:OpenSpecPreparation)=>{
+   const reload=await sessionReloadNotice(root,flags.sessionsEnded);
+   if(reload)io.write(reload+'\n');
    state.native=approval.kind!=='existing'?{version:approval.install.version,prefix:approval.prefix}:{version:approval.cliVersion};
    const setup=await prepareOpenSpec(root,selected,approval,{...nativeDeps,onInstalled:()=>{
     state.native={...state.native,installed:true};
@@ -275,13 +273,6 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
    const scope=originalScope??requested??'global';
    let setup=await inspectOpenSpec(root,options,services.signal,undefined,{scope,stateRoot:nativeDeps.stateRoot});
    if(ongoing||setup.requirements.length&&setup.canPrepare){
-    if(await sessionHandoffRequired(root,flags.sessionsEnded)){
-     const message='End affected sessions, then acknowledge with --sessions-ended from an independent terminal.';
-     const command=openspecPreparationCommand(root,options.agents,scope)+' --sessions-ended'+(flags.resume?' --resume':'');
-     services.report?.({phase:'preflight',installStatus:'pending',executable:false,pending:setup.requirements,requiredInput:[message],nextCommand:command,resumeCommand:command});
-     io.write(message+'\n'+command+'\n');
-     return 3;
-    }
     try{
      const planned=ongoing?{inspection:setup,approval:ongoing.approval}:await planOpenSpecPreparation(root,options,nativeDeps,setup);setup=planned.inspection;
      if(planned.approval){describePreparation(planned.approval);setup=await prepareApproved(options,planned.approval);}
@@ -348,7 +339,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
     if(setup.scope!==scope)setup=await inspect();
    }
    for(const requirement of setup.requirements)io.write('OpenSpec: '+requirement+'\n');
-   if(setup.canPrepare&&guided&&inlineReview&&!await sessionHandoffRequired(root,flags.sessionsEnded)){
+   if(setup.canPrepare&&guided&&inlineReview){
     try{
      const planned=await planOpenSpecPreparation(root,selected,nativeDeps,setup);
      for(const requirement of planned.inspection.requirements.slice(setup.requirements.length))io.write('OpenSpec: '+requirement+'\n');

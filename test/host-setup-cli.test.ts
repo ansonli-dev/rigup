@@ -91,7 +91,7 @@ async function fakeClaude(io:CliIO,root:string,home:string,steps:string[],failIn
  };
 }
 
-test('native approval requires explicit consent and refuses a settings change after preview',()=>project(root=>project(async home=>{
+test('native approval requires explicit consent and allows an unrelated settings change after preview',()=>project(root=>project(async home=>{
  const {io,stateRoot,output}=cli(root,home),steps:string[]=[];
  await fakeClaude(io,root,home,steps);
  for(const response of [null,['Cancel'],['Approve','Cancel'],[]] as const){
@@ -107,9 +107,26 @@ test('native approval requires explicit consent and refuses a settings change af
   await put(join(root,'.claude/settings.local.json'),{hooks:{}});
   return ['Approve'];
  };
- assert.equal(await runCli(args(root),io),3);
- assert.deepEqual(steps,[]);
+ assert.equal(await runCli(args(root),io),0,output.join(''));
+ assert.deepEqual(steps,['marketplace','install']);
+ assert.equal(await readFile(join(root,'.claude/settings.local.json'),'utf8'),'{"hooks":{}}');
  assert.doesNotMatch(output.join(''),/SUPPRESSED_HOST_OUTPUT/);
+})));
+
+for(const change of ['disabled plugin','review policy','Claude destination'])test('native approval stops for a changed '+change,()=>project(root=>project(async home=>{
+ const {io,output}=cli(root,home),steps:string[]=[];
+ await fakeClaude(io,root,home,steps);
+ const changed=join(home,'new-claude-config');
+ io.ask=async()=>{
+  if(change==='disabled plugin')await put(join(root,'.claude/settings.local.json'),{enabledPlugins:{[id]:false}});
+  if(change==='review policy')await put(join(root,'.rigup/config.yaml'),'executionPolicy:\n  mode: review\n');
+  if(change==='Claude destination')io.services!.nativeSetup!.env!.CLAUDE_CONFIG_DIR=changed;
+  return ['Approve'];
+ };
+ assert.equal(await runCli(args(root),io),3,output.join(''));
+ assert.deepEqual(steps,[]);
+ await missing(join(home,'.claude'));
+ await missing(changed);
 })));
 
 test('native preparation verifies a completed step before retry, and recognizes a Claude import without an OMP write',()=>project(root=>project(async home=>{
@@ -120,7 +137,9 @@ test('native preparation verifies a completed step before retry, and recognizes 
  const {rm}=await import('node:fs/promises');
  await rm(join(home,'bin'),{recursive:true});
  await fakeClaude(io,root,home,steps);
- assert.equal(await runCli(args(root,'claude,omp'),io),0);
+ await put(join(home,'.env'),'PI_CONFIG_DIR=rerouted\n');
+ io.services!.nativeSetup!.fetch=async()=>assert.fail('Claude import needs no OMP download');
+ assert.equal(await runCli(args(root,'claude,omp'),io),0,output.join(''));
  assert.deepEqual(steps,['marketplace','install','install']);
  assert.match(output.join(''),/omp:.*recognized.*Claude/i);
  assert.doesNotMatch(output.join(''),/SUPPRESSED_HOST_OUTPUT/);
@@ -203,7 +222,7 @@ test('first guided init can return from native consent and then prepares a fresh
  }finally{for(const key of keys){const value=before[key];if(value===undefined)delete process.env[key];else process.env[key]=value;}}
 })));
 
-test('guided review retains the blocked preview and active session cannot confirm native setup',()=>project(root=>project(async home=>{
+test('guided review stays read-only and an active host can approve native setup',()=>project(root=>project(async home=>{
  const {io,reports,output}=cli(root,home),steps:string[]=[];
  await fakeClaude(io,root,home,steps);
  let asked=0;io.ask=async()=>{asked++;return ['Approve'];};
@@ -213,11 +232,11 @@ test('guided review retains the blocked preview and active session cannot confir
  const originalCwd=process.cwd(),original=process.env.CLAUDECODE;
  try{
   process.chdir(root);process.env.CLAUDECODE='1';
-  assert.equal(await runCli(args(root),io),3);
-  assert.match(output.join(''),/independent terminal/);
+  assert.equal(await runCli(args(root),io),0,output.join(''));
+  assert.match(output.join(''),/reload.*host session/i);
  }finally{process.chdir(originalCwd);if(original===undefined)delete process.env.CLAUDECODE;else process.env.CLAUDECODE=original;}
- assert.equal(asked,0);
- assert.deepEqual(steps,[]);
+ assert.equal(asked,1);
+ assert.deepEqual(steps,['marketplace','install']);
 })));
 
 test('mixed native preparation finishes only the approved eligible host, leaving another pending',()=>project(root=>project(async home=>{

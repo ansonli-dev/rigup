@@ -29,7 +29,7 @@ import {applyRecordPath,loadManifest,readApplyRecord,sourceReview} from './insta
 import {acquireLock,defaultStateRoot} from './installer/lock.js';
 import {assertNoUnknownWriters} from './installer/operations.js';
 import {installationInput,preview,loadPreview,restoredReviewMatches,type Preview,type PreviewData} from './installer/preview.js';
-import {sessionHandoffRequired} from './installer/session.js';
+import {sessionReloadNotice} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
 import {apply,interruptedApplyId,interruptedInstallApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
@@ -70,17 +70,16 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  let review=flags.review||flags.deferResearch&&!services.confirmPreview;
  let researchResumeId:string|undefined;
  const handoff=async(result:Preview,previouslyApproved=false):Promise<3|130|undefined>=>{
-  const affected=await sessionHandoffRequired(root,flags.sessionsEnded);
-  if(!affected&&!review){
-   const choice=previouslyApproved?'install':await services.confirmPreview?.(result)??'install';
-   if(choice==='cancel'||services.signal?.aborted)return 130;
-   if(choice==='install')return;
-   const nextCommand='rigup update '+quote(root)+' --apply '+result.previewId;
-   services.report?.({phase:'handoff',installStatus:'pending',...result,pending:['Apply the saved preview'],nextCommand});
-   notice('Saved preview. Apply later with:\n'+nextCommand+'\n');return 3;
+  const choice=review?'save':previouslyApproved?'install':await services.confirmPreview?.(result)??'install';
+  if(choice==='cancel'||services.signal?.aborted)return 130;
+  if(choice==='install'){
+   const reload=await sessionReloadNotice(root,flags.sessionsEnded);
+   if(reload)write(reload+'\n');
+   return;
   }
-  const nextCommand='rigup update '+quote(root)+' --apply '+result.previewId+' --sessions-ended'+(flags.resume?' --resume':'');
-  emit({stage:'apply',completed:0,status:'waiting',requiresUserAction:true,waiting:'review / affected host session exit',next:'independent terminal apply'});services.report?.({phase:'handoff',installStatus:'pending',...result,pending:['End affected sessions / review the concrete preview'],nextCommand});notice('Pending review/session handoff. End affected sessions, then run from an independent terminal:\n'+nextCommand+'\n');return 3;
+  const nextCommand='rigup update '+quote(root)+' --apply '+result.previewId+(flags.resume?' --resume':'');
+  services.report?.({phase:'handoff',installStatus:'pending',...result,pending:['Apply the saved preview'],nextCommand});
+  notice('Saved preview. Apply later with:\n'+nextCommand+'\n');return 3;
  };
 
  try {

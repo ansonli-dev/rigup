@@ -21,11 +21,14 @@ export async function ompLocations(home:string,env:NodeJS.ProcessEnv){
  return {configDir,base,agent,plugins:join(data,'plugins'),state,cache};
 }
 
+export const ompConfigOverlay=(env:NodeJS.ProcessEnv)=>['PI_CONFIG_FILES','OMP_CONFIG_FILES'].find(key=>env[key]?.trim());
+
 export async function assertOmpEnvironmentFiles(home:string,env:NodeJS.ProcessEnv,locations:Awaited<ReturnType<typeof ompLocations>>){
- if(env.PI_CONFIG_FILES||env.OMP_CONFIG_FILES)
-  throw Error('OMP config overlays are unsupported for native preparation; reconcile PI_CONFIG_FILES in the host.');
+ const overlay=ompConfigOverlay(env);
+ if(overlay)throw Error(overlay+' selects an OMP config overlay; resolve the effective plugin destination in OMP before linking.');
  for(const dir of new Set([home,locations.base,locations.agent])){
-  const hasEnv=await lstat(join(dir,'.env')).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
-  if(hasEnv)throw Error('OMP can reload a HOME, profile, or agent .env before choosing a destination; prepare manually in this configuration');
+  const path=join(dir,'.env');
+  const hasEnv=await lstat(path).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
+  if(hasEnv)throw Error('OMP can reload settings from '+path+' before linking; confirm the effective destination in OMP.');
  }
 }

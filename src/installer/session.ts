@@ -7,8 +7,8 @@ function contains(root:string,target:string):boolean {
 }
 // Research backend choice does not determine which parent session has loaded
 // project assets. Configuration-directory variables alone do not prove a session.
-export async function sessionHandoffRequired(root:string,sessionsEnded=false):Promise<boolean>{
- if(sessionsEnded||!(process.env.CODEX_THREAD_ID||process.env.CLAUDECODE||process.env.OPENCODE))return false;
+export async function sessionReloadNotice(root:string,sessionsEnded=false):Promise<string|undefined>{
+ if(sessionsEnded||!(process.env.CODEX_THREAD_ID||process.env.CLAUDECODE||process.env.OPENCODE))return;
  const cwd=await realpath(process.cwd()),project=await realpath(root);
- return contains(project,cwd)||contains(cwd,project);
+ if(contains(project,cwd)||contains(cwd,project))return 'Reload the affected host session after Rigup completes.';
 }

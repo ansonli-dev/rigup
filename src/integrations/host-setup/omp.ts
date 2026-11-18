@@ -2,10 +2,9 @@ import {realpath} from 'node:fs/promises';
 import {dirname,join,matchesGlob,relative} from 'node:path';
 import {parse} from 'yaml';
 import type {ProjectProfile} from '../../analyzer/repository.js';
-import {signature} from '../../generator/cache.js';
 import {isRecord} from '../../private-record.js';
 import {sddDiscoveryNames} from '../sdd/binding.js';
-import {canonicalHostDirectory,checkedDirectory,nativeJson,readNativeFile,statIfPresent,stamp,withinPath} from './host-files.js';
+import {canonicalHostDirectory,checkedDirectory,nativeJson,readNativeFile,statIfPresent,withinPath} from './host-files.js';
 import {ompPackage} from './manual.js';
 import {assertOmpEnvironmentFiles,ompLocations} from './omp-locations.js';
 import {storePackage,verifyOmpStore} from './omp-archive.js';
@@ -17,7 +16,7 @@ export {downloadOmp,installOmpStore,parseOmpTar} from './omp-archive.js';
 const strings=(value:unknown):string[]=>Array.isArray(value)&&value.every(x=>typeof x==='string')?value:[];
 const asRecord=(value:unknown)=>isRecord(value)?value:{};
 
-export async function inspectOmp(runtime:Pick<HostRuntime,'root'|'home'|'env'|'stateRoot'>){
+export async function inspectOmp(runtime:Pick<HostRuntime,'root'|'home'|'env'|'stateRoot'>,{forWrite=true}={}){
  const {root,home,env}=runtime,resolved=await ompLocations(home,env);
  const [agent,base,plugins,state,cache]=await Promise.all([resolved.agent,resolved.base,resolved.plugins,resolved.state,resolved.cache].map(canonicalHostDirectory));
  const locations={...resolved,agent,base,plugins,state,cache};
@@ -25,16 +24,15 @@ export async function inspectOmp(runtime:Pick<HostRuntime,'root'|'home'|'env'|'s
  const lock=join(plugins,'omp-plugins.lock.json'),manifest=join(plugins,'package.json');
  const overrides=['.omp','.pi'].map(dir=>join(root,dir,'plugin-overrides.json'));
  const projectPlugins=join(root,'.omp','plugins');
- const stamps:Record<string,string|undefined>={};
  const json=async(path:string,label:string)=>{
-  try{const data=await nativeJson(path);stamps[path]=data?.identity;return data?.value;}
+  try{return (await nativeJson(path))?.value;}
   catch{throw Error('Invalid, redirected or unreadable OMP '+label+'; reconcile it manually');}
  };
  if([agent,base,plugins,state,cache].some(path=>withinPath(root,path)))throw Error('OMP locations overlap the project');
  const projectDir=join(root,'.omp');
  const paths=[agent,base,plugins,state,cache,projectDir,projectPlugins,join(root,'.pi'),join(root,'.claude'),dirname(target),store];
  for(const dir of paths)await checkedDirectory(dir);
- await assertOmpEnvironmentFiles(home,env,locations);
+ if(forWrite)await assertOmpEnvironmentFiles(home,env,locations);
  let settings:Record<string,unknown>={};
  for(const directory of [agent,projectDir]){
   let value=await json(join(directory,'settings.json'),'settings')??{};
@@ -42,7 +40,7 @@ export async function inspectOmp(runtime:Pick<HostRuntime,'root'|'home'|'env'|'s
   for(const name of ['config.yml','config.yaml']){
    const path=join(directory,name);
    try{
-    const data=await readNativeFile(path);stamps[path]=data?.identity;
+    const data=await readNativeFile(path);
     if(!data)continue;
     const parsed:unknown=parse(data.bytes.toString('utf8'),{uniqueKeys:true,maxAliasCount:20});
     if(!isRecord(parsed)||first||directory===projectDir&&name==='config.yaml')throw Error('unsupported settings overlay');
@@ -97,11 +95,9 @@ export async function inspectOmp(runtime:Pick<HostRuntime,'root'|'home'|'env'|'s
   const actual=await realpath(target).catch(()=>undefined);
   if(!type.isSymbolicLink()||!stored||!actual||relative(store,actual)!=='')
    throw Error('Existing OMP Superpowers is not linked to the verified store; reconcile it manually');
-  stamps[target]=stamp(type);
  }else if(entry!==undefined)throw Error('OMP Superpowers lock entry exists without its link; reconcile it manually');
  const status=entry!==undefined&&type?'linked':'missing';
- return {status,store,stored,locations,plugins,target,lock,manifest,paths:[...paths,target,lock,manifest,...overrides],
-  snapshot:signature({locations,stamps,store,status})};
+ return {status,store,stored,locations,plugins,target,lock,manifest,paths:[...paths,target,lock,manifest,...overrides]};
 }
 
 export function ompRecognized(current:Awaited<ReturnType<typeof inspectOmp>>,profile:ProjectProfile){

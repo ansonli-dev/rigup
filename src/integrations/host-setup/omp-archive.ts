@@ -1,18 +1,22 @@
 import {createHash} from 'node:crypto';
 import {gunzipSync} from 'node:zlib';
-import {mkdir,mkdtemp,readdir,rename,rm,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,rename,rm,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {privateDirectory} from '../../generator/cache.js';
 import {syncDirectory} from '../../sync-directory.js';
 import {isRecord} from '../../private-record.js';
 import {sddDiscoveryNames} from '../sdd/binding.js';
-import {checkedDirectory,readNativeFile,statIfPresent,strictJson} from './host-files.js';
+import {checkedDirectory,checkedFile,nativeJson,readNativeFile,statIfPresent,strictJson} from './host-files.js';
 import {ompPackage} from './manual.js';
 import {ompIntegrity,ompTarball,ompVersion} from './pins.js';
 import type {HostRuntime} from './runtime.js';
 
 const length=221_871;
 const expectedExtension='.pi/extensions/superpowers.ts';
+const requiredEntries=[expectedExtension,...sddDiscoveryNames('superpowers',false).map(name=>'skills/'+name+'/SKILL.md')];
+const validManifest=(manifest:Record<string,unknown>)=>manifest.name===ompPackage&&manifest.version===ompVersion&&
+ !['scripts','dependencies','devDependencies','peerDependencies','optionalDependencies','bundledDependencies','bundleDependencies'].some(key=>Object.hasOwn(manifest,key))&&
+ isRecord(manifest.pi)&&JSON.stringify(manifest.pi.extensions)==='["./.pi/extensions/superpowers.ts"]';
 const pin=(bytes:Buffer)=>{
  if(bytes.length!==length||'sha512-'+createHash('sha512').update(bytes).digest('base64')!==ompIntegrity)
   throw Error('OMP package integrity does not match the approved archive');
@@ -70,43 +74,44 @@ export function parseOmpTar(tar:Buffer){
  if(tar.length-offset<1024||!tar.subarray(offset).every(byte=>byte===0)||files.size!==83)
   throw Error('OMP archive has an unexpected file inventory');
  const manifest=strictJson(files.get('package.json')?.bytes.toString('utf8')??'');
- if(manifest.name!==ompPackage||manifest.version!==ompVersion||
-    ['scripts','dependencies','devDependencies','peerDependencies','optionalDependencies','bundledDependencies','bundleDependencies'].some(key=>Object.hasOwn(manifest,key))||
-    !isRecord(manifest.pi)||JSON.stringify(manifest.pi.extensions)!=='["./.pi/extensions/superpowers.ts"]'||
-    !files.has(expectedExtension)||!sddDiscoveryNames('superpowers',false).every(name=>files.has('skills/'+name+'/SKILL.md')))
+ if(!validManifest(manifest)||!requiredEntries.every(name=>files.has(name)))
   throw Error('OMP package manifest or native entries do not match the approved package');
  return files;
 }
 const unpack=(bytes:Buffer)=>parseOmpTar(gunzipSync(pin(bytes),{maxOutputLength:2_000_000}));
 export const storePackage=(runtime:Pick<HostRuntime,'stateRoot'>)=>join(runtime.stateRoot,'native-packages','omp-superpowers-'+ompVersion,'package');
 
+async function verifyLayout(packageDir:string){
+ const manifest=(await nativeJson(join(packageDir,'package.json')))?.value;
+ if(!manifest||!validManifest(manifest))throw Error('The OMP store manifest is incomplete or has a different version: '+packageDir);
+ for(const name of requiredEntries){
+  const path=join(packageDir,name);
+  if(!await checkedFile(path))throw Error('The OMP store is incomplete: '+path);
+ }
+}
+
 export async function verifyOmpStore(packageDir:string){
  const base=dirname(packageDir);
- if(!await checkedDirectory(base))return;
- const archive=await readNativeFile(join(base,'source.tgz'),length);
- if(!archive)throw Error('The OMP verified store lacks its pinned archive');
- const files=unpack(archive.bytes);
- const actual=new Set<string>();
- const visit=async(dir:string,prefix='')=>{
-  if(!await checkedDirectory(dir))throw Error('OMP verified store is incomplete');
-  for(const name of (await readdir(dir)).sort()){
-   const key=prefix+name,path=join(dir,name),info=await statIfPresent(path);
-   if(info?.isDirectory()&&[...files.keys()].some(file=>file.startsWith(key+'/')))await visit(path,key+'/');
-   else{
-    const known=files.get(key),file=known&&await readNativeFile(path);
-    if(!known||!file?.bytes.equals(known.bytes))throw Error('The OMP verified store differs from the pinned archive');
-    actual.add(key);
-   }
-  }
- };
- await visit(packageDir);
- if(actual.size!==files.size)throw Error('The OMP verified store is incomplete');
- return archive.identity;
+ if(!await checkedDirectory(base))return false;
+ const source=join(base,'source.tgz'),archive=await checkedFile(source,{limit:length});
+ if(archive?.size!==BigInt(length))throw Error('The OMP store lacks its pinned archive: '+source);
+ const marker=join(base,'complete'),completed=await readNativeFile(marker,256);
+ if(completed){
+  if(completed.bytes.toString('utf8').trim()!==ompIntegrity)throw Error('The OMP completion marker has a different pin: '+marker);
+ }else{
+  const legacy=await readNativeFile(source,length);
+  if(!legacy)throw Error('The OMP store lacks its pinned archive: '+source);
+  pin(legacy.bytes);
+ }
+ await verifyLayout(packageDir);
+ return true;
 }
 
 export async function installOmpStore(runtime:HostRuntime,bytes:Buffer){
- const target=storePackage(runtime),destination=dirname(target),files=unpack(bytes);
+ const target=storePackage(runtime),destination=dirname(target);
+ pin(bytes);
  if(await verifyOmpStore(target))return target;
+ const files=unpack(bytes);
  const parent=await privateDirectory(dirname(destination),runtime.root);
  const stage=await mkdtemp(join(parent,'.stage-'));
  try{
@@ -117,7 +122,8 @@ export async function installOmpStore(runtime:HostRuntime,bytes:Buffer){
    await mkdir(dirname(path),{recursive:true,mode:0o700});
    await writeFile(path,file.bytes,{flag:'wx',mode:file.mode});
   }
-  await verifyOmpStore(join(stage,'package'));
+  await verifyLayout(join(stage,'package'));
+  await writeFile(join(stage,'complete'),ompIntegrity+'\n',{flag:'wx',mode:0o600});
   if(await statIfPresent(destination))throw Error('OMP verified store changed during staging');
   await rename(stage,destination);
   await syncDirectory(parent);

@@ -122,7 +122,7 @@ for(const scope of ['project','global'] as const)test('missing tools offer '+sco
 
 test('host continuation retains global consent, hands off, then second project reuses PATH',t=>globalFixture(t,async({root,prefix,stateRoot,cacheRoot})=>{
  const options={agents:['claude' as const],backend:'host' as const,projectRules:true,tools:[{id:'openwiki' as const,install:false,initialize:false,agents:['claude' as const]}]};
- let output='';const services={stateRoot,cacheRoot};
+ let output='';const services={stateRoot,cacheRoot,confirmPreview:async()=> 'save' as const};
  assert.equal(await executeLifecycle(root,options,{globalTools:['openwiki']},text=>output+=text,services),3);
  const first=output.match(/--continue ([a-f0-9]{64})/)?.[1];assert.ok(first,output);
  const continuation=await loadContinuation(root,first,services);assert.deepEqual(continuation.flags.globalTools,['openwiki']);
@@ -141,7 +141,7 @@ test('host continuation retains global consent, hands off, then second project r
   const code=await executeLifecycle(root,continuation.options,{...continuation.flags,response},text=>output+=text,{...services,report:report=>{if(report.previewId)previewId=String(report.previewId);}});
   assert.equal(code,3,output);if(previewId)break;
  }
- assert.ok(previewId,output);assert.match(output,/independent terminal/);
+ assert.ok(previewId,output);assert.match(output,/Saved preview/);
  await assert.rejects(access(globalLauncher(prefix,'openwiki')),{code:'ENOENT'});
  delete process.env.CLAUDECODE;process.chdir(previousCwd);
  assert.equal((await apply(previewId,{stateRoot,cacheRoot:join(cacheRoot,'previews')})).status,'complete');

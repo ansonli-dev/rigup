@@ -1,7 +1,7 @@
-import {mkdir,mkdtemp,readdir,rm} from 'node:fs/promises';
-import {isAbsolute,join} from 'node:path';
+import {mkdir,mkdtemp,rm} from 'node:fs/promises';
+import {isAbsolute,join,relative} from 'node:path';
 import {scanNativeEntries,type ProjectProfile} from '../../analyzer/repository.js';
-import {privateDirectory,signature} from '../../generator/cache.js';
+import {privateDirectory} from '../../generator/cache.js';
 import {loadOptions} from '../../config.js';
 import {loadManifest} from '../../installer/baseline.js';
 import {interruptedInstallApplyId,interruptedSeedApplyId} from '../../installer/apply.js';
@@ -11,14 +11,14 @@ import {agents as hostInfo,projectCommandRoots} from '../agents/index.js';
 import {quoteShell} from '../../shell-command.js';
 import type {Agent} from '../../types.js';
 import {claudeArgs,claudeCommand,claudeRecognized,inspectClaude,prepareClaudeScratch,type ClaudeStep} from './claude.js';
-import {checkedFile,stamp,statIfPresent,withinPath} from './host-files.js';
+import {stamp,statIfPresent,withinPath} from './host-files.js';
 import {claudePlugin,ompPackage,superpowersManual,superpowersReadiness,supportedHost} from './manual.js';
-import {assertOmpEnvironmentFiles,ompLocations} from './omp-locations.js';
+import {ompConfigOverlay} from './omp-locations.js';
 import {storePackage} from './omp-archive.js';
 import {downloadOmp,inspectOmp,installOmpStore,ompArgs,ompCommand,ompRecognized} from './omp.js';
 import {claudeCliVersion,claudeSha,claudeVersion,ompCliVersion,ompIntegrity,ompTarball,ompVersion} from './pins.js';
 import {bindingFrom} from './receipt.js';
-import {consumerEnvironment,hostGit,inspectHostRuntime,nativeChildEnv,nativeHome,withHostWriter,type HostCommand,type HostRuntime,type NativeInputs,type SetupHost} from './runtime.js';
+import {consumerEnvironment,hostGit,inspectHostLocations,inspectHostRuntime,nativeChildEnv,nativeHome,withHostWriter,type HostCommand,type HostRuntime,type NativeInputs,type SetupHost} from './runtime.js';
 
 export interface NativeSetupServices extends NativeInputs {
  signal?:AbortSignal;
@@ -28,7 +28,7 @@ export interface NativeSetupServices extends NativeInputs {
 type Write={level:'project'|'config'|'cache'|'state';path:string};
 type Step={id:ClaudeStep|'link';command:string;pin:string;writes:Write[];undo?:string};
 type Planned={
- host:'claude';runtime:HostRuntime;recipe:Awaited<ReturnType<typeof inspectClaude>>;git:string;steps:Step[];
+ host:'claude';runtime:HostRuntime;recipe:Awaited<ReturnType<typeof inspectClaude>>;steps:Step[];
 }|{
  host:'omp';runtime:HostRuntime;recipe:Awaited<ReturnType<typeof inspectOmp>>;steps:Step[];
 };
@@ -52,13 +52,13 @@ async function verifiedExisting(profile:ProjectProfile,host:Agent,input:NativeIn
  const ready=superpowersReadiness(profile,host);
  if(ready.status!=='ready'||host!=='omp')return ready;
  const env=consumerEnvironment(input.env??(input.home?{}:process.env)),home=nativeHome(input,env);
- try{await assertOmpEnvironmentFiles(home,env,await ompLocations(home,env));}
- catch(error){return {status:'manual' as const,reason:explain(error,'OMP environment and path overlays could not be verified')};}
+ const overlay=ompConfigOverlay(env);
+ if(overlay)return {status:'manual' as const,reason:overlay+' selects an OMP config overlay; confirm the effective native entry in OMP.'};
  const stateRoot=input.stateRoot??(input.home?join(home,'.local','state','rigup'):defaultStateRoot());
  const store=storePackage({stateRoot});
  if(!profile.skillSources?.omp?.some(source=>source.packageName===ompPackage&&isAbsolute(source.identity)&&withinPath(store,source.identity)))return ready;
  try{
-  const receipt=await inspectOmp({root:profile.root,home,env,stateRoot});
+  const receipt=await inspectOmp({root:profile.root,home,env,stateRoot},{forWrite:false});
   if(ompRecognized(receipt,profile))return ready;
  }catch{/* A Rigup-managed link needs its verified store on every reuse. */}
  return {status:'manual' as const,reason:'The existing OMP link no longer matches the verified package; reconcile it manually.'};
@@ -67,7 +67,8 @@ const commandLine=(runtime:HostRuntime,args:string[])=>[runtime.program.file,...
 async function planHost(root:string,host:SetupHost,input:NativeSetupServices):Promise<Planned>{
  const runtime=await inspectHostRuntime(root,host,input);
  if(host==='claude'){
-  const recipe=await inspectClaude(runtime),git=await hostGit(runtime);
+  await hostGit(runtime);
+  const recipe=await inspectClaude(runtime);
   const writes:Write[]=[
    {level:'project',path:recipe.project},
    {level:'cache',path:recipe.configFile},{level:'cache',path:recipe.backups},
@@ -78,7 +79,7 @@ async function planHost(root:string,host:SetupHost,input:NativeSetupServices):Pr
   steps.push({id:'install',command:commandLine(runtime,claudeArgs('install')),pin:'Superpowers '+claudeVersion+' at '+claudeSha,
    writes:[...writes,{level:'cache',path:recipe.registry},{level:'cache',path:recipe.install}],
    undo:'claude plugin uninstall '+claudePlugin+' --scope project --keep-data'});
-  return {host,runtime,recipe,git,steps};
+  return {host,runtime,recipe,steps};
  }
  const recipe=await inspectOmp(runtime);
  return {host,runtime,recipe,steps:[{id:'link',command:commandLine(runtime,ompArgs(recipe.store)),
@@ -118,7 +119,7 @@ export function describeNativePreparation(plan:NativePreparation){
   host,status,reason,...(status==='ready'?{}:{manual:superpowersManual[host]}),steps:action?.steps??[],
   ...(action?{launcher:{requiredVersion:host==='claude'?claudeCliVersion:ompCliVersion,
     versionCommand:commandLine(action.runtime,['--version']),temporaryUnder:action.runtime.stateRoot,writerState:action.runtime.writerRoot}}:{}),
-  ...(host==='omp'&&plan.hosts.includes('claude')&&action?{conditional:'Skip the user plugin link if the approved Claude project install supplies the full OMP workflow.'}:{}),
+  ...(host==='omp'&&status!=='ready'&&plan.entries.some(entry=>entry.host==='claude'&&entry.action)?{conditional:'Skip the user plugin link if the approved Claude project install supplies the full OMP workflow.'}:{}),
  }))};
 }
 
@@ -129,8 +130,18 @@ const versionMatches=(host:SetupHost,text:string)=>{
  const version=host==='claude'?claudeCliVersion:ompCliVersion;
  return text.trim()===version||text.trim()===(host==='claude'?version+' (Claude Code)':'omp/'+version);
 };
-const identity=(action:Planned)=>signature([action.runtime.approved,action.recipe.snapshot,
- action.host==='claude'?action.git:action.recipe.stored]);
+function compareDestinations(expected:string[],current:string[]){
+ const changed=expected.findIndex((path,index)=>relative(path,current[index])!=='');
+ if(changed!==-1)throw Error('Native preparation destination changed from '+expected[changed]+' to '+current[changed]+'; review a fresh plan.');
+}
+
+function targetChanged(expected:Planned,current:Planned){
+ if(expected.host==='claude'&&current.host==='claude'){
+  const before=expected.recipe,after=current.recipe;
+  return before.market!==after.market||before.declared!==after.declared||before.installed!==after.installed;
+ }
+ return expected.host==='omp'&&current.host==='omp'&&expected.recipe.status!==current.recipe.status;
+}
 
 async function visibleChanges(paths:Write[]){
  return new Map(await Promise.all(paths.map(async ({path})=>{
@@ -149,7 +160,6 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
  const fail=(fallback:string,exitCode:1|3|130=1)=>{
   progress.push({host:currentHost,status:attempted?'uncertain':'stopped',message:fallback});return end(exitCode);
  };
- // Plan revalidation and resources both use the same per-user state root.
  const stateRoot=input.stateRoot??initial.runtime.stateRoot??defaultStateRoot();
  try{
   const lock=await acquireLock(root,{stateRoot,recover:true,trustedProcess:true});
@@ -175,10 +185,19 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
     }
     const {host}=entry.action,approved=entry.action;
     const result=await withHostWriter<RunResult|undefined>(lock,host,async runner=>{
-     const fresh=()=>planHost(root,host,input);
+     const readTarget=async ():Promise<Planned>=>{
+      const current=await inspectHostLocations(root,host,input);
+      const {root:project,home,stateRoot,writerRoot}=approved.runtime;
+      compareDestinations([project,home,stateRoot,writerRoot],[current.root,current.home,current.stateRoot,current.writerRoot]);
+      const observed:Planned=approved.host==='claude'
+       ?{...approved,recipe:await inspectClaude(current)}
+       :{...approved,recipe:await inspectOmp(current)};
+      compareDestinations(approved.recipe.paths,observed.recipe.paths);
+      return observed;
+     };
      let state:Planned;
-     try{state=await fresh();}catch(error){return fail(explain(error,'Native prerequisites changed; review a fresh plan.'),3);}
-     if(identity(state)!==identity(approved))return fail('Native prerequisites changed after approval; review a fresh plan.',3);
+     try{state=await readTarget();}catch(error){return fail(explain(error,'Native prerequisites changed; review a fresh plan.'),3);}
+     if(targetChanged(approved,state))return fail('Native targets changed after approval; review a fresh plan.',3);
      const scratch=await mkdtemp(join(await privateDirectory(lock.stateRoot,root),'native-'));
      const work=join(scratch,'work');
      try{
@@ -190,11 +209,9 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
        if(input.signal?.aborted)return 'Native preparation canceled before dispatch.';
        try{
         if(await currentReviewPolicy(root))return 'The project now requires review; native preparation needs a fresh plan.';
-        const trusted=await fresh();
+        const observed=await readTarget();
         if(superpowersReadiness(await scan(root,[host],input),host).status!=='missing')return 'Native entry sources changed after approval; review a fresh plan.';
-        if(identity(trusted)!==identity(state))return 'Native prerequisites changed after approval; review a fresh plan.';
-        if(host==='claude'&&(!await checkedFile(join(scratch,'git-config'),{limit:0})||(await readdir(join(scratch,'empty-hooks'))).length))
-         return 'The private Git settings changed; review a fresh plan.';
+        if(targetChanged(state,observed))return 'Native targets changed after approval; review a fresh plan.';
        }catch(error){return explain(error,'Native prerequisites changed after approval; review a fresh plan.');}
       };
       const run=async(command:HostCommand,cwd:string,timeout:number,capture?:(bytes:Buffer)=>void)=>{
@@ -216,11 +233,6 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
        const unchanged=await guard();
        if(unchanged)return fail(unchanged,input.signal?.aborted?130:3);
        await installOmpStore(state.runtime,bytes);
-       // This is our own change. Every other prerequisite must be unchanged.
-       const published=await fresh();
-       if(published.host!=='omp'||published.runtime.approved!==state.runtime.approved||published.recipe.snapshot!==state.recipe.snapshot||
-          !published.recipe.stored)return fail('OMP prerequisites changed after preparing the verified package; review a fresh plan.',3);
-       state=published;
        progress.push({host,status:'ready',message:'Verified OMP package stored at '+state.recipe.store});
       }
       for(const step of approved.steps){
@@ -232,7 +244,7 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
        if(!outcome.dispatched)return fail(outcome.blocked??'Native preparation stopped before dispatch.',input.signal?.aborted?130:3);
        let verified=false,after:Planned|undefined,latest:ProjectProfile|undefined;
        try{
-        after=await fresh();
+        after=await readTarget();
         latest=await scan(root,[host],input);
         if(after.host==='claude'){
          if(step.id==='marketplace')verified=after.recipe.market==='ready'&&after.recipe.declared;
@@ -246,12 +258,7 @@ export async function executeNativePreparation(plan:NativePreparation,input:Nati
         ...(verified&&step.undo?{undo:step.undo}:{})});
        if(!verified||outcome.code!==0||outcome.cancelled)
         return end(input.signal?.aborted?130:1);
-       if(step.id==='marketplace'){
-        if(state.host!=='claude'||after?.host!=='claude'||state.runtime.approved!==after.runtime.approved||
-           state.git!==after.git||state.recipe.invariants!==after.recipe.invariants)
-         return fail('Claude settings outside the approved marketplace write changed; review a fresh plan.',3);
-        state=after;
-       }
+       if(step.id==='marketplace'&&after)state=after;
       }
       return;
      }finally{if(!attempted)await rm(scratch,{recursive:true,force:true,maxRetries:3});}
@@ -271,7 +278,7 @@ export async function nativeSetupInteraction(root:string,hosts:Agent[],input:Nat
  write:(message:string)=>void;report?:(value:Record<string,unknown>)=>void;
  ask:import('../../prompt.js').Ask;inspect:boolean;canPrompt:boolean;back?:boolean;
 }):Promise<0|1|3|130|'back'>{
- const {sessionHandoffRequired}=await import('../../installer/session.js');
+ const {sessionReloadNotice}=await import('../../installer/session.js');
  const {nativePreparationCommand}=await import('./manual.js');
  const plan=await planNativePreparation(root,hosts,input),description=describeNativePreparation(plan);
  const ready=plan.entries.every(entry=>entry.status==='ready'),hasAction=plan.entries.some(entry=>entry.action);
@@ -295,17 +302,15 @@ export async function nativeSetupInteraction(root:string,hosts:Agent[],input:Nat
  if(ui.inspect||ready){report(0);return 0;}
  if(input.signal?.aborted){report(130);return 130;}
  if(!hasAction){report(3,[],['Some native workflow prerequisites need manual preparation.']);return 3;}
- if(await sessionHandoffRequired(root)){
-  const message='End affected sessions and run this command from an independent terminal.';
-  write(message);write(nextCommand);report(3,[],[message]);return 3;
- }
  if(!ui.canPrompt){
-  const message='Native preparation requires approval in an independent terminal with terminal input and output.';
+  const message='Native preparation requires approval with terminal input and output.';
   write(message);write(nextCommand);report(3,[],[message]);return 3;
  }
  const answer=await ui.ask({message:'Approve native Superpowers preparation?',choices:['Cancel','Approve'],back:ui.back});
  if(answer==='back'&&ui.back)return 'back';
  if(!Array.isArray(answer)||answer.length!==1||answer[0]!=='Approve'||input.signal?.aborted){report(130);return 130;}
+ const reload=await sessionReloadNotice(root);
+ if(reload)write(reload);
  const result=await executeNativePreparation(plan,input);
  for(const item of result.progress){
   write(item.host+': '+item.message+(item.code!==undefined?' (exit '+(item.code??'unknown')+')':''));
