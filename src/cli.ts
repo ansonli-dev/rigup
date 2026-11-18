@@ -337,6 +337,7 @@ async function runCliInternal(argv:string[],io:Omit<CliIO,'write'>&{write(text:s
    const pending=(key:ReasonCode,params?:MessageParams,nextCommand?:string,requireAgents=false)=>{
     start(options.documentLanguage??initialLanguage);
     const reason=makeReason(key,params);
+    if(json)io.write(renderReason(reason)+'\n',reason.fallback+'\n');
     const installStatus=key==='cli.initRequired'?'not-installed':'pending';
     services.report?.({phase:'preflight',installStatus,pending:[reason.fallback],[reasonDetail]:reason,...(nextCommand?{nextCommand}:{}),
      ...(requireAgents?{requiredInput:[needsAgents]}:{})});
