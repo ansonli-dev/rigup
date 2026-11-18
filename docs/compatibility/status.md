@@ -9,6 +9,8 @@
 
 ## Native Superpowers preparation
 
+For v0.11.0, native terminal tests passed on macOS ARM64, Ubuntu x64, and Windows Server 2025 x64 with Claude Code 2.1.273 and OMP 18.1.13. The Windows runner (build 26100, Node.js 24.22.2, PowerShell 7.6.9, ConPTY) successfully created a directory symlink, so OMP used its verified link path. The regression suite injects a denied symlink capability to verify the version-pinned registry install, Bun integrity receipt, and reuse on a second run. [Native run](https://github.com/ansonli-dev/rigup/actions/runs/44371880017) · [Windows capability result](https://github.com/ansonli-dev/rigup/actions/runs/44371880017/job/135040558488)
+
 The packaged CLI ran with genuine Claude Code 2.1.273 and Oh My Pi 18.1.13 in real terminals on Ubuntu x64, native Windows x64 (PowerShell 7.6.9, ConPTY), and macOS arm64. It verified the Claude project receipt at Git commit `22f0b463e7a5e579904dd6211a520321035526f7` and the enabled, pinned OMP link. The two mixed cases verified the Claude-import shortcut and OMP package priority. Windows covered npm shim resolution and paths with spaces for this preparation flow. Redirection, cancellation, and project canaries checked for no unintended writes. [Test run](https://github.com/ansonli-dev/rigup/actions/runs/44076981293) · [Sanitized receipts](https://github.com/ansonli-dev/rigup/tree/main/docs/compatibility/evidence/2026-11-17-native-superpowers)
 
 An isolated macOS OMP 18.1.13 SDK query confirmed that all four required skills came from `claude-plugins` when only the Claude project plugin was installed and `omp-plugins` when both were installed. Model-backed invocation of the prepared workflow is not live-tested.
