@@ -172,10 +172,11 @@ test('repair cannot reset call or token budgets and preserves the original valid
 });
 
 test('validation diagnostics never echo untrusted property names or reader errors',async()=>{
- for(const data of [{observations:[],unknowns:[],secretPropertyFixture:{path:'fixture-secret-path',startLine:1,endLine:1,digest:'bad'}},{observations:[],unknowns:[42]}]){
+ const citation={observations:[],unknowns:[],secretPropertyFixture:{path:'fixture-secret-path',startLine:1,endLine:1,digest:'bad'}};
+ for(const [data,reason] of [[citation,'fixture-secret-reader'],[citation,'path outside reader inventory'],[{observations:[],unknowns:[42]},'fixture-secret-reader']] as const){
   const notices:string[]=[];
   const backend=openAICompatibleBackend({...credentials,onDiagnostic:message=>notices.push(message),fetch:async()=>response({role:'assistant',content:JSON.stringify(data)})});
-  await assert.rejects(backend.run(request,{...reader,read:async()=>{throw Error('fixture-secret-reader');}}),(error:unknown)=>{
+  await assert.rejects(backend.run(request,{...reader,read:async()=>{throw Error(reason);}}),(error:unknown)=>{
    assert.ok(error instanceof ResearchFailure);assert.doesNotMatch(error.message,/secretPropertyFixture|fixture-secret/);
    assert.match(error.message,/evidence|unknowns/);return true;
   });

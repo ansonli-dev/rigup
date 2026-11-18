@@ -67,12 +67,20 @@ function analysisSeed(paths:string[],nativeEntries:ReadonlySet<string>):Evidence
  }
  const support=(path:string)=>/\/(?:index\.[^/]+|[^/]+\.d\.ts)$/.test(path);
  return (Object.keys(groups) as SeedPool[]).flatMap(pool=>{
-  const rank=(path:string)=>pool==='configuration'?Number(manifest(path)||automation(path)):Number(!support(path));
+  const rank=(path:string)=>pool==='configuration'
+   ?manifest(path)&&!path.includes('/')?2:Number(manifest(path)||automation(path))
+   :Number(!support(path));
   const ordered=groups[pool].sort((a,b)=>rank(b)-rank(a)||a.localeCompare(b));
   const selected=pool==='configuration'?ordered:spreadPaths(ordered);
+  if(pool==='instructions')selected.sort((a,b)=>Number(a.includes('/'))-Number(b.includes('/')));
   return selected.slice(0,seedPools[pool].files).map(path=>({path,startLine:1,seedPool:pool}));
  });
 }
+
+export function analysisSeedPaths(paths:string[]):string[]{
+ return analysisSeed(paths,new Set()).map(slice=>slice.path);
+}
+
 function references(value:unknown):Evidence[]{
  const found:Evidence[]=[];
  const walk=(value:unknown)=>{

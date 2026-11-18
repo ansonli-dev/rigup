@@ -5,6 +5,7 @@ import {join,sep} from 'node:path';
 import {createHash} from 'node:crypto';
 import {project} from './helpers.js';
 import {readEvidence} from '../src/analyzer/evidence.js';
+import {filterContent,filterLegacyInstallationContent,READ_POLICY_VERSION} from '../src/analyzer/read-policy.js';
 test('embedded_credentials_are_filtered_and_line_mapping_kept',()=>project(async root=>{
  await writeFile(join(root,'config.json'),'{\n "token": "secret-fixture",\n "url": "https://alice:secret-pass@example.test/api"\n}\n');
  const result=await readEvidence(root,'config.json',1,4);
@@ -13,10 +14,69 @@ test('embedded_credentials_are_filtered_and_line_mapping_kept',()=>project(async
  assert.equal(result.evidence.digest,createHash('sha256').update(result.content).digest('hex'));
  assert.equal(result.content.split('\n').length,4);
 }));
-test('unknown_sensitive_format_is_denied',()=>project(async root=>{
- await writeFile(join(root,'auth.custom'),'token = secret-value');
- await assert.rejects(readEvidence(root,'auth.custom',1,1),/sensitive|unsupported/);
+test('a single credential assignment in an unknown text format is redacted',()=>project(async root=>{
+ const path='auth.custom';
+ await writeFile(join(root,path),'name = fixture\r\ntoken = synthetic-value\r\nmode = demo\r\n');
+ const result=await readEvidence(root,path,1,4);
+ assert.equal(result.content,'name = fixture\r\n[REDACTED]\r\nmode = demo\r\n');
+ assert.throws(()=>filterLegacyInstallationContent(path,'token = synthetic-value'),/unsupported sensitive format/);
 }));
+
+test('the research reader admits source and prose with isolated credential-like lines',()=>project(async root=>{
+ const examples=[
+  ['Service.java','public class Service {\n  Token token = authPort.exchangeCode(code);\n  void verify() {}\n}\n'],
+  ['application.properties','spring.application.name=fixture\nspring.datasource.password=${datasource.password:}\nspring.main.banner-mode=off\n'],
+  ['mvnw','#!/bin/sh\ncase "${MVNW_PASSWORD:+has-password}" in\nesac\n'],
+  ['README.md','# Public instructions\nExample: `fetch(url, { credentials: "include" })`\nRun the narrow check.\n'],
+  ['wrapper.sh','#!/bin/sh\nif [ "$ENV" ]; then\n  echo ready\nfi\n'],
+ ];
+ for(const [path,raw] of examples)await writeFile(join(root,path),raw);
+ const reader=await repositoryReader(root,{agents:[],backend:'host'});
+ const paths=await reader.list();
+ for(const [path,raw] of examples){
+  assert.ok(paths.includes(path),path);
+  const lines=raw.split('\n');
+  lines[1]='[REDACTED]';
+  const {content,evidence}=await reader.read(path,1,lines.length);
+  assert.equal(content,lines.join('\n'),path);
+  assert.deepEqual(evidence,{path,startLine:1,endLine:lines.length,digest:createHash('sha256').update(content).digest('hex')});
+ }
+}));
+
+test('unstructured multiline credentials and environment sections remain denied',()=>{
+ for(const [path,raw] of [
+  ['setup.sh','TOKEN=fixture\\\ncontinuation-canary'],
+  ['setup.sh','TOKEN=fixture printf sample <<END\ncontinuation-canary\nEND'],
+  ['setup.py','token = """fixture\ncontinuation-canary"""'],
+  ['setup.py','settings = """\ntoken = fixture\ncontinuation-canary\n"""'],
+  ['settings.js','const note = `\ntoken = fixture\ncontinuation-canary\n`;'],
+  ['auth.custom','/*\ntoken = fixture\ncontinuation-canary\n*/'],
+  ['notes.md','- password: fixture\n  continuation-canary'],
+  ['Service.java','String token = resolve(\n  "continuation-canary");'],
+  ['auth.custom','token\n  = continuation-canary'],
+  ['auth.custom','token =\ncontinuation-canary'],
+  ['auth.custom','token: first-line\n  continuation-canary'],
+  ['auth.custom','shared: &value continuation-canary\ntoken: *value'],
+  ['settings.ini','[environment]\nARBITRARY_KEY=continuation-canary'],
+  ['README.md','[env]\nARBITRARY_KEY=continuation-canary'],
+ ]){
+  assert.throws(()=>filterContent(path,raw),/unsupported sensitive format/,path+': '+raw.split('\n')[0]);
+ }
+});
+
+test('batch wrapper token selectors and empty SET assignments are isolated lines',()=>{
+ const raw='@FOR /F "usebackq tokens=1* delims==" %%A IN (fixture) DO (\r\n  @ECHO ok\r\n)\r\n@SET MVNW_PASSWORD=\r\n@ECHO done\r\n';
+ assert.equal(filterContent('mvnw.cmd',raw),'[REDACTED]\r\n  @ECHO ok\r\n)\r\n[REDACTED]\r\n@ECHO done\r\n');
+});
+
+test('current read policy still rejects sensitive names and unsafe file bodies',()=>{
+ for(const [path,raw] of [
+  ['.env','ARBITRARY_KEY=fixture'],
+  ['key.txt','-----BEGIN '+'PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----'],
+  ['text.txt','text\0not safe'],
+ ])assert.throws(()=>filterContent(path,raw),/denied/,path);
+ assert.notEqual(READ_POLICY_VERSION,'8','old accepted evidence must be invalidated');
+});
 test('jsonc_credentials_are_filtered',()=>project(async root=>{
  await writeFile(join(root,'config.jsonc'),'{// comment\n "env": {"TOKEN":"inline-secret"}, "name":"tool"\n}');
  const result=await readEvidence(root,'config.jsonc',1,3);
@@ -42,6 +102,8 @@ test('ordinary_guidance_about_credentials_remains_readable',()=>project(async ro
 test('TypeScript properties, commented tsconfig and env example placeholders are readable',()=>project(async root=>{
  await writeFile(join(root,'client.ts'),'export interface ClientOptions {\n  password?: string;\n  apiKey: string;\n}\n');
  assert.match((await readEvidence(root,'client.ts',1,4)).content,/apiKey: string/);
+ const declaration='interface ClientOptions {\n  readonly apiKey:\n    string;\n}\n';
+ assert.equal(filterContent('client.ts',declaration),declaration);
  await writeFile(join(root,'tsconfig.json'),'{\n// Compiler options\n"compilerOptions": {"strict": true,},\n}');
  assert.match((await readEvidence(root,'tsconfig.json',1,4)).content,/"strict": true/);
  await writeFile(join(root,'.env.example'),'AUTH_TOKEN=${AUTH_TOKEN}\nCLIENT_SECRET="fixture-real-value\nfixture-multiline"\nPORT=4000\n');

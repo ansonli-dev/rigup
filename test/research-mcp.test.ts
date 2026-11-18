@@ -21,6 +21,52 @@ function cli(root:string,cacheRoot:string,stateRoot:string,writeError?:(text:str
 }
 const empty={observations:[],unknowns:[]};
 
+test('MCP analysis seeds favor root guidance, build manifests and distinct directories',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ const files:Record<string,string>={
+  'AGENTS.md':'# Agent guidance\nCheck user-facing behavior.\n',
+  'CLAUDE.md':'# Team guidance\nKeep reproducible evidence.\n',
+  'pom.xml':'<project/>\n',
+  'z-service/src/Later.java':'class Later {}\n',
+  'z-service/tests/LaterTest.java':'class LaterTest {}\n',
+  'docs/operations.md':'# Operations\nPerform the narrow check.\n',
+  'notes/extra.blob':'Optional readable research source.\n',
+  '.idea/workspace.xml':'<project/>\n',
+  '.rigupignore':'ignored/\n',
+  'ignored/src/Unavailable.java':'class Unavailable {}\n',
+  'yarn.lock':'# Lock body\n',
+ };
+ for(let module=0;module<27;module++){
+  const dir='a'+String(module).padStart(2,'0');
+  files[dir+'/pom.xml']='<project/>\n';
+  files[dir+'/AGENTS.md']='# Module guidance\n';
+ }
+ for(let index=0;index<205;index++)files['a00/src/Source'+index+'.java']='class Fixture {}\n';
+ for(const [path,body] of Object.entries(files)){
+  const file=join(root,path);
+  await mkdir(dirname(file),{recursive:true});
+  await writeFile(file,body);
+ }
+
+ const run=cli(root,cacheRoot,stateRoot);
+ const foundation=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',foundation.previewId],0);
+ const mcp=await openResearchMcp(root,'claude',{cacheRoot,stateRoot});
+ const begin=await mcp.call('rigup_begin',{root,mode:'init'});
+ const seeds=begin.job?.seedPaths??[];
+ assert.equal(begin.job?.stage,'analysis');
+ assert.deepEqual(seeds.slice(0,2),['AGENTS.md','CLAUDE.md']);
+ assert.equal(seeds.find(path=>path.endsWith('pom.xml')),'pom.xml');
+ for(const path of ['a00/src/Source0.java','z-service/src/Later.java','z-service/tests/LaterTest.java','docs/operations.md'])assert.ok(seeds.includes(path),path);
+ for(const path of ['yarn.lock','.idea/workspace.xml','notes/extra.blob','ignored/src/Unavailable.java'])assert.ok(!seeds.includes(path),path);
+ assert.equal(new Set(seeds).size,seeds.length);
+ assert.ok(seeds.length<=170);
+ assert.match(begin.instructions??'',/seed paths.*sample/i);
+
+ const plan=await mcp.call('rigup_submit_plan',{runId:begin.runId,jobId:begin.job?.id,data:{...empty,citations:[{path:'notes/extra.blob',startLine:1,endLine:1}]}});
+ assert.equal(plan.job?.stage,'plan');
+ assert.equal(plan.job?.seedPaths,undefined);
+}));
+
 test('MCP lists and calls tools after negotiation and ignores extra argument fields',t=>fixture(async(root,cacheRoot,stateRoot)=>{
  const run=cli(root,cacheRoot,stateRoot);
  const base=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
@@ -106,6 +152,22 @@ test('provider-free MCP setup, job replay and finish require independent apply',
  assert.equal(unchanged.installStatus,'up-to-date');
  assert.equal(unchanged.nextCommand,null);
  assert.ok(!unchanged.previewId);
+}));
+
+test('MCP citation errors describe the path and let the same job accept a correction',()=>fixture(async(root,cacheRoot,stateRoot)=>{
+ await writeFile(join(root,'README.md'),'Public instructions.');
+ await writeFile(join(root,'.env'),'SYNTHETIC_VALUE=hidden-fixture');
+ const run=cli(root,cacheRoot,stateRoot);
+ const foundation=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',foundation.previewId],0);
+ const mcp=await openResearchMcp(root,'claude',{cacheRoot,stateRoot});
+ const begin=await mcp.call('rigup_begin',{root,mode:'init'});
+ const submit=(path:string,line=1)=>mcp.call('rigup_submit_plan',{
+  runId:begin.runId,jobId:begin.job?.id,data:{...empty,citations:[{path,startLine:line,endLine:line}]},
+ });
+ await assert.rejects(submit('.env'),/evidence: "\.env": path outside reader inventory/);
+ await assert.rejects(submit('README.md',20),/evidence: "README\.md": evidence range beyond file/);
+ assert.equal((await submit('README.md')).job?.stage,'plan');
 }));
 
 test('MCP rejects excluded citations and refreshes a digestless job without changing sessions',()=>fixture(async(root,cacheRoot,stateRoot)=>{

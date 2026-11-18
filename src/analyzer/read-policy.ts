@@ -2,14 +2,81 @@ import {parse as parseToml} from 'smol-toml';
 import {parseTree,createScanner,SyntaxKind,type Node,type ParseError} from 'jsonc-parser';
 import {parseDocument,Parser,isMap,isSeq,isScalar,isAlias} from 'yaml';
 import {extname} from 'node:path';
-export const READ_POLICY_VERSION='8';
+export const READ_POLICY_VERSION='9';
 export const secretName=/(^\.env($|\.)|^(?:\.auth|\.netrc|_netrc|\.git-credentials|\.npmrc|\.pypirc|\.pgpass|\.dockercfg)(?:[.~].*)?$|\.(pem|key|p12|pfx|keystore)(?:\.(?:bak|old|backup|orig|save|tmp)|~)?$|credentials|id_rsa|id_ed25519)/i;
 const envExample=/^\.env\.example$/i;
 export const evidenceSecretName=(name:string)=>secretName.test(name)&&!envExample.test(name);
 const sensitive=/token|password|passwd|secret|credential|authorization|api[-_]?key|private[-_]?key|^(?:auth|authentication|creds|cookies?|set[-_]?cookie|localStorage|sessionStorage)$/i;
 const credentialFlag=/^--?(?:(?:(?:access|private|job|refresh|auth)[-_]?)?token|password|passwd|secret|client[-_]?secret|api[-_]?key|authorization|auth|user|u|proxy-user|oauth2-bearer|cookies?|b|credentials?)$/i;
 const credentialAssignment=/(?:token|password|passwd|secret|credentials?|creds|authorization|api[-_]?key|private[-_]?key)[\w-]*["']?\s*[:=]|(?:^|[\s"'])auth(?:entication)?["']?\s*[:=]/i;
-const structuredCredentialAssignment=(value:string)=>credentialAssignment.test(value)||/(?:set[-_]?)?cookies?[\"']?\s*[:=]/i.test(value);
+const structuredAssignment=new RegExp(credentialAssignment.source+'|(?:set[-_]?)?cookies?["\']?\\s*[:=]','i');
+const structuredCredentialAssignment=(value:string)=>structuredAssignment.test(value);
+const environmentReference=/\[.*env.*\]/i;
+const environmentSection=/^[ \t]*(?:[-*+>][ \t]+)?\[.*env.*\][ \t]*(?:[#;].*)?$/i;
+const proseAssignment=/^([ \t]*)(["']?)([A-Za-z_][\w.-]*)\2([ \t]*[:=][ \t]*)(.*)$/;
+const inlineLiterals=/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\\./g;
+const inlineClosers=new Map([['(',')'],['[',']'],['{','}']]);
+const atSameLineEnding=(line:string,body:string)=>body+(line.endsWith('\r')?'\r':'');
+
+function closedInlineValue(line:string,matches:RegExpMatchArray[],environment:RegExpExecArray|null):boolean {
+ const syntax=line.replace(inlineLiterals,literal=>'x'.repeat(literal.length));
+ if(/["'`]|<<|(?:\\|[+?:=|]|&&)\s*$/.test(syntax))return false;
+ // A matched selector inside a closed string cannot continue into a surrounding code block.
+ const outside=matches.filter(match=>syntax[match.index!+match[0].length-1]!=='x');
+ const start=outside[0]?.index??(environment&&syntax[environment.index]==='['?environment.index:undefined);
+ if(start===undefined)return true;
+ const last=outside.at(-1);
+ if(last){
+  const value=syntax.slice(last.index!+last[0].length).trim();
+  if(!value||/^[|>&*!](?!=)/.test(value))return false;
+ }
+ const pending:string[]=[];
+ for(const [token] of syntax.slice(start).matchAll(/[()[\]{}]/g)){
+  const closer=inlineClosers.get(token);
+  if(closer)pending.push(closer);
+  else if(pending.length&&pending.pop()!==token)return false;
+ }
+ return pending.length===0;
+}
+
+// Scan complete literals as well so quoted examples of delimiters never open a span.
+const multilineTokens=/"""[^]*?(?:"""|$)|'''[^]*?(?:'''|$)|\/\*[^]*?(?:\*\/|$)|(?<!`)`(?!`)(?:\\[^]|[^`\\])*(?:`(?!`)|$)|"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'/g;
+const emptyBatchAssignment=/^[ \t]*@?set[ \t]+(?:"[A-Za-z_]\w*="|[A-Za-z_]\w*=)[ \t]*$/i;
+
+function redactInline(lines:string[],assignment:RegExp,options:{keep?:(index:number)=>boolean;batch?:boolean}={}):string {
+ const assignments=new RegExp(assignment.source,'gi');
+ const unchecked=lines.slice();
+ const multiline=[...lines.join('\n').matchAll(multilineTokens)]
+  .filter(([token])=>token.includes('\n'))
+  .map(({0:token,index})=>({start:index!,end:index!+token.length}));
+ let offset=0,span=0;
+ const visible=lines.map((raw,index)=>{
+  const start=offset;
+  offset+=raw.length+1;
+  const line=raw.replace(/\r$/,'');
+  if(options.keep?.(index)){unchecked[index]='[REDACTED]';return raw;}
+  const matches=[...line.matchAll(assignments)];
+  const environment=environmentReference.exec(line);
+  if(!matches.length&&!environment)return raw;
+  while(multiline[span]&&multiline[span].end<=start)span++;
+  const inMultiline=multiline[span]&&multiline[span].start<start+line.length;
+  const clearsBatchVariable=options.batch&&emptyBatchAssignment.test(line);
+  if(inMultiline||environmentSection.test(line)||!clearsBatchVariable&&!closedInlineValue(line,matches,environment))
+   throw Error('unsupported sensitive format');
+  const standalone=proseAssignment.exec(line.replace(/^([ \t]*)(?:[-*+>]|\d+[.)])[ \t]+/,'$1'));
+  if(standalone&&sensitive.test(standalone[3])){
+   // An indented continuation can contain the value even after a nonempty first line.
+   let next=index+1;
+   while(next<lines.length&&!lines[next].trim())next++;
+   if((/^[ \t]*/.exec(lines[next]??'')?.[0].length??0)>standalone[1].length)throw Error('unsupported sensitive format');
+  }
+  unchecked[index]='[REDACTED]';
+  return atSameLineEnding(raw,'[REDACTED]');
+ });
+ // A credential key and its separator can fall on different lines.
+ if(assignment.test(unchecked.join('\n')))throw Error('unsupported sensitive format');
+ return visible.join('\n');
+}
 function redactComment(token:string):string {
  if(!sensitive.test(token)&&!credentialAssignment.test(token)&&! /\b(?:auth(?:entication)?|cookies?|localStorage|sessionStorage|api\s+key|private\s+key|access\s+key)\b/i.test(token))return token;
  const prefix=token.startsWith('/*')?'/*':token.startsWith('//')?'//':'#';
@@ -36,14 +103,14 @@ function filterEnvExample(raw:string):string {
 }
 
 function filterProse(raw:string):string {
- const lines=raw.split('\n'),unchecked:string[]=[];
- const assignment=/^([ \t]*)(["']?)([A-Za-z_][\w.-]*)\2([ \t]*[:=][ \t]*)(.*)$/;
+ const lines=raw.split('\n'),handled=new Set<number>();
  for(let index=0;index<lines.length;index++){
-  const match=assignment.exec(lines[index]);
-  if(!match||!sensitive.test(match[3])){unchecked.push(lines[index]);continue;}
+  const match=proseAssignment.exec(lines[index].replace(/\r$/,''));
+  if(!match||!sensitive.test(match[3]))continue;
+  handled.add(index);
   const [,indent,quote,key,separator,remainder]=match;
   const value=remainder.trim();
-  lines[index]=indent+quote+key+quote+separator+'[REDACTED]';
+  lines[index]=atSameLineEnding(lines[index],indent+quote+key+quote+separator+'[REDACTED]');
   if(/^[&*!]/.test(value)||value.endsWith('\\')||
      /^[|>]/.test(value)&&!/^[|>](?:[1-9][+-]?|[+-][1-9]?)?(?:\s+#.*)?$/.test(value))throw Error('unsupported sensitive format');
   if(/^[\[{]/.test(value)){
@@ -54,16 +121,18 @@ function filterProse(raw:string):string {
   if(delimiter&&!closes(value.slice(delimiter.length))){
    while(index+1<lines.length){
     const closed=closes(lines[index+1]);
-    lines[++index]='';
+    index++;
+    lines[index]=atSameLineEnding(lines[index],'');
     if(closed)break;
    }
   }
-  while(index+1<lines.length&&(!lines[index+1].trim()||/^[ \t]*/.exec(lines[index+1])![0].length>indent.length))lines[++index]='';
+  while(index+1<lines.length&&(!lines[index+1].trim()||/^[ \t]*/.exec(lines[index+1])![0].length>indent.length)){
+   index++;
+   lines[index]=atSameLineEnding(lines[index],'');
+  }
   if(!value&&/^\s*-(?:\s|$)/.test(lines[index+1]??''))throw Error('unsupported sensitive format');
  }
- const unfiltered=unchecked.join('\n');
- if(structuredCredentialAssignment(unfiltered)||/\[.*env.*\]/i.test(unfiltered))throw Error('unsupported sensitive format');
- return lines.join('\n');
+ return redactInline(lines,structuredAssignment,{keep:index=>handled.has(index)});
 }
 
 export const filterContent=(path:string,raw:string)=>filter(path,raw,false);
@@ -138,13 +207,19 @@ function filter(path:string,raw:string,legacy:boolean):string{
    const original=text.slice(span.start,span.end);
    text=text.slice(0,span.start)+(span.replacement??'"[REDACTED]"'+'\n'.repeat((original.match(/\n/g)||[]).length))+text.slice(span.end);
   }
- } else if(!legacy&&/\.(?:mdx?|rst|adoc|txt)$/.test(extension)&&structuredCredentialAssignment(raw)){
+ } else if(legacy){
+  if(credentialAssignment.test(raw)||environmentReference.test(raw))throw Error('unsupported sensitive format');
+ } else if(/\.(?:mdx?|rst|adoc|txt)$/.test(extension)&&(structuredCredentialAssignment(raw)||environmentReference.test(raw))){
   text=filterProse(raw);
- } else {
+ } else if(credentialAssignment.test(raw)||environmentReference.test(raw)){
   const declarations=/^\s*(?:readonly\s+)?[$\w]+\??\s*:\s*(?:string|number|boolean|undefined|unknown|never|symbol|bigint)(?:\[\])?\s*;[ \t]*$/gm;
-  const values=!legacy&&/\.(?:[cm]?ts|tsx)$/.test(extension)?raw.replace(declarations,''):raw;
-  // Unknown sensitive syntax cannot be safely exported using line heuristics.
-  if(credentialAssignment.test(values)||/\[.*env.*\]/i.test(values))throw new Error('unsupported sensitive format');
+  const lines=raw.split('\n');
+  const withoutDeclarations=/\.(?:[cm]?ts|tsx)$/.test(extension)
+   ?raw.replace(declarations,declaration=>declaration.replace(/[^\r\n]/g,' ')).split('\n'):undefined;
+  text=redactInline(lines,credentialAssignment,{
+   keep:withoutDeclarations&& (index=>withoutDeclarations[index]!==lines[index]),
+   batch:/\.(?:bat|cmd)$/.test(extension),
+  });
  }
  const urls=legacy?/https?:\/\/[^\s"'<>]+/g:/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi;
  return text.replace(urls,url=>{

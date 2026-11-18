@@ -61,9 +61,27 @@ export function selectResearchOutput(request:ResearchRequest,data:unknown):unkno
 
 const citationKey=(path:unknown,startLine:unknown,endLine:unknown,digest:unknown)=>JSON.stringify([path,startLine,endLine,digest]);
 
-/** Only fixed validation reasons and structural field/index positions belong in this error. */
+/** Validation diagnostics use fixed reasons and bounded structural positions or repository paths. */
 export class ResearchValidationError extends Error {
  constructor(reason:string,location?:string){super(location?location+': '+reason:reason);this.name='ResearchValidationError';}
+}
+
+const publicReadErrors=new Set([
+ 'path outside reader inventory','path escapes root','repository file exceeds the read limit',
+ 'convention source changed during research','invalid evidence range','evidence range beyond file',
+ 'sensitive file denied','private key material denied','binary file denied','unsupported sensitive format',
+ 'unsupported env example syntax','unsupported TOML token','unsupported non-string sensitive TOML value',
+ 'unsupported JSONC syntax','unsupported configuration syntax','unsupported YAML alias',
+]);
+
+export function evidenceReadError(path:string|undefined,error:unknown,location?:string):ResearchValidationError {
+ const code=error instanceof Error?(error as NodeJS.ErrnoException).code:undefined;
+ // Parser and filesystem messages can contain source text or absolute paths.
+ const reason=error instanceof Error&&publicReadErrors.has(error.message)?error.message
+  :code==='ENOENT'||code==='ENOTDIR'?'source no longer available'
+  :code==='EACCES'||code==='EPERM'?'source is unreadable':'source unavailable, denied, or range invalid';
+ const label=path!==undefined&&path.length<=256&&path!=='.'&&isConventionScope(path)&&!/\p{C}/u.test(path)?JSON.stringify(path)+': ':'';
+ return new ResearchValidationError('evidence: '+label+reason,location);
 }
 const diagnosticFields=new Set(['observations','guidance','supportingEvidence','counterEvidence','sourceRef','evidence','coverage','scope','unknowns']);
 
@@ -107,7 +125,7 @@ export async function researchEvidenceCurrent(receipt:ResearchEvidenceReceipt|un
  }catch{return false;}
 }
 
-export async function validateResearch(data:unknown,reader:RepositoryReader,exportedEvidence?:readonly Evidence[],exportedSourceEvidence?:readonly (EvidenceRead|Evidence)[]){
+export async function validateResearch(data:unknown,reader:RepositoryReader,exportedEvidence?:readonly Evidence[],exportedSourceEvidence?:readonly (EvidenceRead|Evidence)[],diagnostics:{showCitationPaths?:boolean}={}){
  if(!data || typeof data !== 'object' || Array.isArray(data)) throw new ResearchValidationError('research: expected object');
  const verified=new Set<string>();
  const citations:Evidence[]=[],searches=new Map<string,CounterexampleSearch>(),warnings:string[]=[],blockedConventions:number[]=[];
@@ -132,7 +150,7 @@ export async function validateResearch(data:unknown,reader:RepositoryReader,expo
    }))throw new ResearchValidationError('evidence: scoped source body was not exported for this request',location);
    let real:EvidenceRead;
    try{real=await read(obj.path,Number(obj.startLine),Number(obj.endLine));}
-   catch{throw new ResearchValidationError('evidence: source unavailable, denied, or range invalid',location);}
+   catch(error){throw evidenceReadError(diagnostics.showCitationPaths===false?undefined:obj.path,error,location);}
    if(real.evidence.digest !== obj.digest) throw new ResearchValidationError('evidence: digest mismatch',location);
    verified.add(key);
    citations.push(real.evidence);
