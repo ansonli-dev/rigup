@@ -1,17 +1,38 @@
 import {execFile} from 'node:child_process';
-import {mkdtemp,realpath,rm} from 'node:fs/promises';
-import {delimiter,join} from 'node:path';
+import {realpath} from 'node:fs/promises';
+import {delimiter} from 'node:path';
 import {parse,satisfies,validRange} from 'semver';
-import {privateDirectory} from '../../generator/cache.js';
 import {externalExecutable,npmCommand,npmPathDirectories,withinPath} from '../../npm-command.mjs';
 import {normalizeNpmIntegrity} from '../../npm-integrity.mjs';
-import {essentialEnvironment} from '../../runtime-inputs.js';
 
 export type NpmPackageName='openwiki'|'@colbymchenry/codegraph'|'@fission-ai/openspec';
 export interface NpmPackageIdentity {version:string;packageIntegrity:string}
 export interface ResolvedNpmPackage extends NpmPackageIdentity {registry?:string;enginesNode?:string}
 export type NpmView=(args:string[],cwd:string,signal?:AbortSignal)=>Promise<string>;
 export const defaultNpmRegistry='https://registry.npmjs.org/';
+const packageScope=(name:string)=>name.startsWith('@')?name.split('/')[0]:undefined;
+
+export function normalizeNpmRegistry(value:string):string{
+ const invalid=()=>Error('Npm registry must use HTTPS or loopback HTTP and omit credentials, query, and fragment');
+ const authority=/^https?:\/\/([^/]+)/i.exec(value)?.[1];
+ if(!authority||authority.includes('@')||/[?#\s\\]/.test(value))throw invalid();
+ let url:URL;
+ try{url=new URL(value);}catch{throw invalid();}
+ const loopback=url.hostname==='localhost'||url.hostname==='[::1]'||/^127\.\d+\.\d+\.\d+$/.test(url.hostname);
+ if(url.username||url.password||url.protocol!=='https:'&&!(url.protocol==='http:'&&loopback))throw invalid();
+ return url.href.replace(/\/?$/,'/');
+}
+
+export function npmRegistryFlags(name:string,registry:string):string[]{
+ const scope=packageScope(name);
+ return ['--registry',registry,...(scope?['--'+scope+':registry='+registry]:[])];
+}
+
+export function npmEnvironment(directories:string[]):NodeJS.ProcessEnv{
+ const env=Object.fromEntries(Object.entries(process.env).filter(([name])=>
+  !/^path$/i.test(name)&&!/^npm_config_(?:_auth(?:token)?|username|_password)$/i.test(name)));
+ return {...env,PATH:directories.join(delimiter)};
+}
 
 export function isStableNpmVersion(value:unknown):value is string{
  if(typeof value!=='string')return false;
@@ -29,7 +50,7 @@ export function assertNpmNode(name:string,version:string,nodeRange:unknown,nodeV
 
 export async function resolveProjectNpm(root:string,args:string[]){
  const directories=await npmPathDirectories(root,process.env.PATH??process.env.Path??'');
- const env=essentialEnvironment();delete env.Path;env.PATH=directories.join(delimiter);
+ const env=npmEnvironment(directories);
  if(process.platform==='win32'){
   const command=npmCommand(args);
   for(const path of [command.executable,command.args[0]])if(withinPath(root,path)||withinPath(root,await realpath(path)))throw Error('Project npm launcher must be outside the project');
@@ -53,23 +74,39 @@ export function boundedCommandOutput(command:{executable:string;args:string[];en
  });
 }
 
-export async function resolveNpmLatest(name:NpmPackageName,input:{root:string;stateRoot:string;registry?:string;nodeVersion:string;signal?:AbortSignal;view?:NpmView}):Promise<ResolvedNpmPackage>{
- const {root,stateRoot,registry,nodeVersion,signal}=input;
+const projectNpmOutput:NpmView=async(args,cwd,signal)=>boundedCommandOutput(await resolveProjectNpm(cwd,args),cwd,signal);
+
+export async function effectiveNpmRegistry(root:string,name:string,override?:string,signal?:AbortSignal,run=projectNpmOutput):Promise<string>{
  signal?.throwIfAborted();
- const effectiveRegistry=registry??defaultNpmRegistry;
+ if(override)return normalizeNpmRegistry(override);
+ const scope=packageScope(name);
+ let value:string;
+ try{
+  const get=async(key:string)=>(await run(['config','get',key,'--update-notifier=false'],root,signal)).trim();
+  value=scope?await get(scope+':registry'):'';
+  if(!value||value==='undefined')value=await get('registry');
+ }catch{
+  signal?.throwIfAborted();
+  throw Error('Could not read effective npm registry; check npm availability and configuration');
+ }
+ return normalizeNpmRegistry(value);
+}
+
+export async function resolveNpmLatest(name:NpmPackageName,input:{root:string;stateRoot:string;registry?:string;nodeVersion:string;signal?:AbortSignal;view?:NpmView;npm?:NpmView}):Promise<ResolvedNpmPackage>{
+ const {root,registry,nodeVersion,signal,npm}=input;
+ signal?.throwIfAborted();
+ const effectiveRegistry=await effectiveNpmRegistry(root,name,registry,signal,npm);
  const label=name+'@latest from '+effectiveRegistry;
- const stage=await mkdtemp(join(await privateDirectory(stateRoot,root),'npm-view-'));
  let output:string;
  try{
-  const args=['view',name+'@latest','name','version','dist-tags.latest','dist.integrity','engines.node','--json','--registry',effectiveRegistry,
-   '--prefix',stage,'--userconfig',join(stage,'user.npmrc'),'--globalconfig',join(stage,'global.npmrc'),'--cache',join(stage,'cache'),
+  const args=['view',name+'@latest','name','version','dist-tags.latest','dist.integrity','engines.node','--json',...npmRegistryFlags(name,effectiveRegistry),
    '--prefer-online','--fetch-retries=0','--update-notifier=false'];
-  output=input.view?await input.view(args,stage,signal):await boundedCommandOutput(await resolveProjectNpm(root,args),stage,signal);
+  output=await (input.view??npm??projectNpmOutput)(args,root,signal);
   signal?.throwIfAborted();
  }catch{
   signal?.throwIfAborted();
   throw Error('Could not resolve '+label+'; check registry access and npm availability');
- }finally{await rm(stage,{recursive:true,force:true});}
+ }
  let metadata:unknown;
  try{metadata=JSON.parse(output);}catch{throw Error('Could not resolve '+label+'; invalid npm metadata');}
  if(!metadata||typeof metadata!=='object'||Array.isArray(metadata))throw Error('Could not resolve '+label+'; expected one package');

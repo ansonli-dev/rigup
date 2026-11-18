@@ -15,13 +15,13 @@ import {openwikiInitializationGuide} from '../integrations/tools/openwiki.js';
 import {startProcess} from '../integrations/tools/windows-process.mjs';
 import {assertNpmNode,defaultNpmRegistry,resolveProjectNpm} from '../integrations/tools/npm-resolution.js';
 import {assertInstallDestination,clearInstallStage,createInstallStage,installDirectoryIdentity,ownedInstallStage,publishInstallStage,stagedInstall,validInstallStage,type InstallStage} from './install-staging.js';
-import {essentialEnvironment,selectedNpmRegistry} from '../runtime-inputs.js';
+import {essentialEnvironment,operationNpmRegistry} from '../runtime-inputs.js';
 import {targetPath} from './ownership.js';
 import type {PreviewData} from './preview.js';
 export interface OperationResult {globalReceipt?:GlobalNpmReceipt;status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 export type WriterIdentity=ProcessIdentity;
 interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult;installStage?:InstallStage}
-export interface OperationDependencies {stateRoot?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;verifyInstallScope?:(target:string)=>Promise<void>;verifyInstallPayload?:(target:string)=>Promise<void>;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
+export interface OperationDependencies {stateRoot?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;verifyInstallScope?:(target:string)=>Promise<void>;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
 export function operationRoot(operation:SetupOperation):string {if(operation.kind==='initialize'&&isAbsolute(operation.parameters.cwd))return operation.parameters.cwd;const i=operation.parameters.args.indexOf('--prefix');const prefix=operation.parameters.args[i+1];if(i<0||!prefix||!isAbsolute(prefix))throw new Error('operation project root unavailable');return resolve(prefix,'../../..');}
 export async function queryOperation(operation:SetupOperation,stateRoot?:string):Promise<OperationResult>{
  if(operation.global)return queryGlobalNpmInstall(operation.global,stateRoot);
@@ -149,12 +149,18 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  catch(error){return {status:'pending',message:(error as Error).message};}
  const registryPending=async():Promise<OperationResult|undefined>=>{
   if(operation.kind!=='install')return;
-  try{if((await selectedNpmRegistry(root)??defaultNpmRegistry)===(operation.registry??defaultNpmRegistry))return;}
+  try{if(await operationNpmRegistry(root,operation.query.name,dependencies.signal)===(operation.registry??defaultNpmRegistry))return;}
   catch{return {status:'pending',message:'Correct the private npm registry input before installing'};}
   return {status:'pending',message:'Npm registry selection changed after review; restore the approved registry before resuming installation'};
  };
  const {records,persist}=await getJournal(root);
  const key=signature(operation);let record=records.find(r=>r.parametersDigest===key);
+ if(!record&&dependencies.restoringApproval&&operation.integrationId==='openspec'){
+  record=records.find(prior=>{
+   if(prior.authorizationRef!==dependencies.authorizationRef||prior.operation.id!==operation.id)return false;
+   try{return signature(verifiedToolOperationForResume(root,prior.operation,[]))===key;}catch{return false;}
+  });
+ }
  if(record){
   if(record.identity&&await writerAlive(record.identity))return {status:'unknown',message:'Previous writing process has not exited; project remains blocked'};
   if(record.stage!=='prepared'||record.installStage) {
@@ -198,7 +204,6 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
   await dependencies.verifyInstallScope?.(operation.protection.target);
   try{await assertInstalledNode(root,staged);}
   catch(error){return {status:'pending',message:(error as Error).message+'; resume the original approval with a compatible Node'};}
-  await dependencies.verifyInstallPayload?.(staged.protection.target);
   await publishInstallStage(root,operation,staged,stage);
   const published=await queryPublishedInstall(root,operation,stage);
   if(published.status!=='done'||published.receipt?.packageLockDigest!==verified.receipt?.packageLockDigest)throw Error('Published installation differs from verified staging');
@@ -244,7 +249,7 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  return protectedOperationCommand(command,root,operation.timeoutMs,{signal:dependencies.signal,markDispatching,registryPending,restoreUndispatched,finish});
 }
 
-export async function protectedOperationCommand(command:{executable:string;args:string[];env?:NodeJS.ProcessEnv},root:string,timeoutMs:number,dependencies:{
+export async function protectedOperationCommand(command:{executable:string;args:string[];env?:NodeJS.ProcessEnv;successRecord?:string},root:string,timeoutMs:number,dependencies:{
  launcher?:{cwd:string;env:NodeJS.ProcessEnv};stdout?:(chunk:Buffer)=>void;
  signal?:AbortSignal;markDispatching:(identity:WriterIdentity)=>Promise<void>;registryPending:()=>Promise<OperationResult|undefined>;
  restoreUndispatched:()=>Promise<OperationResult>;finish:(code:number|null,cancelled:boolean)=>Promise<OperationResult>;

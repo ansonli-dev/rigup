@@ -28,7 +28,7 @@ import {runProjectChecks,runResolvedProjectChecks} from '../integrations/tools/q
 import {quoteShell} from '../shell-command.js';
 import {conventionKey,isConventionScope,validateConventionReceipts} from '../project-conventions.js';
 import {projectInput} from '../managed-input.js';
-import {applyRuntimeInputs,selectedNpmRegistry,type RuntimeSetupSummary} from '../runtime-inputs.js';
+import {applyRuntimeInputs,operationNpmRegistry,type RuntimeSetupSummary} from '../runtime-inputs.js';
 import {RIGUP_VERSION} from '../version.js';
 import {normalizeNpmIntegrity} from '../npm-integrity.mjs';
 import {queryGlobalNpmInstall} from '../integrations/tools/global-npm.js';
@@ -130,9 +130,11 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    const result=await queryGlobalNpmInstall(approval,lock.stateRoot);
    const path=await consumerPath(root);
    const selected=await findProgram(approval.bin,root,path).catch(()=>undefined);
-   const launcher=selected&&await programIdentity(selected,root,path).catch(()=>undefined);
-   if(!prior||result.status!=='done'||signature(result.globalReceipt)!==signature(prior.globalReceipt)||
-      !launcher||launcher!==result.globalReceipt?.launcherIdentity)
+   const receipt=result.globalReceipt;
+   const launcherMatches=selected&&receipt&&(receipt.launcher
+    ?(selected.launcher??selected.file)===receipt.launcher
+    :!!receipt.launcherIdentity&&await programIdentity(selected,root,path).catch(()=>undefined)===receipt.launcherIdentity);
+   if(!prior||result.status!=='done'||signature(receipt)!==signature(prior.globalReceipt)||!launcherMatches)
     throw Error('Approved global '+approval.id+' installation or PATH launcher changed. Restore the approved installation before resuming.');
   }
  };
@@ -167,7 +169,10 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   }
   await verifyGlobalInstalls();
   const installs=operations.filter(operation=>operation.kind==='install'&&!operation.global);
-  if(installs.length&&!restoringApproval){const registry=await selectedNpmRegistry(root)??defaultNpmRegistry;if(installs.some(operation=>(operation.registry??defaultNpmRegistry)!==registry))throw Error('Npm registry changed since approval; prepare a new review before installing.');}
+  if(!restoringApproval&&!dependencies.signal?.aborted)for(const operation of installs){
+   const registry=await operationNpmRegistry(root,operation.query.name,dependencies.signal);
+   if((operation.registry??defaultNpmRegistry)!==registry)throw Error('Npm registry changed since approval; prepare a new review before installing.');
+  }
   if(tx?.status==='prepared'&&tx.previewId!==previewId){
    if(Object.keys(tx.seedProgress??{}).length)throw Error(seedReconciliation);
    if(tx.preview?.data&&(!tx.preview.data.approvalNonce||tx.preview.data.inputSnapshotVersion!==3&&tx.preview.data.inputSnapshotVersion!==4))throw Error(upgradeReconciliation);

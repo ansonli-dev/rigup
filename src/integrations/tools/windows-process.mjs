@@ -63,7 +63,7 @@ function terminate(child){
 }
 
 const worker=fileURLToPath(new URL('./process-worker.mjs',import.meta.url));
-/** @param {{executable:string,args:string[],cwd:string,env?:NodeJS.ProcessEnv,captureOutput?:boolean,supervisorEnv?:NodeJS.ProcessEnv,supervisorCwd?:string}} spec */
+/** @param {{executable:string,args:string[],cwd:string,env?:NodeJS.ProcessEnv,captureOutput?:boolean,supervisorEnv?:NodeJS.ProcessEnv,supervisorCwd?:string,successRecord?:string}} spec */
 export function startProcess(spec,{defer=false}={}){
  const capture=spec.captureOutput??true;
  const stdio=['pipe',capture?'pipe':'ignore',capture?'pipe':'ignore'];

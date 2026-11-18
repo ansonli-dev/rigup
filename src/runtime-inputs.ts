@@ -1,6 +1,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import type {SetupOptions} from './types.js';
+import {effectiveNpmRegistry,normalizeNpmRegistry} from './integrations/tools/npm-resolution.js';
 import {validateProviderBaseURL} from './analyzer/provider-url.js';
 import {researchProviderMetadata} from './research/provider-settings.js';
 import {essentialEnvironment,PrivateInputWriteError,readRuntimeFile,renderRuntimeFile,runtimeEnvPath,writeRuntimeFile,type RuntimeFile} from './runtime-private-env.js';
@@ -148,9 +149,12 @@ export async function selectedNpmRegistry(root:string):Promise<string|undefined>
  const value=effective(file,'RIGUP_NPM_REGISTRY').value;
  if(!value)return;
  try{
-  const url=validateProviderBaseURL(value);
-  return url.href.replace(/\/?$/,'/');
+  return normalizeNpmRegistry(value);
  }catch{throw Error('RIGUP_NPM_REGISTRY must use HTTPS or loopback HTTP and omit credentials, query, and fragment');}
+}
+
+export async function operationNpmRegistry(root:string,name:string,signal?:AbortSignal):Promise<string>{
+ return effectiveNpmRegistry(root,name,await selectedNpmRegistry(root),signal);
 }
 
 export function writeRuntimeSummary(summary:RuntimeSetupSummary,write:(text:string)=>void):void{

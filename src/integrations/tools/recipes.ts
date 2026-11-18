@@ -5,8 +5,7 @@ import {lstatSync,readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {signature} from '../../generator/cache.js';
 import type {SetupOperation} from '../../types.js';
-import {validateProviderBaseURL} from '../../analyzer/provider-url.js';
-import {defaultNpmRegistry,isStableNpmVersion,type NpmPackageIdentity} from './npm-resolution.js';
+import {defaultNpmRegistry,isStableNpmVersion,normalizeNpmRegistry,npmRegistryFlags,type NpmPackageIdentity} from './npm-resolution.js';
 import {normalizeNpmIntegrity} from '../../npm-integrity.mjs';
 import {openspecPackage} from '../sdd/openspec.js';
 
@@ -33,8 +32,9 @@ export function toolPackage(id:SoftwareTool) {
 
 export function softwareInstallRecipe(root:string,id:SoftwareTool,version:string,integrity?:string,prefix=toolPackage(id).prefix,registry?:string,enginesNode?:string):SetupOperation {
  const {name}=toolPackage(id);
- if(registry!==undefined&&validateProviderBaseURL(registry).href.replace(/\/?$/,'/')!==registry)throw Error('Operation registry must use its normalized credential-free identity');
- return {id:'install:'+id,integrationId:id,kind:'install',...(registry?{registry}:{}),parameters:{executable:'npm',args:['install','--prefix',resolve(root,prefix),'--cache',resolve(root,prefix,'.npm-cache'),'--ignore-scripts','--save-exact','--no-audit','--no-fund','--userconfig',resolve(root,prefix,'.npmrc.user'),'--globalconfig',resolve(root,prefix,'.npmrc.global'),'--registry',registry??defaultNpmRegistry,name+'@'+version],cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],version,timeoutMs:300000,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity,enginesNode}};
+ if(registry!==undefined&&normalizeNpmRegistry(registry)!==registry)throw Error('Operation registry must use its normalized credential-free identity');
+ const args=['install','--prefix',resolve(root,prefix),'--ignore-scripts','--save-exact','--no-audit','--no-fund',...npmRegistryFlags(name,registry??defaultNpmRegistry),name+'@'+version];
+ return {id:'install:'+id,integrationId:id,kind:'install',...(registry?{registry}:{}),parameters:{executable:'npm',args,cwd:'.',envRefs:[]},prerequisiteIds:[],declaredWrites:[prefix],version,timeoutMs:300000,protection:{kind:'new-empty-scope',target:prefix},query:{kind:'npm-package',packageJson:prefix+'/node_modules/'+name+'/package.json',packageLock:prefix+'/package-lock.json',name,version,integrity,enginesNode}};
 }
 
 export function nativeInitializationPaths(id:NativeTool){
@@ -88,6 +88,12 @@ export function verifiedToolOperationForResume(root:string,operation:SetupOperat
  const expected=expectedToolOperation(root,operation,prerequisites);
  const actual=signature(operation);
  if(signature(expected)===actual)return expected;
+ if(expected.kind==='install'){
+  const prefix=resolve(root,expected.protection.target);
+  const args=['install','--prefix',prefix,'--cache',resolve(prefix,'.npm-cache'),'--ignore-scripts','--save-exact','--no-audit','--no-fund',
+   '--userconfig',resolve(prefix,'.npmrc.user'),'--globalconfig',resolve(prefix,'.npmrc.global'),'--registry',expected.registry??defaultNpmRegistry,expected.query.name+'@'+expected.version];
+  if(signature({...expected,parameters:{...expected.parameters,args}})===actual)return expected;
+ }
  const digest=operation.parameters?.args?.[8];
  const legacy=v024WorkerDigests.has(digest)&&expected.version===(operation.integrationId==='openwiki'?'0.7.3':'1.6.2');
  if(expected.kind==='initialize'&&(digest===expected.parameters.args[8]||legacy)){

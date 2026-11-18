@@ -20,7 +20,7 @@ import {acquireLock,defaultStateRoot} from '../installer/lock.js';
 import {absentDigest,approvalInputChange,LegacyPreviewError,loadPreview,readTarget,type Preview,type PreviewData} from '../installer/preview.js';
 import {defaultNpmRegistry,type NpmView} from '../integrations/tools/npm-resolution.js';
 import {inspectOpenSpecForSetup,interruptedOpenSpecPreparation,type OpenSpecRuntimeIdentity} from '../integrations/sdd/openspec-setup.js';
-import {selectedNpmRegistry} from '../runtime-inputs.js';
+import {operationNpmRegistry} from '../runtime-inputs.js';
 import {platformFileMode,readFileState,readFileStates,matchesFileState} from '../installer/file-state.js';
 import {equalOwnedContent,ownedContent} from '../installer/ownership.js';
 import {executeLifecycle} from '../lifecycle.js';
@@ -64,8 +64,7 @@ async function previewStillCurrent(root:string,data:PreviewData,stateRoot:string
  const installs=data.plan.operations.filter(operation=>operation.kind==='install');
  if(installs.length){
   try{
-   const registry=await selectedNpmRegistry(root)??defaultNpmRegistry;
-   if(installs.some(operation=>(operation.registry??defaultNpmRegistry)!==registry))return false;
+   for(const operation of installs)if((operation.registry??defaultNpmRegistry)!==await operationNpmRegistry(root,operation.query.name))return false;
   }catch{return false;}
  }
  const current=await readTarget(root,'.rigup/manifest.json');

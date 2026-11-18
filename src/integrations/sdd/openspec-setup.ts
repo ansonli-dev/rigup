@@ -1,5 +1,5 @@
 import {globalNpmInstallOperation,managedGlobalNpmProblem,runGlobalNpmInstall,type GlobalNpmApproval} from '../tools/global-npm.js';
-import {packageDirectory,exists,consumerPath,findProgram,commandEnvironment,command,npmPrefix,userNode,programIdentity,prefixIdentity,type Program as GlobalProgram} from '../tools/global-npm-runtime.js';
+import {packageDirectory,exists,consumerPath,findProgram,commandEnvironment,command,globalNpmOutput,npmPrefix,userNode,programIdentity,prefixIdentity,type Program as GlobalProgram} from '../tools/global-npm-runtime.js';
 import {lstat,mkdir,mkdtemp,readdir,readFile,realpath,rm} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {homedir} from 'node:os';
@@ -17,7 +17,7 @@ import {saveDurable} from '../../private-record.js';
 import {withinPath as within} from '../../npm-command.mjs';
 import type {Agent,SetupOptions} from '../../types.js';
 import {agents} from '../agents/index.js';
-import {assertNpmNode,boundedCommandOutput,defaultNpmRegistry,isStableNpmVersion,resolveNpmLatest,resolveProjectNpm,type NpmView,type ResolvedNpmPackage} from '../tools/npm-resolution.js';
+import {assertNpmNode,isStableNpmVersion,resolveNpmLatest,resolveProjectNpm,type NpmView,type ResolvedNpmPackage} from '../tools/npm-resolution.js';
 import {startProcess} from '../tools/windows-process.mjs';
 import {resolveSddBinding,unqualifiedSkillName} from './binding.js';
 import {openspecInitArgs,openspecPackage,openspecPreparationCommand,type OpenSpecInstallScope} from './openspec.js';
@@ -27,7 +27,7 @@ import {toolPackage} from '../tools/recipes.js';
 
 const windows=process.platform==='win32';
 type Program=GlobalProgram&{source?:'project'};
-type OpenSpecInspectionSettings={scope?:OpenSpecInstallScope;stateRoot?:string};
+type OpenSpecInspectionSettings={scope?:OpenSpecInstallScope;stateRoot?:string;expectedLauncher?:string;legacyRuntime?:boolean};
 const projectPrefix=toolPackage('openspec').prefix;
 type OpenSpecOptions=Pick<SetupOptions,'agents'|'backend'>;
 const hostScopes=(agent:Agent)=>[agents[agent].skillDirectory,agents[agent].skillDirectory.replace(/\/skills$/,'/commands')];
@@ -61,9 +61,11 @@ async function listOpenSpec(program:Program,root:string,path:string[],signal?:Ab
  return JSON.parse(result?.stdout??'');
 }
 
-export interface OpenSpecRuntimeIdentity { cliIdentity:string; rootIdentity:string; scope:OpenSpecInstallScope }
+export type OpenSpecRuntimeIdentity={scope:OpenSpecInstallScope}&(
+ {launcher:string;version:string;rootReceipt:string}|{cliIdentity:string;rootIdentity:string}
+);
 
-async function rootIdentity(path:string,source:string,project:string){
+async function rootReceipt(path:string,source:string,project:string,legacy?:boolean){
  const canonical=await realpath(path);
  const identity=await lstat(canonical,{bigint:true});
  if(!identity.isDirectory())throw Error('OpenSpec root is not a directory');
@@ -75,12 +77,12 @@ async function rootIdentity(path:string,source:string,project:string){
   if(!data.isFile()||data.size>256_000)throw Error('OpenSpec config cannot be verified');
   configs.push({name,sha256:createHash('sha256').update(await readFile(config)).digest('hex')});
  }
- return signature({canonical,source,device:String(identity.dev),inode:String(identity.ino),configs});
+ return legacy?signature({canonical,source,device:String(identity.dev),inode:String(identity.ino),configs}):signature({canonical,source,configs});
 }
 
 export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal?:AbortSignal,expectedCliIdentity?:string,settings:OpenSpecInspectionSettings={}){
  root=await realpath(root);
- const {scope='global',stateRoot}=settings;
+ const {scope='global',stateRoot,expectedLauncher,legacyRuntime}=settings;
  const path=await consumerPath(root);
  const [profile,project,external]=await Promise.all([
   scanNativeEntries(root,{agents:options.agents,backend:options.backend,sdd:'openspec',scope:options.agents.flatMap(hostScopes)}),
@@ -93,6 +95,8 @@ export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal
  const externalProblem=!project&&external?await managedGlobalNpmProblem('openspec',external.launcher??external.file,stateRoot):undefined;
  if(externalProblem)problems.push(externalProblem);
  const cli:Program|undefined=project?('file' in project?project:undefined):externalProblem?undefined:external??undefined;
+ const launcher=cli?.source==='project'?cli.args?.[0]:cli?.launcher??cli?.file;
+ if(expectedLauncher&&launcher!==expectedLauncher)throw Error('OpenSpec CLI changed after approval; prepare it again');
  for(const agent of options.agents){
   try{resolveSddBinding('openspec',agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);}
   catch(error){
@@ -117,7 +121,7 @@ export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal
     if(list.root===null&&(!list.status?.length||list.status.some((status:{code:string})=>['no_openspec_root','no_root_with_registered_stores'].includes(status.code))))needsRoot=true;
     else if(typeof list.root?.path==='string'&&isAbsolute(list.root.path)&&
             (list.root.source==='declared'||await realpath(list.root.path).catch(()=>undefined)===root)){
-      verifiedRoot=await rootIdentity(list.root.path,list.root.source,root);needsRoot=false;
+      verifiedRoot=await rootReceipt(list.root.path,list.root.source,root,legacyRuntime);needsRoot=false;
     }
     else if((list.root?.source==='nearest'||list.root?.source==='global_default')&&needsRoot)needsRoot=true;
     else problems.push('OpenSpec project root could not be verified');
@@ -153,19 +157,23 @@ export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal
   ]:[]),
   ...((!cli||needsProject)&&!problems.length?[openspecPreparationCommand(root,options.agents,scope)]:[])
  ];
- const runtime:OpenSpecRuntimeIdentity|undefined=!requirements.length&&cliIdentity&&verifiedRoot?{cliIdentity,rootIdentity:verifiedRoot,scope:cli?.source==='project'?'project':'global'}:undefined;
+ const runtimeScope=cli?.source==='project'?'project':'global';
+ const runtime:OpenSpecRuntimeIdentity|undefined=!requirements.length&&cliIdentity&&verifiedRoot&&launcher&&cliVersion
+  ?legacyRuntime?{cliIdentity,rootIdentity:verifiedRoot,scope:runtimeScope}:{launcher,version:cliVersion,rootReceipt:verifiedRoot,scope:runtimeScope}:undefined;
  return {root,cli,cliVersion,cliIdentity,npm,node,prefix,path,needsProject,needsRoot,needsEntries,requirements,canPrepare,steps,profile,scope,stateRoot,projectAvailable,globalAvailable:installAvailable,runtime};
 }
 export async function assertOpenSpecRuntime(root:string,options:OpenSpecOptions,approved:OpenSpecRuntimeIdentity,stateRoot?:string){
  const state=await readOpenSpecPreparation(root,stateRoot);
  if(state&&!state.complete)throw Error('Resume the original OpenSpec preparation before applying');
- const setup=await inspectOpenSpec(root,options,undefined,approved.cliIdentity,{scope:approved.scope,stateRoot});
+ const legacyRuntime='cliIdentity' in approved;
+ const setup=await inspectOpenSpec(root,options,undefined,legacyRuntime?approved.cliIdentity:undefined,
+  {scope:approved.scope,stateRoot,legacyRuntime,expectedLauncher:legacyRuntime?undefined:approved.launcher});
  if(!setup.runtime||signature(setup.runtime)!==signature(approved))throw Error('OpenSpec CLI or native root changed after approval; review again');
 }
 
 export type OpenSpecInspection=Awaited<ReturnType<typeof inspectOpenSpec>>;
 type OpenSpecScope={root:string;agents:Agent[];needsRoot:boolean;needsEntries:Agent[]};
-export type OpenSpecPreparation=OpenSpecScope&({kind:'existing';scope:OpenSpecInstallScope;cliIdentity:string;cliVersion:string}|{kind:'install';prefix:string;prefixIdentity:string;npmIdentity:string;install:ResolvedNpmPackage}|{kind:'project-install';prefix:string;install:ResolvedNpmPackage});
+export type OpenSpecPreparation=OpenSpecScope&({kind:'existing';scope:OpenSpecInstallScope;cliIdentity:string;cliVersion:string}|{kind:'install';prefix:string;prefixIdentity?:string;npmIdentity?:string;install:ResolvedNpmPackage}|{kind:'project-install';prefix:string;install:ResolvedNpmPackage});
 export const preparationScope=(approval:OpenSpecPreparation):OpenSpecInstallScope=>
  approval.kind==='existing'?approval.scope:approval.kind==='install'?'global':'project';
 
@@ -202,11 +210,10 @@ export async function planOpenSpecPreparation(root:string,options:OpenSpecOption
  if(!setup.npm||!setup.node||!setup.prefix)return {inspection:setup};
  try{
   const npm=setup.npm;
-  const approvedPrefix=await prefixIdentity(setup.prefix),npmIdentity=await programIdentity(npm,setup.root,setup.path);
   const install=await resolveNpmLatest(openspecPackage,{root:setup.root,stateRoot:input.stateRoot??defaultStateRoot(),
    signal:input.signal,registry:await selectedNpmRegistry(setup.root),nodeVersion:setup.node.version,
-   view:input.view??((args,cwd,signal)=>boundedCommandOutput({executable:npm.file,args:[...(npm.args??[]),...args],env:commandEnvironment(setup.path)},cwd,signal))});
-  return {inspection:setup,approval:{...scope,kind:'install',prefix:setup.prefix,prefixIdentity:approvedPrefix,npmIdentity,install}};
+   view:input.view,npm:globalNpmOutput(npm,setup.path)});
+  return {inspection:setup,approval:{...scope,kind:'install',prefix:setup.prefix,install}};
  }catch(error){
   input.signal?.throwIfAborted();
   return {inspection:{...setup,requirements:[...setup.requirements,(error as Error).message],canPrepare:false}};
@@ -225,8 +232,8 @@ const scopeCovered=(prior:Pick<OpenSpecScope,'needsRoot'|'needsEntries'>,setup:O
 
 async function approvedNpm(setup:OpenSpecInspection,approval:InstallApproval){
  if(!setup.npm||!setup.node||!setup.canPrepare||setup.prefix!==approval.prefix||
-  await prefixIdentity(setup.prefix)!==approval.prefixIdentity||
-  await programIdentity(setup.npm,setup.root,setup.path)!==approval.npmIdentity)
+  approval.prefixIdentity&&await prefixIdentity(setup.prefix)!==approval.prefixIdentity||
+  approval.npmIdentity&&await programIdentity(setup.npm,setup.root,setup.path)!==approval.npmIdentity)
   throw Error('OpenSpec installation scope or npm launcher changed after approval; prepare it again');
  assertNpmNode(openspecPackage,approval.install.version,approval.install.enginesNode,setup.node.version);
  return setup.npm;
@@ -243,9 +250,12 @@ async function installOpenSpec(root:string,options:OpenSpecOptions,approval:Inst
   catch{throw Error('OpenSpec installation scope or npm launcher changed after approval; prepare it again');}
  }});
  if(outcome.status!=='done')throw Error(outcome.message);
- const installed=await inspectOpenSpec(root,options,signal,outcome.globalReceipt!.launcherIdentity,{scope:'global',stateRoot});
+ const installed=await inspectOpenSpec(root,options,signal,outcome.globalReceipt?.launcherIdentity,
+  {scope:'global',stateRoot,expectedLauncher:outcome.globalReceipt?.launcher});
  const {version,registry,packageIntegrity}=approval.install;
- if(installed.cliVersion!==version)throw Error('Installed OpenSpec CLI does not report the approved version');
+ const launcher=installed.cli?.launcher??installed.cli?.file;
+ if(installed.cliVersion!==version||outcome.globalReceipt?.launcher&&launcher!==outcome.globalReceipt.launcher)
+  throw Error('Installed OpenSpec CLI does not match the approved launcher and version');
  try{
   await saveDurable(join(stateRoot,'openspec-'+signature({prefix:approval.prefix,name:openspecPackage})+'.json'),
    JSON.stringify({name:openspecPackage,prefix:approval.prefix,version,packageIntegrity,registry}));
@@ -299,7 +309,7 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   if(prior&&!prior.complete&&(!recover||prior.approvalDigest!==approvalDigest))
    throw Error('Resume the original OpenSpec preparation with --prepare-openspec --resume');
   const record:OpenSpecPreparationRecord=prior&&!prior.complete?prior:
-   {version:1,root,approval,approvalDigest,complete:false,projectReceipt:prior?.projectReceipt,projectPayloadDigest:prior?.projectPayloadDigest};
+   {version:1,root,approval,approvalDigest,complete:false,projectReceipt:prior?.projectReceipt};
   const scope=preparationScope(approval);
   const inspect=(identity?:string)=>inspectOpenSpec(root,options,signal,identity,{scope,stateRoot:lock.stateRoot});
   const finish=async(setup:OpenSpecInspection)=>{
@@ -311,7 +321,7 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   if(approval.kind==='existing'&&setup.cliVersion!==approval.cliVersion)throw Error('OpenSpec CLI changed after approval; prepare it again');
   if(!scopeCovered(approval,setup))throw Error('OpenSpec preparation scope changed after approval; prepare it again');
   if(!setup.requirements.length&&!(prior&&!prior.complete&&approval.kind!=='existing'&&!record.installedCliIdentity))
-   return prior&&!prior.complete?finish(setup):setup;
+   return prior&&!prior.complete?await finish(setup):setup;
   if(!setup.canPrepare&&!(recover&&prior&&!prior.complete&&approval.kind!=='existing'&&!record.installedCliIdentity))
    throw Error('OpenSpec preparation scope changed after approval; prepare it again');
   if(approval.kind!=='existing')await saveOpenSpecPreparation(record,lock.stateRoot);
@@ -337,7 +347,7 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
    record.installedCliIdentity=setup.cliIdentity;
    await saveOpenSpecPreparation(record,lock.stateRoot);
   }
-  if(!setup.requirements.length)return finish(setup);
+  if(!setup.requirements.length)return await finish(setup);
   if(!setup.cli||!setup.cliIdentity||!setup.canPrepare||!scopeCovered(approval,setup))throw Error('OpenSpec preparation scope changed after approval; prepare it again');
   const {cli,cliIdentity}=setup;
   stage??=await mkdtemp(join(lock.stateRoot,'openspec-'));
@@ -355,7 +365,7 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   }
   const current=await inspect(cliIdentity);
   if(!current.canPrepare||!scopeCovered(setup,current)||current.cliVersion!==setup.cliVersion)throw Error('OpenSpec preparation scope changed after approval; prepare it again');
-  if(!current.requirements.length)return finish(current);
+  if(!current.requirements.length)return await finish(current);
   const files=await publishableNativeFiles(root,staged,setup.needsEntries,current,options);
   await assertCliIdentity(cli,root,current.path,cliIdentity,lock.stateRoot);
   await saveOpenSpecPreparation(record,lock.stateRoot);
@@ -364,7 +374,7 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
    signal?.throwIfAborted();
    await atomicProjectWrite(root,target,bytes,0o644,true);
   }
-  return finish(await inspect(cliIdentity));
+  return await finish(await inspect(cliIdentity));
  }finally{
   try{if(stage)await rm(stage,{recursive:true,force:true});}finally{await lock.release();}
  }

@@ -34,7 +34,7 @@ import type {SetupPlan} from '../src/types.js';
 async function globalFixture(t:Parameters<typeof testEnvironment>[0],run:(fixture:{root:string;prefix:string;stateRoot:string;cacheRoot:string;registry:Parameters<Parameters<typeof npmRegistry>[0]>[0]})=>Promise<void>){
  await project(control=>npmRegistry(async registry=>{
   const root=join(control,'project'),prefix=join(control,'prefix'),stateRoot=join(control,'state'),cacheRoot=join(control,'cache');
-  await mkdir(root);await mkdir(globalBin(prefix),{recursive:true});
+  await mkdir(root);await mkdir(stateRoot,{mode:0o700});await mkdir(globalBin(prefix),{recursive:true});
   await registry.publish('openwiki','0.9.0',{bin:{openwiki:'cli.js'}},{'cli.js':'#!/usr/bin/env node\nconsole.log("0.9.0");\n'});
   await registry.publish('@colbymchenry/codegraph','1.6.2',{bin:{codegraph:'cli.js'}},{'cli.js':'#!/usr/bin/env node\nconsole.log("1.6.2");\n'});
   let runtimeBin=dirname(process.execPath);
@@ -43,7 +43,7 @@ async function globalFixture(t:Parameters<typeof testEnvironment>[0],run:(fixtur
    await symlink(process.execPath,join(runtimeBin,'node'));
    await symlink(await realpath(join(dirname(process.execPath),'npm')),join(runtimeBin,'npm'));
   }
-  testEnvironment(t,{npm_config_prefix:prefix,RIGUP_CONSUMER_PATH:[globalBin(prefix),runtimeBin].join(delimiter),RIGUP_NPM_REGISTRY:registry.url});
+  testEnvironment(t,{npm_config_prefix:prefix,npm_config_cache:join(control,'npm-cache'),RIGUP_CONSUMER_PATH:[globalBin(prefix),runtimeBin].join(delimiter),RIGUP_NPM_REGISTRY:registry.url});
   await run({root,prefix,stateRoot,cacheRoot,registry});
  }));
 }
@@ -70,6 +70,22 @@ test('before-manifest failure reports completed global installation and resumes 
  const count=registry.requests.length;
  assert.equal((await apply(prepared.previewId,{stateRoot,cacheRoot,recover:true})).status,'complete');
  assert.equal(registry.requests.length,count);
+}));
+
+test('global resume reuses the verified archive after an interruption before installation',t=>globalFixture(t,async({root,prefix,stateRoot,registry})=>{
+ const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
+ const operation=globalNpmInstallOperation(approval);
+ const inputs={stateRoot,authorizationRef:'original'};
+ await assert.rejects(runGlobalNpmInstall(operation,{...inputs,beforeInstall:async()=>{throw Error('interrupted after pack');}}),/interrupted after pack/);
+ const stage=(await readdir(stateRoot)).find(name=>/^global-npm-[a-f0-9-]{36}$/.test(name));
+ assert.ok(stage,'verified archive should remain in the owned stage');
+ assert.ok((await readdir(join(stateRoot,stage))).includes('openwiki-0.9.0.tgz'));
+ await assert.rejects(access(globalLauncher(prefix,'openwiki')),{code:'ENOENT'});
+ const requests=registry.requests.length;
+ registry.responseStatus=503;
+ assert.equal((await runGlobalNpmInstall(operation,{...inputs,recover:true})).status,'done');
+ assert.equal(registry.requests.length,requests);
+ await assert.rejects(access(join(stateRoot,stage)),{code:'ENOENT'});
 }));
 
 for(const change of ['registry','prefix','npm','tarball'] as const)test('global apply rejects changed '+change+' before prefix writes',t=>globalFixture(t,async({root,prefix,stateRoot,registry})=>{
@@ -220,6 +236,49 @@ test('killing the controller leaves its npm process group blocking a second proj
  }
 }));
 
+test('a detached npm success can publish a global receipt after the controller is killed', {skip:process.platform==='win32'},t=>globalFixture(t,async({root,prefix,stateRoot,registry})=>{
+ await registry.publish('rigup-fixture-dependency','1.0.0',{}, {'index.js':'module.exports = 42;\n'});
+ await registry.publish('openwiki','0.9.0',{bin:{openwiki:'cli.js'},dependencies:{'rigup-fixture-dependency':'1.0.0'}},
+  {'cli.js':'#!/usr/bin/env node\nconsole.log(require("rigup-fixture-dependency"));\n'});
+ const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
+ const inputs={stateRoot,authorizationRef:'original'};
+ const module=pathToFileURL(resolve('src/integrations/tools/global-npm.ts')).href;
+ const source='import {globalNpmInstallOperation,runGlobalNpmInstall} from '+JSON.stringify(module)+
+  '; await runGlobalNpmInstall(globalNpmInstallOperation('+JSON.stringify(approval)+'),'+JSON.stringify(inputs)+');';
+ let release!:()=>void,requested!:()=>void;
+ const gate=new Promise<void>(done=>{release=done;});
+ const installing=new Promise<void>(done=>{requested=done;});
+ registry.onRequest=()=>{
+  if(!registry.requests.at(-1)?.path.endsWith('/rigup-fixture-dependency/-/1.0.0.tgz'))return;
+  registry.tarballGate=gate;requested();
+ };
+ const child=spawn(process.execPath,['--import','tsx','--input-type=module','-e',source],{stdio:['ignore','ignore','pipe']});
+ let error='';child.stderr.on('data',data=>error+=data);
+ const exited=new Promise<void>(done=>child.once('exit',()=>done()));
+ const {setTimeout:delay}=await import('node:timers/promises');
+ try{
+  await Promise.race([installing,exited.then(()=>{throw Error('Controller exited early: '+error);}),
+   delay(20_000,undefined,{ref:false}).then(()=>{throw Error('npm did not reach its dependency: '+error);})]);
+  const journal=JSON.parse(await readFile(join(stateRoot,'global-npm-'+signature({prefix})+'.operations.json'),'utf8'));
+  const {identity,scratch}=journal.records[0];
+  assert.ok(identity.pid);
+  child.kill('SIGKILL');await exited;
+  await assert.rejects(runGlobalNpmInstall(globalNpmInstallOperation(approval),{...inputs,recover:true}),/process still active/);
+  release();
+  const {writerAlive}=await import('../src/installer/operations.js');
+  for(let attempt=0;attempt<150&&await writerAlive(identity);attempt++)await delay(100);
+  assert.equal(await writerAlive(identity),false);
+  const stage=join(stateRoot,'global-npm-'+scratch.token);
+  assert.equal(JSON.parse(await readFile(join(stage,'installed.json'),'utf8')).code,0);
+  const requests=registry.requests.length;
+  registry.responseStatus=503;
+  assert.equal((await runGlobalNpmInstall(globalNpmInstallOperation(approval),{...inputs,recover:true})).status,'done');
+  assert.equal(registry.requests.length,requests);
+  await access(globalLauncher(prefix,'openwiki'));
+  await assert.rejects(access(stage),{code:'ENOENT'});
+ }finally{release();child.kill('SIGKILL');await exited;}
+}));
+
 test('global CodeGraph refuses a launcher whose required platform payload was not installed',t=>globalFixture(t,async({root,stateRoot,registry})=>{
  await registry.publish('@colbymchenry/codegraph','1.6.2',{bin:{codegraph:'cli.js'},optionalDependencies:{['@colbymchenry/codegraph-'+process.platform+'-'+process.arch]:'1.6.2'}},{'cli.js':'#!/usr/bin/env node\nconsole.log("shim");\n'});
  const approval=await planGlobalNpmInstall(root,'codegraph',{stateRoot});
@@ -316,13 +375,13 @@ test('global apply refuses an earlier PATH launcher without running it',t=>globa
  await access(globalLauncher(prefix,'openwiki'));
 }));
 
-test('source drift before global replay preserves the saved completion and recovery command',t=>globalFixture(t,async({root,stateRoot,cacheRoot,registry})=>{
- await writeFile(join(root,'README.md'),'Original project source\n');
+test('configuration drift before global replay preserves the saved completion and recovery command',t=>globalFixture(t,async({root,stateRoot,cacheRoot,registry})=>{
  const approval=await planGlobalNpmInstall(root,'openwiki',{stateRoot});
  const prepared=await preview(await emptyPlan(root,[globalNpmInstallOperation(approval)]),[],{cacheRoot,stateRoot});
  const interrupted=await apply(prepared.previewId,{stateRoot,cacheRoot,hook:async point=>{if(point==='after-operation')throw Error('controller interrupted');}});
  assert.equal(interrupted.status,'failed');assert.equal(interrupted.operations[0].status,'done');
- await writeFile(join(root,'README.md'),'Changed project source\n');
+ await mkdir(join(root,'.rigup'),{recursive:true});
+ await writeFile(join(root,'.rigup/config.yaml'),'projectRules: false\n');
  const requests=registry.requests.length;
  const resumed=await apply(prepared.previewId,{stateRoot,cacheRoot,recover:true});
  assert.equal(resumed.status,'failed');assert.equal(resumed.operations[0].status,'done');assert.match(resumed.nextCommand??'',/--resume/);
