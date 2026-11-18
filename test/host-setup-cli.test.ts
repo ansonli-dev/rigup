@@ -351,7 +351,10 @@ test('OMP leaves a rejected registry target blocked across runs and retries afte
  assert.equal(finalPreparation(reports).blockers[0]?.code,'omp-not-recognized-after-install');
  const retry=cli(root,home);
  const {commands,requests,service}=await fakeOmpRegistry(retry.io,home);
- assert.equal(await runCli(args(root,'omp'),retry.io),3);
+ assert.equal(await runCli([...args(root,'omp'),'--language','zh-CN'],retry.io),3);
+ assert.match(retry.output.join(''),/未通过核验的 OMP 注册表安装/);
+ assert.doesNotMatch(retry.output.join(''),/Remove the unverified OMP registry install/);
+ assert.equal(finalPreparation(retry.reports).blockers[0]?.reason,'Remove the unverified OMP registry install before retrying Rigup.');
  assert.equal(beforeInstall.length,1);
  assert.deepEqual(await markers(),beforeInstall);
  assert.equal(finalPreparation(retry.reports).hosts[0].status,'manual');
@@ -713,7 +716,9 @@ test('mixed native preparation finishes only the approved eligible host, leaving
  await fakeClaude(io,root,home,steps);
  assert.equal(await runCli(args(root,'codex,claude'),io),3);
  assert.deepEqual(steps,['marketplace','install']);
- assert.match(output.join(''),/^Codex: .*manual setup/m);
+ const transcript=output.join('');
+ assert.equal(transcript.match(/^Codex: missing native entry: superpowers:brainstorming$/gm)?.length,1,transcript);
+ assert.match(transcript,/^Next: Open \/plugins/m);
 })));
 
 test('OMP approves latest once, tolerates registrations and config overlays, and reuses the recognized link',()=>project(root=>project(async home=>{
@@ -789,6 +794,7 @@ test('native outcome summary offers detailed uninstall advice for the step that 
 
 test('native outcome summary reads the safe stderr field and keeps child and blocker codes',async()=>{
  const {nativeFailureText}=await import('../src/integrations/host-setup/index.js');
+ const {withLocale}=await import('../src/i18n/index.js');
  const reason='The omp link command failed.';
  const blocker={host:'omp' as const,code:'install-command-failed',reason,evidence:[],suggest:[],agent_can_draft:true};
  const item={host:'omp' as const,step:'link' as const,status:'stopped' as const,message:reason,code:19,blocker};
@@ -800,6 +806,16 @@ test('native outcome summary reads the safe stderr field and keeps child and blo
  assert.match(generic,/Terminal reported an unknown error\..*See the host logs\./);
  assert.doesNotMatch(generic,/\n/);
  assert.match(nativeFailureText(blocker,item),/The omp link command failed\./);
+ const chinese=withLocale('zh-CN',()=>nativeFailureText(blocker,{...item,stderrSummary:'EPERM: permission denied while creating a symbolic link.'}));
+ assert.match(chinese,/EPERM.*符号链接/);
+ assert.match(chinese,/退出码 19/);
+ assert.doesNotMatch(chinese,/creating a symbolic link/);
+ const missing=withLocale('zh-CN',()=>nativeFailureText(blocker,{...item,stderrSummary:'ENOENT: A required file or executable was missing.'}));
+ assert.match(missing,/ENOENT.*文件.*命令|ENOENT.*文件.*可执行/);
+ assert.doesNotMatch(missing,/A required file or executable/);
+ const auth=withLocale('zh-CN',()=>nativeFailureText(blocker,{...item,stderrSummary:'Git authentication failed.'}));
+ assert.match(auth,/Git.*失败/);
+ assert.doesNotMatch(auth,/Git authentication failed/);
 });
 
 test('OMP approval keeps an integrity failure out of both the store and link',()=>project(root=>project(async home=>{
@@ -1063,10 +1079,11 @@ test('native blocker advice is localized and the machine report is independent o
  const terse=output.join('');
  assert.equal(await invoke('zh-CN',true),english);
  assert.deepEqual(JSON.parse(english).nativePreparation.blockers.map((blocker:{code:string})=>blocker.code),['cli-not-runnable']);
- assert.match(terse,/OMP.*cli-not-runnable/);
- assert.equal((terse.match(/这是 Rigup 生成的阻塞报告/g)??[]).length,1);
- assert.doesNotMatch(terse,/证据：/);
- assert.match(output.join(''),/证据：/);
+ assert.match(terse,/OMP.*在 PATH 中找不到 omp.*cli-not-runnable/);
+ assert.equal((terse.match(/Rigup 找到了需要先解决的问题/g)??[]).length,1);
+ assert.doesNotMatch(terse,/相关文件和链接：|omp was not found on PATH/);
+ assert.match(output.join(''),/相关文件和链接：/);
+ assert.match(output.join(''),/请核实相关文件和链接并起草修复命令/);
  for(const outputIsTTY of [true,false]){
   output.length=0;
   assert.equal(await runCli([...args(root,'omp'),'--review','--verbose'],{...io,outputIsTTY}),0);

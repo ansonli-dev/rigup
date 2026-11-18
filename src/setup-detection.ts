@@ -1,4 +1,5 @@
 import {t} from './i18n/index.js';
+import {makeReason,reasonFromError,renderReason} from './i18n/reasons.js';
 import {scanNativeEntries} from './analyzer/repository.js';
 import {agents,projectCommandRoots} from './integrations/agents/index.js';
 import {resolveSddBinding,sddDiscoveryNames,unqualifiedSkillName} from './integrations/sdd/binding.js';
@@ -46,14 +47,14 @@ export async function detectSdd(root:string,options:SetupOptions,write:(text:str
    try{
     resolveSddBinding(sdd,agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);
     return [];
-   }catch(error){return [agent+': '+(error as Error).message];}
+   }catch(error){return [makeReason('reason.identified',{id:agent,reason:reasonFromError(error)})];}
   });
   return {sdd,hasProject,hasSources:sources.length>0,missing};
  }));
  const project=candidates.filter(candidate=>candidate.hasProject);
  const available=candidates.filter(candidate=>!candidate.missing.length);
  for(const candidate of candidates.filter(item=>item.hasProject||item.hasSources&&item.missing.length)){
-  write(t(candidate.hasProject?'cli.detectedSddProject':'cli.detectedSddSources',{sdd:candidate.sdd})+(candidate.missing.length?' · '+candidate.missing[0]:'')+'\n');
+  write(t(candidate.hasProject?'cli.detectedSddProject':'cli.detectedSddSources',{sdd:candidate.sdd})+(candidate.missing.length?' · '+renderReason(candidate.missing[0]):'')+'\n');
  }
  if(project.length===1)return project[0].sdd;
  if(!project.length&&available.length===1){

@@ -13,7 +13,8 @@ import {sddDiscoveryNames,unqualifiedSkillName,type SkillSource} from '../integr
 import {ompLocations} from '../integrations/host-setup/omp-locations.js';
 import {unverifiedOmpInstall} from '../integrations/host-setup/writer-state.js';
 import {claudeManagedRoot,claudePlugin,ompPackage} from '../integrations/host-setup/manual.js';
-export interface NativeDiagnostic {agent:Agent;code:'omp-claude-provider-filtered'|'omp-plugin-unlinked'|'omp-registry-unverified'|'plugin-skipped'|'native-conflict';subject:string;detail:string;evidence?:string[]}
+import {makeReason,reasonDetail,reasonFallback,type ReasonInput,type WithReasonDetail} from '../i18n/reasons.js';
+export interface NativeDiagnostic extends WithReasonDetail {agent:Agent;code:'omp-claude-provider-filtered'|'omp-plugin-unlinked'|'omp-registry-unverified'|'plugin-skipped'|'native-conflict';subject:string;detail:string;evidence?:string[]}
 export interface OpenCodePluginObservation {target:string;id:string;skills:readonly string[]}
 export interface NativeDiscoveryOptions {home?:string;ompWriterRoot?:string;verifyingOmpTarget?:string;env?:Record<string,string|undefined>;openCodePlugins?:readonly OpenCodePluginObservation[];managedProjectPaths?:string[];onWarning?:(message:string)=>void;onDiagnostic?:(diagnostic:NativeDiagnostic)=>void}
 export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean;disabled?:boolean}|undefined {
@@ -80,8 +81,10 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
   const visited=new Set<string>();
   const inlineBodies=new Map<string,string>();
   const commandSources=new Set<string>();
-  const diag=(code:NativeDiagnostic['code'],subject:string,detail:string,evidence?:string[])=>{
-   if(options.sdd==='superpowers'&&(agent==='claude'||agent==='omp'))dependencies.onDiagnostic?.({agent,code,subject,detail,...(evidence?{evidence}:{})});
+  const diag=(code:NativeDiagnostic['code'],subject:string,reason:ReasonInput,evidence?:string[])=>{
+   if(options.sdd==='superpowers'&&(agent==='claude'||agent==='omp'))dependencies.onDiagnostic?.({
+    agent,code,subject,detail:reasonFallback(reason),...(typeof reason==='string'?{}:{[reasonDetail]:reason}),...(evidence?{evidence}:{}),
+   });
   };
   const repair='Repair the enabled installation before retrying';
   const superpowersId=(id:string)=>/^superpowers@[\w.-]{1,160}$/.test(id);
@@ -89,7 +92,9 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    dependencies.onWarning?.('Native plugin '+(/^[\w.@/-]{1,200}$/.test(id)?id:'invalid identifier')+' skipped: '+((error as NodeJS.ErrnoException)?.code==='ENOENT'?'manifest missing':'invalid or unavailable metadata; repair the enabled installation'));
    if(superpowersId(id)||id===ompPackage)diag('plugin-skipped',id,'Superpowers installation metadata could not be verified; '+repair.toLowerCase());
   };
-  const unavailable=(problem:string)=>{for(const name of wanted)sources.push({name,identity:agent+':unavailable',origin:'unknown',satisfies:false,problem});};
+  const unavailable=(reason:ReasonInput)=>{
+   for(const name of wanted)sources.push({name,identity:agent+':unavailable',origin:'unknown',satisfies:false,problem:reasonFallback(reason),[reasonDetail]:reason});
+  };
   type Context={origin:SkillSource['origin'];namespace?:string;bound?:string;packageName?:string;sourceFingerprint?:string;project?:boolean;pathNames?:boolean;skillRoot?:string};
   const local=(path:string):Context=>({origin:'local',...(inside(root,path)?{bound:root,project:true}:{})});
   const identity=async(path:string,ctx:Context)=>{const canonical=await realpath(path);return ctx.project?relative(root,canonical).split('\\').join('/'):canonical;};
@@ -224,8 +229,8 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
    const permission=config.permission?.skill;
    const denied=(name:string)=>typeof permission==='string'?permission==='deny':Object.entries(permission??{}).findLast(([pattern])=>matches(pattern,name))?.[1]==='deny';
    for(const source of sources)if(denied(source.name)){source.satisfies=false;source.problem='OpenCode skill permission denies '+source.name+'; allow the native skill in effective permission.skill';}
-   if(disabled)unavailable('OPENCODE_DISABLE_PROJECT_CONFIG prevents Rigup project entries; unset it or set it to false before preparing this project');
-   if(['change-prepare','change-ready','change-deliver'].some(denied))unavailable('OpenCode permission.skill denies a Rigup project entry; allow change-prepare, change-ready and change-deliver');
+   if(disabled)unavailable(makeReason('reason.sdd.openCodeProjectOff'));
+   if(['change-prepare','change-ready','change-deliver'].some(denied))unavailable(makeReason('reason.sdd.openCodeProjectDenied'));
   }
   if(agent==='codex'){
    const plugins:Record<string,any>={};
@@ -350,13 +355,13 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
      if(pending){
       for(let i=sources.length-1;i>=0;i--)
        if(isAbsolute(sources[i].identity)&&inside(pending.directory,sources[i].identity))sources.splice(i,1);
-      diag('omp-registry-unverified',ompPackage,'Remove the unverified OMP registry install before retrying Rigup.',[pending.target,pending.record]);
+      diag('omp-registry-unverified',ompPackage,makeReason('reason.native.ompRegistryUnverified',undefined,'Remove the unverified OMP registry install before retrying Rigup.'),[pending.target,pending.record]);
      }
     }
     // OMP's native packages outrank the matching Claude import; leave other collisions visible.
     const preferred=new Set(sources.filter(source=>source.packageName===ompPackage&&source.satisfies).map(source=>source.name));
     for(let i=sources.length-1;i>=0;i--)if(imported.has(sources[i])&&preferred.has(sources[i].name))sources.splice(i,1);
-    if(settings.skills?.enabled===false){sources.length=0;unavailable('skills.enabled:false blocks native and Rigup project skills; set skills.enabled to true in OMP settings');}
+    if(settings.skills?.enabled===false){sources.length=0;unavailable(makeReason('reason.sdd.ompSkillsOff'));}
     else {
      const excluded=(name:string)=>array(settings.skills?.ignoredSkills).some(pattern=>matchesGlob(name,pattern))||array(settings.disabledExtensions).includes('skill:'+name)||array(settings.skills?.includeSkills).length>0&&!array(settings.skills?.includeSkills).some(pattern=>matchesGlob(name,pattern));
      if(sddDiscoveryNames('superpowers',false).some(excluded))diag('native-conflict',ompPackage,'OMP settings exclude required Superpowers skills');
@@ -367,7 +372,7 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
       const nativeUser=isAbsolute(source.identity)&&inside(join(omp,'skills'),source.identity);
       if(excluded(source.name)||nativeProject&&settings.skills?.enablePiProject===false||nativeUser&&settings.skills?.enablePiUser===false)sources.splice(i,1);
      }
-     if(settings.skills?.enablePiProject===false||['change-prepare','change-ready','change-deliver'].some(excluded))unavailable('OMP project skill settings prevent Rigup project entries; enable skills.enablePiProject and allow change-prepare, change-ready and change-deliver in ignoredSkills/includeSkills/disabledExtensions');
+     if(settings.skills?.enablePiProject===false||['change-prepare','change-ready','change-deliver'].some(excluded))unavailable(makeReason('reason.sdd.ompProjectSkills'));
     }
    }
   }

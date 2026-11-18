@@ -1,3 +1,4 @@
+import {makeReason,ReasonError} from '../../i18n/reasons.js';
 import {execFile} from 'node:child_process';
 import {mkdtemp,realpath,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -98,7 +99,7 @@ export async function effectiveNpmRegistry(root:string,name:string,override?:str
   if(!value||value==='undefined')value=await get('registry');
  }catch{
   signal?.throwIfAborted();
-  throw Error('Could not read effective npm registry; check npm availability and configuration');
+  throw new ReasonError(makeReason('reason.npm.registry'));
  }
  return normalizeNpmRegistry(value);
 }
@@ -116,17 +117,17 @@ export async function resolveNpmLatest(name:NpmPackageName,input:{root:string;st
   signal?.throwIfAborted();
  }catch{
   signal?.throwIfAborted();
-  throw Error('Could not resolve '+label+'; check registry access and npm availability');
+  throw new ReasonError(makeReason('reason.npm.resolve',{label}));
  }
  let metadata:unknown;
- try{metadata=JSON.parse(output);}catch{throw Error('Could not resolve '+label+'; invalid npm metadata');}
- if(!metadata||typeof metadata!=='object'||Array.isArray(metadata))throw Error('Could not resolve '+label+'; expected one package');
+ try{metadata=JSON.parse(output);}catch{throw new ReasonError(makeReason('reason.npm.metadata',{label}));}
+ if(!metadata||typeof metadata!=='object'||Array.isArray(metadata))throw new ReasonError(makeReason('reason.npm.package',{label}));
  const fields=metadata as Record<string,unknown>;
  const version=fields.version;
  if(fields.name!==name||!isStableNpmVersion(version)||version!==fields['dist-tags.latest'])
-  throw Error('Could not resolve '+label+'; registry must provide a stable latest tag for this package');
+  throw new ReasonError(makeReason('reason.npm.stable',{label}));
  const packageIntegrity=normalizeNpmIntegrity(fields['dist.integrity']);
- if(!packageIntegrity)throw Error('Could not resolve '+label+'; missing or invalid dist.integrity');
+ if(!packageIntegrity)throw new ReasonError(makeReason('reason.npm.integrity',{label}));
  const enginesNode=assertNpmNode(name,version,fields['engines.node'],nodeVersion);
  return {version,packageIntegrity,registry:effectiveRegistry,...(enginesNode?{enginesNode}:{})};
 }

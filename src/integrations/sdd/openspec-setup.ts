@@ -1,4 +1,5 @@
 import {t} from '../../i18n/index.js';
+import {makeReason,ReasonError,reasonDetail,reasonFallback,reasonFromError,type ReasonInput,type ReasonedReport} from '../../i18n/reasons.js';
 import {globalNpmInstallOperation,managedGlobalNpmProblem,runGlobalNpmInstall,type GlobalNpmApproval} from '../tools/global-npm.js';
 import {packageDirectory,exists,consumerPath,findProgram,commandEnvironment,command,globalNpmOutput,npmPrefix,userNode,programIdentity,prefixIdentity,type Program as GlobalProgram} from '../tools/global-npm-runtime.js';
 import {lstat,mkdir,mkdtemp,readdir,readFile,realpath,rm} from 'node:fs/promises';
@@ -42,7 +43,7 @@ async function writingCommand(program:Program,args:string[],cwd:string,path:stri
  try{
   if(signal?.aborted)child.stop();else child.start();
   const result=await child.completed;
-  if(result.code!==0||result.unavailable||result.interrupted)throw Error('Protected OpenSpec command did not complete');
+  if(result.code!==0||result.unavailable||result.interrupted)throw new ReasonError(makeReason('reason.openspec.commandIncomplete'));
  }finally{
   clearTimeout(timer);signal?.removeEventListener('abort',child.stop);
   child.stop();await child.completed;
@@ -54,7 +55,7 @@ async function cliProgramIdentity(program:Program,root:string,path:string[],stat
 }
 
 async function assertCliIdentity(program:Program,root:string,path:string[],expected:string,stateRoot?:string){
- if(await cliProgramIdentity(program,root,path,stateRoot).catch(()=>undefined)!==expected)throw Error('OpenSpec CLI changed after approval; prepare it again');
+ if(await cliProgramIdentity(program,root,path,stateRoot).catch(()=>undefined)!==expected)throw new ReasonError(makeReason('reason.openspec.cliChanged'));
 }
 
 async function listOpenSpec(program:Program,root:string,path:string[],signal?:AbortSignal,env?:NodeJS.ProcessEnv){
@@ -87,30 +88,30 @@ export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal
  const path=await consumerPath(root);
  const [profile,project,external]=await Promise.all([
   scanNativeEntries(root,{agents:options.agents,backend:options.backend,sdd:'openspec',scope:options.agents.flatMap(hostScopes)}),
-  verifiedProjectOpenSpec(root,stateRoot).catch(error=>({problem:(error as Error).message})),
+  verifiedProjectOpenSpec(root,stateRoot).catch(error=>({problem:reasonFromError(error)})),
   findProgram('openspec',root,path).catch(()=>null)
  ]);
- const needsEntries:Agent[]=[],problems:string[]=[];
+ const needsEntries:Agent[]=[],problems:ReasonInput[]=[];
  if(project&&'problem' in project)problems.push(project.problem);
- if(!project&&external===null)problems.push('The existing openspec command could not be resolved. Repair its installation or put a working CLI first on PATH.');
+ if(!project&&external===null)problems.push(makeReason('reason.openspec.resolveCli'));
  const externalProblem=!project&&external?await managedGlobalNpmProblem('openspec',external.launcher??external.file,stateRoot):undefined;
  if(externalProblem)problems.push(externalProblem);
  const cli:Program|undefined=project?('file' in project?project:undefined):externalProblem?undefined:external??undefined;
  const launcher=cli?.source==='project'?cli.args?.[0]:cli?.launcher??cli?.file;
- if(expectedLauncher&&launcher!==expectedLauncher)throw Error('OpenSpec CLI changed after approval; prepare it again');
+ if(expectedLauncher&&launcher!==expectedLauncher)throw new ReasonError(makeReason('reason.openspec.cliChanged'));
  for(const agent of options.agents){
   try{resolveSddBinding('openspec',agent,profile.nativeEntries?.[agent]??[],profile.skillSources?.[agent]??[],profile.files);}
   catch(error){
-   const reason=(error as Error).message;
-   if(reason.startsWith('missing native entry:'))needsEntries.push(agent);
-   else problems.push(agent+': '+reason);
+   const reason=reasonFromError(error);
+   if(typeof reason!=='string'&&reason.code==='reason.sdd.missingNativeEntry')needsEntries.push(agent);
+   else problems.push(makeReason('reason.identified',{id:agent,reason}));
   }
  }
  let needsRoot=!await exists(join(root,'openspec/config.yaml'))&&!await exists(join(root,'openspec/config.yml'));
  let verifiedRoot:string|undefined;
  const cliIdentity=project&&'identity' in project?project.identity:cli&&await programIdentity(cli,root,path).catch(()=>undefined);
- if(expectedCliIdentity&&cliIdentity!==expectedCliIdentity)throw Error('OpenSpec CLI changed after approval; prepare it again');
- if(cli&&!cliIdentity)problems.push('The existing OpenSpec launcher identity could not be verified');
+ if(expectedCliIdentity&&cliIdentity!==expectedCliIdentity)throw new ReasonError(makeReason('reason.openspec.cliChanged'));
+ if(cli&&!cliIdentity)problems.push(makeReason('reason.openspec.launcherUnverified'));
  let cliVersion:string|undefined;
  if(cli&&cliIdentity){
   const version=(await command(cli,['--version'],root,path,signal).catch(()=>undefined))?.stdout.trim();
@@ -125,10 +126,10 @@ export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal
       verifiedRoot=await rootReceipt(list.root.path,list.root.source,root,legacyRuntime);needsRoot=false;
     }
     else if((list.root?.source==='nearest'||list.root?.source==='global_default')&&needsRoot)needsRoot=true;
-    else problems.push('OpenSpec project root could not be verified');
-   }catch{problems.push('OpenSpec CLI did not return a usable project status');}
+    else problems.push(makeReason('reason.openspec.rootUnverified'));
+   }catch{problems.push(makeReason('reason.openspec.statusUnverified'));}
    await assertCliIdentity(cli,root,path,cliIdentity,stateRoot);
-  }else problems.push('The existing openspec command did not start successfully. Repair its installation or put a working CLI first on PATH.');
+  }else problems.push(makeReason('reason.openspec.startFailed'));
  }
  const needsProject=needsRoot||needsEntries.length>0;
  const npm=cli?undefined:await findProgram('npm',root,path).catch(()=>undefined);
@@ -140,15 +141,16 @@ export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal
  const projectAvailable=!cli&&!problems.length&&await Promise.all([
   assertEmptyNativeScope(root,projectPrefix),resolveProjectNpm(root,[]),
  ]).then(()=>true,()=>false);
- const requirements=[
-  ...(!cli?[scope==='global'?'OpenSpec CLI is missing from PATH':'OpenSpec CLI is missing']:[]),
-  ...(needsRoot?['OpenSpec project root is missing']:[]),
-  ...needsEntries.map(host=>host+': OpenSpec workflow entries are missing'),
+ const requirementReasons=[
+  ...(!cli?[makeReason(scope==='global'?'reason.openspec.cliPath':'reason.openspec.cliMissing')]:[]),
+  ...(needsRoot?[makeReason('reason.openspec.rootMissing')]:[]),
+  ...needsEntries.map(host=>makeReason('reason.openspec.entriesMissing',{host})),
   ...problems,
-  ...(!cli&&scope==='global'&&!node?['OpenSpec needs a working Node.js on the user PATH']:[]),
-  ...(!cli&&scope==='global'&&!installAvailable?['Automatic installation requires npm and a writable user bin directory on PATH']:[]),
-  ...(!cli&&scope==='project'&&!projectAvailable?['OpenSpec project installation requires a usable npm and an empty, untracked '+projectPrefix+' scope']:[]),
+  ...(!cli&&scope==='global'&&!node?[makeReason('reason.openspec.node')]:[]),
+  ...(!cli&&scope==='global'&&!installAvailable?[makeReason('reason.openspec.userInstall')]:[]),
+  ...(!cli&&scope==='project'&&!projectAvailable?[makeReason('reason.openspec.projectInstall',{prefix:projectPrefix})]:[]),
  ];
+ const requirements=requirementReasons.map(reasonFallback);
  const canPrepare=!problems.length&&(!!cliVersion||(scope==='project'?projectAvailable:installAvailable));
  const userBin=scope==='global'&&!windows&&!cli&&npm&&node&&!prefix
   ?await realpath(homedir()).then(home=>targetPath(home,'.local/bin')).catch(()=>undefined):undefined;
@@ -161,15 +163,15 @@ export async function inspectOpenSpec(root:string,options:OpenSpecOptions,signal
  const runtimeScope=cli?.source==='project'?'project':'global';
  const runtime:OpenSpecRuntimeIdentity|undefined=!requirements.length&&cliIdentity&&verifiedRoot&&launcher&&cliVersion
   ?legacyRuntime?{cliIdentity,rootIdentity:verifiedRoot,scope:runtimeScope}:{launcher,version:cliVersion,rootReceipt:verifiedRoot,scope:runtimeScope}:undefined;
- return {root,cli,cliVersion,cliIdentity,npm,node,prefix,path,needsProject,needsRoot,needsEntries,requirements,canPrepare,steps,profile,scope,stateRoot,projectAvailable,globalAvailable:installAvailable,runtime};
+ return {root,cli,cliVersion,cliIdentity,npm,node,prefix,path,needsProject,needsRoot,needsEntries,requirements,requirementReasons,canPrepare,steps,profile,scope,stateRoot,projectAvailable,globalAvailable:installAvailable,runtime};
 }
 export async function assertOpenSpecRuntime(root:string,options:OpenSpecOptions,approved:OpenSpecRuntimeIdentity,stateRoot?:string){
  const state=await readOpenSpecPreparation(root,stateRoot);
- if(state&&!state.complete)throw Error('Resume the original OpenSpec preparation before applying');
+ if(state&&!state.complete)throw new ReasonError(makeReason('reason.openspec.resumeBeforeApply'));
  const legacyRuntime='cliIdentity' in approved;
  const setup=await inspectOpenSpec(root,options,undefined,legacyRuntime?approved.cliIdentity:undefined,
   {scope:approved.scope,stateRoot,legacyRuntime,expectedLauncher:legacyRuntime?undefined:approved.launcher});
- if(!setup.runtime||signature(setup.runtime)!==signature(approved))throw Error('OpenSpec CLI or native root changed after approval; review again');
+ if(!setup.runtime||signature(setup.runtime)!==signature(approved))throw new ReasonError(makeReason('reason.openspec.runtimeChanged'));
 }
 
 export type OpenSpecInspection=Awaited<ReturnType<typeof inspectOpenSpec>>;
@@ -181,7 +183,8 @@ export const preparationScope=(approval:OpenSpecPreparation):OpenSpecInstallScop
 export async function interruptedOpenSpecPreparation(root:string,stateRoot?:string){
  const record=await readOpenSpecPreparation(root,stateRoot);
  if(!record||record.complete)return;
- return {requirements:['Resume the original OpenSpec preparation.'],
+ const reason=makeReason('openspec.resume');
+ return {requirements:[reason.fallback],requirementReasons:[reason],
   nextCommand:openspecPreparationCommand(root,record.approval.agents,preparationScope(record.approval))+' --resume'};
 }
 
@@ -195,6 +198,10 @@ export function openSpecProjectScopes(scope:Pick<OpenSpecScope,'needsRoot'|'need
  return [...(scope.needsRoot?['openspec']:[]),...scope.needsEntries.flatMap(hostScopes)].map(path=>path+'/');
 }
 
+function withPreparationProblem(setup:OpenSpecInspection,reason:ReasonInput):OpenSpecInspection{
+ return {...setup,requirements:[...setup.requirements,reasonFallback(reason)],requirementReasons:[...setup.requirementReasons,reason],canPrepare:false};
+}
+
 export async function planOpenSpecPreparation(root:string,options:OpenSpecOptions,input:{stateRoot?:string;signal?:AbortSignal;view?:NpmView},inspection?:OpenSpecInspection):Promise<{inspection:OpenSpecInspection;approval?:OpenSpecPreparation}>{
  const setup=inspection??await inspectOpenSpec(root,options,input.signal,undefined,{stateRoot:input.stateRoot});
  input.signal?.throwIfAborted();
@@ -206,7 +213,7 @@ export async function planOpenSpecPreparation(root:string,options:OpenSpecOption
   return {inspection:setup,approval:{...scope,kind:'project-install',prefix:join(setup.root,projectPrefix),install}};
  }catch(error){
   input.signal?.throwIfAborted();
-  return {inspection:{...setup,requirements:[...setup.requirements,(error as Error).message],canPrepare:false}};
+  return {inspection:withPreparationProblem(setup,reasonFromError(error))};
  }
  if(!setup.npm||!setup.node||!setup.prefix)return {inspection:setup};
  try{
@@ -217,15 +224,15 @@ export async function planOpenSpecPreparation(root:string,options:OpenSpecOption
   return {inspection:setup,approval:{...scope,kind:'install',prefix:setup.prefix,install}};
  }catch(error){
   input.signal?.throwIfAborted();
-  return {inspection:{...setup,requirements:[...setup.requirements,(error as Error).message],canPrepare:false}};
+  return {inspection:withPreparationProblem(setup,reasonFromError(error))};
  }
 }
 
-export function reportOpenSpecPending(setup:OpenSpecInspection,resumeCommand:string,write:(text:string)=>void,report?:(value:Record<string,unknown>)=>void){
+export function reportOpenSpecPending(setup:OpenSpecInspection,resumeCommand:string,write:(text:string)=>void,report?:(value:ReasonedReport)=>void){
  const steps=setup.steps.filter(step=>step!==resumeCommand);
  const commands=[...steps,resumeCommand];
  const nextCommand=steps.length?commands.join(' && '):null;
- report?.({phase:'preflight',installStatus:'pending',executable:false,pending:setup.requirements,requiredInput:setup.requirements,nextCommand,resumeCommand});
+ report?.({phase:'preflight',installStatus:'pending',executable:false,pending:setup.requirements,requiredInput:setup.requirements,nextCommand,resumeCommand,[reasonDetail]:setup.requirementReasons[0]});
  write(t('openspec.pending')+'\n'+(nextCommand??resumeCommand)+'\n');
  return commands;
 }
@@ -237,20 +244,20 @@ async function approvedNpm(setup:OpenSpecInspection,approval:InstallApproval){
  if(!setup.npm||!setup.node||!setup.canPrepare||setup.prefix!==approval.prefix||
   approval.prefixIdentity&&await prefixIdentity(setup.prefix)!==approval.prefixIdentity||
   approval.npmIdentity&&await programIdentity(setup.npm,setup.root,setup.path)!==approval.npmIdentity)
-  throw Error('OpenSpec installation scope or npm launcher changed after approval; prepare it again');
+  throw new ReasonError(makeReason('reason.openspec.npmChanged'));
  assertNpmNode(openspecPackage,approval.install.version,approval.install.enginesNode,setup.node.version);
  return setup.npm;
 }
 
-export class OpenSpecReceiptError extends Error {}
+export class OpenSpecReceiptError extends ReasonError {}
 
 async function installOpenSpec(root:string,options:OpenSpecOptions,approval:InstallApproval,stateRoot:string,signal?:AbortSignal,recover?:boolean){
  const global:GlobalNpmApproval={root,id:'openspec',name:openspecPackage,bin:'openspec',prefix:approval.prefix,prefixIdentity:approval.prefixIdentity,npmIdentity:approval.npmIdentity,install:approval.install};
  const outcome=await runGlobalNpmInstall(globalNpmInstallOperation(global),{stateRoot,signal,recover,authorizationRef:signature(approval),beforeInstall:async()=>{
   const current=await inspectOpenSpec(root,options,signal,undefined,{scope:'global',stateRoot});
-  if(!scopeCovered(approval,current))throw Error('OpenSpec preparation scope changed after approval; prepare it again');
+  if(!scopeCovered(approval,current))throw new ReasonError(makeReason('reason.openspec.scopeChanged'));
   try{await approvedNpm(current,approval);}
-  catch{throw Error('OpenSpec installation scope or npm launcher changed after approval; prepare it again');}
+  catch{throw new ReasonError(makeReason('reason.openspec.npmChanged'));}
  }});
  if(outcome.status!=='done')throw Error(outcome.message);
  const installed=await inspectOpenSpec(root,options,signal,outcome.globalReceipt?.launcherIdentity,
@@ -258,11 +265,11 @@ async function installOpenSpec(root:string,options:OpenSpecOptions,approval:Inst
  const {version,registry,packageIntegrity}=approval.install;
  const launcher=installed.cli?.launcher??installed.cli?.file;
  if(installed.cliVersion!==version||outcome.globalReceipt?.launcher&&launcher!==outcome.globalReceipt.launcher)
-  throw Error('Installed OpenSpec CLI does not match the approved launcher and version');
+  throw new ReasonError(makeReason('reason.openspec.installedCliChanged'));
  try{
   await saveDurable(join(stateRoot,'openspec-'+signature({prefix:approval.prefix,name:openspecPackage})+'.json'),
    JSON.stringify({name:openspecPackage,prefix:approval.prefix,version,packageIntegrity,registry}));
- }catch{throw new OpenSpecReceiptError('OpenSpec CLI '+version+' was installed and verified, but its receipt could not be saved');}
+ }catch{throw new OpenSpecReceiptError(makeReason('reason.openspec.receipt',{version}));}
  return {inspection:installed,installed:true};
 }
 
@@ -286,7 +293,7 @@ async function publishableNativeFiles(root:string,staged:string,generatedFor:Age
  await collect('');
  const publishable=new Set(files.map(file=>file.target));
  if(setup.needsRoot&&!['openspec/config.yaml','openspec/config.yml'].some(path=>publishable.has(path)))
-  throw Error('OpenSpec did not generate a publishable project root');
+  throw new ReasonError(makeReason('reason.openspec.projectOutputMissing'));
  const stagedProfile=await scanNativeEntries(staged,{...options,sdd:'openspec',scope:options.agents.flatMap(hostScopes)},{home:staged,env:{}});
  for(const host of options.agents){
   const generated=(stagedProfile.skillSources?.[host]??[]).filter(source=>publishable.has(source.identity));
@@ -303,14 +310,14 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
  let stage:string|undefined;
  try{
   root=lock.root;
-  if(approval.root!==root||signature(approval.agents)!==signature(options.agents))throw Error('OpenSpec approval belongs to another project or host selection');
+  if(approval.root!==root||signature(approval.agents)!==signature(options.agents))throw new ReasonError(makeReason('reason.openspec.approvalProject'));
   if(await interruptedSeedApplyId(root,lock.stateRoot)||await interruptedInstallApplyId(root,lock.stateRoot))
    throw Error('Resume the original approval with rigup update '+quoteShell(root)+' --resume --review');
   await assertNoUnknownWriters(root,lock.stateRoot);
   const prior=await readOpenSpecPreparation(root,lock.stateRoot);
   const approvalDigest=signature(approval);
   if(prior&&!prior.complete&&(!recover||prior.approvalDigest!==approvalDigest))
-   throw Error('Resume the original OpenSpec preparation with --prepare-openspec --resume');
+   throw new ReasonError(makeReason('reason.openspec.resumeOriginal'));
   const record:OpenSpecPreparationRecord=prior&&!prior.complete?prior:
    {version:1,root,approval,approvalDigest,complete:false,projectReceipt:prior?.projectReceipt};
   const scope=preparationScope(approval);
@@ -321,24 +328,24 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   };
   const approvedCli=approval.kind==='existing'?approval.cliIdentity:record.installedCliIdentity;
   let setup=await inspect(approvedCli);
-  if(approval.kind==='existing'&&setup.cliVersion!==approval.cliVersion)throw Error('OpenSpec CLI changed after approval; prepare it again');
-  if(!scopeCovered(approval,setup))throw Error('OpenSpec preparation scope changed after approval; prepare it again');
+  if(approval.kind==='existing'&&setup.cliVersion!==approval.cliVersion)throw new ReasonError(makeReason('reason.openspec.cliChanged'));
+  if(!scopeCovered(approval,setup))throw new ReasonError(makeReason('reason.openspec.scopeChanged'));
   if(!setup.requirements.length&&!(prior&&!prior.complete&&approval.kind!=='existing'&&!record.installedCliIdentity))
    return prior&&!prior.complete?await finish(setup):setup;
   if(!setup.canPrepare&&!(recover&&prior&&!prior.complete&&approval.kind!=='existing'&&!record.installedCliIdentity))
-   throw Error('OpenSpec preparation scope changed after approval; prepare it again');
+   throw new ReasonError(makeReason('reason.openspec.scopeChanged'));
   if(approval.kind!=='existing')await saveOpenSpecPreparation(record,lock.stateRoot);
   if(setup.needsProject){
    const targets=[...(setup.needsRoot?['openspec/config.yaml']:[]),...setup.needsEntries.map(agent=>agents[agent].skillDirectory+'/openspec-propose/SKILL.md')];
   }
   if(approval.kind==='project-install'&&!record.installedCliIdentity){
-   if(approval.prefix!==join(root,projectPrefix))throw Error('OpenSpec project npm destination differs from approval');
+   if(approval.prefix!==join(root,projectPrefix))throw new ReasonError(makeReason('reason.openspec.projectDestination'));
    write(t('openspec.installing',{version:approval.install.version,prefix:approval.prefix})+'\n');
    await installProjectOpenSpec(root,record,lock.stateRoot,signal,recover);
    onInstalled?.();
    setup=await inspect();
    if(!setup.cliIdentity||setup.cli?.source!=='project'||setup.cliVersion!==approval.install.version)
-    throw Error('Installed project OpenSpec CLI does not match approval');
+    throw new ReasonError(makeReason('reason.openspec.installedProjectCli'));
    record.installedCliIdentity=setup.cliIdentity;
    await saveOpenSpecPreparation(record,lock.stateRoot);
   }
@@ -351,7 +358,7 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
    await saveOpenSpecPreparation(record,lock.stateRoot);
   }
   if(!setup.requirements.length)return await finish(setup);
-  if(!setup.cli||!setup.cliIdentity||!setup.canPrepare||!scopeCovered(approval,setup))throw Error('OpenSpec preparation scope changed after approval; prepare it again');
+  if(!setup.cli||!setup.cliIdentity||!setup.canPrepare||!scopeCovered(approval,setup))throw new ReasonError(makeReason('reason.openspec.scopeChanged'));
   const {cli,cliIdentity}=setup;
   stage??=await mkdtemp(join(lock.stateRoot,'openspec-'));
   const staged=join(stage,'project');await mkdir(staged);
@@ -364,10 +371,10 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   if(setup.needsRoot){
    await assertCliIdentity(cli,root,setup.path,cliIdentity,lock.stateRoot);
    const list=await listOpenSpec(cli,staged,setup.path,signal,env).catch(()=>undefined);
-   if(typeof list?.root?.path!=='string'||await realpath(list.root.path).catch(()=>undefined)!==staged)throw Error('OpenSpec did not recognize the staged project root');
+   if(typeof list?.root?.path!=='string'||await realpath(list.root.path).catch(()=>undefined)!==staged)throw new ReasonError(makeReason('reason.openspec.stagedRoot'));
   }
   const current=await inspect(cliIdentity);
-  if(!current.canPrepare||!scopeCovered(setup,current)||current.cliVersion!==setup.cliVersion)throw Error('OpenSpec preparation scope changed after approval; prepare it again');
+  if(!current.canPrepare||!scopeCovered(setup,current)||current.cliVersion!==setup.cliVersion)throw new ReasonError(makeReason('reason.openspec.scopeChanged'));
   if(!current.requirements.length)return await finish(current);
   const files=await publishableNativeFiles(root,staged,setup.needsEntries,current,options);
   await assertCliIdentity(cli,root,current.path,cliIdentity,lock.stateRoot);

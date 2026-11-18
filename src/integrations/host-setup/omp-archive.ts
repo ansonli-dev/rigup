@@ -8,6 +8,7 @@ import {isRecord} from '../../private-record.js';
 import {sddDiscoveryNames} from '../sdd/binding.js';
 import {checkedDirectory,readNativeFile,statIfPresent,strictJson} from './host-files.js';
 import {ompPackage} from './manual.js';
+import {makeReason} from '../../i18n/reasons.js';
 import {NativeBlocker} from './blockers.js';
 import {readOmpDownload,type OmpPin} from './omp-pin.js';
 import type {HostRuntime} from './runtime.js';
@@ -18,9 +19,9 @@ const requiredEntries=[expectedExtension,...sddDiscoveryNames('superpowers',fals
 const validManifest=(manifest:Record<string,unknown>,{version}:Pick<OmpPin,'version'>)=>manifest.name===ompPackage&&manifest.version===version&&
  isRecord(manifest.pi)&&JSON.stringify(manifest.pi.extensions)==='["./.pi/extensions/superpowers.ts"]';
 const verifyIntegrity=(bytes:Buffer,pin:OmpPin)=>{
- if(bytes.length>maxDownload)throw new NativeBlocker('download-failed','OMP archive exceeds the size limit.',{evidence:[pin.tarball]});
+ if(bytes.length>maxDownload)throw new NativeBlocker('download-failed',makeReason('reason.native.archiveSize'),{evidence:[pin.tarball]});
  if('sha512-'+createHash('sha512').update(bytes).digest('base64')!==pin.integrity)
-  throw new NativeBlocker('download-failed','OMP package integrity does not match the approved archive.',{evidence:[pin.tarball]});
+  throw new NativeBlocker('download-failed',makeReason('reason.native.integrity'),{evidence:[pin.tarball]});
  return bytes;
 };
 

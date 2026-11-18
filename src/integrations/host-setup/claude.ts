@@ -3,6 +3,7 @@ import {dirname,isAbsolute,join,relative} from 'node:path';
 import {valid} from 'semver';
 import type {ProjectProfile} from '../../analyzer/repository.js';
 import {isRecord} from '../../private-record.js';
+import {makeReason,type ReasonInput} from '../../i18n/reasons.js';
 import {NativeBlocker} from './blockers.js';
 import {absoluteHostPath,canonicalHostDirectory,checkedDirectory,nativeJson,statIfPresent,withinPath} from './host-files.js';
 import {claudeManagedRoot,claudePlugin} from './manual.js';
@@ -39,11 +40,11 @@ export async function inspectClaude(runtime:HostLocations){
  if(withinPath(root,config))throw Error('Claude configuration must be outside the project');
  for(const directory of [projectConfig,config,plugins,dirname(catalogRoot),catalogRoot,dirname(catalog),cache,dirname(packageRoot),packageRoot,backups]){
   try{await checkedDirectory(directory);}
-  catch{throw new NativeBlocker('prerequisite-unverified','A Claude destination is redirected or is not a directory.',{evidence:[directory]});}
+  catch{throw new NativeBlocker('prerequisite-unverified',makeReason('reason.native.claudeDirectory'),{evidence:[directory]});}
  }
  const read=async (path:string,label:string,limit?:number)=>{
   try{return (await nativeJson(path,limit))?.value;}
-  catch{throw new NativeBlocker('prerequisite-unverified','Invalid or unreadable '+label+'.',{evidence:[path]});}
+  catch{throw new NativeBlocker('prerequisite-unverified',makeReason('reason.native.claudeFile',{file:path},'Invalid or unreadable '+label+'.'),{evidence:[path]});}
  };
  await read(configFile,'Claude user state',4_000_000);
  let projectEnabled=false,declared=false;
@@ -54,14 +55,14 @@ export async function inspectClaude(runtime:HostLocations){
    const markets=value.extraKnownMarketplaces;
    if(!isRecord(markets)||Object.hasOwn(markets,claudeMarket)&&
     (!isRecord(markets[claudeMarket])||!official(markets[claudeMarket].source)))
-    throw new NativeBlocker('claude-catalog-no-entry','Claude settings declare a different source for the official marketplace.',{evidence:[path]});
+    throw new NativeBlocker('claude-catalog-no-entry',makeReason('reason.native.claudeMarketplaceSource'),{evidence:[path]});
    if(path===project&&Object.hasOwn(markets,claudeMarket))declared=true;
   }
   if(value.enabledPlugins!==undefined){
    const plugins=value.enabledPlugins;
    if(!isRecord(plugins)||Object.hasOwn(plugins,claudePlugin)&&typeof plugins[claudePlugin]!=='boolean')
-    throw new NativeBlocker('prerequisite-unverified','Invalid Claude Superpowers setting.',{evidence:[path]});
-   if(plugins[claudePlugin]===false)throw new NativeBlocker('host-plugin-disabled','Claude Superpowers is explicitly disabled.',{evidence:[path]});
+    throw new NativeBlocker('prerequisite-unverified',makeReason('reason.native.claudeSetting'),{evidence:[path]});
+   if(plugins[claudePlugin]===false)throw new NativeBlocker('host-plugin-disabled',makeReason('reason.native.claudeDisabled'),{evidence:[path]});
    if(plugins[claudePlugin]===true&&(path===project||path===local))projectEnabled=true;
   }
  }
@@ -69,10 +70,10 @@ export async function inspectClaude(runtime:HostLocations){
  const installRegistry=await read(registry,'Claude installed plugin registry',2_000_000);
  const recorded=installRegistry?.plugins;
  if(installRegistry&&(installRegistry.version!==2||!isRecord(recorded)))
-  throw new NativeBlocker('prerequisite-unverified','Unsupported Claude installed plugin registry.',{evidence:[registry]});
+  throw new NativeBlocker('prerequisite-unverified',makeReason('reason.native.claudeRegistry'),{evidence:[registry]});
  const records=isRecord(recorded)?recorded[claudePlugin]:undefined;
- const broken=(reason:string,evidence=[registry])=>new NativeBlocker('host-plugin-broken',reason,{evidence});
- const conflict=()=>broken('Claude Superpowers has conflicting install receipts.');
+ const broken=(reason:ReasonInput,evidence=[registry])=>new NativeBlocker('host-plugin-broken',reason,{evidence});
+ const conflict=()=>broken(makeReason('reason.native.claudeReceiptConflict'));
  if(records!==undefined&&!Array.isArray(records))throw conflict();
  const receipts=(records??[]).filter(isRecord),scoped:Record<string,unknown>[]=[];
  for(const item of receipts){
@@ -88,19 +89,19 @@ export async function inspectClaude(runtime:HostLocations){
  };
  const item=scoped[0];
  if(item?.enabled===false||!item&&receipts.some(receipt=>receipt.scope==='user'&&receipt.enabled===false))
-  throw new NativeBlocker('host-plugin-disabled','Claude Superpowers is explicitly disabled in the install receipt.',{evidence:[registry]});
+  throw new NativeBlocker('host-plugin-disabled',makeReason('reason.native.claudeReceiptDisabled'),{evidence:[registry]});
  let installed:string|undefined,installedSha:string|undefined,installedVersion:string|undefined;
  if(item){
   const path=cachePath(item);
   if(!path||!await checkedDirectory(path).catch(()=>undefined)||!withinPath(packageRoot,await realpath(path)))
-   throw broken('Claude Superpowers receipt points to an unavailable cache directory.',path?[registry,path]:[registry,packageRoot]);
-  if(!projectEnabled)throw broken('Claude Superpowers receipt has no enabled project setting.',[registry,project,local]);
+   throw broken(makeReason('reason.native.claudeCacheMissing'),path?[registry,path]:[registry,packageRoot]);
+  if(!projectEnabled)throw broken(makeReason('reason.native.claudeProjectNotEnabled'),[registry,project,local]);
   installed=path;installedSha=shaOf(item.gitCommitSha);installedVersion=versionOf(item.version);
  }else{
-  if(projectEnabled&&!receipts.length)throw broken('Claude Superpowers is enabled without an install receipt.',[registry,project,local]);
+  if(projectEnabled&&!receipts.length)throw broken(makeReason('reason.native.claudeReceiptMissing'),[registry,project,local]);
   if(!receipts.some(cachePath)&&await checkedDirectory(packageRoot)&&
      (await readdir(packageRoot,{withFileTypes:true})).some(entry=>entry.isDirectory()||entry.isSymbolicLink()))
-   throw broken('Claude Superpowers cache exists without a matching receipt.',[packageRoot,registry]);
+   throw broken(makeReason('reason.native.claudeCacheNoReceipt'),[packageRoot,registry]);
  }
  const registered=markets?.[claudeMarket];
  let market:'missing'|'ready'='missing';
@@ -108,19 +109,19 @@ export async function inspectClaude(runtime:HostLocations){
  if(registered!==undefined){
   if(!isRecord(registered)||!official(registered.source)||typeof registered.installLocation!=='string'||!isAbsolute(registered.installLocation)||
      relative(catalogRoot,absoluteHostPath(registered.installLocation))!=='')
-   throw new NativeBlocker('claude-catalog-no-entry','The Claude marketplace name is already registered to a different source or path.',{evidence:[known,catalogRoot]});
+   throw new NativeBlocker('claude-catalog-no-entry',makeReason('reason.native.claudeMarketplaceRegistered'),{evidence:[known,catalogRoot]});
   const contents=await read(catalog,'official Claude marketplace catalog',2_000_000);
   const items=contents?.name===claudeMarket&&Array.isArray(contents.plugins)?contents.plugins.filter(item=>isRecord(item)&&item.name==='superpowers'):[];
   const entry=items.length===1?items[0]:undefined,source=entry?.source;
   const sha=isRecord(source)&&Object.keys(source).length===3&&source.source==='url'&&source.url===claudeSource?shaOf(source.sha):undefined;
-  if(!sha)throw new NativeBlocker('claude-catalog-no-entry','The official cached catalog does not advertise a usable Superpowers source and SHA.',{evidence:[catalog]});
+  if(!sha)throw new NativeBlocker('claude-catalog-no-entry',makeReason('reason.native.claudeMarketplaceSha'),{evidence:[catalog]});
   const version=versionOf(entry?.version);
   if(entry?.version!==undefined&&!version)
-   throw new NativeBlocker('claude-catalog-no-entry','The official Claude catalog declares an invalid Superpowers version.',{evidence:[catalog]});
+   throw new NativeBlocker('claude-catalog-no-entry',makeReason('reason.native.claudeMarketplaceVersion'),{evidence:[catalog]});
   target={sha,...(version?{version}:{})};
   market='ready';
  }else if(await statIfPresent(catalogRoot)){
-  throw new NativeBlocker('claude-catalog-no-entry','The Claude marketplace cache has no matching registration.',{evidence:[catalogRoot,known]});
+  throw new NativeBlocker('claude-catalog-no-entry',makeReason('reason.native.claudeMarketplaceMissing'),{evidence:[catalogRoot,known]});
  }
  const paths=[project,local,user,known,registry,catalog,packageRoot,configFile,backups,policy];
  return {market,target,installed,installedSha,installedVersion,declared,project,config,configFile,backups,known,registry,catalog,catalogRoot,packageRoot,paths};

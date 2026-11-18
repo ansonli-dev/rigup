@@ -1,3 +1,4 @@
+import {makeReason,reasonDetail,type WithReasonDetail} from '../i18n/reasons.js';
 import {runGlobalNpmInstall,queryGlobalNpmInstall,type GlobalNpmReceipt} from '../integrations/tools/global-npm.js';
 import {queryInstalledTool,queryToolPackage,type ToolInstallReceipt} from '../integrations/tools/installed-state.js';
 import {isRecord,readDurableRecord,saveDurable} from '../private-record.js';
@@ -19,7 +20,7 @@ import {targetPath} from './ownership.js';
 import {nativeWriterStateRoot} from '../integrations/host-setup/writer-state.js';
 export {nativeWriterStateRoot} from '../integrations/host-setup/writer-state.js';
 import type {PreviewData} from './preview.js';
-export interface OperationResult {globalReceipt?:GlobalNpmReceipt;status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
+export interface OperationResult extends WithReasonDetail {globalReceipt?:GlobalNpmReceipt;status:'done'|'failed'|'pending'|'unknown';message:string;receipt?:ToolInstallReceipt;nativeReceipt?:import('../types.js').NativeInitializationReceipt}
 export type WriterIdentity=ProcessIdentity;
 interface PendingOperation {authorizationRef:string;root:string;operation:SetupOperation;parametersDigest:string;stage:'prepared'|'dispatching'|'terminal';identity?:WriterIdentity;result?:OperationResult;installStage?:InstallStage}
 export interface OperationDependencies {stateRoot?:string;save?:(path:string,content:string)=>Promise<void>;signal?:AbortSignal;verifyInstallScope?:(target:string)=>Promise<void>;launch?:(operation:SetupOperation)=>Promise<OperationResult>}
@@ -241,7 +242,10 @@ async function runOperation(operation:SetupOperation,dependencies:OperationDepen
  }
  const finish=async(code:number|null,cancelled:boolean):Promise<OperationResult>=>{
   if(cancelled)return terminal({status:'unknown',message:'Operation cancelled or timed out. Resume the approved preview after confirming writer exit.'});
-  if(code!==0)return terminal({status:'failed',message:'External operation failed. Review the approved preview before retrying.'});
+  if(code!==0){
+   const reason=makeReason('reason.operation.failed');
+   return terminal({status:'failed',message:reason.fallback,[reasonDetail]:reason});
+  }
   const verified=await queryOperation(dispatched);
   return terminal(stage?await acceptInstall(dispatched,stage,verified):verified);
  };
