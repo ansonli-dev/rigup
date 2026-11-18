@@ -12,7 +12,7 @@ import {scanRepository} from '../src/analyzer/repository.js';
 import {applyRecordPath,loadManifest} from '../src/installer/baseline.js';
 import {atomicProjectWrite} from '../src/installer/manifest.js';
 import {readRuntimeFile,writeRuntimeFile} from '../src/runtime-private-env.js';
-import {windowsPowerShellExecutable} from '../src/integrations/tools/windows-process.mjs';
+import {windowsSystemEnvironment,windowsSystemPowerShell} from '../src/windows-system-env.mjs';
 
 test('ordinary writes record the mode a filesystem can retain before rename and resume without a rewrite',{
  skip:process.platform==='win32',
@@ -97,9 +97,10 @@ test('Windows locks down only the private credential file before publishing it',
  const exec=promisify(execFile);
  const icacls=join(process.env.SystemRoot!,'System32','icacls.exe');
  await exec(icacls,[directory,'/grant','*S-1-1-0:(OI)(CI)(RX)']);
- const acl=async(target:string)=>(await exec(windowsPowerShellExecutable(),['-NoProfile','-NonInteractive','-Command',
-  '(Get-Acl -LiteralPath $env:RIGUP_ACL_TEST).GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]).IdentityReference.Value'],
- {timeout:15000,env:{...process.env,RIGUP_ACL_TEST:target}})).stdout;
+ const acl=async(target:string)=>(await exec(windowsSystemPowerShell(),['-NoProfile','-NonInteractive','-Command',
+  '$path=$env:RIGUP_ACL_TEST; $acl=if ([IO.Directory]::Exists($path)) {[IO.Directory]::GetAccessControl($path)} else {[IO.File]::GetAccessControl($path)}; '+
+  '$acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]).IdentityReference.Value'],
+ {timeout:15000,env:{...windowsSystemEnvironment(),RIGUP_ACL_TEST:target}})).stdout;
  const before=await acl(directory);
  assert.match(before,/S-1-1-0/);
  await writeRuntimeFile(root,await readRuntimeFile(root),'SYNTHETIC_FIXTURE=held\n');

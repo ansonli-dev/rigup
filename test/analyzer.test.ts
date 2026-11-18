@@ -101,7 +101,7 @@ test('Markdown preserves line numbers without exposing multiline credentials',()
  assert.equal(result.content.split('\n').length,10);
 }));
 
-const officialOpenCodePlugin=await readFile(new URL('./fixtures/native/superpowers-opencode-v7.0.2.js',import.meta.url),'utf8');
+const officialOpenCodePlugin=(await readFile(new URL('./fixtures/native/superpowers-opencode-v7.0.2.js',import.meta.url),'utf8')).replaceAll('\r\n','\n');
 const powers=['brainstorming','writing-plans','executing-plans','verification-before-completion'];
 async function nativePut(path:string,text:string){await mkdir(dirname(path),{recursive:true});await writeFile(path,text);}
 async function nativeSkills(path:string,body='Preserve native gates.'){

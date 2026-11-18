@@ -7,7 +7,8 @@ import {delimiter,join,resolve} from 'node:path';
 import {PassThrough,type Readable,type Writable} from 'node:stream';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
-import {startWindowsProcess,resolveWindowsExecutable} from '../src/integrations/tools/windows-process.mjs';
+import {resolveWindowsExecutable} from '../src/integrations/tools/windows-process.mjs';
+import {startWindowsJob} from './windows-live-job.mjs';
 
 export class LiveProcessCleanupError extends Error {}
 
@@ -113,9 +114,10 @@ function windowsCommand(executable:string,args:string[],cwd:string,env:NodeJS.Pr
 }
 
 function startWindowsCommand(executable:string,args:string[],{cwd=process.cwd(),env=process.env}:Options,input:string):LiveProcess{
- const child=startWindowsProcess({executable,args,cwd,env});
+ const child=startWindowsJob({executable,args,cwd,env});
  const stdout=child.stdout!,stderr=child.stderr!;
- const completed=child.completed.then(({code,unavailable,interrupted})=>{
+ const completed=child.completed.then(({code,unavailable,remaining,interrupted})=>{
+  if(remaining)throw new LiveProcessCleanupError('Windows live probe reported lingering descendants or could not confirm process-tree exit');
   if(unavailable)throw Error('Windows live probe process unavailable');
   return interrupted?null:code;
  });
