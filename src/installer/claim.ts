@@ -7,6 +7,7 @@ import {READ_POLICY_VERSION} from '../analyzer/read-policy.js';
 import {scanInstallationSources} from '../analyzer/repository.js';
 import {DOCUMENT_POLICY_VERSION} from '../generator/document-policy.js';
 import {renderFixed,TEMPLATE_VERSION} from '../generator/render.js';
+import {equalTomlValue} from '../integrations/agents/config-edit.js';
 import {rigupLauncherTarget,rigupLauncherTemplate} from '../integrations/agents/rigup-config.js';
 import {prepareIntegrations,type PreparedAsset} from '../integrations/registry.js';
 import {essentialEnvironment,hasGitMetadata} from '../runtime-private-env.js';
@@ -43,7 +44,7 @@ export async function checkClaimSelection(root:string,plan:SetupPlan):Promise<vo
  }
 }
 
-export async function prepareClaimPlan(root:string,options:SetupOptions):Promise<SetupPlan>{
+export async function prepareClaimPlan(root:string,options:SetupOptions,configDigests?:Record<string,string>):Promise<SetupPlan>{
  options={...options,agents:[...new Set(options.agents)]};
  const setup=await inspectProjectSetup(root);
  if(setup.kind!=='claimable'||[...setup.agents].sort().join()!==[...options.agents].sort().join()){
@@ -56,16 +57,19 @@ export async function prepareClaimPlan(root:string,options:SetupOptions):Promise
  const integration=await prepareIntegrations(profile,inventoryOptions,undefined,{mode:'claim'});
  const candidates=await renderFixed(profile,inventoryOptions,integration,[],[]);
  const assets:PreparedAsset[]=[];
- const warnings:string[]=[];
+ const warnings=[...new Set(integration.warnings)];
  if(options.tools?.length)warnings.push('Review selected tools separately to verify their local installation.');
  const launcher=(await rigupLauncherTemplate()).replace('__RIGUP_VERSION__',setup.launcherVersion);
  for(const candidate of candidates){
   const state=await readFileState(root,candidate.target);
   const binary=candidate.encoding==='base64';
-  const content=ownedContent(state.bytes?.toString(binary?'base64':'utf8'),candidate.ownership);
+  const text=state.bytes?.toString(binary?'base64':'utf8');
+  const selector=candidate.ownership;
+  const content=ownedContent(text,selector);
   const marked=candidate.logicalId==='rigup:local-state-ignore'||candidate.logicalId.startsWith('entry:');
   const expected=candidate.target===rigupLauncherTarget?launcher:candidate.content;
-  const matches=content!==undefined&&(marked||(binary?content===expected:equalOwnedContent(candidate.ownership,content,expected)));
+  const matches=content!==undefined&&(marked||(binary?content===expected:equalOwnedContent(selector,content,expected)))&&
+   (selector.kind!=='toml-table'||equalTomlValue(text!,expected,selector.path));
   if(!matches){
    if(candidate.target===rigupLauncherTarget||candidate.logicalId.startsWith('entry:')||candidate.logicalId.startsWith('mcp:')&&candidate.source.ref==='rigup'){
     throw Error(candidate.target+': required Rigup configuration changed while preparing the claim');
@@ -76,7 +80,7 @@ export async function prepareClaimPlan(root:string,options:SetupOptions):Promise
   const source=marked||candidate.target===rigupLauncherTarget?{...candidate.source,digest:digest(content)}:candidate.source;
   assets.push({...candidate,source,content,...(candidate.mode===undefined?{}:{mode:state.mode})});
  }
- const claim={launcherVersion:setup.launcherVersion};
+ const claim={launcherVersion:setup.launcherVersion,...(configDigests?{configDigests}:{})};
  return {root,options,claim,fingerprint:profile.fingerprint,assets,operations:[],dispositions:[],warnings,requirements:[],
   versions:{rigup:RIGUP_VERSION,prompt:PROMPT_VERSION,template:TEMPLATE_VERSION,document:DOCUMENT_POLICY_VERSION,read:READ_POLICY_VERSION},
   ...(projectRules?{projectRules:'pending'}:{})};

@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {writeFileSync} from 'node:fs';
 import {chmod,mkdir,readFile,readdir,rm,stat,writeFile} from 'node:fs/promises';
 import {devNull} from 'node:os';
-import {join} from 'node:path';
+import {isAbsolute,join,relative} from 'node:path';
 import {test} from 'node:test';
 import {promisify} from 'node:util';
 import {runCli} from '../src/cli.js';
+import {signature} from '../src/generator/cache.js';
+import {prepareRigupResearchMcp} from '../src/integrations/agents/rigup-config.js';
+import {saveOpenSpecPreparation} from '../src/integrations/sdd/openspec-project.js';
+import type {OpenSpecPreparation} from '../src/integrations/sdd/openspec-setup.js';
 import {apply} from '../src/installer/apply.js';
 import {loadManifest,trustedBaseline} from '../src/installer/baseline.js';
 import {loadPreview} from '../src/installer/preview.js';
@@ -286,5 +291,207 @@ test('claim freshness and the original journal protect committed files',()=>proj
  await assert.rejects(()=>apply(id,{...deps,recover:true,hook:async point=>{if(point==='after-manifest')throw Error('simulated finalization interruption');}}),/simulated finalization interruption/);
  for(const report of [await apply(id,{...deps,recover:true}),await apply(id,deps)])assert.deepEqual(report.written,[]);
  assert.deepEqual(await tracked(root),before);
+ assert.equal(await git(root,'status','--porcelain'),'');
+}));
+
+const applyDeps=(workspace:string)=>({cacheRoot:join(workspace,'cache','previews'),stateRoot:join(workspace,'state')});
+async function claimPreview(workspace:string,root:string){
+ const {result}=await command(workspace,root,['update','--review'],3);
+ assert.equal(result.executable,true);
+ return result.previewId as string;
+}
+
+test('resuming a claim rechecks links to unmanaged files before publishing the manifest',()=>project(async workspace=>{
+ const original=await source(workspace);
+ await init(workspace,original);
+ await writeFile(join(original,'guide.md'),'# Team guide\n');
+ const entry=join(original,'CLAUDE.md');
+ await writeFile(entry,(await readFile(entry,'utf8')).replace('<!-- rigup:end -->','- [Team guide](guide.md)\n<!-- rigup:end -->'));
+ await commit(original);
+ const root=await clone(workspace,original);
+ const id=await claimPreview(workspace,root);
+ const deps=applyDeps(workspace);
+ await assert.rejects(()=>apply(id,{...deps,hook:async point=>{
+  if(point==='before-manifest')throw Error('stop before publish');
+ }}),/stop before publish/);
+ await rm(join(root,'guide.md'));
+ await assert.rejects(()=>apply(id,{...deps,recover:true}),/navigation link unavailable: guide\.md/);
+ assert.equal(await loadManifest(root),undefined);
+ await writeFile(join(root,'guide.md'),'# Team guide\n');
+ assert.deepEqual((await apply(id,{...deps,recover:true})).written,[]);
+ assert.equal(await git(root,'status','--porcelain'),'');
+}));
+
+test('missing external custom sources leave a warning while missing required outputs block a claim',()=>project(async workspace=>{
+ const original=await source(workspace);
+ const skill=join(workspace,'external-skill');
+ const template=join(workspace,'external-template.md');
+ const skillNote=join(workspace,'skill-note.md');
+ const skillReference='.claude/skills/claim-external/references/note.md';
+ await mkdir(skill);
+ await writeFile(join(skill,'SKILL.md'),'---\nname: claim-external\ndescription: Fixture skill\n---\nCanary\n');
+ await writeFile(template,'# Optional source\n');
+ await writeFile(skillNote,'# Optional skill note\n');
+ await mkdir(join(original,'.rigup'));
+ await writeFile(join(original,'.rigup','config.yaml'),JSON.stringify({agents:['claude'],
+  customSkills:[{source:skill}],templates:[{source:template,target:'docs/rigup/extra.md'},{source:skillNote,target:skillReference}],
+ }));
+ await init(workspace,original);
+ await commit(original);
+ const root=await clone(workspace,original);
+ const before=await tracked(root);
+ await rm(skill,{recursive:true});
+ await rm(template);
+ const candidate=await command(workspace,root,['update','--review'],3);
+ assert.equal(candidate.result.executable,true);
+ for(const path of [skill,template,skillReference])assert.ok(candidate.result.warnings.some((warning:string)=>warning.includes(path)),path);
+ const target=join(root,'docs','rigup','extra.md');
+ const bytes=await readFile(target);
+ await rm(target);
+ const blocked=await command(workspace,root,['update','--review'],1);
+ assert.equal(blocked.result.executable,false);
+ assert.match(blocked.result.blockers.join('\n'),/navigation link unavailable: docs\/rigup\/extra\.md/);
+ assert.equal(await loadManifest(root),undefined);
+ await writeFile(target,bytes);
+ const report=await apply(candidate.result.previewId,applyDeps(workspace));
+ assert.deepEqual(report.written,[]);
+ const manifest=await loadManifest(root);
+ assert.ok(manifest?.assets.some(asset=>asset.logicalId==='mcp:claude:rigup'));
+ assert.equal(manifest?.assets.some(asset=>asset.target==='docs/rigup/extra.md'||asset.target===skillReference||asset.logicalId.startsWith('skill:')),false);
+ assert.deepEqual(await tracked(root),before);
+}));
+
+test('a launcher string in an unrelated OMP service URL does not imply a Rigup command',()=>project(async workspace=>{
+ const original=await source(workspace);
+ await init(workspace,original);
+ await mkdir(join(original,'.omp'));
+ const userCommand={mcpServers:{rigup:{type:'http',url:'https://example.invalid/.rigup/rigup-mcp.mjs'}}};
+ await writeFile(join(original,'.omp','mcp.json'),JSON.stringify(userCommand));
+ await commit(original);
+ const root=await clone(workspace,original);
+ const id=await claimPreview(workspace,root);
+ const data=await loadPreview(id,applyDeps(workspace).cacheRoot);
+ assert.deepEqual(data.preview.claim?.agents,['claude']);
+ assert.ok(data.plan.assets.every(asset=>asset.target!=='.omp/mcp.json'));
+ const rigup=JSON.parse((await prepareRigupResearchMcp(root,'omp')).content);
+ rigup.command='different-node';
+ rigup.args[rigup.args.length-1]='claude';
+ await writeFile(join(root,'.omp','mcp.json'),JSON.stringify({mcpServers:{rigup}}));
+ const broken=await command(workspace,root,['update','--review'],3);
+ assert.equal(broken.result.previewId,undefined);
+ assert.match(broken.result.pending.join('\n'),/\.omp\/mcp\.json/);
+}));
+
+test('claim approval rejects edits after option resolution for config and profile inputs',()=>project(async workspace=>{
+ const original=await source(workspace);
+ await init(workspace,original);
+ await commit(original);
+ const root=await clone(workspace,original);
+ const projectConfig=join(root,'.rigup','config.yaml');
+ for(const mode of ['config','profile']){
+  const edited=mode==='config'?projectConfig:join(workspace,'profile.yaml');
+  await writeFile(projectConfig,'agents: [claude]\n');
+  await writeFile(edited,'agents: [claude]\nprojectRules: false\n');
+  const args=['update','--review','--language','en',...(mode==='profile'?['--profile',edited]:[])];
+  let output='',changed=false;
+  const exit=await runCli([...args,'--json'],{
+   cwd:root,isTTY:false,write:text=>output+=text,services:cliServices(workspace),
+   writeError:text=>{
+    if(changed||!text.startsWith('update: '))return;
+    writeFileSync(edited,'agents: [claude]\nprojectRules: true\n');
+    changed=true;
+   },
+  });
+  assert.equal(changed,true);
+  assert.equal(exit,2,output);
+  const report=JSON.parse(output);
+  assert.equal(report.previewId,undefined);
+  assert.match(report.error,/config\.yaml|profile\.yaml/);
+  const next=await command(workspace,root,args,3);
+  const approved=await loadPreview(next.result.previewId,applyDeps(workspace).cacheRoot);
+  assert.equal(approved.plan.options.projectRules,true);
+ }
+}));
+
+test('claim leaves a customized Codex service with nested env outside the adopted inventory',()=>project(async workspace=>{
+ const original=await source(workspace);
+ await mkdir(join(original,'.rigup'));
+ await writeFile(join(original,'.rigup','config.yaml'),JSON.stringify({agents:['codex'],
+  mcp:[{id:'custom',url:'https://example.invalid/mcp'}],
+ }));
+ await init(workspace,original,'codex');
+ const config=join(original,'.codex','config.toml');
+ await writeFile(config,(await readFile(config,'utf8'))+'\n[mcp_servers.custom.env]\nFIXTURE = "override"\n');
+ await commit(original);
+ const root=await clone(workspace,original);
+ const before=await tracked(root);
+ const review=await command(workspace,root,['update','--review'],3);
+ assert.equal(review.result.executable,true);
+ assert.match(review.result.warnings.join('\n'),/\.codex\/config\.toml/);
+ const report=await apply(review.result.previewId,applyDeps(workspace));
+ assert.deepEqual(report.written,[]);
+ const manifest=await loadManifest(root);
+ assert.ok(manifest?.assets.some(asset=>asset.logicalId==='mcp:codex:rigup'));
+ assert.ok(!manifest?.assets.some(asset=>asset.logicalId==='mcp:codex:custom'));
+ assert.deepEqual(await tracked(root),before);
+}));
+
+test('a saved claim reports the original OpenSpec resume command and waits',()=>project(async workspace=>{
+ const original=await source(workspace);
+ await init(workspace,original);
+ await commit(original);
+ const root=await clone(workspace,original);
+ const id=await claimPreview(workspace,root);
+ const {stateRoot}=applyDeps(workspace);
+ const approval:OpenSpecPreparation={
+  kind:'existing',scope:'global',root,agents:['claude'],needsRoot:true,needsEntries:[],
+  cliIdentity:'fixture',cliVersion:'1.16.0',
+ };
+ const record={version:1 as const,root,approval,approvalDigest:signature(approval),complete:false};
+ await saveOpenSpecPreparation(record,stateRoot);
+ const blockedPreview=await command(workspace,root,['update','--review'],3);
+ const blockedApply=await command(workspace,root,['update','--apply',id],3);
+ assert.match(blockedApply.result.nextCommand,/--install-scope global --resume$/);
+ assert.equal(blockedApply.result.nextCommand,blockedPreview.result.nextCommand);
+ assert.match(blockedApply.result.pending.join('\n'),/Resume the original OpenSpec preparation/);
+ assert.deepEqual(blockedApply.result.written,[]);
+ assert.equal(await loadManifest(root),undefined);
+ assert.ok(!(await readdir(join(root,'.rigup'))).includes('baseline'));
+ await saveOpenSpecPreparation({...record,complete:true},stateRoot);
+ assert.deepEqual((await command(workspace,root,['update','--apply',id],0)).result.written,[]);
+}));
+
+test('a hard interruption during claim publication leaves its manifest stage ignored',()=>project(async workspace=>{
+ const original=await source(workspace);
+ await init(workspace,original);
+ await commit(original);
+ const root=await clone(workspace,original);
+ const id=await claimPreview(workspace,root);
+ const deps=applyDeps(workspace);
+ const script=[
+  "import fs from 'node:fs/promises';",
+  "import {writeSync} from 'node:fs';",
+  "import {syncBuiltinESMExports} from 'node:module';",
+  'const rename=fs.rename;',
+  'fs.rename=async (src,dst)=>{',
+  ' if(dst==='+JSON.stringify(join(root,'.rigup','manifest.json'))+'){writeSync(1,src);process.kill(process.pid,"SIGKILL");}',
+  ' return rename(src,dst);',
+  '};',
+  'syncBuiltinESMExports();',
+  'const {apply}=await import('+JSON.stringify(new URL('../src/installer/apply.ts',import.meta.url).href)+');',
+  'await apply('+JSON.stringify(id)+','+JSON.stringify(deps)+');',
+ ].join('\n');
+ let stage='';
+ await assert.rejects(()=>exec(process.execPath,['--import','tsx','--input-type=module','-e',script]),error=>{
+  const stopped=error as {signal?:string;code?:number;stdout?:string};
+  stage=stopped.stdout??'';
+  return stage.length>0&&(process.platform==='win32'?stopped.code===1:stopped.signal==='SIGKILL');
+ });
+ assert.equal(await loadManifest(root),undefined);
+ assert.equal(await git(root,'status','--porcelain'),'');
+ const stagedIn=relative(join(root,'.rigup','baseline'),stage);
+ assert.ok(!isAbsolute(stagedIn)&&!stagedIn.startsWith('..'));
+ assert.ok((await stat(stage)).isFile());
+ assert.deepEqual((await apply(id,{...deps,recover:true})).written,[]);
  assert.equal(await git(root,'status','--porcelain'),'');
 }));

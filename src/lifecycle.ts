@@ -56,7 +56,7 @@ async function readRun(path:string,root:string,consent:string):Promise<Run|undef
  if(run.researchTokens!==undefined&&(!Number.isSafeInteger(run.researchTokens)||run.researchTokens<1))throw Error('Durable research token limit invalid; reconciliation required');
  return run;
 }
-export async function executeProjectClaim(root:string,options:SetupOptions,flags:Pick<LifecycleFlags,'dryRun'|'resume'>,
+export async function executeProjectClaim(root:string,options:SetupOptions,configDigests:Record<string,string>,flags:Pick<LifecycleFlags,'dryRun'|'resume'>,
  write:(text:string)=>void,services:LifecycleServices):Promise<number>{
  const lock=await acquireLock(root,{stateRoot:services.stateRoot,recover:flags.resume});
  try{
@@ -71,7 +71,7 @@ export async function executeProjectClaim(root:string,options:SetupOptions,flags
   await assertNoUnknownWriters(root,lock.stateRoot);
   if(services.signal?.aborted)return 130;
   const cacheRoot=join(services.cacheRoot??join(homedir(),'.cache','rigup'),'previews');
-  const result=await preview(await prepareClaimPlan(root,options),[],{cacheRoot,stateRoot:lock.stateRoot});
+  const result=await preview(await prepareClaimPlan(root,options,configDigests),[],{cacheRoot,stateRoot:lock.stateRoot});
   const nextCommand=result.executable&&!flags.dryRun?'rigup update '+quote(root)+' --apply '+result.previewId:null;
   if(services.presentation)await services.presentation.preview(await loadPreview(result.previewId,cacheRoot));
   else write(t('lifecycle.preview',{id:result.previewId})+'\n');
@@ -160,7 +160,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    display?.applying(interrupted);
    const installed=await apply(interrupted,{cacheRoot:previews,stateRoot:lock.stateRoot,lock,recover:true,signal:services.signal,onProgress:emit,runChecks:services.runChecks,onProviderImport:services.onProviderImport});
    services.report?.({phase:'apply',installStatus:installed.status,...installed});
-   if(installed.nextCommand)notice((installed.researchNextStep??t('lifecycle.rulesPending'))+'\n'+installed.nextCommand+'\n');
+   if(installed.nextCommand)notice((installed.pending?.[0]??installed.researchNextStep??t('lifecycle.rulesPending'))+'\n'+installed.nextCommand+'\n');
    notice(t('lifecycle.resumed',{status:t(`status.${installed.status}`)})+'\n');
    await adviseCompletedApply(installed);
    return installed.exitCode;

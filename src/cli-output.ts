@@ -174,6 +174,7 @@ export function createCliOutput(options:{
     if(verbose||!state.details)for(const change of changes)write('  '+t(`preview.action.${change.action}`)+' '+terminalText(change.target)+'\n');
     for(const operation of data.preview.operations)write('  '+terminalText(operationDetails(operation))+'\n');
     if(data.preview.executable&&!data.preview.claim)write(t('preview.applyMetadata')+'\n');
+    if(data.preview.claim&&!verbose)for(const warning of data.preview.warnings)write(terminalText(warning)+'\n');
     const detailNotice=!state.details?t('preview.detailsUnavailable'):
      verbose?t('preview.details',{path:terminalText(state.details)}):t('preview.detailHint');
     write(detailNotice+'\n');
@@ -265,7 +266,7 @@ export function createCliOutput(options:{
    if(install?.runtimeSetup?.template.state==='written')write(t('result.envUpdated')+'\n');
    for(const operation of install?.operations??[])if(operation.status==='done'&&operation.globalReceipt)write(terminalText(operation.message)+'\n');
    if(install?.operations.some(operation=>operation.status==='done'))write(t('result.operationsVerified')+'\n');
-   if(!complete)write(t('result.installChangesPossible')+'\n');
+   if(!complete&&!state.data?.plan.claim)write(t('result.installChangesPossible')+'\n');
   }
   if(state.restoredPreview&&!state.applyId)write(t('result.installChangesPossible')+'\n');
   await writeReload();
@@ -277,7 +278,9 @@ export function createCliOutput(options:{
   const researchNext=report.phase==='research'&&report.noChanges===true&&report.projectRules==='pending'&&typeof report.researchNextStep==='string'
    ?t('lifecycle.rulesNext',{agentStep:t('cli.openAgent')}):undefined;
   let next:string|undefined,nextDetail:ReasonInput|undefined;
-  if(state.applyId&&!complete&&await interruptedApplyId(root,stateRoot??defaultStateRoot()).catch(()=>undefined)===state.applyId){
+  if(install?.pending?.length&&state.data?.plan.claim&&typeof report.nextCommand==='string'){
+   next=report.nextCommand;
+  }else if(state.applyId&&!complete&&await interruptedApplyId(root,stateRoot??defaultStateRoot()).catch(()=>undefined)===state.applyId){
    next='rigup update '+quoteShell(root)+' --resume --review';
   }else if(install&&(applyIssue||toolWait)){
    next='rigup doctor '+quoteShell(root);

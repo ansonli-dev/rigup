@@ -22,18 +22,22 @@ function configError(code:ReasonCode,params?:ReasonParams,fallback?:string,file?
 }
 const commandDefaults=(command:CommandSpec):CommandSpec=>({...command,cwd:command.cwd??'.',envRefs:command.envRefs??[]});
 
-async function readConfig(path:string,required=false,onWarning?:(message:string)=>void,file=path):Promise<Record<string,unknown>|undefined> {
-  let source: string;
-  try { source = await readFile(path, 'utf8'); }
+type ConfigRead=(path:string,bytes:Buffer|undefined)=>void;
+
+async function readConfig(path:string,required=false,onWarning?:(message:string)=>void,file=path,onRead?:ConfigRead):Promise<Record<string,unknown>|undefined> {
+  let source: Buffer;
+  try { source = await readFile(path); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       if (required) throw configError('reason.config.profileMissing',{file},'profile: file not found');
+      onRead?.(path,undefined);
       return;
     }
     throw error;
   }
-  let value:unknown;try{value=parse(source);}catch{throw configError('reason.config.yaml',undefined,'config: invalid YAML syntax',file);}
+  let value:unknown;try{value=parse(source.toString('utf8'));}catch{throw configError('reason.config.yaml',undefined,'config: invalid YAML syntax',file);}
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw configError('reason.config.mapping',undefined,'config: expected mapping',file);
+  onRead?.(path,source);
   return Object.fromEntries(Object.entries(value).filter(([key])=>{
    if(optionKeys.has(key))return true;
    const field=/^[\w.-]{1,80}$/.test(key)?key:'unrecognized field';
@@ -42,8 +46,8 @@ async function readConfig(path:string,required=false,onWarning?:(message:string)
   }));
 }
 
-export function readProjectConfig(root:string,onWarning?:(message:string)=>void):Promise<Record<string,unknown>|undefined>{
- return readConfig(join(root,configPath),false,onWarning,configPath);
+export function readProjectConfig(root:string,onWarning?:(message:string)=>void,onRead?:ConfigRead):Promise<Record<string,unknown>|undefined>{
+ return readConfig(join(root,configPath),false,onWarning,configPath,onRead);
 }
 
 export function normalizeDocumentLanguage(value: unknown,file?:string): string {
@@ -206,11 +210,11 @@ export function validateOptions(value: Record<string, unknown>,file?:string): vo
 
 export type SetupOverrides=Partial<Omit<SetupOptions,'sdd'>>&{sdd?:SetupOptions['sdd']|'none'};
 
-export async function loadOptions(root: string, overrides: SetupOverrides, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions;project?:Record<string,unknown>;onSelections?:(selections:{agents:boolean;sdd:boolean})=>void;onWarning?:(message:string)=>void}={}): Promise<SetupOptions> {
-  const project = approvedOptions ? {...approvedOptions} : defaults.project??await readProjectConfig(root,defaults.onWarning)??{};
+export async function loadOptions(root: string, overrides: SetupOverrides, approvedOptions?: SetupOptions,defaults:{projectRules?:boolean;fallback?:SetupOptions;project?:Record<string,unknown>;onSelections?:(selections:{agents:boolean;sdd:boolean})=>void;onWarning?:(message:string)=>void;onConfigRead?:ConfigRead}={}): Promise<SetupOptions> {
+  const project = approvedOptions ? {...approvedOptions} : defaults.project??await readProjectConfig(root,defaults.onWarning,defaults.onConfigRead)??{};
   validateOptions(project,approvedOptions?undefined:configPath); validateOptions(overrides);
   const profilePath = approvedOptions ? undefined : overrides.profile ?? project.profile ?? defaults.fallback?.profile;
-  const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath),true,defaults.onWarning,profilePath)??{} : {};
+  const profile = typeof profilePath === 'string' ? await readConfig(resolve(root,profilePath),true,defaults.onWarning,profilePath,defaults.onConfigRead)??{} : {};
   validateOptions(profile,typeof profilePath==='string'?profilePath:undefined);
   const fallback:Partial<SetupOptions>=approvedOptions?{}:defaults.fallback??{};
   const layers=[fallback,profile,project,overrides];

@@ -1,6 +1,6 @@
 // Native clients may launch stdio from a repository subdirectory. Resolve the
 // nearest host configuration, then load the project-owned Node entry in place.
-const projectEntry=`
+export const projectEntry=`
 const {existsSync,realpathSync}=require('node:fs');
 const {dirname,join}=require('node:path');
 const {pathToFileURL}=require('node:url');

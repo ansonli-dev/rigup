@@ -15,7 +15,7 @@ import {agents,prepareCustomerMcp} from './tools/customer-mcp.js';
 import {projectMcpArgs} from './tools/project-mcp-entry.js';
 import {prepareRigupResearchMcp,rigupLauncherTarget,rigupLauncherTemplate} from './agents/rigup-config.js';
 import {collectCustomSkill} from './custom-skills.js';
-import {renderCustomerTemplate} from './custom-templates.js';
+import {renderCustomerTemplate,validateCustomerTemplateTarget} from './custom-templates.js';
 import {openwiki,openwikiInitializationGuide} from './tools/openwiki.js';
 import {codegraph} from './tools/codegraph.js';
 import type {Ownership} from '../managed-input.js';
@@ -38,6 +38,13 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
  const [quality,runtime]=await Promise.all([prepareQuality(profile,options),mode==='claim'?undefined:runtimeSetupSummary(profile.root,options)]);
  const assets:PreparedAsset[]=[];const warnings:string[]=[];const requirements:SetupRequirement[]=[];const bindings:SddBinding[]=[];const skillBindings:NonNullable<IntegrationPreparation['skillBindings']>=[];
  for(const agent of options.agents)if(!Object.hasOwn(agents,agent))throw Error('unknown agent');
+ const optionalSource=async<T>(source:string,read:()=>Promise<T>):Promise<T|undefined>=>{
+  try{return await read();}
+  catch(error){
+   if(mode!=='claim'||(error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+   warnings.push('Missing custom source: '+source+'. Its outputs remain outside the claimed inventory.');
+  }
+ };
  const push=(added:PreparedAsset[])=>{
   for(const asset of added) {
    const same=assets.find(a=>a.target === asset.target && JSON.stringify(a.ownership) === JSON.stringify(asset.ownership));
@@ -113,8 +120,13 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
   warnings.push(tool.id+': binary availability and native connection pending');
   if(selection.id==='openwiki')warnings.push(openwikiInitializationGuide);
  }
+ const missingSkillDirectories=new Set<string>();
  for(const skill of options.customSkills ?? []) for(const agent of options.agents) {
-  const copies=await collectCustomSkill(resolve(profile.root,skill.source),agents[agent].skillDirectory);
+  const copies=await optionalSource(skill.source,()=>collectCustomSkill(resolve(profile.root,skill.source),agents[agent].skillDirectory));
+  if(!copies){
+   missingSkillDirectories.add(agents[agent].skillDirectory);
+   continue;
+  }
   const entry=copies.find(a=>a.target.endsWith('/SKILL.md'))!;const name=entry.target.split('/').at(-2)!;
   const existing=mode==='claim'?[]:(profile.skillSources?.[agent]??[]).filter(s=>s.name===name||s.name.split(':').at(-1)===name);
   const resolved=existing.length?resolveSkillSource(name,existing.map(s=>({...s,name,nativeName:s.name}))):undefined;
@@ -129,7 +141,16 @@ export async function prepareIntegrations(profile:ProjectProfile,options:SetupOp
  }
  const context=options.projectConventions?.documentRoutes?.context ?? 'docs/rigup';
  const roots=[context,...assets.filter(a=>a.target.endsWith('/SKILL.md')).map(a=>a.target.slice(0,-9)+'/references')];
- for(const template of options.templates ?? []) push([await renderCustomerTemplate(profile.root,template,roots,'change-deliver:review')]);
+ for(const template of options.templates ?? []){
+  const missingRoot=[...missingSkillDirectories].find(root=>template.target.startsWith(root+'/'));
+  if(missingRoot&&!roots.some(root=>template.target.startsWith(root.replace(/\/$/,'')+'/'))){
+   validateCustomerTemplateTarget(template.target,[missingRoot]);
+   warnings.push('Could not verify the custom skill for '+template.target+'. Its template remains outside the claimed inventory.');
+   continue;
+  }
+  const asset=await optionalSource(template.source,()=>renderCustomerTemplate(profile.root,template,roots,'change-deliver:review'));
+  if(asset)push([asset]);
+ }
  if(options.projectConventions?.tracker) warnings.push('Tracker convention recorded; executable tracker adapter is pending');
  push(quality.assets);warnings.push(...quality.warnings);requirements.push(...quality.requirements);
  const customer=prepareCustomer(options);push(customer.assets);warnings.push(...customer.warnings);requirements.push(...customer.requirements);

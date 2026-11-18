@@ -32,10 +32,16 @@ export async function approvedInputs(root:string,plan:SetupPlan,managed:string[]
  const values=new Map<string,string>();
  if(plan.claim){
   await checkClaimSelection(root,plan);
-  values.set('.rigup/config.yaml',(await readFileState(root,'.rigup/config.yaml')).digest);
+  const config='.rigup/config.yaml';
+  values.set(config,(await readFileState(root,config)).digest);
   const sources=new Set(plan.assets.filter(asset=>['customer-template','customer-skill'].includes(asset.source.kind)).map(asset=>asset.source.ref));
-  if(plan.options.profile)sources.add(resolve(root,plan.options.profile));
+  const configDigests=Object.entries(plan.claim.configDigests??{});
+  for(const [path] of configDigests)if(path!==config)sources.add(path);
+  if(!plan.claim.configDigests&&plan.options.profile)sources.add(resolve(root,plan.options.profile));
   for(const source of sources)values.set(source,digest(await readFile(source).catch(()=>{throw Error('Cannot read approved input: '+source);})));
+  for(const [path,expected] of configDigests){
+   if(values.get(path)!==expected)throw Error('Claim configuration changed while resolving options: '+path);
+  }
   return {values:Object.fromEntries(values),checks:[]};
  }
  const authority=approvedAuthorityPaths(plan);
