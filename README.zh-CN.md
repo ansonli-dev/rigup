@@ -57,11 +57,13 @@ cd /path/to/project
 rigup init
 ```
 
-引导会预选探测到的宿主和工作流来源。核对预览中的路径后，可选择安装、保存预览或取消。首次交互默认安装基础接线和 Rigup MCP，生成项目规则可在已配置的 agent 中完成，也可配置 CLI provider 后执行 `rigup update --review --model MODEL_ID`。向导开始时可选中文或 English，也可以传入 `--language zh-CN` 或 `--language en`。界面和新生成的项目指引及工作流技能使用所选语言。 [研究入口与预算](docs/guides/usage.md#研究后端与预算)
+引导会预选探测到的宿主和工作流来源。预览按类别汇总改动，加 `--verbose` 可查看路径和详情。可以选择安装、保存预览或取消。保存后用终端显示的命令应用。首次交互默认安装基础接线和 Rigup MCP，生成项目规则可在已配置的 agent 中完成，也可配置 CLI provider 后执行 `rigup update --review --model MODEL_ID`。向导开始时可选中文或 English，也可以传入 `--language zh-CN` 或 `--language en`。界面和新生成的项目指引及工作流技能使用所选语言。 [研究入口与预算](docs/guides/usage.md#研究后端与预算)
 
 ```sh
 rigup init --agents codex --sdd none --tools none --defer-research --dry-run --json
 ```
+
+克隆已配置 Rigup 的仓库后，可运行 `rigup update --review` 核对识别出的 agent 配置。应用预览会在本机记录归属，保留检出的文件。运行 `rigup doctor` 可查看需要处理的项目。[应用与恢复](docs/guides/usage.md#应用与恢复)
 
 选中 OpenSpec 时，Rigup 检查 CLI、项目根和原生入口，优先复用已核验的项目 CLI，也可复用可用的 PATH 安装。缺少 CLI 时，可选项目或全局范围。项目范围使用 `.rigup/tools/openspec/`，便携版可用随附运行时安装。在项目内用 `rigup openspec <args>` 运行原生命令。Rigup 先暂存原生生成结果，再补齐项目文件。
 

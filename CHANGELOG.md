@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0 · 2026-11-19 · Development preview
+
+- Group setup previews by what changes and show the exact command to apply a saved preview. Doctor highlights items that need attention. Chinese diagnostics explain common option and setup errors, and native approval shows the commands and destinations needed for the decision. [Issue #85](https://github.com/ansonli-dev/rigup/issues/85)
+- Prepare Superpowers through an approved, version-pinned OMP registry install when Windows denies directory symlinks. Rigup verifies the Bun package integrity and loaded skill sources, and shows a safe summary when a native command fails. [Issue #84](https://github.com/ansonli-dev/rigup/issues/84)
+- Copy provider credentials into the ignored project environment only when an approved setup explicitly selects the CLI provider. Rigup reports the name of a credential it actually imports. [Issue #89](https://github.com/ansonli-dev/rigup/issues/89)
+- Recover an existing project's agent selections from the cloned Rigup MCP configuration. Applying the claim preview records local ownership and preserves checked-out project files. [Issue #90](https://github.com/ansonli-dev/rigup/issues/90)
+
+[npm package](https://www.npmjs.com/package/@ansonli.dev/rigup/v/0.11.0) · [Release downloads](https://github.com/ansonli-dev/rigup/releases/tag/v0.11.0)
+
 ## 0.10.0 · 2026-11-18 · Development preview
 
 - Reuse recognized native Superpowers installs in Claude Code and Oh My Pi. Review the official catalog commit or npm package integrity before preparing missing entries. Failed preparation reports the affected host, evidence, and manual recovery steps. [Issue #81](https://github.com/ansonli-dev/rigup/issues/81)
