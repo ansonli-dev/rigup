@@ -460,20 +460,21 @@ test('native_honors_configured_base_url_without_following_redirects',async()=>{
  const requests:string[]=[];
  const ambient=process.env.ANTHROPIC_CUSTOM_HEADERS;
  process.env.ANTHROPIC_CUSTOM_HEADERS='Authorization: Bearer unrelated\nX-Org-Token: fixture-token';
- const backend=nativeBackend({apiKey:'fixture',model:'fixture',baseURL:'https://example.test/anthropic',fetch:async(url,init)=>{
+ const backend=nativeBackend({apiKey:'fixture',model:'fixture',baseURL:'http://gateway.internal:8080/anthropic?api-version=2026-01&route=a&route=b',fetch:async(url,init)=>{
   requests.push(String(url));
   assert.equal(init?.redirect,'error');
   const headers=new Headers(init?.headers);
   assert.equal(headers.get('x-api-key'),'fixture');
   assert.equal(headers.has('authorization'),false);
   assert.equal(headers.has('x-org-token'),false);
-  if(String(url).endsWith('/count_tokens'))return Response.json({input_tokens:10});
+  if(new URL(String(url)).pathname.endsWith('/count_tokens'))return Response.json({input_tokens:10});
   return Response.json({id:'msg_fixture',type:'message',role:'assistant',model:'served-model',content:[{type:'text',text:'{"observations":[],"unknowns":[]}'}],stop_reason:'end_turn',usage:{input_tokens:10,output_tokens:5,cache_read_input_tokens:5}});
  }});
  const result=await backend.run(request,reader).finally(()=>{if(ambient===undefined)delete process.env.ANTHROPIC_CUSTOM_HEADERS;else process.env.ANTHROPIC_CUSTOM_HEADERS=ambient;});
  assert.equal(result.status,'complete');
  if(result.status==='complete')assert.deepEqual(result.value.usage,{calls:2,tokens:20});
- assert.deepEqual(requests,['https://example.test/anthropic/v1/messages/count_tokens','https://example.test/anthropic/v1/messages']);
+ assert.deepEqual(requests,['http://gateway.internal:8080/anthropic/v1/messages/count_tokens?api-version=2026-01&route=a&route=b',
+  'http://gateway.internal:8080/anthropic/v1/messages?api-version=2026-01&route=a&route=b']);
 });
 test('native_treats_malformed_generation_usage_as_unknown',async()=>{
  const recorded:unknown[]=[];

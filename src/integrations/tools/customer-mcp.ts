@@ -1,7 +1,7 @@
 import {realpath} from 'node:fs/promises';
-import {resolve,isAbsolute,relative} from 'node:path';
+import {resolve,isAbsolute,relative,sep} from 'node:path';
 import {stringify} from 'smol-toml';
-import type {SetupOptions,SetupRequirement} from '../../types.js';
+import type {Agent,SetupOptions,SetupRequirement} from '../../types.js';
 import type {Ownership} from '../../managed-input.js';
 import {agents} from '../agents/index.js';
 export {agents} from '../agents/index.js';
@@ -20,7 +20,7 @@ export function validateRemoteMcp(value:unknown,bearerTokenEnv:unknown,field='mc
  if(bearerTokenEnv!==undefined&&(!/^https:\/\/[^/?#@]+(?:[/?]|$)/i.test(value)||/[\s\\{}#\u0000-\u001f\u007f]/.test(value)))throw Error(field+'.url: bearerTokenEnv requires a literal HTTPS endpoint without a fragment');
 }
 
-export async function prepareCustomerMcp(root:string,input:NonNullable<SetupOptions['mcp']>[number],portable=false):Promise<{assets:McpAsset[];operations:never[];warnings:string[];requirements:SetupRequirement[]}>{
+export async function prepareCustomerMcp(root:string,input:NonNullable<SetupOptions['mcp']>[number]&{agents:Agent[]},portable=false):Promise<{assets:McpAsset[];operations:never[];warnings:string[];requirements:SetupRequirement[]}>{
  if(!/^[a-z0-9][a-z0-9._-]*$/.test(input.id)||['__proto__','constructor','prototype'].includes(input.id))throw Error('mcp.id: invalid');
  if(!input.agents.length||input.agents.some(a=>!Object.hasOwn(agents,a)))throw Error('mcp.agents: invalid');
  if((input.url===undefined)===(input.command===undefined))throw Error('mcp: choose command or URL');
@@ -39,7 +39,7 @@ export async function prepareCustomerMcp(root:string,input:NonNullable<SetupOpti
   const project=await realpath(root);
   cwd=await realpath(resolve(project,command.cwd));
   const rel=relative(project,cwd);
-  if(rel==='..'||rel.startsWith('../')||isAbsolute(rel))throw Error('mcp.command.cwd: directory escapes project');
+  if(rel==='..'||rel.startsWith('..'+sep)||isAbsolute(rel))throw Error('mcp.command.cwd: directory escapes project');
   if(portable)cwd=command.cwd;
   argumentReferences=command.args.flatMap(arg=>Array.from(arg.matchAll(variable),match=>match[1]));
   if(argumentReferences.some(name=>!refs.includes(name)))throw Error('mcp.command.args: declare each environment reference');

@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,readFile,rm,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
-import {openspecFixturePath,project} from './helpers.js';
+import {openspecFixturePath,project,testEnvironment} from './helpers.js';
 import {runCli} from '../src/cli.js';
 import {openResearchMcp} from '../src/research/mcp-workflow.js';
 import {quoteShell} from '../src/shell-command.js';
@@ -20,6 +20,35 @@ function cli(root:string,cacheRoot:string,stateRoot:string,writeError?:(text:str
  };
 }
 const empty={observations:[],unknowns:[]};
+
+test('MCP lists and calls tools after negotiation and ignores extra argument fields',t=>fixture(async(root,cacheRoot,stateRoot)=>{
+ const run=cli(root,cacheRoot,stateRoot);
+ const base=await run(['init','--agents','claude','--sdd','none','--defer-research','--review'],3);
+ await run(['update','--apply',base.previewId],0);
+ const home=join(cacheRoot,'home');await mkdir(home);
+ testEnvironment(t,{HOME:home,USERPROFILE:home});
+ const {Readable,Writable}=await import('node:stream');
+ const {serveResearchMcp}=await import('../src/research/mcp-stdio.js');
+ const requests=[
+  {id:1,method:'tools/list'},
+  {id:2,method:'initialize',params:{protocolVersion:'2025-11-25'}},
+  {id:3,method:'tools/list'},
+  {id:4,method:'tools/call',params:{name:'rigup_begin',arguments:{root,mode:'init',clientMetadata:{fixture:true}}}},
+  {id:5,method:'tools/call',params:{name:'rigup_begin',arguments:{root}}},
+  {id:6,method:'tools/call',params:{name:'rigup_begin',arguments:{root,mode:false}}},
+  {id:7,method:'tools/call',params:{name:'unknown_tool',arguments:{root,mode:'init'}}},
+ ];
+ const input=Readable.from(requests.map(request=>JSON.stringify({jsonrpc:'2.0',...request})+'\n'));
+ let text='';
+ const output=new Writable({write(chunk,_encoding,done){text+=String(chunk);done();}});
+ await serveResearchMcp(['--host','claude'],{cwd:root,input,output});
+ const replies=Object.fromEntries(text.trim().split('\n').map(line=>{const value=JSON.parse(line);return [value.id,value];}));
+ assert.equal(replies[1].error.code,-32002);
+ assert.equal(replies[2].result.protocolVersion,'2025-11-25');
+ assert.equal(replies[3].result.tools[0].inputSchema.additionalProperties,true);
+ assert.equal(replies[4].result.structuredContent.status,'planning');
+ for(const id of [5,6,7])assert.equal(replies[id].error.code,-32602);
+}));
 
 test('provider-free MCP setup, job replay and finish require independent apply',()=>fixture(async(root,cacheRoot,stateRoot)=>{
  await writeFile(join(root,'README.md'),'# Store\nRun the narrow check for your change.\n');

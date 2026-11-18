@@ -13,11 +13,10 @@ test('customer_template_renders_declared_scalars_and_keeps_consumer',()=>project
  const asset=await renderCustomerTemplate(root,{source:'review.tmpl',target:'docs/rigup/customer-review.md',values:{projectName:'Payments',count:2}},['docs/rigup'],'deliver-review');
  assert.equal(asset.content,'Review Payments with 2 reviewers.');assert.equal(asset.consumer,'deliver-review');assert.ok(asset.source.digest);
 }));
-test('template_expressions_missing_values_and_fixed_flows_are_rejected',()=>project(async root=>{
- await writeFile(join(root,'review.tmpl'),'{{run.exec}}');
- await assert.rejects(renderCustomerTemplate(root,{source:'review.tmpl',target:'docs/rigup/review.md'},['docs/rigup'],'review'),/placeholder|expression/);
- await writeFile(join(root,'review.tmpl'),'{{projectName}}');
- await assert.rejects(renderCustomerTemplate(root,{source:'review.tmpl',target:'docs/rigup/review.md'},['docs/rigup'],'review'),/projectName/);
+test('templates preserve external syntax and unknown placeholders while protecting fixed flows',()=>project(async root=>{
+ await writeFile(join(root,'review.tmpl'),'{{projectName}} {{count}} {{run.exec}} ${{ secrets.X }}');
+ const rendered=await renderCustomerTemplate(root,{source:'review.tmpl',target:'docs/rigup/review.md',values:{count:3}},['docs/rigup'],'review');
+ assert.equal(rendered.content,'{{projectName}} 3 {{run.exec}} ${{ secrets.X }}');
  await assert.rejects(renderCustomerTemplate(root,{source:'review.tmpl',target:'../escape.md',values:{projectName:'x'}},['docs/rigup'],'review'),/target/);
  await assert.rejects(renderCustomerTemplate(root,{source:'review.tmpl',target:'.agents/skills/change-deliver/SKILL.md',values:{projectName:'x'}},['.agents/skills'],'review'),/target|flow/);
 }));
@@ -54,6 +53,17 @@ test('custom_skill_copies_resources_without_execution',()=>project(async root=>{
  assert.equal(assets.find(asset=>asset.target.endsWith('scripts/check.sh')).content,'touch must-not-exist');
  await assert.rejects(access(join(root,'must-not-exist')));
 }));
+test('custom skills accept an explicitly linked directory and reject private key bytes',()=>project(async root=>project(async source=>{
+ const {symlink}=await import('node:fs/promises');
+ await writeFile(join(source,'SKILL.md'),'---\nname: linked-skill\ndescription: Use linked instructions.\n---\n');
+ const linked=join(root,'linked-skill');
+ await symlink(source,linked,process.platform==='win32'?'junction':'dir');
+ await writeFile(join(source,'sample.txt'),'Normal resource');
+ const assets=await collectCustomSkill(linked,'.agents/skills');
+ assert.equal(assets.find(asset=>asset.target.endsWith('sample.txt'))?.content,'Normal resource');
+ await writeFile(join(source,'sample.txt'),'-----BEGIN PRIVATE KEY-----\nfixture bytes\n-----END PRIVATE KEY-----\n');
+ await assert.rejects(collectCustomSkill(linked,'.agents/skills'),/private key material/);
+})));
 import {prepareCustomerMcp} from '../src/integrations/tools/customer-mcp.js';
 test('Codex MCP configuration starts the project command directly',()=>project(async root=>{
  const {parse}=await import('smol-toml');

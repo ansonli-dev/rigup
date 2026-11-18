@@ -1,6 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {onboard,promptNativeCredentials} from '../src/onboarding.js';
+import {project} from './helpers.js';
+import {prepareIntegrations} from '../src/integrations/registry.js';
+import {scanRepository} from '../src/analyzer/repository.js';
 
 test('back skips the agent selection supplied as an argument',async()=>{
  const answers=['b','4','3'];
@@ -19,6 +22,21 @@ test('returning to agents keeps the explicit tool choice and removes stale MCP b
  const result=await onboard({agents:['codex'],backend:'host',tools:[{id:'codegraph',install:true,initialize:true,agents:['codex']}],mcp:[{id:'example',agents:['codex'],url:'https://example.test/'}]},{write:()=>{},read:async()=>answers.shift()??null},{configure:false,provided:{tools:true}});
  assert.ok(result);assert.deepEqual(result.agents,['claude']);assert.deepEqual(result.tools?.[0].agents,['claude']);assert.deepEqual(result.mcp,[]);assert.equal(answers.length,0);
 });
+test('the automatic MCP target follows the final guided host selection',()=>project(async root=>{
+ const selected=await onboard({agents:['codex'],backend:'host',mcp:[
+  {id:'implicit',url:'https://mcp.example.test/'},
+  {id:'explicit',agents:['opencode','codex'],url:'https://mcp.example.test/'},
+ ]},{write:()=>{},read:async()=>null},{
+  configure:true,provided:{sdd:true,tools:true},ask:async()=>['claude','opencode'],
+ });
+ assert.ok(selected);
+ assert.deepEqual(selected.mcp?.[1]?.agents,['opencode']);
+ assert.equal(selected.mcp?.[0]?.agents,undefined);
+ const {assets}=await prepareIntegrations(await scanRepository(root,selected),selected);
+ assert.deepEqual(assets.filter(asset=>asset.source.kind==='customer-mcp').map(asset=>[asset.target,asset.source.ref]),[
+  ['.mcp.json','implicit'],['opencode.jsonc','implicit'],['opencode.jsonc','explicit'],
+ ]);
+}));
 
 test('clearing tools keeps an explicit empty selection for configuration',async()=>{
  const result=await onboard({agents:['codex'],backend:'host',tools:[{id:'openwiki',install:false,agents:['codex']}]},{write:()=>{},read:async()=> '3'},{configure:true,provided:{agents:true,sdd:true}});

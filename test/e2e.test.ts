@@ -61,6 +61,23 @@ test('configured_automation_runs_without_yes_or_no_prompt_switches_and_json_is_o
  await mkdir(root+'/.rigup');await writeFile(root+'/.rigup/config.yaml','agents: [codex]\nbackend: host\nmcp:\n  - id: docs\n    agents: [codex]\n    url: https://example.org/mcp\n');let stdout='',stderr='',reads=0;
  const code=await runCli(['init','--json'],{cwd:root,isTTY:true,write:s=>stdout+=s,writeError:s=>stderr+=s,read:async()=>{reads++;throw Error('JSON must not read stdin');},services:{cacheRoot:cache,stateRoot:state}});assert.equal(code,0);assert.equal(reads,0);const report=JSON.parse(stdout);assert.equal(report.installStatus,'complete');assert.equal(report.phase,'apply');assert.match(stderr,/Generate/);assert.ok((await readdir(root+'/.codex')).includes('config.toml'));
 }));
+test('CLI configure keeps handwritten keys and binds an implicit MCP to its selected host',()=>fixture(async(root,cache,state)=>{
+ await mkdir(join(root,'.rigup'));
+ const config=join(root,'.rigup','config.yaml');
+ const retained='teamWorkflow: keep-this # maintained by the team';
+ await writeFile(config,[retained,'agents: [codex]','backend: host','projectRules: false','mcp:','  - id: docs','    url: https://example.test/mcp',''].join('\n'));
+ let output='',diagnostic='';
+ const code=await runCli(['init','--configure','--agents','claude','--json'],{cwd:root,isTTY:false,write:text=>output+=text,
+  writeError:text=>diagnostic+=text,services:{cacheRoot:cache,stateRoot:state}});
+ assert.equal(code,0,output+diagnostic);
+ assert.equal(JSON.parse(output).installStatus,'complete');
+ assert.match(diagnostic,/teamWorkflow.*unknown/i);
+ const text=await readFile(config,'utf8');
+ assert.ok(text.includes(retained));
+ const {parse}=await import('yaml');
+ assert.equal(parse(text).mcp[0].agents,undefined);
+ assert.equal(JSON.parse(await readFile(join(root,'.mcp.json'),'utf8')).mcpServers.docs.url,'https://example.test/mcp');
+}));
 test('required_missing_credentials_are_pending_before_research_not_placeholder_success',()=>fixture(async(root,cache,state)=>{
  let out='',calls=0;const code=await runCli(['init','--agents','codex','--sdd','openspec','--backend','native','--json'],{cwd:root,isTTY:false,write:s=>out+=s,services:{cacheRoot:cache,stateRoot:state}});assert.equal(code,3);const report=JSON.parse(out);assert.ok(report.requiredInput.length);assert.deepEqual(await readdir(root),[]);
 }));

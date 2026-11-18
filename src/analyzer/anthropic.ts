@@ -7,12 +7,19 @@ import {researchPrompt} from './prompts.js';
 export function nativeBackend(options:ProviderOptions={apiKey:process.env.ANTHROPIC_API_KEY,model:process.env.ANTHROPIC_MODEL}):AnalysisBackend {
  return providerBackend<Anthropic.Message>(options,({apiKey,model},input)=>{
   const baseURL=options.baseURL??(process.env.ANTHROPIC_BASE_URL?.trim()||undefined);
+  const endpoint=baseURL===undefined?undefined:validateProviderBaseURL(baseURL);
+  const query=endpoint?.search;
+  if(endpoint)endpoint.search='';
   const fetcher=options.fetch??fetch;
   const client=new Anthropic({
-   apiKey,baseURL:baseURL===undefined?undefined:validateProviderBaseURL(baseURL).href,
+   apiKey,baseURL:endpoint?.href,
    // The SDK reads ANTHROPIC_CUSTOM_HEADERS from the caller's shell.
    // Send only the selected credential and the Messages protocol headers.
-   fetch:(input,init)=>fetcher(input,{...init,headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','content-type':'application/json'},redirect:'error'}),
+   fetch:(input,init)=>{
+    const url=query?new URL(input instanceof Request?input.url:String(input)):undefined;
+    if(url)url.search=url.search?url.search+'&'+query!.slice(1):query!;
+    return fetcher(url?.href??input,{...init,headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','content-type':'application/json'},redirect:'error'});
+   },
    maxRetries:0,timeout:60000,logLevel:'off',
   });
   const messages:Anthropic.MessageParam[]=[{role:'user',content:input}];

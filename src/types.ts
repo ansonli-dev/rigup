@@ -17,7 +17,7 @@ export interface SetupOptions {
   researchBudget?:{maxCalls:number;maxTokens:number};
   readBudget?: {maxFiles:number;maxBytes:number};
   templates?: {source:string;target:string;values?:Record<string,string|number|boolean>}[];
-  mcp?: {id:string;agents:Agent[];url?:string;command?:CommandSpec;envRefs?:string[];bearerTokenEnv?:string}[];
+  mcp?: {id:string;agents?:Agent[];url?:string;command?:CommandSpec;envRefs?:string[];bearerTokenEnv?:string}[];
 }
 export type StepResult<T> =
   | { status: 'complete'; value: T }

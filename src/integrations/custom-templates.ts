@@ -15,13 +15,11 @@ export async function renderCustomerTemplate(root:string,input:{source:string;ta
  const text=await readFile(sourcePath,'utf8');
  if(text.includes('\0')) throw new Error('template.source: binary templates unsupported');
  const values=input.values ?? {};
- const content=text.replace(/\{\{([\s\S]*?)\}\}/g,(_,name:string)=>{
-  if(!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) throw new Error('template.placeholder: expressions unsupported');
-  if(!Object.hasOwn(values,name)) throw new Error('template.values.'+name+': required');
+ const content=text.replace(/(?<!\$)\{\{([A-Za-z][A-Za-z0-9_]*)\}\}/g,(original,name:string)=>{
+  if(!Object.hasOwn(values,name))return original;
   const value=values[name];
   if(!['string','number','boolean'].includes(typeof value) || typeof value === 'number' && !Number.isFinite(value)) throw new Error('template.values.'+name+': scalar required');
   return String(value);
  });
- if(/\{\{|\}\}/.test(content)) throw new Error('template.placeholder: unresolved or malformed placeholder');
  return {logicalId:'template:'+target,target,content,ownership:{kind:'file'},consumer,source:{kind:'customer-template',ref:source,digest:digest(text+'\0'+JSON.stringify(Object.entries(values).sort()))}};
 }

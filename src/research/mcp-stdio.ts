@@ -9,10 +9,11 @@ import type {Agent} from '../types.js';
 const hosts:readonly string[]=['claude','codex','opencode','omp'];
 const versions=['2025-11-25','2025-06-18','2025-03-26','2024-11-05'];
 const maxMessageBytes=300_000;
-const string={type:'string'};
+type Argument={type:'string'|'object'|'array';enum?:readonly string[];items?:{type:'string'};maxItems?:number};
+const string={type:'string'} as const;
 const runId={runId:string};
-const submission={...runId,jobId:string,data:{type:'object'}};
-const schema=(properties:Record<string,unknown>,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
+const submission={...runId,jobId:string,data:{type:'object'} as const};
+const schema=(properties:Record<string,Argument>,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:true});
 const tools=[
  {name:'rigup_begin',description:'Start or resume research for the installed project. Use the returned job and its instructions.',inputSchema:schema({root:string,mode:{type:'string',enum:['init','update']},language:string},['root','mode'])},
  {name:'rigup_submit_plan',description:'Submit the analysis or plan JSON for the matching planning job. Cite paths and exact line ranges.',inputSchema:schema(submission)},
@@ -20,6 +21,12 @@ const tools=[
  {name:'rigup_submit_page',description:'Submit document, rulebook or independent acceptance JSON for the matching job.',inputSchema:schema(submission)},
  {name:'rigup_finish',description:'Get the preview and terminal handoff. Review any proposed removals before including their IDs. The tool only prepares a preview.',inputSchema:schema({...runId,retireIds:{type:'array',items:string,maxItems:128}},['runId'])},
 ];
+
+function validArgument(value:unknown,rule:Argument):boolean{
+ if(rule.type==='string')return typeof value==='string'&&(!rule.enum||rule.enum.includes(value));
+ if(rule.type==='object')return isRecord(value);
+ return Array.isArray(value)&&value.length<=(rule.maxItems??Infinity)&&value.every(item=>typeof item==='string');
+}
 
 async function* messages(input:Readable){
  let parts:Buffer[]=[],length=0,overLimit=false;
@@ -51,7 +58,7 @@ export async function serveResearchMcp(args:string[],io:{cwd:string;input:Readab
   if(!io.output.write(JSON.stringify({jsonrpc:'2.0',...value})+'\n'))await once(io.output,'drain');
  };
  const failure=(id:string|number|null,code:number,message:string)=>send({id,error:{code,message}});
- let negotiated=false,initialized=false;
+ let negotiated=false;
  for await(const line of messages(io.input)){
   if(line===undefined){await failure(null,-32600,'Message is too large');continue;}
   let request:unknown;
@@ -60,25 +67,27 @@ export async function serveResearchMcp(args:string[],io:{cwd:string;input:Readab
    await failure(null,-32600,'Invalid request');continue;
   }
   const {id,method,params}=request;
-  if(id===undefined){if(method==='notifications/initialized'&&negotiated)initialized=true;continue;}
+  if(id===undefined)continue;
   if(typeof id!=='string'&&typeof id!=='number'){await failure(null,-32600,'Invalid request ID');continue;}
   const respond=(result:unknown)=>send({id,result});
   if(method==='initialize'){
-   if(negotiated||!isRecord(params)||typeof params.protocolVersion!=='string'){await failure(id,-32602,'Invalid initialize request');continue;}
+   if(negotiated||!isRecord(params)||typeof params.protocolVersion!=='string'||!params.protocolVersion.trim()){await failure(id,-32602,'Invalid initialize request');continue;}
    negotiated=true;
    await respond({protocolVersion:versions.includes(params.protocolVersion)?params.protocolVersion:versions[0],capabilities:{tools:{}},serverInfo:{name:'rigup',version}});
   }else if(method==='ping')await respond({});
-  else if(!initialized)await failure(id,-32002,'Rigup MCP is not initialized');
+  else if(!negotiated)await failure(id,-32002,'Rigup MCP is not initialized');
   else if(method==='tools/list')await respond({tools});
   else if(method==='tools/call'){
    if(!isRecord(params)||typeof params.name!=='string'){await failure(id,-32602,'Invalid tool call');continue;}
    const tool=tools.find(tool=>tool.name===params.name);
    const args=params.arguments??{};
-   if(!tool||!isRecord(args)||Object.keys(args).some(key=>!Object.hasOwn(tool.inputSchema.properties,key))||tool.inputSchema.required.some(key=>!Object.hasOwn(args,key))){
+   if(!tool||!isRecord(args)||tool.inputSchema.required.some(key=>!Object.hasOwn(args,key))||
+      Object.entries(tool.inputSchema.properties).some(([key,rule])=>Object.hasOwn(args,key)&&!validArgument(args[key],rule))){
     await failure(id,-32602,'Invalid Rigup tool or arguments');continue;
    }
    try{
-    const result=await workflow.call(params.name,args);
+    const selected=Object.fromEntries(Object.keys(tool.inputSchema.properties).filter(key=>Object.hasOwn(args,key)).map(key=>[key,args[key]]));
+    const result=await workflow.call(params.name,selected);
     await respond({content:[{type:'text',text:JSON.stringify(result)}],structuredContent:result});
    }catch(error){
     const message=error instanceof Error?error.message.slice(0,750):'Rigup research failed';

@@ -3,7 +3,7 @@ import {project} from './helpers.js';import {writeFile,readFile} from 'node:fs/p
 import {prepareGitlab} from '../src/integrations/gitlab/ci.js';import {replaceOwned} from '../src/installer/ownership.js';import {parse} from 'yaml';
 import {execFile,spawnSync} from 'node:child_process';
 import {promisify} from 'node:util';
-import {resolve} from 'node:path';
+import {matchesGlob,resolve} from 'node:path';
 const exec=promisify(execFile);
 const testCommand={executable:'npm',args:['run','test'],cwd:'.',envRefs:[]};
 test('GitLab runs checks and OpenWiki through native job commands and reports',()=>project(async root=>{
@@ -14,6 +14,21 @@ test('GitLab runs checks and OpenWiki through native job commands and reports',(
  assert.deepEqual(jobs['rigup:checks'].artifacts.reports.junit,['reports/junit.xml']);
  assert.match(jobs['rigup:openwiki'].script.join('\n'),/openwiki --update --mode code --print/);
  assert.ok(result.assets.every(asset=>!asset.target.startsWith('.rigup/scripts/')));
+}));
+test('JUnit globs are limited to the declared report subdirectory',()=>project(async root=>{
+ const {validateOptions}=await import('../src/config.js');
+ const reportPaths=['reports/junit/**/*.xml','legacy-report.xml'];
+ validateOptions({quality:{gitlab:{checks:['test'],reportPaths}}});
+ const result=await prepareGitlab(root,{checks:['test'],reportPaths},[testCommand]);
+ const artifacts=parse(result.assets.find(asset=>asset.target==='.rigup/gitlab-ci.yml')!.content)['rigup:checks'].artifacts;
+ assert.deepEqual(artifacts.reports.junit,reportPaths);
+ assert.deepEqual(artifacts.paths,reportPaths);
+ const candidates=['reports/junit/fast.xml','reports/junit/api/slow.xml','reports/coverage/other.xml','src/result.xml','legacy-report.xml'];
+ assert.deepEqual(candidates.filter(path=>artifacts.reports.junit.some((pattern:string)=>matchesGlob(path,pattern))),
+  ['reports/junit/fast.xml','reports/junit/api/slow.xml','legacy-report.xml']);
+ for(const path of ['**/*.xml','.rigup/**/*.xml','some/.git/*.xml','../reports/**/*.xml','reports/${CI_JOB_NAME}/*.xml','reports/id_rsa.xml','reports/junit/**/*.json']){
+  assert.throws(()=>validateOptions({quality:{gitlab:{checks:['test'],reportPaths:[path]}}}),/reportPaths/);
+ }
 }));
 test('gitlab_include_preserves_existing_jobs_comments_and_includes',()=>project(async root=>{
  const original='# keep comment\ninclude:\n  - local: customer.yml\n\ncustomer-job:\n  script: echo customer\n';await writeFile(root+'/.gitlab-ci.yml',original);const result=await prepareGitlab(root,{checks:['test']},[testCommand]);const asset=result.assets.find(a=>a.target==='.gitlab-ci.yml')!;assert.ok(asset);const next=replaceOwned(original,asset.ownership,asset.content)!;assert.match(next,/# keep comment/);const config=parse(next);assert.equal(config['customer-job'].script,'echo customer');assert.deepEqual(config.include,[{local:'customer.yml'},{local:'.rigup/gitlab-ci.yml'}]);

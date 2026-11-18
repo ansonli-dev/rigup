@@ -43,6 +43,7 @@ const splitList=(value:string)=>value.split(',').flatMap(part=>part.trim().split
 
 async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof createCliOutput>):Promise<number>{
  const {state,presentation}=display;
+ const configWarning=(message:string)=>io.write(message+'\n');
  const promptWrite=io.isTTY&&io.outputIsTTY===false?io.writeError??io.write:io.write;
  const promptIO={write:promptWrite,read:io.read??(async()=>null)};
  const ask:Ask=io.ask??(question=>askLine(promptIO,question));
@@ -99,7 +100,7 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
   state.root=root;
   try{
    const selected=await loadOptions(root,{agents:values['--agents'].split(',') as SetupOptions['agents'],sdd:'superpowers'},
-    undefined,{fallback:manifest?.options});
+    undefined,{fallback:manifest?.options,onWarning:configWarning});
    const result=await nativeSetupInteraction(root,selected.agents,nativeInput,{write:io.write,report:services.report,
     ask,inspect:!!(values['--review']||values['--dry-run']),canPrompt:nativeTTY&&selected.executionPolicy?.mode!=='review'});
    return result==='back'?130:result;
@@ -201,7 +202,8 @@ async function runCliInternal(argv:string[],io:CliIO,display:ReturnType<typeof c
   const useInstalledDefaults=manifest&&(!hasProjectConfig||manifest.options?.projectRules&&!managedConfig);
   const fallback=manifest&&useInstalledDefaults?(manifest.options??{agents:[],backend:'host' as const}):undefined;
   let configured={agents:false,sdd:false};
-  options=await loadOptions(root,overrides,approvedOptions,{projectRules:newSetup||manifest?.options?.backend==='host'&&manifest.options.projectRules!==undefined,fallback,onSelections:value=>{configured=value;}});
+  options=await loadOptions(root,overrides,approvedOptions,{projectRules:newSetup||manifest?.options?.backend==='host'&&manifest.options.projectRules!==undefined,
+   fallback,onWarning:configWarning,onSelections:value=>{configured=value;}});
   if(manifest&&flags.configure&&!legacyResearch&&!savedApplyOptions&&options.projectRules===undefined)options.projectRules=true;
   const modernResearch=options.projectRules===true&&!legacyResearch&&!savedApplyOptions;
   const configuredTools=new Map(options.tools?.map(tool=>[tool.id,tool]));
