@@ -324,6 +324,13 @@ for(const version of [1,2])test(`OpenCode V${version} does not treat a no-op plu
  await mkdir(join(base,'skills/nested'));await import('node:fs/promises').then(fs=>fs.rename(join(base,'skills/brainstorming'),join(base,'skills/nested/brainstorming')));
  assert.ok(!(await scanRepository(root,nativeOptions('opencode'),{home})).nativeEntries?.opencode?.includes('brainstorming'));
 })));
+async function openCodeV080Identity(base:string,entry:string){
+ const {realpath}=await import('node:fs/promises');
+ const hash=(text:Buffer|string)=>createHash('sha256').update(text).digest('hex');
+ const manifest=join(base,'package.json');
+ return hash(JSON.stringify({root:await realpath(base),manifest:await realpath(manifest),
+  manifestDigest:hash(await readFile(manifest)),entry:await realpath(entry),entryDigest:hash(await readFile(entry)),id:'superpowers'}));
+}
 test('OpenCode recognizes the installed upstream loader through a local link',()=>project(root=>project(async home=>{
  const base=join(home,'.config/opencode/superpowers'),entry=join(base,'.opencode/plugins/superpowers.js');
  await nativePut(join(base,'package.json'),'{"name":"superpowers","main":".opencode/plugins/superpowers.js","repository":"https://github.com/obra/superpowers.git"}');
@@ -332,6 +339,8 @@ test('OpenCode recognizes the installed upstream loader through a local link',()
  await mkdir(join(home,'.config/opencode/plugins'));await symlink(entry,join(home,'.config/opencode/plugins/superpowers.js'));
  const profile=await scanRepository(root,nativeOptions('opencode'),{home});
  assert.equal(profile.nativeEntries?.opencode?.length,4);
+ const prior=await openCodeV080Identity(base,entry);
+ assert.ok(profile.skillSources?.opencode?.every(source=>source.sourceFingerprint===prior),'existing v0.8 approvals require the original direct-loader identity');
 })));
 test('OpenCode V2 recognizes an upstream npm package registered by its local directory',()=>project(root=>project(async home=>{
  const base=join(home,'.config/opencode/node_modules/superpowers');
@@ -343,7 +352,10 @@ test('OpenCode V2 recognizes an upstream npm package registered by its local dir
  await nativeSkills(join(base,'skills'));
  await nativePut(join(home,'.config/opencode/opencode.json'),JSON.stringify({plugins:[base]}));
  const options=nativeOptions('opencode');
- assert.equal((await scanRepository(root,options,{home})).nativeEntries?.opencode?.length,4);
+ const profile=await scanRepository(root,options,{home});
+ assert.equal(profile.nativeEntries?.opencode?.length,4);
+ assert.equal(profile.skillSources?.opencode?.[0].sourceFingerprint,
+  await openCodeV080Identity(base,join(base,'.opencode/plugins/superpowers.js')));
  await nativePut(join(root,'opencode.jsonc'),'{"plugins":["-superpowers"]}');
  assert.equal((await scanRepository(root,options,{home})).nativeEntries?.opencode?.length??0,0);
  await rm(join(root,'opencode.jsonc'));

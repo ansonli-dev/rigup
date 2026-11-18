@@ -192,16 +192,22 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
      const entryPath=await realpath(entry),entryName=relative(canonical,entryPath).replaceAll('\\','/');
      if(!observed&&!['index.js',openCodeRegistrationPath].includes(entryName)){unconfirmed();continue;}
      const entryText=await metadataText(entry,canonical);
-     let registrationDigest:string|undefined;
+     let fingerprintEntry=entryPath,entryDigest=digest(entryText),registrationDigest:string|undefined;
      if(!official&&!observed){
+      const loader=join(base,openCodeRegistrationPath);
       const registration=entryName===openCodeRegistrationPath?entryText:
-       openCodeEntryDigest(entryText)===openCodeDirectoryEntry?await metadataText(join(base,openCodeRegistrationPath),canonical):undefined;
+       openCodeEntryDigest(entryText)===openCodeDirectoryEntry?await metadataText(loader,canonical):undefined;
       if(!registration||!openCodeLocalLoaders.has(openCodeEntryDigest(registration))){unconfirmed();continue;}
-      registrationDigest=digest(registration);
+      if(entryName==='index.js'){
+       if(main===openCodeRegistrationPath){
+        // The audited wrapper forwards to the loader recorded in v0.8 approvals.
+        fingerprintEntry=await realpath(loader);entryDigest=digest(registration);
+       }else registrationDigest=digest(registration);
+      }
      }
      const id=observed?.id??'superpowers';
      const before=sources.length;
-     const skillRoot=join(base,'skills'),ctx:Context={origin:'plugin',bound:canonical,packageName:'superpowers',pathNames:v2,skillRoot,sourceFingerprint:digest(JSON.stringify({root:canonical,manifest:await realpath(manifestPath),manifestDigest:digest(manifestText),entry:entryPath,entryDigest:digest(entryText),registrationDigest,id}))};
+     const skillRoot=join(base,'skills'),ctx:Context={origin:'plugin',bound:canonical,packageName:'superpowers',pathNames:v2,skillRoot,sourceFingerprint:digest(JSON.stringify({root:canonical,manifest:await realpath(manifestPath),manifestDigest:digest(manifestText),entry:fingerprintEntry,entryDigest,id,registrationDigest}))};
      const skills=observed?.skills??(await list(skillRoot)).filter(name=>!name.startsWith('.')).map(name=>join(skillRoot,name,'SKILL.md'));
      for(const skill of skills)try{
       if(!isAbsolute(skill)||!inside(await realpath(skillRoot),await realpath(skill)))continue;
