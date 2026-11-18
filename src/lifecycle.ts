@@ -10,7 +10,7 @@ import {quoteShell as quote} from './shell-command.js';
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
-import type {SetupOptions,CheckKind,ProviderEnvImport,SetupPlan} from './types.js';
+import type {SetupOptions,CheckKind,ProviderEnvImport,SetupPlan,SetupRequirement} from './types.js';
 import type {AnalysisBackend,ResearchResult} from './analyzer/backend.js';
 import {scanRepository,repositoryReader} from './analyzer/repository.js';
 import {hostBackend} from './analyzer/host.js';
@@ -32,9 +32,10 @@ import {approvalInputChange,preview,loadPreview,restoredReviewMatches,type Previ
 import {sessionReloadNotice} from './installer/session.js';
 import {readTarget,absentDigest} from './installer/preview.js';
 import {digest} from './analyzer/evidence.js';
-import {apply,interruptedApplyId,interruptedInstallApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult} from './installer/apply.js';
+import {apply,interruptedApplyId,interruptedInstallApplyId,interruptedSeedApplyId,restoreInterruptedPreview,type CheckResult,type InstallReport} from './installer/apply.js';
 import {essentialEnvironment,runtimeEnvironment,runtimeSetupSummary} from './runtime-inputs.js';
 import {prepareProjectToolOperations} from './integrations/registry.js';
+import {nativePreparationCommand} from './integrations/host-setup/manual.js';
 import {inspectOpenSpecForSetup,interruptedOpenSpecPreparation,type OpenSpecRuntimeIdentity} from './integrations/sdd/openspec-setup.js';
 import {openspecPreparationCommand} from './integrations/sdd/openspec.js';
 import type {NpmView} from './integrations/tools/npm-resolution.js';
@@ -77,14 +78,14 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
  const handoff=async(result:Preview,previouslyApproved=false):Promise<3|130|undefined>=>{
   const choice=review?'save':previouslyApproved?'install':await services.confirmPreview?.(result)??'install';
   if(choice==='cancel'||services.signal?.aborted)return 130;
-  if(choice==='install'){
-   const reload=await sessionReloadNotice(root,flags.sessionsEnded);
-   if(reload)write(t('cli.restartHost')+'\n');
-   return;
-  }
+  if(choice==='install')return;
   const nextCommand='rigup update '+quote(root)+' --apply '+result.previewId+(flags.resume?' --resume':'');
   services.report?.({phase:'handoff',installStatus:'pending',...result,pending:['Apply the saved preview'],nextCommand});
   notice(t('cli.savedPreview')+'\n'+nextCommand+'\n');return 3;
+ };
+ const adviseCompletedApply=async(installed:InstallReport)=>{
+  if(!display&&installed.status==='complete'&&
+     await sessionReloadNotice(root,flags.sessionsEnded).catch(()=>undefined))write(t('cli.restartHost')+'\n');
  };
 
  try {
@@ -120,7 +121,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    const interrupted=await restoreInterruptedPreview(root,options,previews,lock.stateRoot);if(interrupted){
    const data=await loadPreview(interrupted,previews);
    const restored=data.preview;
-   await display?.preview(data);
+   await display?.preview(data,{livePreview:restored,restored:true});
    if(flags.deferResearch&&restored.projectRules!=='pending')throw Error('Interrupted preview belongs to full setup; resume without --defer-research');
    if(restored.projectRules==='pending'||(await loadManifest(root))?.projectRules==='pending')review=true;
    if(flags.dryRun){
@@ -134,6 +135,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    services.report?.({phase:'apply',installStatus:installed.status,...installed});
    if(installed.nextCommand)notice((installed.researchNextStep??t('lifecycle.rulesPending'))+'\n'+installed.nextCommand+'\n');
    notice(t('lifecycle.resumed',{status:t(`status.${installed.status}`)})+'\n');
+   await adviseCompletedApply(installed);
    return installed.exitCode;
   }}
   let openSpecRuntime:OpenSpecRuntimeIdentity|undefined;
@@ -150,7 +152,9 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
      const nextCommand=native.steps.length?native.steps.join(' && '):null;
      for(const problem of native.requirements)notice(t('openspec.prefix',{requirement:problem})+'\n');
      notice(t('openspec.setupRequired')+'\n'+(nextCommand?nextCommand+'\n':''));
-     services.report?.({phase:'preflight',installStatus:'pending',reason:'openspec-preparation',executable:false,pending:native.requirements,requiredInput:native.requirements,nextCommand});return 3;
+     services.report?.({phase:'preflight',installStatus:'pending',reason:'openspec-preparation',executable:false,pending:native.requirements,requiredInput:native.requirements,nextCommand});
+     if(native.steps.length)await display?.openSpecPending?.(native,options.agents);
+     return 3;
     }
     openSpecPending=native;
    }
@@ -176,10 +180,16 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const prepared=await prepareGeneration(profile,options,providerEnvImport);
   if(openSpecRuntime?.scope==='project')prepared.integration.openSpecProjectCli=true;
   const recovery=prepared.integration.requirements.find(requirement=>requirement.nextCommand);
+  const presentNativeGate=(requirement:SetupRequirement|undefined)=>{
+   if(requirement?.integrationId==='superpowers'&&requirement.kind==='sdd-binding'&&requirement.nextCommand){
+    display?.superpowersGate?.(requirement,requirement.nextCommand===nativePreparationCommand(root,options.agents));
+   }
+  };
   const nativeSetup=recovery?.nextCommand?{nativeSetupCommand:recovery.nextCommand,nativeRequirements:prepared.integration.requirements}:{};
   if(needsResearch&&!services.backend&&backendKind!=='host'&&recovery){
    emit({...active,status:'waiting',requiresUserAction:true,waiting:'native workflow setup',next:recovery.nextCommand});
    services.report?.({phase:'preflight',installStatus:'pending',pending:prepared.integration.requirements,nextCommand:recovery.nextCommand});
+   presentNativeGate(recovery);
    notice(t('lifecycle.blocked',{reason:recovery.reason})+'\n'+t('lifecycle.initialize')+'\n'+recovery.nextCommand+'\n');return 3;
   }
   if(needsResearch&&backendKind==='host'&&recovery)notice(t('lifecycle.initializeBeforeApply')+'\n'+recovery.nextCommand+'\n');
@@ -324,7 +334,7 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
    if(options.projectRules&&result.projectRules==='pending'){
     const message='Open the project in a selected agent and call rigup_begin, or configure a CLI provider and retry with --review.';
     services.report?.({...summary,phase:'research',installStatus:'pending',researchNextStep:message});
-    notice(t('lifecycle.rulesNext')+'\n');
+    notice(t('lifecycle.rulesNext',{agentStep:t('cli.openAgent')})+'\n');
     return 3;
    }
    services.report?.({...summary,phase:'preview',installStatus:'up-to-date',runtimeSetup:await runtimeSetupSummary(root,options,{configured:['*'],providerEnvImport})});
@@ -334,10 +344,12 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   const conflicts=result.items.filter(i=>i.action==='conflict');
   const failed=!result.executable&&(conflicts.length>0||!plan.requirements.length);
   const reviewCommand=conflicts.length?'rigup update '+quote(root)+' --review':undefined;
-  const nextCommand=reviewCommand??recovery?.nextCommand??plan.requirements.find(requirement=>requirement.nextCommand)?.nextCommand;
+  const followup=recovery??plan.requirements.find(requirement=>requirement.nextCommand);
+  const nextCommand=reviewCommand??followup?.nextCommand;
   const installStatus=conflicts.length?'conflict':failed?'failed':result.executable?'not-installed':'pending';
   services.report?.({phase:'preview',installStatus,...result,pending:plan.requirements,conflicts,nextCommand:nextCommand??null,...(failed?{error:result.blockers.join('\n')}:{})});
-  if(display)await display.preview(await loadPreview(result.previewId,previews));
+  if(!result.executable&&!failed)presentNativeGate(followup);
+  if(display)await display.preview(await loadPreview(result.previewId,previews),{livePreview:result});
   else notice(t('lifecycle.preview',{id:result.previewId})+'\n');
   for(const blocker of result.blockers)notice(t('lifecycle.blocked',{reason:blocker})+'\n');
   for(const requirement of plan.requirements)if(requirement.nextCommand)notice(t('lifecycle.initialize')+'\n'+requirement.nextCommand+'\n');
@@ -354,7 +366,9 @@ export async function executeLifecycle(root:string,options:SetupOptions,flags:Li
   services.report?.({phase:'apply',installStatus:installed.status,...installed});
   for(const warning of installed.warnings)notice(t('lifecycle.pendingNote',{warning})+'\n');
   if(installed.nextCommand)notice((installed.researchNextStep??t('cli.rulesAvailable'))+'\n'+installed.nextCommand+'\n');
-  notice(t('lifecycle.installSummary',{status:t(`status.${installed.status}`),count:installed.written.length,checks:installed.checks.map(c=>c.name+':'+t(`status.${c.status}`)).join(', ')})+'\n');return installed.exitCode;
+  notice(t('lifecycle.installSummary',{status:t(`status.${installed.status}`),count:installed.written.length,checks:installed.checks.map(c=>c.name+':'+t(`status.${c.status}`)).join(', ')})+'\n');
+  await adviseCompletedApply(installed);
+  return installed.exitCode;
  }catch(error){
   if(services.signal?.aborted){emit({...active,status:'waiting',waiting:'cancelled'});return 130;}
   if(error instanceof CodexTokenLimit&&researchResumeId){

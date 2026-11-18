@@ -223,9 +223,11 @@ export async function planOpenSpecPreparation(root:string,options:OpenSpecOption
 
 export function reportOpenSpecPending(setup:OpenSpecInspection,resumeCommand:string,write:(text:string)=>void,report?:(value:Record<string,unknown>)=>void){
  const steps=setup.steps.filter(step=>step!==resumeCommand);
- const nextCommand=steps.length?[...steps,resumeCommand].join(' && '):null;
+ const commands=[...steps,resumeCommand];
+ const nextCommand=steps.length?commands.join(' && '):null;
  report?.({phase:'preflight',installStatus:'pending',executable:false,pending:setup.requirements,requiredInput:setup.requirements,nextCommand,resumeCommand});
  write(t('openspec.pending')+'\n'+(nextCommand??resumeCommand)+'\n');
+ return commands;
 }
 
 type InstallApproval=Extract<OpenSpecPreparation,{kind:'install'}>;

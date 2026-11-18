@@ -11,5 +11,5 @@ export function openspecInitArgs(hosts:Agent[],version?:string){
  const scope=stable&&gte(stable,'2.1.0')?['--scope','project']:[];
  return ['init',...scope,'--tools',hosts.map(agent=>toolNames[agent]).join(',')||'none','--profile','core','--no-copilot-cloud'];
 }
-export const openspecPreparationCommand=(root:string,hosts:Agent[],scope:OpenSpecInstallScope='project')=>
- 'rigup init '+quoteShell(root)+' --agents '+quoteShellList(hosts)+' --sdd openspec --prepare-openspec --install-scope '+scope;
+export const openspecPreparationCommand=(project:string|undefined,hosts:Agent[],scope:OpenSpecInstallScope='project')=>
+ 'rigup init'+(project===undefined?'':' '+quoteShell(project))+' --agents '+quoteShellList(hosts)+' --sdd openspec --prepare-openspec --install-scope '+scope;
