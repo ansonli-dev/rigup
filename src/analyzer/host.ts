@@ -1,7 +1,6 @@
 import {privateDirectory,readCache,saveCache,signature,stable} from '../generator/cache.js';
 import {realpath,readFile,writeFile,lstat} from 'node:fs/promises';
 import {join,resolve,relative,isAbsolute,dirname} from 'node:path';
-import {assertPrivateAccess} from '../private-access.js';
 import {quoteShell} from '../shell-command.js';
 import {validateResearchRequest,validateResearch,selectResearchOutput,type AnalysisBackend} from './backend.js';
 import {READ_POLICY_VERSION} from './read-policy.js';
@@ -9,11 +8,6 @@ import {PROMPT_VERSION,researchPrompt,topicEvidencePrompt} from './prompts.js';
 import {stageContext,stageEvidence,dependencyLock,STAGE_EVIDENCE_POLICY} from './stage-context.js';
 function inside(root:string,path:string):boolean {const rel=relative(root,path);return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));}
 async function readHostRecord(path:string){
- if(process.platform==='win32'){
-  const stat=await lstat(path);
-  if(stat.isSymbolicLink()||!stat.isFile())throw Error('host record is not private');
-  await assertPrivateAccess(path,stat,'host record is not private');
- }
  return JSON.parse(await readFile(path,'utf8'));
 }
 export function hostBackend(options:{cacheRoot:string;responsePath?:string;requestPath?:string;omitDependencyLocks?:boolean;stageEvidence?:boolean;nativeEntryPaths?:readonly string[]}):AnalysisBackend {

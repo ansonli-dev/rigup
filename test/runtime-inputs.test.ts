@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile,execFileSync} from 'node:child_process';
-import {appendFile,chmod,link,lstat,mkdir,readdir,readFile,stat,symlink,writeFile} from 'node:fs/promises';
+import {appendFile,lstat,mkdir,readdir,readFile,stat,symlink,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {parseEnv,promisify} from 'node:util';
 import {runCli} from '../src/cli.js';
@@ -10,7 +10,6 @@ import {applyRuntimeInputs,runtimeEnvironment,runtimeSetupSummary} from '../src/
 import type {SetupOptions} from '../src/types.js';
 import {essentialEnvironment} from '../src/runtime-private-env.js';
 import {fixtureDiagnostic,fixtureError} from './fixture-diagnostics.js';
-import {assertPrivateAccess,assertSafeWindowsAncestors} from '../src/private-access.js';
 
 const local='RIGUP_TEST_SERVICE_TOKEN';
 const missing='RIGUP_TEST_SERVICE_URL';
@@ -23,11 +22,9 @@ async function pendingTemplateEvidence(root:string,template:unknown){
  const probes=[];
  const path=join(root,'.rigup/.env'),started=performance.now();
  try{
-  await assertSafeWindowsAncestors(path,'Runtime fixture ancestor probe');
   const info=await lstat(path).catch(error=>{if(error.code==='ENOENT')return undefined;throw error;});
-  if(info)await assertPrivateAccess(path,info,'Runtime fixture private-file probe');
-  probes.push({privateAccess:info?'passed':'file-not-created',elapsedMs:Math.round(performance.now()-started)});
- }catch(error){probes.push({privateAccess:'failed',elapsedMs:Math.round(performance.now()-started),error:fixtureError(error,[root])});}
+  probes.push({regularFile:info?.isFile()??false,elapsedMs:Math.round(performance.now()-started)});
+ }catch(error){probes.push({regularFile:'failed',elapsedMs:Math.round(performance.now()-started),error:fixtureError(error,[root])});}
  for(const args of [['rev-parse','--is-inside-work-tree'],['ls-files','--error-unmatch','--',':(icase,literal).rigup/.env'],['check-ignore','--quiet','--no-index','--','.rigup/.env','.rigup/.env.rigup-diagnostic.tmp']]){
   const started=performance.now();
   try{const result=await promisify(execFile)('git',['-C',root,...args],{env:essentialEnvironment(),timeout:5000,maxBuffer:4096});probes.push({args,elapsedMs:Math.round(performance.now()-started),code:0,stdout:result.stdout});}
@@ -150,7 +147,7 @@ test('unsafe private runtime files stay byte-identical and leave unrelated setup
  }
 }));
 
-for(const kind of ['tracked','symlink','hardlink','broad','negated'] as const){
+for(const kind of ['tracked','symlink','negated'] as const){
 test(`${kind} runtime inputs are not read or overwritten`,t=>project(async parent=>project(async root=>{
   await ignoredRuntime(root);git(root,'init');
   const path=join(root,'.rigup/.env'),secret='RUNTIME_VALUE="synthetic-unsafe-input"\n';
@@ -160,11 +157,6 @@ test(`${kind} runtime inputs are not read or overwritten`,t=>project(async paren
    catch(error){if(process.platform==='win32'&&(error as NodeJS.ErrnoException).code==='EPERM'){t.skip('Windows file symlink privilege is unavailable');return;}throw error;}
   }else{
    await writeFile(path,secret,{mode:0o600});
-   if(kind==='hardlink')await link(path,join(root,'linked'));
-   if(kind==='broad'){
-    if(process.platform==='win32')execFileSync(join(process.env.SystemRoot??'C:\\Windows','System32','icacls.exe'),[path,'/grant','*S-1-1-0:(R)']);
-    else await chmod(path,0o644);
-   }
    if(kind==='tracked')git(root,'add','-f','.rigup/.env');
    if(kind==='negated')await appendFile(join(root,'.rigup/.gitignore'),'!/.env\n');
   }

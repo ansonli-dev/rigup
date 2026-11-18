@@ -28,13 +28,14 @@ export async function trustedBaseline(root:string,asset:ManagedAsset):Promise<st
 }
 
 export interface SourceReview {scopes:string[];sources:{path:string;topic:string;topicId?:string;scope:string[]}[]}
-export interface Transaction {previewId:string;installId:string;status:'prepared'|'complete';files:Record<string,{before:string;after:string;beforeMode?:number;afterMode?:number}>;checks?:CheckResult[];seedProgress?:Record<string,'started'|'written'>;receipts:NonNullable<Manifest['installedTools']>;initialized?:NonNullable<Manifest['initializedTools']>;preview?:{digest:string;data:PreviewData};report?:InstallReport}
+export interface Transaction {previewId:string;installId:string;status:'prepared'|'complete';files:Record<string,{before:string;after:string;beforeMode?:number;afterMode?:number;effectiveAfterMode?:number}>;checks?:CheckResult[];seedProgress?:Record<string,'started'|'written'>;receipts:NonNullable<Manifest['installedTools']>;initialized?:NonNullable<Manifest['initializedTools']>;preview?:{digest:string;data:PreviewData};report?:InstallReport}
 export function readApplyRecord(path:string):Promise<Transaction|undefined>{
  return readDurableRecord<Transaction>(path,'Durable apply record',tx=>{
   if(!['prepared','complete'].includes(tx.status)||typeof tx.previewId!=='string'||!/^[a-f0-9]{64}$/.test(tx.previewId)||
    typeof tx.installId!=='string'||!/^[a-f0-9-]+$/.test(tx.installId)||!isRecord(tx.files)||!isRecord(tx.receipts)||
    tx.initialized!==undefined&&!isRecord(tx.initialized)||tx.checks!==undefined&&!Array.isArray(tx.checks))return false;
-  if(!Object.values(tx.files).every(file=>isRecord(file)&&typeof file.before==='string'&&typeof file.after==='string'))return false;
+  if(!Object.values(tx.files).every(file=>isRecord(file)&&typeof file.before==='string'&&typeof file.after==='string'&&
+   (file.effectiveAfterMode===undefined||typeof file.effectiveAfterMode==='number'&&Number.isInteger(file.effectiveAfterMode)&&file.effectiveAfterMode>=0&&file.effectiveAfterMode<=0o777)))return false;
   if(tx.seedProgress!==undefined&&(!isRecord(tx.seedProgress)||Object.entries(tx.seedProgress).some(([target,status])=>
     !Object.hasOwn(tx.files,target)||status!=='started'&&status!=='written')))return false;
   const report=tx.report;

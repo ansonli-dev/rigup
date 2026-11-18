@@ -303,7 +303,7 @@ test('resume review restores the approved choices before any project write',()=>
  assert.equal(code,3,output);
  const restored=JSON.parse(output);
  assert.equal(restored.previewId,approved.previewId);
- assert.match(restored.nextCommand,new RegExp('--apply '+approved.previewId+' --sessions-ended --resume'));
+ assert.match(restored.nextCommand,new RegExp('--apply '+approved.previewId+' --resume'));
  assert.deepEqual(restored.operations.map((operation:SetupPlan['operations'][number])=>operation.id),[op.id]);
  assert.deepEqual(await readdir(root),[]);
 }));

@@ -2,13 +2,12 @@ import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import crypto from 'node:crypto';
 import {constants} from 'node:fs';
-import {access,mkdir,readFile,readdir,rm,writeFile} from 'node:fs/promises';
+import fs,{access,mkdir,readFile,readdir,rm,writeFile} from 'node:fs/promises';
 import {syncBuiltinESMExports} from 'node:module';
 import {delimiter,join,resolve} from 'node:path';
 import {test} from 'node:test';
 import {applyRuntimeInputs,runtimeEnvironment} from '../src/runtime-inputs.js';
-import {readRuntimeFile} from '../src/runtime-private-env.js';
-import {createWindowsPrivateDirectory} from '../src/private-access.js';
+import {readRuntimeFile,writeRuntimeFile} from '../src/runtime-private-env.js';
 import type {SetupOptions} from '../src/types.js';
 import {project} from './helpers.js';
 
@@ -29,8 +28,7 @@ async function environment(values:Record<string,string|undefined>,run:()=>Promis
 
 async function runtimeFile(root:string){
  const directory=join(root,'.rigup');
- if(process.platform==='win32')await createWindowsPrivateDirectory(directory,'private fixture required');
- else await mkdir(directory,{mode:0o700});
+ await mkdir(directory,{mode:0o700});
  await writeFile(join(directory,'.gitignore'),'/.env\n/.env.rigup-*.tmp\n');
  await writeFile(join(directory,'.env'),blank,{mode:0o600});
 }
@@ -138,6 +136,63 @@ test('genuinely non-Git projects still use their local ignore when Git is unavai
   assert.equal((await runtimeEnvironment(root,options,'customer:environment'))[name],secret);
   assert.ok(!JSON.stringify(summary).includes(secret));
  });
+}));
+
+test('private input staging requires both paths to be untracked and effectively ignored',()=>project(async root=>{
+ git(root,'init','-q');await mkdir(join(root,'.rigup'));
+ const ignore=join(root,'.rigup/.gitignore');
+ for(const rule of ['/.env\n','/.env.rigup-*.tmp\n']){
+  await writeFile(ignore,rule);
+  const preview=await readRuntimeFile(root);
+  await assert.rejects(writeRuntimeFile(root,preview,name+'='+secret+'\n'),error=>{
+   assert.ok(error instanceof Error);
+   assert.doesNotMatch(error.message,new RegExp(secret));
+   return true;
+  });
+  assert.deepEqual(await readdir(join(root,'.rigup')),['.gitignore']);
+ }
+}));
+
+test('a newly created empty runtime file and a later edit preserve user bytes',()=>project(async root=>{
+ await mkdir(join(root,'.rigup'));
+ const target=join(root,'.rigup/.env');
+ await writeFile(join(root,'.rigup/.gitignore'),'/.env\n/.env.rigup-*.tmp\n');
+ const first=await readRuntimeFile(root);
+ await writeFile(target,'',{mode:0o600});
+ await assert.rejects(writeRuntimeFile(root,first,name+'='+secret+'\n'),/unchanged/);
+ assert.equal(await readFile(target,'utf8'),'');
+ const approved=await readRuntimeFile(root);
+ await writeFile(target,'# intervening edit\n',{mode:0o600});
+ await assert.rejects(writeRuntimeFile(root,approved,name+'='+secret+'\n'),/unchanged/);
+ assert.equal(await readFile(target,'utf8'),'# intervening edit\n');
+ assert.deepEqual((await readdir(join(root,'.rigup'))).sort(),['.env','.gitignore']);
+}));
+
+test('a user edit during private staging is preserved and diagnostics withhold both values',t=>project(async root=>{
+ await runtimeFile(root);
+ const target=join(root,'.rigup/.env');
+ const approved=await readRuntimeFile(root);
+ const original=fs.open;
+ const mocked=t.mock.method(fs,'open',async(path,flags,mode)=>{
+  const handle=await original(path,flags,mode);
+  if(typeof path==='string'&&path.includes('.env.rigup-')){
+   const write=handle.writeFile.bind(handle);
+   handle.writeFile=async(content,options)=>{
+    await write(content,options);
+    await writeFile(target,name+'=synthetic-user-edit\n');
+   };
+  }
+  return handle;
+ });
+ syncBuiltinESMExports();
+ t.after(()=>{mocked.mock.restore();syncBuiltinESMExports();});
+ await assert.rejects(writeRuntimeFile(root,approved,name+'='+secret+'\n'),error=>{
+  assert.match(String(error),/unchanged/);
+  assert.doesNotMatch(String(error),/synthetic-/);
+  return true;
+ });
+ assert.equal(await readFile(target,'utf8'),name+'=synthetic-user-edit\n');
+ assert.deepEqual((await readdir(join(root,'.rigup'))).sort(),['.env','.gitignore']);
 }));
 
 test('unavailable Git does not create a new runtime file inside a repository',()=>project(async root=>{

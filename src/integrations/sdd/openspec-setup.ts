@@ -10,7 +10,6 @@ import {interruptedInstallApplyId,interruptedSeedApplyId} from '../../installer/
 import {atomicProjectWrite} from '../../installer/manifest.js';
 import {assertNoUnknownWriters} from '../../installer/operations.js';
 import {targetPath} from '../../installer/ownership.js';
-import {assertSupportedFileModes} from '../../installer/filesystem-modes.js';
 import {selectedNpmRegistry} from '../../runtime-inputs.js';
 import {quoteShell} from '../../shell-command.js';
 import {signature} from '../../generator/cache.js';
@@ -247,7 +246,6 @@ async function installOpenSpec(root:string,options:OpenSpecOptions,approval:Inst
   if(!scopeCovered(approval,current))throw Error('OpenSpec preparation scope changed after approval; prepare it again');
   try{await approvedNpm(current,approval);}
   catch{throw Error('OpenSpec installation scope or npm launcher changed after approval; prepare it again');}
-  await assertSupportedFileModes(approval.prefix,[{target:packageDirectory(openspecPackage)+'/package.json',mode:0o644},{target:windows?'openspec.cmd':'bin/openspec',mode:0o755}]);
  }});
  if(outcome.status!=='done')throw Error(outcome.message);
  const installed=await inspectOpenSpec(root,options,signal,outcome.globalReceipt!.launcherIdentity,{scope:'global',stateRoot});
@@ -324,7 +322,6 @@ export async function prepareOpenSpec(root:string,options:OpenSpecOptions,approv
   if(approval.kind!=='existing')await saveOpenSpecPreparation(record,lock.stateRoot);
   if(setup.needsProject){
    const targets=[...(setup.needsRoot?['openspec/config.yaml']:[]),...setup.needsEntries.map(agent=>agents[agent].skillDirectory+'/openspec-propose/SKILL.md')];
-   await assertSupportedFileModes(root,targets.map(target=>({target,mode:0o644})));
   }
   if(approval.kind==='project-install'&&!record.installedCliIdentity){
    if(approval.prefix!==join(root,projectPrefix))throw Error('OpenSpec project npm destination differs from approval');

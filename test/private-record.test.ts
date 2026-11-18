@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import childProcess,{execFile,spawn} from 'node:child_process';
-import {once} from 'node:events';
+import {execFile} from 'node:child_process';
 import fs,{access,mkdir,readFile,readdir,symlink,writeFile} from 'node:fs/promises';
 import {syncBuiltinESMExports} from 'node:module';
 import {basename,join} from 'node:path';
@@ -9,7 +8,6 @@ import {promisify} from 'node:util';
 import {privateDirectory,saveCache} from '../src/generator/cache.js';
 import {readFileState} from '../src/installer/file-state.js';
 import {atomicProjectWrite} from '../src/installer/manifest.js';
-import {assertSafeWindowsAncestors} from '../src/private-access.js';
 import {readPrivateJson,saveDurable} from '../src/private-record.js';
 import {project} from './helpers.js';
 
@@ -19,77 +17,27 @@ function usePlatform(t:TestContext,platform:NodeJS.Platform){
  t.after(()=>{Object.defineProperty(process,'platform',original);});
 }
 
-function useAclWorker(t:TestContext,...responses:Record<string,unknown>[]){
- usePlatform(t,'win32');
- const systemRoot=process.env.SystemRoot;
- process.env.SystemRoot='C:\\Windows';
- const child=spawn(process.execPath,['--input-type=module','--eval',`
-  import {createInterface} from 'node:readline';
-  const responses=${JSON.stringify(responses)};
-  for await(const line of createInterface({input:process.stdin})){
-   const {id}=JSON.parse(line);
-   const response=responses.length>1?responses.shift():responses[0];
-   process.stdout.write(JSON.stringify({id,...response})+'\\n');
-  }
- `],{stdio:['pipe','pipe','pipe']});
- const closed=once(child,'close');
- const replacement=t.mock.method(childProcess,'spawn',()=>child);
- syncBuiltinESMExports();
- t.after(async()=>{
-  replacement.mock.restore();
-  syncBuiltinESMExports();
-  if(systemRoot===undefined)delete process.env.SystemRoot;
-  else process.env.SystemRoot=systemRoot;
-  child.ref();
-  child.stdin.end();
-  await closed;
- });
-}
+test('private cache follows a directory alias outside the project and refuses its in-project destination',()=>project(root=>project(async cache=>{
+ const external=join(cache,'real'),alias=join(cache,'alias'),projectAlias=join(cache,'project alias');
+ await mkdir(external);
+ await symlink(external,alias,process.platform==='win32'?'junction':'dir');
+ await symlink(root,projectAlias,process.platform==='win32'?'junction':'dir');
+ assert.equal(await privateDirectory(join(alias,'cache'),root),join(external,'cache'));
+ await assert.rejects(privateDirectory(join(projectAlias,'must-not-create'),root),/outside project/);
+ await assert.rejects(access(join(root,'must-not-create')),{code:'ENOENT'});
+})));
 
-const deniedAncestor='C:\\private 测试';
-const statePath=deniedAncestor+'\\run';
-const checkAncestors=()=>assertSafeWindowsAncestors(statePath,'cache requires private permissions');
-
-test('an ACL denial identifies the checked ancestor and untrusted SID',async t=>{
- useAclWorker(t,{status:'denied',reason:'untrusted-grant',path:deniedAncestor,principal:'S-1-1-0',account:'BUILTIN\\Sandbox Readers'},{status:'ok'});
- await assert.rejects(checkAncestors,error=>{
-  assert.ok(error instanceof Error);
-  assert.match(error.message,/cache requires private permissions: Windows ACL denied.*untrusted access grant/i);
-  assert.ok(error.message.includes(deniedAncestor));
-  assert.ok(error.message.includes('"BUILTIN\\Sandbox Readers" (S-1-1-0)'));
+test('malformed private records report their path without the file contents',()=>project(async cache=>{
+ const path=join(cache,'review.json');
+ assert.equal(await readPrivateJson(path),undefined);
+ await writeFile(path,'invalid secret fixture',{mode:0o600});
+ await assert.rejects(readPrivateJson(path),error=>{
+  assert.ok(error instanceof SyntaxError);
+  assert.ok(error.message.includes(path));
+  assert.doesNotMatch(error.message,/secret fixture/);
   return true;
  });
-});
-
-test('the ACL check retries a sharing violation',async t=>{
- useAclWorker(t,{status:'busy'},{status:'ok'});
- await checkAncestors();
-});
-
-test('the ACL check stops retrying a persistent sharing violation',async t=>{
- useAclWorker(t,...Array.from({length:4},()=>({status:'busy'})),{status:'ok'});
- await assert.rejects(checkAncestors,/Windows ACL I\/O failed.*(?:sharing|lock)/i);
-});
-
-test('unclassified ACL I/O failure closes the gate immediately',async t=>{
- useAclWorker(t,{status:'io-error',detail:'private diagnostic'}, {status:'ok'});
- await assert.rejects(checkAncestors,error=>{
-  assert.ok(error instanceof Error);
-  assert.match(error.message,/Windows ACL I\/O failed/i);
-  assert.doesNotMatch(error.message,/private diagnostic/);
-  return true;
- });
-});
-
-test('an invalid ACL worker response closes the gate without exposing its content',async t=>{
- useAclWorker(t,{status:'private diagnostic'});
- await assert.rejects(checkAncestors,error=>{
-  assert.ok(error instanceof Error);
-  assert.match(error.message,/Windows ACL worker unavailable/i);
-  assert.doesNotMatch(error.message,/private diagnostic/);
-  return true;
- });
-});
+}));
 
 function interceptRename(t:TestContext,platform:NodeJS.Platform,rename:typeof fs.rename){
  usePlatform(t,platform);
@@ -217,54 +165,16 @@ for(const [platform,code,maxAttempts] of [
  }));
 }
 
-test('Windows private state rejects an NTFS grant to Everyone', {
- skip: process.platform !== 'win32' && 'requires NTFS access control',
-}, () => project(root => project(async cache => {
- const icacls = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe');
- const state = await privateDirectory(join(cache, 'new state 测试', 'nested'), root);
- const record = join(state, 'record.json');
- await writeFile(record, '{"fixture":true}', {mode: 0o600});
- assert.deepEqual(await readPrivateJson(record), {fixture:true});
-
- await promisify(execFile)(icacls, [record, '/grant', '*S-1-1-0:(R)']);
- await assert.rejects(readPrivateJson(record),error=>{
-  assert.ok(error instanceof Error);
-  assert.match(error.message,/not private: Windows ACL denied.*S-1-1-0/i);
-  assert.ok(error.message.includes(record));
-  return true;
- });
-
- await promisify(execFile)(icacls, [state, '/grant', '*S-1-1-0:(RX)']);
- await assert.rejects(privateDirectory(state, root), /private permissions/);
-
- const ancestor = join(cache, 'replaceable parent');
- await mkdir(ancestor);
- await promisify(execFile)(icacls, [ancestor, '/grant', '*S-1-1-0:(WA)']);
- const nested = join(ancestor, 'must not create');
- await assert.rejects(privateDirectory(nested, root),error=>{
-  assert.ok(error instanceof Error);
-  assert.match(error.message,/private permissions: Windows ACL denied.*S-1-1-0/i);
-  assert.ok(error.message.includes(ancestor));
-  return true;
- });
- await assert.rejects(access(nested), {code:'ENOENT'});
- await assert.rejects(privateDirectory(join(cache,'ambiguous '),root), /unsafe Windows path/);
-})));
-
-test('Windows creates a private leaf below an ancestor with inherited read grants', {
- skip: process.platform !== 'win32' && 'requires NTFS access control',
-}, () => project(root => project(async cache => {
- const icacls = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe');
- const parent = join(cache, 'sandbox readers');
+test('private record I/O works in a normal Windows folder with inherited permissions',{
+ skip:process.platform!=='win32',
+},()=>project(root=>project(async cache=>{
+ const icacls=join(process.env.SystemRoot??'C:\\Windows','System32','icacls.exe');
+ const parent=join(cache,'shared parent'),state=join(parent,'existing cache');
  await mkdir(parent);
- await promisify(execFile)(icacls, [parent, '/grant', '*S-1-1-0:(OI)(CI)(RX)']);
- const leaf = await privateDirectory(join(parent, '.cache', 'rigup'), root);
- const record = join(leaf, 'preview.json');
- await writeFile(record, '{"private":true}');
- assert.deepEqual(await readPrivateJson(record), {private:true});
- assert.equal(await privateDirectory(leaf, root), leaf);
-
- const existing = join(parent, 'existing');
- await mkdir(existing);
- await assert.rejects(privateDirectory(existing, root), /untrusted access grant.*S-1-1-0/);
+ await promisify(execFile)(icacls,[parent,'/grant','*S-1-1-0:(OI)(CI)(RX)']);
+ await mkdir(state);
+ assert.equal(await privateDirectory(state,root),state);
+ const record=join(state,'preview.json');
+ await saveDurable(record,'{"test":true}');
+ assert.deepEqual(await readPrivateJson(record),{test:true});
 })));

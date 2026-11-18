@@ -3,7 +3,7 @@ import {promisify} from 'node:util';
 import type {SetupOptions} from './types.js';
 import {validateProviderBaseURL} from './analyzer/provider-url.js';
 import {researchProviderMetadata} from './research/provider-settings.js';
-import {essentialEnvironment,readRuntimeFile,renderRuntimeFile,runtimeEnvPath,writeRuntimeFile,type RuntimeFile} from './runtime-private-env.js';
+import {essentialEnvironment,PrivateInputWriteError,readRuntimeFile,renderRuntimeFile,runtimeEnvPath,writeRuntimeFile,type RuntimeFile} from './runtime-private-env.js';
 
 type Consumer='provider'|'npm'|`customer:${string}`;
 type Source='project-file'|'calling-environment'|'configuration'|'repository-remote';
@@ -125,7 +125,7 @@ export async function applyRuntimeInputs(root:string,options:SetupOptions,eviden
  const {file,values,text,summary}=await state(root,options,evidence);
  if(!summary.template.needsUpdate)return summary;
  try{await writeRuntimeFile(root,file,text);}
- catch{summary.template.state='pending';summary.template.reason='Keep .rigup/.env unchanged; verify private access and effective ignore for .env and .env.rigup-*.tmp, then retry.';return summary;}
+ catch(error){summary.template.state='pending';summary.template.reason=error instanceof PrivateInputWriteError?error.message:'Keep .rigup/.env unchanged; verify the target and effective ignore for .env and .env.rigup-*.tmp, then retry.';return summary;}
  summary.template.state='written';summary.template.needsUpdate=false;
  summary.template.imported=values.flatMap(input=>input.value&&input.source&&input.source!=='project-file'?[{name:input.name,source:input.source}]:[]);
  return summary;

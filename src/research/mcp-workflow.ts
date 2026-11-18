@@ -85,7 +85,7 @@ async function installedAssetsMatch(root:string,manifest:Manifest):Promise<boole
   if(baseline===undefined)return false;
   const {bytes,mode}=await readFileState(root,asset.target);
   const local=ownedContent(bytes?.toString(asset.encoding==='base64'?'base64':'utf8'),asset.ownership);
-  if(local===undefined||!equalOwnedContent(asset.ownership,local,baseline)||asset.mode!==undefined&&mode!==platformFileMode(asset.mode))return false;
+  if(local===undefined||!equalOwnedContent(asset.ownership,local,baseline)||asset.mode!==undefined&&mode!==platformFileMode(asset.effectiveMode??asset.mode))return false;
  }
  return true;
 }

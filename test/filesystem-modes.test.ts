@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir,readdir,readFile,lstat} from 'node:fs/promises';
+import fs,{mkdir,readdir,readFile,lstat,writeFile} from 'node:fs/promises';
+import {syncBuiltinESMExports} from 'node:module';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {join} from 'node:path';
@@ -8,54 +9,83 @@ import {project} from './helpers.js';
 import {preview} from '../src/installer/preview.js';
 import {apply} from '../src/installer/apply.js';
 import {scanRepository} from '../src/analyzer/repository.js';
-import {applyRecordPath} from '../src/installer/baseline.js';
+import {applyRecordPath,loadManifest} from '../src/installer/baseline.js';
 import {atomicProjectWrite} from '../src/installer/manifest.js';
-import {assertPrivateAccess} from '../src/private-access.js';
+import {readRuntimeFile,writeRuntimeFile} from '../src/runtime-private-env.js';
 import {windowsPowerShellExecutable} from '../src/integrations/tools/windows-process.mjs';
 
-test('mode preflight covers existing target parents and leaves only the original tree',()=>project(async root=>{
- const module=await import('../src/installer/filesystem-modes.js').catch(()=>undefined);
- assert.ok(module,'filesystem mode preflight is required');
- await mkdir(join(root,'separate'));const before=await readdir(root),inside=await readdir(join(root,'separate'));
- await module.assertSupportedFileModes(root,[{target:'new/file',mode:0o644},{target:'separate/file',mode:0o755}]);
- assert.deepEqual(await readdir(root),before);assert.deepEqual(await readdir(join(root,'separate')),inside);
- const checked:{parent:string;mode:number}[]=[];
- await module.assertSupportedFileModes(root,[{target:'new/file',mode:0o644},{target:'separate/file',mode:0o755}],async(parent,mode)=>{checked.push({parent,mode});return process.platform==='win32'?0o666:mode;});
- assert.ok(checked.some(item=>item.parent===root&&item.mode===0o600));
- assert.ok(checked.some(item=>item.parent===join(root,'separate')&&item.mode===0o755));
-}));
-test('unsupported permissions give requested and observed modes with actionable mount guidance',()=>project(async root=>{
- const module=await import('../src/installer/filesystem-modes.js').catch(()=>undefined);
- assert.ok(module,'filesystem mode preflight is required');
- await assert.rejects(module.assertSupportedFileModes(root,[{target:'next',mode:0o644}],async()=>0o777),error=>{
-  const message=String(error);assert.match(message,/0644|0600/);assert.match(message,/0777/);assert.ok(message.includes(root));assert.match(message,/metadata/);assert.match(message,/Linux home/);return true;
+test('ordinary writes record the mode a filesystem can retain before rename and resume without a rewrite',{
+ skip:process.platform==='win32',
+},t=>project(root=>project(cacheRoot=>project(async stateRoot=>{
+ const options={agents:[],backend:'host' as const};
+ const generate=async()=>({
+  root,fingerprint:(await scanRepository(root,options)).fingerprint,options,
+  assets:[{logicalId:'managed',target:'managed.txt',content:'managed\n',mode:0o640,ownership:{kind:'file' as const},source:{kind:'configuration',ref:'fixture'}}],
+  dispositions:[],operations:[],warnings:[],requirements:[],versions:{},
  });
+ const original=fs.open;
+ let stages=0;
+ const useActualMode=t.mock.method(fs,'open',async(path,flags,mode)=>{
+  if(typeof path!=='string'||!path.includes('managed.txt.rigup-'))return original(path,flags,mode);
+  stages++;
+  const handle=await original(path,flags,0o644);
+  handle.chmod=async()=>{throw Object.assign(Error('mode metadata unsupported'),{code:'ENOTSUP'});};
+  return handle;
+ });
+ syncBuiltinESMExports();
+ t.after(()=>{useActualMode.mock.restore();syncBuiltinESMExports();});
+ const approved=await preview(await generate(),[],{cacheRoot});
+ assert.equal(approved.executable,true);
+ await assert.rejects(apply(approved.previewId,{cacheRoot,stateRoot,hook:async point=>{
+  if(point==='after-file')throw Error('power loss after rename');
+ }}),/power loss after rename/);
+ const actual=await lstat(join(root,'managed.txt'));
+ const effective=actual.mode&0o777;
+ assert.notEqual(effective,0o640);
+ const {files}=JSON.parse(await readFile(applyRecordPath(root,stateRoot),'utf8'));
+ assert.equal(files['managed.txt'].effectiveAfterMode,effective);
+ assert.equal((await apply(approved.previewId,{cacheRoot,stateRoot,recover:true})).status,'complete');
+ const manifest=await loadManifest(root);assert.ok(manifest);
+ const next=await preview({...await generate(),dispositions:[{logicalId:'managed',action:'retain',reason:'unchanged'}]},[],{cacheRoot});
+ assert.equal(next.executable,true);
+ assert.deepEqual((await apply(next.previewId,{cacheRoot,stateRoot})).written,[]);
+ assert.equal(stages,1);
+ assert.equal(await readFile(join(root,'managed.txt'),'utf8'),'managed\n');
+}))));
+
+test('unsupported exclusive creation identifies the target and preserves user files',t=>project(async root=>{
+ const original=fs.link;
+ const injected=t.mock.method(fs,'link',async(source,target)=>{
+  if(String(target).endsWith('user.json'))await writeFile(target,'user content',{flag:'wx'});
+  throw Object.assign(Error('no hard links'),{code:'ENOTSUP'});
+ });
+ syncBuiltinESMExports();
+ t.after(()=>{injected.mock.restore();assert.equal(fs.link,original);syncBuiltinESMExports();});
+ for(const target of ['user.json','absent.json']){
+  await assert.rejects(atomicProjectWrite(root,target,Buffer.from('managed'),0o644,true),
+   error=>error instanceof Error&&error.message.includes(target));
+ }
+ assert.equal(await readFile(join(root,'user.json'),'utf8'),'user content');
+ assert.deepEqual(await readdir(root),['user.json']);
 }));
-async function fixture(run:(root:string,cacheRoot:string,stateRoot:string,id:string)=>Promise<void>){
- await project(root=>project(cacheRoot=>project(async stateRoot=>{
-  const options={agents:[],backend:'host' as const};
-  const plan={root,fingerprint:(await scanRepository(root,options)).fingerprint,options,assets:[{logicalId:'test-file',target:'managed.txt',content:'managed\n',ownership:{kind:'file' as const},source:{kind:'configuration',ref:'fixture'}}],dispositions:[],operations:[],warnings:[],requirements:[],versions:{}};
-  const approved=await preview(plan,[],{cacheRoot});await run(root,cacheRoot,stateRoot,approved.previewId);
- })));
-}
-test('apply rejects a failing mode preflight before files or a prepared transaction are written',()=>fixture(async(root,cacheRoot,stateRoot,id)=>{
- let invoked=false;
- await assert.rejects(apply(id,{cacheRoot,stateRoot,fileModes:async()=>{invoked=true;throw Error('unsupported mount');}}),/unsupported mount/);
- assert.equal(invoked,true);assert.deepEqual(await readdir(root),[]);
- await assert.rejects(readFile(applyRecordPath(root,stateRoot)),{code:'ENOENT'});
-}));
-test('unsupported interrupted apply preserves its existing file and journal bytes',()=>fixture(async(root,cacheRoot,stateRoot,id)=>{
- await assert.rejects(apply(id,{cacheRoot,stateRoot,hook:async point=>{if(point==='after-file')throw Error('power loss');}}),/power loss/);
- const path=applyRecordPath(root,stateRoot),journal=await readFile(path),bytes=await readFile(join(root,'managed.txt'));
- await assert.rejects(apply(id,{cacheRoot,stateRoot,recover:true,fileModes:async()=>{throw Error('unsupported mount');}}),/unsupported mount/);
- assert.deepEqual(await readFile(path),journal);assert.deepEqual(await readFile(join(root,'managed.txt')),bytes);
- assert.equal((await apply(id,{cacheRoot,stateRoot,recover:true})).status,'complete');
-}));
-test('Windows private project records exclude inherited public read permissions from creation',{skip:process.platform!=='win32'},()=>project(async root=>{
- const script="$ErrorActionPreference='Stop';$acl=[IO.Directory]::GetAccessControl($env:RIGUP_ACL_FIXTURE);$sid=[Security.Principal.SecurityIdentifier]::new('S-1-5-32-545');$rule=[Security.AccessControl.FileSystemAccessRule]::new($sid,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow');$acl.AddAccessRule($rule);[IO.Directory]::SetAccessControl($env:RIGUP_ACL_FIXTURE,$acl)";
- await promisify(execFile)(windowsPowerShellExecutable(),['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{env:{...process.env,RIGUP_ACL_FIXTURE:root},timeout:15000});
- await atomicProjectWrite(root,'.rigup/private.json',Buffer.from('{"private":"synthetic"}\n'),0o600,true);
- const path=join(root,'.rigup/private.json');await assertPrivateAccess(path,await lstat(path),'private record is readable by another principal');
- assert.equal(await readFile(path,'utf8'),'{"private":"synthetic"}\n');
- assert.deepEqual(await readdir(join(root,'.rigup')),['private.json']);
+
+test('Windows locks down only the private credential file before publishing it',{
+ skip:process.platform!=='win32',
+},()=>project(async root=>{
+ const directory=join(root,'.rigup'),path=join(directory,'.env');
+ await mkdir(directory);
+ await writeFile(join(directory,'.gitignore'),'/.env\n/.env.rigup-*.tmp\n');
+ const exec=promisify(execFile);
+ const icacls=join(process.env.SystemRoot!,'System32','icacls.exe');
+ await exec(icacls,[directory,'/grant','*S-1-1-0:(OI)(CI)(RX)']);
+ const acl=async(target:string)=>(await exec(windowsPowerShellExecutable(),['-NoProfile','-NonInteractive','-Command',
+  '(Get-Acl -LiteralPath $env:RIGUP_ACL_TEST).GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]).IdentityReference.Value'],
+ {timeout:15000,env:{...process.env,RIGUP_ACL_TEST:target}})).stdout;
+ const before=await acl(directory);
+ assert.match(before,/S-1-1-0/);
+ await writeRuntimeFile(root,await readRuntimeFile(root),'SYNTHETIC_FIXTURE=held\n');
+ assert.equal(await readFile(path,'utf8'),'SYNTHETIC_FIXTURE=held\n');
+ assert.equal(await acl(directory),before);
+ assert.doesNotMatch(await acl(path),/S-1-1-0/);
+ assert.deepEqual((await readdir(directory)).sort(),['.env','.gitignore']);
 }));

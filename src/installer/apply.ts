@@ -29,22 +29,24 @@ import {quoteShell} from '../shell-command.js';
 import {conventionKey,isConventionScope,validateConventionReceipts} from '../project-conventions.js';
 import {projectInput} from '../managed-input.js';
 import {applyRuntimeInputs,selectedNpmRegistry,type RuntimeSetupSummary} from '../runtime-inputs.js';
-import {assertSupportedFileModes} from './filesystem-modes.js';
 import {RIGUP_VERSION} from '../version.js';
 import {normalizeNpmIntegrity} from '../npm-integrity.mjs';
 import {queryGlobalNpmInstall} from '../integrations/tools/global-npm.js';
 import {consumerPath,findProgram,programIdentity} from '../integrations/tools/global-npm-runtime.js';
 export interface CheckResult {status:'passed'|'failed'|'pending';name:string;message?:string;command?:CommandSpec;fingerprint?:string;commit?:string;startedAt?:string;finishedAt?:string;durationMs?:number;diagnostic?:{rule:string;path:string;relatedPath:string};environment?:{node:string;platform:string};exitCode?:number}
 export interface InstallReport {runtimeSetup?:RuntimeSetupSummary;projectRules?:SetupPlan['projectRules'];harness?:SetupPlan['harness'];sourceReview?:SourceReview;researchNextStep?:string;nextCommand?:string;status:'complete'|'failed'|'pending';exitCode:0|1|3|130;previewId:string;written:string[];operations:OperationResult[];checks:CheckResult[];warnings:string[]}
-export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies;fileModes?:typeof assertSupportedFileModes}
+export interface ApplyDependencies {cacheRoot?:string;onProgress?:(event:RunProgressEvent)=>void;stateRoot?:string;lock?:ProjectLock;recover?:boolean;signal?:AbortSignal;hook?:(point:string)=>Promise<void>;runChecks?:()=>Promise<CheckResult[]>;operation?:OperationDependencies}
 function previewFileTransitions(data:PreviewData):Transaction['files']{
  return Object.fromEntries(data.files.map(file=>{
   const after=file.next===undefined?absentDigest:digest(Buffer.from(file.next,file.encoding));
   return [file.target,{before:file.observedDigest,beforeMode:file.observedMode,after,afterMode:file.next===undefined?undefined:file.mode}];
  }));
 }
+const afterMode=(transition:Transaction['files'][string])=>transition.effectiveAfterMode??transition.afterMode;
+
 function assertPreviewFileTransitions(tx:Transaction,data:PreviewData):void{
- if(signature(tx.files)!==signature(previewFileTransitions(data)))throw Error('Durable apply record differs from the approved preview; reconciliation required');
+ const approved=Object.fromEntries(Object.entries(tx.files).map(([target,{effectiveAfterMode,...transition}])=>[target,transition]));
+ if(signature(approved)!==signature(previewFileTransitions(data)))throw Error('Durable apply record differs from the approved preview; reconciliation required');
  if(Object.keys(tx.seedProgress??{}).some(target=>!data.files.some(file=>file.target===target&&file.seed)))throw Error('Durable seed progress differs from the approved preview; reconciliation required');
 }
 export async function interruptedApplyId(root:string,stateRoot:string):Promise<string|undefined>{
@@ -151,7 +153,6 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   await verifyGlobalInstalls();
   const installs=operations.filter(operation=>operation.kind==='install'&&!operation.global);
   if(installs.length&&!restoringApproval){const registry=await selectedNpmRegistry(root)??defaultNpmRegistry;if(installs.some(operation=>(operation.registry??defaultNpmRegistry)!==registry))throw Error('Npm registry changed since approval; prepare a new review before installing.');}
-  await (dependencies.fileModes??assertSupportedFileModes)(root,[...data.files.filter(file=>file.next!==undefined).map(file=>({target:file.target,mode:file.mode})),...data.plan.operations.flatMap(operation=>operation.declaredWrites.map(scope=>({target:scope+'/mode-probe',mode:0o644})))]);
   if(tx?.status==='prepared'&&tx.previewId!==previewId){
    if(Object.keys(tx.seedProgress??{}).length)throw Error(seedReconciliation);
    if(tx.preview?.data&&(!tx.preview.data.approvalNonce||tx.preview.data.inputSnapshotVersion!==3))throw Error(upgradeReconciliation);
@@ -268,8 +269,8 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    for(const f of data.files){
     if(f.seed)continue;
     const actual=await readFileState(root,f.target),expected=tx.files[f.target];
-    if(matchesFileState(actual,expected.after,expected.afterMode))continue;
-    if(tx.report?.sourceReview&&authorityPaths.has(f.target)&&actual.bytes&&f.next!==undefined&&actual.mode===platformFileMode(expected.afterMode)){
+    if(matchesFileState(actual,expected.after,afterMode(expected)))continue;
+    if(tx.report?.sourceReview&&authorityPaths.has(f.target)&&actual.bytes&&f.next!==undefined&&actual.mode===platformFileMode(afterMode(expected))){
      const local=actual.bytes.toString('utf8'),approved=Buffer.from(f.next,f.encoding).toString('utf8');
      if(data.assets.filter(asset=>asset.target===f.target).every(asset=>ownedContent(local,asset.ownership)===ownedContent(approved,asset.ownership)))continue;
     }
@@ -282,7 +283,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(signature(await sourceReview(root,data.oldManifest,lock.stateRoot)??null)!==signature(data.sourceReview??null))throw Error('effective project rules changed; prepare a new review');
   if(tx)for(const f of data.files){
    const actual=await readFileState(root,f.target),expected=tx.files[f.target];
-   const before=matchesFileState(actual,expected.before,expected.beforeMode),after=matchesFileState(actual,expected.after,expected.afterMode);
+   const before=matchesFileState(actual,expected.before,expected.beforeMode),after=matchesFileState(actual,expected.after,afterMode(expected));
    if(f.seed){if(!(tx.seedProgress?.[f.target]?after:before))throw Error(seedReconciliation);}
    else if(!before&&!after)throw new Error('interrupted target content or mode changed; preserve local edits and re-preview');
   }
@@ -363,10 +364,16 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   for(const f of data.files){
    if(dependencies.signal?.aborted)return cancelled();
    const actual=await readFileState(root,f.target);const expected=tx.files[f.target];
+   const recordMode=async(mode:number)=>{
+    const effective=mode===platformFileMode(expected.afterMode)?undefined:mode;
+    if(effective===expected.effectiveAfterMode)return;
+    expected.effectiveAfterMode=effective;
+    await saveDurable(statePath,JSON.stringify(tx));
+   };
    if(f.seed){
     const progress=tx.seedProgress??={};
     if(progress[f.target]){
-     if(!matchesFileState(actual,expected.after,expected.afterMode))throw Error(seedReconciliation);
+     if(!matchesFileState(actual,expected.after,afterMode(expected)))throw Error(seedReconciliation);
      completed++;step(f.target,'reused');
      continue;
     }
@@ -374,29 +381,29 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     progress[f.target]='started';
     await saveDurable(statePath,JSON.stringify(tx));
     await dependencies.hook?.('before-seed');
-    await atomicProjectWrite(root,f.target,Buffer.from(f.next!),expected.afterMode,true);
+    await atomicProjectWrite(root,f.target,Buffer.from(f.next!),expected.afterMode,true,undefined,recordMode);
     progress[f.target]='written';
     await saveDurable(statePath,JSON.stringify(tx));
     completed++;step(f.target);report.written.push(f.target);await dependencies.hook?.('after-file');
     continue;
    }
-   if(matchesFileState(actual,expected.after,expected.afterMode)){completed++;step(f.target,'reused');continue;}
+   if(matchesFileState(actual,expected.after,afterMode(expected))){completed++;step(f.target,'reused');continue;}
    if(!matchesFileState(actual,expected.before,expected.beforeMode))throw new Error('target content or mode changed before write');
    const verifyCurrent=async()=>{if(!matchesFileState(await readFileState(root,f.target),expected.before,expected.beforeMode))throw Error('target content or mode changed during write');};
    // Backups are private and preserve actual L, never become the generated baseline.
    if(actual.bytes){const backup=join(lock.stateRoot,signature(root)+'.'+tx.installId+'.'+signature(f.target)+'.backup.json');await saveDurable(backup,JSON.stringify({target:f.target,bytes:actual.bytes.toString('base64'),mode:actual.mode}));}
    if(f.next===undefined){if(actual.bytes){await verifyCurrent();await unlink(await targetPath(root,f.target));}}
-   else {await atomicProjectWrite(root,f.target,f.encoding==='base64'?Buffer.from(f.next,'base64'):Buffer.from(f.next),expected.afterMode,false,verifyCurrent);}
+   else {await atomicProjectWrite(root,f.target,f.encoding==='base64'?Buffer.from(f.next,'base64'):Buffer.from(f.next),expected.afterMode,false,verifyCurrent,recordMode);}
    completed++;step(f.target);report.written.push(f.target);await dependencies.hook?.('after-file');
   }
   if(dependencies.signal?.aborted)return cancelled();
-  const verifyFiles=async()=>{for await(const {target,state} of readFileStates(root,data.files.map(f=>f.target))){const expected=tx!.files[target];if(!matchesFileState(state,expected.after,expected.afterMode))throw new Error('written configuration differs from preview (content or mode); baseline not committed');}};
+  const verifyFiles=async()=>{for await(const {target,state} of readFileStates(root,data.files.map(f=>f.target))){const expected=tx!.files[target];if(!matchesFileState(state,expected.after,afterMode(expected)))throw new Error('written configuration differs from preview (content or mode); baseline not committed');}};
   await verifyFiles();
   report.runtimeSetup=await applyRuntimeInputs(root,data.plan.options,{configured:['*']});
   if(!tx.checks){tx.checks=dependencies.runChecks?await dependencies.runChecks():data.plan.runChecks?.length?await runProjectChecks(await scanRepository(root,data.plan.options),data.plan.runChecks,dependencies.signal,data.plan.options):[];checksRunThisApply=true;await saveDurable(statePath,JSON.stringify(tx));}
   report.checks=tx.checks;await dependencies.hook?.('after-checks');await verifyFiles();await assertSources();await verifyInstalledTools(true);await verifyInitializedTools(true);if(dependencies.signal?.aborted)return cancelled();
   const assets=[];
-  for(const asset of data.assets){const b=data.baselines.find(b=>b.logicalId===asset.logicalId);if(!b)throw new Error('required baseline unavailable');const baseline='.rigup/baseline/'+tx.installId+'/'+signature(asset.logicalId);await atomicProjectWrite(root,baseline,b.encoding==='base64'?Buffer.from(b.content,'base64'):Buffer.from(b.content),0o600);assets.push({...asset,baseline});}
+  for(const asset of data.assets){const b=data.baselines.find(b=>b.logicalId===asset.logicalId);if(!b)throw new Error('required baseline unavailable');const baseline='.rigup/baseline/'+tx.installId+'/'+signature(asset.logicalId);await atomicProjectWrite(root,baseline,b.encoding==='base64'?Buffer.from(b.content,'base64'):Buffer.from(b.content),0o600);const effectiveMode=tx.files[asset.target]?.effectiveAfterMode;assets.push({...asset,...(asset.mode!==undefined&&effectiveMode!==undefined?{effectiveMode}:{}),baseline});}
   const manifest:Manifest={...rules,...seedHistory,schemaVersion:1,installId:tx.installId,assets,options:data.plan.options,versions:data.plan.versions,installedTools:tx.receipts,...(Object.keys(tx.initialized!).length?{initializedTools:tx.initialized}:{})};
   await dependencies.hook?.('before-manifest');await verifyFiles();await assertSources();
   await verifyGlobalInstalls(true);

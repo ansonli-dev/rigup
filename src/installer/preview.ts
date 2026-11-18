@@ -162,7 +162,10 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    result={action:'conflict',reason:'Local edit in the Rigup-owned block was preserved. Keep the file as it is, or move your local text outside the managed block and restore the managed text before retrying.'};
   }
   let nextMode=file.mode;
-  const localMode=file.observedMode,baseMode=platformFileMode(entry.old?.mode),newMode=platformFileMode(entry.candidate?.mode);
+  const localMode=file.observedMode,baseMode=platformFileMode(entry.old?.effectiveMode??entry.old?.mode);
+  const requested=entry.candidate?.mode;
+  const retainedMode=requested===entry.old?.mode?entry.old?.effectiveMode:undefined;
+  const newMode=platformFileMode(retainedMode??requested);
   let modeConflict=false;
   if(entry.action==='remove'&&baseMode!==undefined&&localMode!==undefined&&localMode!==baseMode)modeConflict=true;
   else if(newMode!==undefined){
@@ -195,7 +198,7 @@ export async function preview(plan:SetupPlan,resolutions:PreviewResolution[]=[],
    if(result.action!=='conflict'&&entry.action!=='remove') {
     if(entry.candidate){
      const content=entry.candidate.content;const bytes=asset.encoding==='base64'?Buffer.from(content,'base64'):Buffer.from(content);
-     const {content:generatedContent,...metadata}=entry.candidate;nextAssets.push({...metadata,digest:digest(bytes)});baselineRecords.push({logicalId:asset.logicalId,content,encoding:asset.encoding??'utf8'});
+     const {content:generatedContent,...metadata}=entry.candidate;nextAssets.push({...metadata,...(retainedMode!==undefined?{effectiveMode:retainedMode}:{}),digest:digest(bytes)});baselineRecords.push({logicalId:asset.logicalId,content,encoding:asset.encoding??'utf8'});
     }else if(entry.old){nextAssets.push(entry.old);baselineRecords.push({logicalId:asset.logicalId,content:base!,encoding:asset.encoding??'utf8'});}
    }
   }

@@ -1,20 +1,22 @@
 import {execFile} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {constants} from 'node:fs';
 import {lstat,open,readFile,realpath,rename,rm} from 'node:fs/promises';
-import {dirname,join} from 'node:path';
+import {basename,dirname,join,relative,sep} from 'node:path';
 import {promisify} from 'node:util';
 import ignore from 'ignore';
-import {assertPrivateAccess,assertSafeWindowsAncestors,createWindowsPrivateDirectory} from './private-access.js';
+import {protectWindowsPrivateFile} from './private-access.js';
+import {directoryLocation} from './path-location.js';
+import {withinPath} from './npm-command.mjs';
 import {renameWithRetry} from './atomic-rename.js';
 import {syncDirectory} from './sync-directory.js';
 
 const exec=promisify(execFile),limit=256_000;
 export const runtimeEnvPath='.rigup/.env';
 interface Entry {value:string;start:number;end:number}
-export interface RuntimeFile {text:string;entries:Map<string,Entry>;identity?:string;problem?:string}
-const identity=(info:{dev:number;ino:number;size:number;mtimeMs:number})=>[info.dev,info.ino,info.size,info.mtimeMs].join(':');
-const problem='Keep .rigup/.env unchanged; make it an untracked, effectively ignored, private regular file with safe parent directories, then retry.';
+export interface RuntimeFile {text:string;entries:Map<string,Entry>;exists?:boolean;path?:string;problem?:string}
+const problem='Keep .rigup/.env unchanged; it must be an untracked, effectively ignored regular file inside the project.';
+export class PrivateInputWriteError extends Error {}
+
 
 export function essentialEnvironment(environment:NodeJS.ProcessEnv=process.env):NodeJS.ProcessEnv{
  const names=['PATH','Path','HOME','USERPROFILE','SystemRoot','SYSTEMROOT','WINDIR','ComSpec','COMSPEC','PATHEXT','TEMP','TMP','TMPDIR','LANG','LC_ALL','LC_CTYPE','TERM','LOCALAPPDATA','APPDATA','XDG_CONFIG_HOME','XDG_CACHE_HOME','XDG_DATA_HOME'];
@@ -59,12 +61,20 @@ function parse(text:string):Map<string,Entry>{
  return entries;
 }
 
-async function safeParents(root:string):Promise<void>{
- for(const path of [root,join(root,'.rigup')]){
-  let info;try{info=await lstat(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT'&&path!==root)return;throw error;}
-  if(!info.isDirectory()||info.isSymbolicLink()||await realpath(path)!==path||process.platform!=='win32'&&!!(info.mode&0o022))throw Error(problem);
- }
- await assertSafeWindowsAncestors(join(root,runtimeEnvPath),problem);
+async function runtimeDirectory(root:string){
+ const directory=await directoryLocation(join(root,'.rigup'));
+ if(!withinPath(root,directory)||directory===root)throw Error(problem);
+ return directory;
+}
+
+async function runtimeBytes(path:string,beforeRead?:()=>Promise<void>){
+ const info=await lstat(path).catch(error=>{if(error.code!=='ENOENT')throw error;});
+ if(!info)return;
+ if(!info.isFile()||info.size>limit)throw Error(problem);
+ await beforeRead?.();
+ const bytes=await readFile(path);
+ if(bytes.length>limit)throw Error(problem);
+ return bytes;
 }
 
 export async function hasGitMetadata(root:string):Promise<boolean>{
@@ -88,31 +98,31 @@ async function ignored(root:string,target:string):Promise<boolean>{
   return exec('git',['-C',root,'check-ignore','--quiet','--no-index','--',target],options).then(()=>true,()=>false);
  }
  // The nearest ignore file protects this private scope after a future git init.
- const path=join(root,'.rigup/.gitignore');
+ const path=join(root,dirname(target),'.gitignore');
  try{
-  if(!(await lstat(path)).isFile()||await realpath(path)!==path)return false;
-  return ignore().add(await readFile(path,'utf8')).ignores(target.slice('.rigup/'.length));
+  if(!(await lstat(path)).isFile())return false;
+  return ignore().add(await readFile(path,'utf8')).ignores(basename(target));
  }catch{return false;}
+}
+
+async function isPrivateGitPath(root:string,name:string,actual:string){
+ const targets=new Set(['.rigup/'+name,relative(root,actual).split(sep).join('/')]);
+ for(const target of targets)if(!await ignored(root,target))return false;
+ return true;
 }
 
 export async function readRuntimeFile(root:string):Promise<RuntimeFile>{
  const empty=():RuntimeFile=>({text:'',entries:new Map()});
  try{
-  await safeParents(root);
-  const path=join(root,runtimeEnvPath);
-  let info;try{info=await lstat(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return empty();throw error;}
-  if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||info.size>limit||!await ignored(root,runtimeEnvPath))throw Error(problem);
-  await assertPrivateAccess(path,info,problem);
-  const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
-  try{
-   const opened=await file.stat();
-   if(!opened.isFile()||opened.nlink!==1||identity(opened)!==identity(info))throw Error(problem);
-   await assertPrivateAccess(path,opened,problem);
-   const bytes=await file.readFile();
-   if(bytes.length>limit)throw Error(problem);
-   const text=bytes.toString('utf8');
-   return {text,entries:parse(text),identity:identity(info)};
-  }finally{await file.close();}
+  root=await realpath(root);
+  const path=join(await runtimeDirectory(root),'.env');
+  const raw=await runtimeBytes(path,async()=>{
+   if(!await isPrivateGitPath(root,'.env',path))throw Error(problem);
+  });
+  if(!raw)return {...empty(),path};
+  const text=raw.toString('utf8');
+  if(!raw.equals(Buffer.from(text)))throw Error('Invalid .rigup/.env UTF-8 encoding.');
+  return {text,entries:parse(text),exists:true,path};
  }catch(error){return {...empty(),problem:error instanceof Error&&error.message.startsWith('Invalid .rigup/.env')?error.message:problem};}
 }
 
@@ -132,36 +142,32 @@ export function renderRuntimeFile(file:RuntimeFile,values:{name:string;value?:st
 }
 
 export async function writeRuntimeFile(root:string,before:RuntimeFile,text:string):Promise<void>{
- const tempTarget='.rigup/.env.rigup-'+randomUUID()+'.tmp',temporary=join(root,tempTarget),path=join(root,runtimeEnvPath);
- await safeParents(root);
- if(!await ignored(root,runtimeEnvPath)||!await ignored(root,tempTarget))throw Error(problem);
- const parent=await lstat(join(root,'.rigup'));
- const verify=async()=>{
-  await safeParents(root);
-  const currentParent=await lstat(join(root,'.rigup'));
-  if(parent.dev!==currentParent.dev||parent.ino!==currentParent.ino)throw Error(problem);
-  if(!await ignored(root,runtimeEnvPath)||!await ignored(root,tempTarget))throw Error(problem);
-  const current=await readRuntimeFile(root);
-  if(current.problem||current.identity!==before.identity||current.text!==before.text)throw Error(problem);
+ root=await realpath(root);
+ const directory=await runtimeDirectory(root),path=join(directory,'.env');
+ const name='.env.rigup-'+randomUUID()+'.tmp',temporary=join(directory,name);
+ const verifyIgnore=async()=>{
+  if(!await isPrivateGitPath(root,'.env',path)||!await isPrivateGitPath(root,name,temporary))throw Error(problem);
  };
- let staged=temporary;
+ const verify=async()=>{
+  if(await runtimeDirectory(root)!==directory||before.problem||before.path&&before.path!==path)throw Error(problem);
+  await verifyIgnore();
+  const current=await runtimeBytes(path);
+  if(!!current!==!!before.exists||current&&!current.equals(Buffer.from(before.text)))throw Error(problem);
+ };
+ await verifyIgnore();
+ const handle=await open(temporary,'wx',0o600);
  try{
-  if(process.platform==='win32'){
-   await createWindowsPrivateDirectory(temporary,problem);
-   staged=join(temporary,'.env');
-  }
-  const handle=await open(staged,'wx',0o600);
   try{
-   await assertPrivateAccess(staged,await handle.stat(),problem);
-   await verify();
+   try{
+    if(process.platform==='win32')await protectWindowsPrivateFile(temporary);
+    else if(((await handle.stat()).mode&0o777)!==0o600)throw Error('Private permissions unavailable');
+   }catch{
+    throw new PrivateInputWriteError('Keep '+path+' unchanged. This filesystem could not protect the staged credential file. Use the declared process environment variable.');
+   }
+   await verifyIgnore();
    await handle.writeFile(text);await handle.sync();
   }finally{await handle.close();}
-  await verify();
-  await renameWithRetry(()=>rename(staged,path),verify);
-  await syncDirectory(join(root,'.rigup'));
- }finally{
-  // A replaced parent is not ours to clean up.
-  const current=await lstat(join(root,'.rigup')).catch(()=>undefined);
-  if(current?.dev===parent.dev&&current.ino===parent.ino)await rm(temporary,{force:true,recursive:process.platform==='win32'}).catch(()=>{});
- }
+  await renameWithRetry(()=>rename(temporary,path),verify);
+  await syncDirectory(directory);
+ }finally{await rm(temporary,{force:true}).catch(()=>{});}
 }
