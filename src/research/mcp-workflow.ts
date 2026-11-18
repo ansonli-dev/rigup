@@ -4,7 +4,7 @@ import {homedir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {selectResearchOutput,validateResearch,type AnalysisBackend,type RepositoryReader,type ResearchRequest} from '../analyzer/backend.js';
 import {digest,type EvidenceRead} from '../analyzer/evidence.js';
-import {stageSourceGuidance} from '../analyzer/stage-context.js';
+import {analysisSeedPaths,stageSourceGuidance} from '../analyzer/stage-context.js';
 import {researchPrompt} from '../analyzer/prompts.js';
 import {scanRepository} from '../analyzer/repository.js';
 import {loadOptions,normalizeDocumentLanguage} from '../config.js';
@@ -31,7 +31,7 @@ const hostPrompt=researchPrompt
  .replace('Cite only the supplied ranges','Cite only the repository path and line ranges')
  .replace('arrays of {path,startLine,endLine,digest}','arrays of {path,startLine,endLine}')
  .replace('Claims must cite exact visible snippet digests returned by the tools.','Submit repository-relative path, startLine and endLine for each citation. Rigup computes the digest from allowed evidence.')
- + '\nStart with the supplied seed paths. Scope Glob and Grep to relevant project source or test directories. Exclude .rigup/tools/ and dependency trees from searches, and ignore any matches there.';
+ + '\nStart with the supplied seed paths when present. The seed paths are a sample of the readable inventory. Use authorized tools to find other relevant files. Scope Glob and Grep to relevant project source or test directories. Exclude .rigup/tools/ and dependency trees from searches, and ignore any matches there.';
 const maxSubmissionBytes=256_000;
 type JobStage='analysis'|'plan'|'page'|'acceptance';
 interface Job {id:string;stage:JobStage;expectedOutput:'analysis'|'plan'|'content'|'acceptance';options:{documentLanguage:string};artifact?:string;input?:unknown;seedPaths?:string[];sourceGuidance?:ResearchRequest['sourceGuidance'];sourceEvidence?:EvidenceRead[]}
@@ -246,7 +246,7 @@ async function advanceResearch(root:string,host:Agent,state:ResearchState,path:s
   await persist();
   throw new AwaitingJob({id,stage,expectedOutput,options:{documentLanguage:options.documentLanguage??'auto'},artifact:request.artifact,input:request.input,
    ...(request.sourceGuidance?.length?{sourceGuidance:request.sourceGuidance,sourceEvidence}:{}),
-   ...(stage==='analysis'?{seedPaths:(await reader.list()).slice(0,200)}:{})},older&&!explicit);
+   ...(stage==='analysis'?{seedPaths:analysisSeedPaths(await reader.list())}:{})},older&&!explicit);
  }};
  let report:Record<string,unknown>|undefined;
  try{
