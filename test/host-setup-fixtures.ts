@@ -1,4 +1,6 @@
 import {createHash} from 'node:crypto';
+import {mkdir,writeFile} from 'node:fs/promises';
+import {dirname,join} from 'node:path';
 import {gzipSync} from 'node:zlib';
 
 export const ompId='@loneexile/omp-superpowers';
@@ -29,4 +31,30 @@ export function ompArchive(version='9.9.9-omp.1'){
  const tarball='https://registry.npmjs.org/@loneexile/omp-superpowers/-/omp-superpowers-'+version+'.tgz';
  const pin={version,integrity,tarball};
  return {bytes,pin,files,metadata:()=>Response.json({name:ompId,version,dist:{integrity,tarball}})};
+}
+
+export function ompRegistryFixture(){
+ const version='7.0.2-omp.3';
+ const {files,pin:archivePin}=ompArchive(version);
+ const pin={...archivePin,integrity:'sha512-e0iw1xbuH8F678WCuMT+ZN4b08WfCNEf3kranIqdFva7Hbkuy1v6mgrbP7miVd6r9qzS9/e/ZaQPiXYwQw8BZQ=='};
+ const tuple=[ompId+'@'+version,'',{},pin.integrity];
+ const lockText=(entry:unknown=tuple)=>[
+  '{', ' "lockfileVersion": 1,',
+  ' "workspaces": { "": { "dependencies": { "'+ompId+'": "'+version+'", }, }, },',
+  ' "packages": { "'+ompId+'": '+JSON.stringify(entry)+', },', '}',
+ ].join('\n');
+ const put=async(path:string,value:string)=>{
+  await mkdir(dirname(path),{recursive:true});
+  await writeFile(path,value);
+ };
+ return {pin,tuple,lockText,metadata:()=>Response.json({name:ompId,version,dist:pin}),
+  async write(base:string){
+   const target=join(base,'node_modules',ompId),bunLock=join(base,'bun.lock');
+   for(const [name,content] of Object.entries(files))await put(join(target,name),content);
+   await put(join(base,'package.json'),JSON.stringify({private:true,dependencies:{[ompId]:version}}));
+   await put(join(base,'omp-plugins.lock.json'),JSON.stringify({plugins:{[ompId]:{version,enabled:true}}}));
+   await put(bunLock,lockText());
+   return {target,bunLock,manifest:join(target,'package.json')};
+  },
+ };
 }

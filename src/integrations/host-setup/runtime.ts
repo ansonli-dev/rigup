@@ -120,6 +120,36 @@ export function nativeChildEnv(runtime:HostRuntime,privateTemp:string):NodeJS.Pr
  return {...runtime.env,...(windows?{TEMP:privateTemp,TMP:privateTemp}:{TMPDIR:privateTemp})};
 }
 
+const stderrLimit=8_192;
+const errnoSummary={
+ EPERM:'Operation not permitted.',
+ EACCES:'Permission denied.',
+ ENOENT:'A required file or executable was missing.',
+ ENOSPC:'The filesystem is out of space.',
+ EROFS:'The destination is read-only.',
+ EINTEGRITY:'Package integrity verification failed.',
+ ECONNREFUSED:'The network connection was refused.',
+ ECONNRESET:'The network connection was reset.',
+ ENOTFOUND:'The network host could not be resolved.',
+ ETIMEDOUT:'The network request timed out.',
+};
+const knownErrno=new RegExp('\\b('+Object.keys(errnoSummary).join('|')+')\\b');
+
+export function summarizeNativeStderr(stderr?:Buffer|string){
+ if(!stderr?.length)return;
+ const bytes=typeof stderr==='string'?Buffer.from(stderr.slice(-stderrLimit)):stderr;
+ const text=bytes.subarray(-stderrLimit).toString('utf8').trim();
+ if(!text)return;
+ // Emit only fixed messages. Host output can contain credentials and paths.
+ const symlink=/\b(EPERM|EACCES)\b[^\r\n]*\bsymlink\b/i.exec(text);
+ if(symlink)return symlink[1].toUpperCase()+': permission denied while creating a symbolic link.';
+ const errno=knownErrno.exec(text)?.[1] as keyof typeof errnoSummary|undefined;
+ if(errno)return errno+': '+errnoSummary[errno];
+ if(/\bauthentication failed\b|\bcould not read username\b|\bpermission denied \(publickey\)/i.test(text))
+  return 'Git authentication failed.';
+ return 'The CLI reported an unrecognized error on stderr.';
+}
+
 export async function withHostWriter<T>(
  lock:Pick<ProjectLock,'root'|'stateRoot'>,host:SetupHost,
  work:(runner:{run:typeof run})=>Promise<T>,signal?:AbortSignal,writerRoot=lock.stateRoot,
@@ -138,8 +168,14 @@ export async function withHostWriter<T>(
 
  async function run(command:HostCommand,cwd:string,timeoutMs:number,recheck:()=>Promise<string|undefined>,capture?: (chunk:Buffer)=>void){
   let code:number|null=null,cancelled=false,dispatched=false;
+  let stderr=Buffer.alloc(0);
   const result=await protectedOperationCommand(command,cwd,Math.min(timeoutMs,900_000),{
    signal,launcher:{cwd:resource.stateRoot,env:command.env},stdout:capture,
+   stderr:chunk=>{
+    const tail=chunk.subarray(-stderrLimit);
+    const keep=stderrLimit-tail.length;
+    stderr=Buffer.concat([stderr.subarray(Math.max(0,stderr.length-keep)),tail]);
+   },
    markDispatching:async identity=>{await saveDurable(record,JSON.stringify({root:resource.root,host,identity}));},
    registryPending:async()=>{
     let blocked:string|undefined;
@@ -153,6 +189,7 @@ export async function withHostWriter<T>(
     return {status:exit===0&&!interrupted?'done':'failed',message:'Native command exited'};
    },
   });
-  return {code,cancelled:cancelled||!dispatched&&signal?.aborted===true,dispatched,blocked:result.status==='pending'?result.message:undefined};
+  return {code,cancelled:cancelled||!dispatched&&signal?.aborted===true,dispatched,
+   blocked:result.status==='pending'?result.message:undefined,stderrSummary:summarizeNativeStderr(stderr)};
  }
 }

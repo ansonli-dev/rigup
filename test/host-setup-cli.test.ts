@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {chmod,copyFile,mkdir,readFile,realpath,rm,stat,symlink,writeFile} from 'node:fs/promises';
+import {chmod,copyFile,mkdir,readFile,readdir,realpath,rm,stat,symlink,writeFile} from 'node:fs/promises';
 import {delimiter,dirname,join} from 'node:path';
 import {test} from 'node:test';
 import {resolveWindowsExecutable} from '../src/integrations/tools/windows-process.mjs';
 import {runCli,type CliIO} from '../src/cli.js';
+import {scanNativeEntries} from '../src/analyzer/repository.js';
+import {prepareIntegrations} from '../src/integrations/registry.js';
+import {quoteShell} from '../src/shell-command.js';
 import {describeNativePreparation,nativePreparationProblem,planNativePreparation,type NativeProgress} from '../src/integrations/host-setup/index.js';
-import {latestUrl,ompArchive,ompId,requiredSkills} from './host-setup-fixtures.js';
+import {latestUrl,ompArchive,ompId,ompRegistryFixture,requiredSkills} from './host-setup-fixtures.js';
 import {project,testEnvironment} from './helpers.js';
 
 const id='superpowers@claude-plugins-official',market='claude-plugins-official';
@@ -106,14 +109,16 @@ async function fakeClaude(io:CliIO,root:string,home:string,steps:string[],
    for(const name of requiredSkills)
     await put(join(pkg,'skills',name,'SKILL.md'),'---\nname: '+name+'\ndescription: fixture\n---\n');
   }
-  return {code:install&&failInstall?19:0,output:'SUPPRESSED_HOST_OUTPUT'};
+  return {code:install&&failInstall?19:0,output:'SUPPRESSED_HOST_OUTPUT',stderr:install&&failInstall?
+   'fatal: Authentication failed for https://fixture-user:FIXTURE_PASSWORD@invalid.example/private-repo':undefined};
  };
 }
 
 async function fakeOmp(io:CliIO,home:string,{probe={code:0,output:'omp/99.0.0'},offline=false,badArchive=false,afterLink=async()=>{}}:{
- probe?:{code:number;output:string};offline?:boolean;badArchive?:boolean;afterLink?:()=>Promise<void>;
+ probe?:{code:number;output:string;stderr?:string};offline?:boolean;badArchive?:boolean;afterLink?:()=>Promise<void>;
 }={}){
  const service=io.services!.nativeSetup!,hostLaunch=service.launch,file=await launcher(home,'omp');
+ service.symlinks??=async()=>true;
  const archive=ompArchive(),requests:string[]=[],commands:string[][]=[];
  const base=join(home,'.omp','plugins'),target=join(base,'node_modules',ompId),lock=join(base,'omp-plugins.lock.json');
  service.fetch=async url=>{
@@ -224,6 +229,193 @@ test('native approval transcript reflects the selected OMP profile and leaves an
  };
  assert.equal(await runCli(args(root,'claude,omp'),io),130,output.join(''));
  assert.deepEqual(commands,[]);
+})));
+
+async function fakeOmpRegistry(io:CliIO,home:string,{
+ afterProbe=async()=>{},
+ install=async(base,fixture)=>{await fixture.write(base);return {code:0};},
+}:{
+ afterProbe?:()=>Promise<void>;
+ install?:(base:string,fixture:ReturnType<typeof ompRegistryFixture>)=>Promise<{code:number;stderr?:string}>;
+}={}){
+ const service=io.services!.nativeSetup!;
+ await launcher(home,'omp');
+ const fixture=ompRegistryFixture(),requests:string[]=[],commands:string[][]=[];
+ const base=join(home,'.omp','plugins'),target=join(base,'node_modules',ompId);
+ service.symlinks=async()=>false;
+ service.fetch=async url=>{
+  requests.push(String(url));
+  assert.equal(String(url),latestUrl);
+  return fixture.metadata();
+ };
+ service.launch=async command=>{
+  commands.push(command.args);
+  if(command.args.includes('--version')){await afterProbe();return {code:0,output:'omp/18.1.17'};}
+  return install(base,fixture);
+ };
+ return {base,target,fixture,requests,commands,service};
+}
+
+test('OMP plans and approves the pinned registry command without using Rigup store',()=>project(root=>project(async home=>{
+ const {io,stateRoot,questions,reports}=cli(root,home);
+ const {base,fixture,requests,commands}=await fakeOmpRegistry(io,home);
+ assert.equal(await runCli([...args(root,'omp'),'--dry-run'],io),0);
+ const step=finalPreparation(reports).hosts[0].steps[0];
+ const installArgs=['plugin','install',ompId+'@'+fixture.pin.version,'--json'];
+ assert.equal(step.id,'install');
+ assert.ok(step.command.includes(installArgs.map(quoteShell).join(' ')),step.command);
+ assert.ok(step.pin.includes(fixture.pin.integrity));
+ assert.ok(step.writes.some(write=>write.path===join(base,'bun.lock')));
+ assert.ok(step.writes.every(write=>!write.path.includes('native-packages')));
+ assert.deepEqual(questions,[]);
+ await missing(stateRoot);
+ await missing(base);
+ const approve=io.ask;
+ io.ask=async()=>['Cancel'];
+ assert.equal(await runCli(args(root,'omp'),io),130);
+ assert.deepEqual(commands,[]);
+ await missing(stateRoot);
+ const unusableStore=join(stateRoot,'native-packages');
+ await put(unusableStore,'fixture archive store sentinel');
+ io.ask=approve;
+ assert.equal(await runCli(args(root,'omp'),io),0);
+ assert.deepEqual(commands,[['--version'],installArgs]);
+ assert.ok(finalPreparation(reports).progress.some(item=>item.status==='recognized'&&item.step==='install'));
+ assert.equal(await readFile(unusableStore,'utf8'),'fixture archive store sentinel');
+ assert.equal(await runCli(args(root,'omp'),io),0);
+ assert.equal(finalPreparation(reports).hosts[0].status,'ready');
+ assert.deepEqual(commands,[['--version'],installArgs]);
+ assert.deepEqual(requests,[latestUrl,latestUrl,latestUrl]);
+ assert.equal(questions.length,1);
+})));
+
+for(const duringProbe of [false,true])test('OMP requires fresh approval when symlink capability changes '+(duringProbe?'after version check':'at consent'),()=>project(root=>project(async home=>{
+ const {io,reports}=cli(root,home);
+ let available=false;
+ const {base,commands,service}=await fakeOmpRegistry(io,home,{afterProbe:async()=>{if(duringProbe)available=true;}});
+ service.symlinks=async()=>available;
+ if(!duringProbe)io.ask=async()=>{available=true;return ['Approve'];};
+ assert.equal(await runCli(args(root,'omp'),io),3);
+ assert.deepEqual(commands,duringProbe?[['--version']]:[]);
+ assert.equal(finalPreparation(reports).blockers[0]?.code,'native-target-changed');
+ await missing(base);
+})));
+
+test('OMP rechecks the Bun receipt path before dispatch without following redirections',()=>project(root=>project(async home=>{
+ const {io,reports}=cli(root,home),base=join(home,'.omp','plugins'),external=join(home,'external');
+ await mkdir(external);
+ const {commands}=await fakeOmpRegistry(io,home,{afterProbe:async()=>{
+  await mkdir(base,{recursive:true});
+  await symlink(external,join(base,'bun.lock'),process.platform==='win32'?'junction':'dir');
+ }});
+ assert.equal(await runCli(args(root,'omp'),io),3);
+ assert.deepEqual(commands,[['--version']]);
+ assert.ok(finalPreparation(reports).blockers[0]?.evidence.includes(join(base,'bun.lock')));
+ assert.deepEqual(await readdir(external),[]);
+})));
+
+for(const mismatch of ['version','receipt','binding'] as const)test('OMP rejects registry result with wrong '+mismatch,()=>project(root=>project(async home=>{
+ const {io,reports}=cli(root,home);
+ const {base,target}=await fakeOmpRegistry(io,home,{install:async (base,fixture)=>{
+  const installed=await fixture.write(base);
+  if(mismatch==='receipt')await rm(installed.bunLock);
+  if(mismatch==='version'){
+   const other='8.0.0';
+   await put(installed.manifest,{name:ompId,version:other,pi:{extensions:['./.pi/extensions/superpowers.ts']}});
+   await put(installed.bunLock,fixture.lockText([ompId+'@'+other,'',{},fixture.pin.integrity]));
+   await put(join(base,'omp-plugins.lock.json'),{plugins:{[ompId]:{version:other,enabled:true}}});
+  }
+  if(mismatch==='binding')await put(join(root,'.omp','skills','brainstorming','SKILL.md'),
+   '---\nname: brainstorming\ndescription: Shadowing fixture\n---\n');
+  return {code:0};
+ }});
+ assert.equal(await runCli(args(root,'omp'),io),1);
+ const result=finalPreparation(reports);
+ assert.equal(result.blockers[0]?.code,'omp-not-recognized-after-install');
+ assert.ok(result.blockers[0].evidence.includes(join(base,'bun.lock')));
+ assert.ok(result.blockers[0].suggest.includes('omp plugin uninstall '+ompId));
+ assert.ok((await stat(target)).isDirectory());
+})));
+
+test('OMP leaves a rejected registry target blocked across runs and retries after manual removal',()=>project(root=>project(other=>project(async home=>{
+ const {io,stateRoot,reports}=cli(root,home);
+ const markers=async()=>(await readdir(stateRoot)).filter(name=>/^native-omp-.*\.unverified\.json$/.test(name));
+ let beforeInstall:string[]=[];
+ const {base,target,fixture}=await fakeOmpRegistry(io,home,{install:async (base,fixture)=>{
+  beforeInstall=await markers();
+  const {bunLock}=await fixture.write(base);
+  await put(bunLock,fixture.lockText([...fixture.tuple.slice(0,3),'sha512-'+Buffer.alloc(64).toString('base64')]));
+  return {code:0};
+ }});
+ assert.equal(await runCli(args(root,'omp'),io),1);
+ assert.equal(finalPreparation(reports).blockers[0]?.code,'omp-not-recognized-after-install');
+ const retry=cli(root,home);
+ const {commands,requests,service}=await fakeOmpRegistry(retry.io,home);
+ assert.equal(await runCli(args(root,'omp'),retry.io),3);
+ assert.equal(beforeInstall.length,1);
+ assert.deepEqual(await markers(),beforeInstall);
+ assert.equal(finalPreparation(retry.reports).hosts[0].status,'manual');
+ assert.equal(finalPreparation(retry.reports).blockers[0]?.code,'omp-not-recognized-after-install');
+ assert.deepEqual(commands,[]);
+ assert.deepEqual(requests,[]);
+ const options={agents:['omp' as const],sdd:'superpowers' as const,backend:'host' as const};
+ const scan=await scanNativeEntries(other,options,{home,env:service.env,ompWriterRoot:stateRoot});
+ const ordinary=await prepareIntegrations(scan,options);
+ assert.equal(ordinary.bindings.length,0);
+ assert.match(ordinary.requirements[0].reason,/unverified OMP registry install/i);
+ const profileBase=join(home,'.omp','profiles','other','plugins');
+ await fixture.write(profileBase);
+ const otherProfile=await planNativePreparation(other,['omp'],{...service,env:{...service.env,OMP_PROFILE:'other'}});
+ assert.equal(otherProfile.entries[0].status,'ready');
+ assert.ok((await stat(target)).isDirectory());
+ await rm(target,{recursive:true});
+ assert.equal(await runCli(args(root,'omp'),retry.io),0);
+ assert.ok((await stat(target)).isDirectory());
+ assert.deepEqual(requests,[latestUrl]);
+ assert.deepEqual(await markers(),[]);
+ assert.ok((await stat(join(base,'bun.lock'))).isFile());
+ await missing(join(stateRoot,'native-packages'));
+}))));
+
+test('OMP retries an empty registry failure and captures only its safe stderr summary',()=>project(root=>project(async home=>{
+ const {io,stateRoot,reports,output}=cli(root,home);
+ let attempt=0;
+ await fakeOmpRegistry(io,home,{install:async (base,fixture)=>{
+  if(attempt++===0){
+   await mkdir(join(base,'node_modules'),{recursive:true});
+   return {code:23,stderr:"\x1b[31mError: EPERM: operation not permitted, symlink 'C:\\fixture-private\\token' -> '/private/fixture' SECRET_FIXTURE\x1b[0m"};
+  }
+  await fixture.write(base);
+  return {code:0};
+ }});
+ assert.equal(await runCli(args(root,'omp'),io),1);
+ const result=finalPreparation(reports),progress=result.progress.find(item=>item.step==='install');
+ assert.equal(progress?.code,23);
+ assert.equal(progress?.stderrSummary,'EPERM: permission denied while creating a symbolic link.');
+ assert.equal(result.blockers[0]?.code,'install-command-failed');
+ assert.deepEqual(result.blockers[0].suggest,[]);
+ assert.doesNotMatch(output.join('')+JSON.stringify(result),/fixture-private|SECRET_FIXTURE|\\u001b/);
+ assert.ok((await readdir(stateRoot)).every(name=>!name.endsWith('.unverified.json')));
+ assert.equal(await runCli(args(root,'omp'),io),0);
+ await missing(join(stateRoot,'native-packages'));
+})));
+
+test('an interrupted OMP registry install stays unverified even with a matching receipt',()=>project(root=>project(async home=>{
+ const attempt=cli(root,home),signal=new AbortController();
+ attempt.io.services!.signal=signal.signal;
+ await fakeOmpRegistry(attempt.io,home,{install:async(base,fixture)=>{
+  await fixture.write(base);
+  signal.abort();
+  return {code:1,stderr:'EACCES: PRIVATE_CANCEL_DETAIL'};
+ }});
+ assert.equal(await runCli(args(root,'omp'),attempt.io),130);
+ assert.ok(finalPreparation(attempt.reports).progress.every(item=>item.stderrSummary===undefined));
+ const retry=cli(root,home);
+ const {commands,requests}=await fakeOmpRegistry(retry.io,home);
+ assert.equal(await runCli(args(root,'omp'),retry.io),3);
+ assert.deepEqual(commands,[]);
+ assert.deepEqual(requests,[]);
+ assert.equal(finalPreparation(retry.reports).blockers[0]?.code,'omp-not-recognized-after-install');
 })));
 
 test('native approval requires explicit consent and allows an unrelated settings change after preview',()=>project(root=>project(async home=>{
@@ -622,14 +814,17 @@ test('OMP approval keeps an integrity failure out of both the store and link',()
 
 test('OMP blocks an unsuccessful or empty version probe without exposing host output',()=>project(root=>project(async home=>{
  const {io,stateRoot,reports,output}=cli(root,home);
- for(const probe of [{code:0,output:''},{code:19,output:'\x1b[31mPRIVATE_HOST_DATA'}]){
+ for(const probe of [{code:0,output:''},{code:19,output:'\x1b[31mPRIVATE_HOST_DATA',stderr:'ENOENT: /fixture-private-stderr'}]){
   const {commands}=await fakeOmp(io,home,{probe});
   assert.equal(await runCli(args(root,'omp'),io),1);
   assert.deepEqual(commands,[['--version']]);
   assert.equal(finalPreparation(reports).blockers[0]?.code,'cli-not-runnable');
+  const failure=finalPreparation(reports).progress.at(-1);
+  assert.equal(failure?.code,probe.code);
+  assert.equal(failure?.stderrSummary,probe.code===19?'ENOENT: A required file or executable was missing.':undefined);
   await missing(join(stateRoot,'native-packages'));
  }
- assert.doesNotMatch(output.join('')+JSON.stringify(reports),/PRIVATE_HOST_DATA/);
+ assert.doesNotMatch(output.join('')+JSON.stringify(reports),/PRIVATE_HOST_DATA|fixture-private-stderr/);
 })));
 
 test('an OMP rescan blocker includes write paths, shadowing evidence and undo, then clears on rerun',()=>project(root=>project(async home=>{
@@ -674,6 +869,10 @@ test('OMP can finish when the Claude install command fails',()=>project(root=>pr
  assert.deepEqual(steps,['marketplace','install']);
  assert.equal(commands.length,2);
  assert.deepEqual(finalPreparation(reports).blockers.map(({host,code})=>({host,code})),[{host:'claude',code:'install-command-failed'}]);
+ const failure=finalPreparation(reports).progress.find(item=>item.host==='claude'&&item.status==='stopped');
+ assert.equal(failure?.code,19);
+ assert.equal(failure?.stderrSummary,'Git authentication failed.');
+ assert.doesNotMatch(output.join('')+JSON.stringify(reports),/FIXTURE_PASSWORD|private-repo/);
 })));
 
 test('offline OMP metadata remains a pre-write blocker when Claude is not imported',()=>project(root=>project(async home=>{

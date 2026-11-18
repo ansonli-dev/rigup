@@ -11,10 +11,11 @@ import {agents,projectCommandRoots} from '../integrations/agents/index.js';
 import type {Agent,SetupOptions} from '../types.js';
 import {sddDiscoveryNames,unqualifiedSkillName,type SkillSource} from '../integrations/sdd/binding.js';
 import {ompLocations} from '../integrations/host-setup/omp-locations.js';
+import {unverifiedOmpInstall} from '../integrations/host-setup/writer-state.js';
 import {claudeManagedRoot,claudePlugin,ompPackage} from '../integrations/host-setup/manual.js';
-export interface NativeDiagnostic {agent:Agent;code:'omp-claude-provider-filtered'|'omp-plugin-unlinked'|'plugin-skipped'|'native-conflict';subject:string;detail:string;evidence?:string[]}
+export interface NativeDiagnostic {agent:Agent;code:'omp-claude-provider-filtered'|'omp-plugin-unlinked'|'omp-registry-unverified'|'plugin-skipped'|'native-conflict';subject:string;detail:string;evidence?:string[]}
 export interface OpenCodePluginObservation {target:string;id:string;skills:readonly string[]}
-export interface NativeDiscoveryOptions {home?:string;env?:Record<string,string|undefined>;openCodePlugins?:readonly OpenCodePluginObservation[];managedProjectPaths?:string[];onWarning?:(message:string)=>void;onDiagnostic?:(diagnostic:NativeDiagnostic)=>void}
+export interface NativeDiscoveryOptions {home?:string;ompWriterRoot?:string;verifyingOmpTarget?:string;env?:Record<string,string|undefined>;openCodePlugins?:readonly OpenCodePluginObservation[];managedProjectPaths?:string[];onWarning?:(message:string)=>void;onDiagnostic?:(diagnostic:NativeDiagnostic)=>void}
 export function nativeSkillMetadata(text:string):{name:string;satisfies:boolean;disabled?:boolean}|undefined {
  const front=text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);if(!front)return;
  const value=parse(front[1]);if(!value||typeof value.name!=='string'||typeof value.description!=='string')return;
@@ -344,6 +345,14 @@ export async function discoverNativeSources(root:string,options:SetupOptions,dep
      }
     }
     for(const [name,{path,entries,scope}] of packages)try{await plugin(path,'package.json',name,undefined,['skills'],scope,entries);}catch(error){warn(name,error);}
+    if(options.sdd==='superpowers'){
+     const pending=await unverifiedOmpInstall(ompPlugins,dependencies.ompWriterRoot,dependencies.verifyingOmpTarget);
+     if(pending){
+      for(let i=sources.length-1;i>=0;i--)
+       if(isAbsolute(sources[i].identity)&&inside(pending.directory,sources[i].identity))sources.splice(i,1);
+      diag('omp-registry-unverified',ompPackage,'Remove the unverified OMP registry install before retrying Rigup.',[pending.target,pending.record]);
+     }
+    }
     // OMP's native packages outrank the matching Claude import; leave other collisions visible.
     const preferred=new Set(sources.filter(source=>source.packageName===ompPackage&&source.satisfies).map(source=>source.name));
     for(let i=sources.length-1;i>=0;i--)if(imported.has(sources[i])&&preferred.has(sources[i].name))sources.splice(i,1);
