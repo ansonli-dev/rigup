@@ -21,7 +21,7 @@ export interface SetupOptions {
   templates?: {source:string;target:string;values?:Record<string,string|number|boolean>}[];
   mcp?: {id:string;agents?:Agent[];url?:string;command?:CommandSpec;envRefs?:string[];bearerTokenEnv?:string}[];
 }
-export type ProviderEnvImport=Pick<NonNullable<SetupOptions['model']>,'provider'|'apiKeyEnv'>;
+export type ProviderEnvImport=Pick<NonNullable<SetupOptions['model']>,'provider'|'apiKeyEnv'>&{explicitApiKeyEnv?:true};
 export type StepResult<T> =
   | { status: 'complete'; value: T }
   | { status: 'pending-host'; requestId: string; requestPath: string; nextCommand: string };

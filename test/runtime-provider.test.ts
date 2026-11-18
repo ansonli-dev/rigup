@@ -47,7 +47,7 @@ test('an explicit CLI model selects a provider whose only ambient input is its d
  }finally{names.forEach((name,index)=>{if(before[index]===undefined)delete process.env[name];else process.env[name]=before[index];});}
 })));
 
-const providerEnvNames=['HOME','USERPROFILE','RIGUP_CONSUMER_PATH','RIGUP_PROVIDER','RIGUP_MODEL_ID','RIGUP_BASE_URL','RIGUP_API_KEY_ENV','RIGUP_MAX_OUTPUT_TOKENS','ANTHROPIC_API_KEY','ANTHROPIC_BASE_URL','ANTHROPIC_MODEL','OPENAI_API_KEY','OPENAI_BASE_URL','OPENAI_MODEL'];
+const providerEnvNames=['HOME','USERPROFILE','RIGUP_CONSUMER_PATH','TEAM_KEY','OTHER_KEY','RIGUP_PROVIDER','RIGUP_MODEL_ID','RIGUP_BASE_URL','RIGUP_API_KEY_ENV','RIGUP_MAX_OUTPUT_TOKENS','ANTHROPIC_API_KEY','ANTHROPIC_BASE_URL','ANTHROPIC_MODEL','OPENAI_API_KEY','OPENAI_BASE_URL','OPENAI_MODEL'];
 async function isolatedProvider(run:(root:string,home:string)=>Promise<void>){
  await project(root=>project(async home=>{
   const before=providerEnvNames.map(name=>process.env[name]);
@@ -181,8 +181,8 @@ const emptyResearch={status:'complete' as const,value:{
  data:{observations:[],unknowns:[],guidance:[],artifacts:[],dispositions:[]},model:'fixture',unknowns:[],usage:{calls:1,tokens:1},
 }};
 
-function importCli(root:string,home:string,backend:LifecycleServices['backend']={run:async()=>assert.fail('unexpected research call')}){
- const services={cacheRoot:join(home,'cache'),stateRoot:join(home,'state'),backend};
+function importCli(root:string,home:string,backend:LifecycleServices['backend']|null={run:async()=>assert.fail('unexpected research call')},runChecks?:LifecycleServices['runChecks']){
+ const services={cacheRoot:join(home,'cache'),stateRoot:join(home,'state'),backend:backend??undefined,runChecks};
  const envPath=join(root,'.rigup','.env'),previews=join(services.cacheRoot,'previews');
  return {
   services,envPath,previews,
@@ -301,13 +301,12 @@ for(const approved of [false,true]){
   if(approved)assert.equal((await readRuntimeFile(root)).entries.get(providerSecretName)?.value,ambientKey);
   else await assert.rejects(readFile(cli.envPath),{code:'ENOENT'});
  }));
- test('host continuation keeps '+(approved?'explicit':'absent')+' provider authorization',()=>isolatedProvider(async(root,home)=>{
+ test('host continuation keeps '+(approved?'explicit':'absent')+' provider authorization and rejects an edited grant',()=>isolatedProvider(async(root,home)=>{
   await mkdir(join(root,'.rigup'));
   await writeFile(join(root,'.rigup/config.yaml'),'projectRules: true\n');
-  let pending=true;
+  let calls=0;
   const cli=importCli(root,home,{run:async()=>{
-   if(!pending)return emptyResearch;
-   pending=false;
+   if(calls++)return emptyResearch;
    return {status:'pending-host',requestId:'fixture',requestPath:join(home,'cache','host','fixture.request.json')};
   }});
   if(approved){
@@ -322,6 +321,17 @@ for(const approved of [false,true]){
    anthropicEnvironment();
    process.env.RIGUP_PROVIDER='anthropic';
   }
+  const path=join(cli.services.stateRoot,'runs',id+'.json');
+  const original=await readFile(path,'utf8');
+  const changed=JSON.parse(original);
+  changed.mode.providerEnvImport={provider:'anthropic',apiKeyEnv:'OTHER_KEY'};
+  await writeFile(path,JSON.stringify(changed));
+  const {report:rejected}=await cli.run(['update','--continue',id,'--json'],1);
+  assert.match(rejected.error,/continuation input\/configuration changed/);
+  assert.equal(calls,1);
+  await assert.rejects(readFile(cli.envPath),{code:'ENOENT'});
+  await writeFile(path,original);
+  await writeFile(join(root,'ordinary-source.ts'),'export const fixture = true;\n');
   const {report:review}=await cli.run(['update','--continue',id,'--json'],3);
   const {plan}=await loadPreview(review.previewId,cli.previews);
   assert.deepEqual(plan.providerEnvImport,approved?{provider:'anthropic',apiKeyEnv:providerSecretName}:undefined);
@@ -433,3 +443,80 @@ test('a blocked private credential write produces no import notice',()=>isolated
  assert.ok(!stdout.includes(importNotice));
  assert.equal(await readFile(cli.envPath,'utf8'),invalid);
 }));
+
+for(const useAdapter of [false,true]){
+ test('an explicit API key reference wins over an ambient alias '+(useAdapter?'for a native request and saved apply':'in the saved approval'),t=>isolatedProvider(async(root,home)=>{
+  const teamKey='synthetic-issue-89-team-key',otherKey='synthetic-issue-89-other-key';
+  Object.assign(process.env,{RIGUP_API_KEY_ENV:'OTHER_KEY',TEAM_KEY:teamKey,OTHER_KEY:otherKey,OPENAI_BASE_URL:gateway});
+  await mkdir(join(root,'.rigup'));
+  await writeFile(join(root,'.rigup/config.yaml'),JSON.stringify({
+   projectRules:true,model:{provider:'openai-compatible',model:'fixture-default',apiKeyEnv:'PRESET_KEY'},
+  }));
+  const authorization:string[]=[];
+  if(useAdapter)t.mock.method(globalThis,'fetch',async (url:string,init:RequestInit)=>{
+   assert.equal(new URL(url).hostname,'issue-89-gateway.example.test');
+   authorization.push(new Headers(init.headers).get('Authorization')??'');
+   const {messages}=JSON.parse(init.body as string),context=JSON.parse(messages[1].content);
+   const data=context.kind==='analyze'?{observations:[],unknowns:[],guidance:[]}:{observations:[],unknowns:[],artifacts:[],dispositions:[]};
+   return Response.json({
+    model:'fixture-model',choices:[{finish_reason:'stop',message:{role:'assistant',content:JSON.stringify(data)}}],
+    usage:{prompt_tokens:2,completion_tokens:1,total_tokens:3},
+   });
+  });
+  const cli=importCli(root,home,useAdapter?null:{run:async request=>{
+   assert.equal(request.effectiveModel?.apiKeyEnv,'TEAM_KEY');
+   return emptyResearch;
+  }});
+  const {report:review}=await cli.run(
+   ['init','--agents','codex','--sdd','none','--model','fixture-model','--api-key-env','TEAM_KEY','--review','--json'],3);
+  assert.ok(review.executable);
+  const {plan}=await loadPreview(review.previewId,cli.previews);
+  assert.equal(plan.providerEnvImport?.apiKeyEnv,'TEAM_KEY');
+  await assert.rejects(readFile(cli.envPath),{code:'ENOENT'});
+  const {stdout}=await cli.run(['update','--apply',review.previewId,'--sessions-ended'],0);
+  assert.match(stdout,/Imported TEAM_KEY from the calling environment/);
+  assert.ok(!stdout.includes(teamKey)&&!stdout.includes(otherKey));
+  const file=await readRuntimeFile(root);
+  assert.equal(file.entries.get('TEAM_KEY')?.value,teamKey);
+  assert.equal(file.entries.get('RIGUP_API_KEY_ENV')?.value,'TEAM_KEY');
+  assert.equal(file.entries.has('OTHER_KEY'),false);
+  assert.ok(!file.text.includes(otherKey));
+  if(useAdapter)assert.deepEqual(authorization,['Bearer '+teamKey,'Bearer '+teamKey]);
+  await assertNoStoredKey(home,[teamKey,otherKey]);
+ }));
+}
+
+for(const mode of ['inline','saved'] as const){
+ for(const json of [false,true])test(mode+' apply retains its failure after an environment import in '+(json?'JSON':'terminal output'),()=>isolatedProvider(async(root,home)=>{
+  anthropicEnvironment();
+  process.env.RIGUP_PROVIDER='anthropic';
+  let fail=true;
+  const failure='fixture check error after environment write';
+  const cli=importCli(root,home,undefined,async()=>{
+   assert.equal((await readRuntimeFile(root)).entries.get(providerSecretName)?.value,ambientKey);
+   if(fail)throw Error(failure);
+   return [];
+  });
+  const init=['init','--agents','codex','--sdd','none'];
+  const saved=mode==='saved'?(await cli.run([...init,'--review','--json'],3)).report.previewId:undefined;
+  const applyArgs=saved?['update','--apply',saved,'--sessions-ended']:init;
+  const {stdout,stderr,report}=await cli.run([...applyArgs,...(json?['--json']:[])],1);
+  await assert.rejects(readFile(join(root,'.rigup','manifest.json')),{code:'ENOENT'});
+  assert.equal((await readRuntimeFile(root)).entries.get(providerSecretName)?.value,ambientKey);
+  if(json){
+   assert.equal(report.error,failure);
+   assert.equal(report.phase,saved?'preflight':'preview');
+   assert.equal(report.installStatus,saved?'failed':'not-installed');
+   assert.ok(!(stdout+stderr).includes(importNotice));
+  }else{
+   assert.equal(stdout.split('\n').filter(line=>line===importNotice).length,1);
+   assert.ok(stdout.includes(failure));
+   assert.doesNotMatch(stdout,/Install complete/);
+  }
+  fail=false;
+  const previewId=saved??report.previewId;
+  const retry=await cli.run(['update','--apply',previewId,'--resume','--sessions-ended'],0);
+  assert.ok(!retry.stdout.includes(importNotice));
+  await assertNoStoredKey(home,[ambientKey,gateway]);
+ }));
+}
