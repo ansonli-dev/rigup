@@ -36,7 +36,7 @@ const candidateDigest=(content:string,pages?:ArtifactPage[])=>pages?signature({c
 export function inventorySignature(assets:ManagedAsset[]):string {return signature(assets.map(a=>({logicalId:a.logicalId,target:a.target,ownership:a.ownership,digest:a.digest})).sort((a,b)=>a.logicalId.localeCompare(b.logicalId)));}
 type GenerationPreparation={integration:IntegrationPreparation;fixedTemplates:Awaited<ReturnType<typeof readWorkflowTemplates>>};
 export async function prepareGeneration(profile:ProjectProfile,options:SetupOptions,providerEnvImport?:ProviderEnvImport):Promise<GenerationPreparation>{
- const [integration,fixedTemplates]=await Promise.all([prepareIntegrations(profile,options,undefined,providerEnvImport),readWorkflowTemplates(options)]);
+ const [integration,fixedTemplates]=await Promise.all([prepareIntegrations(profile,options,undefined,{providerEnvImport}),readWorkflowTemplates(options)]);
  for(const asset of integration.assets)if(asset.source.kind==='customer-template')validateTemplateContent(asset.content);
  return {integration,fixedTemplates};
 }

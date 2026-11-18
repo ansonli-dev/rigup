@@ -29,7 +29,8 @@ import {runProjectChecks,runResolvedProjectChecks} from '../integrations/tools/q
 import {quoteShell} from '../shell-command.js';
 import {conventionKey,isConventionScope,validateConventionReceipts} from '../project-conventions.js';
 import {projectInput} from '../managed-input.js';
-import {applyRuntimeInputs,operationNpmRegistry,type RuntimeSetupSummary} from '../runtime-inputs.js';
+import {applyRuntimeInputs,operationNpmRegistry,runtimeSetupSummary,type RuntimeSetupSummary} from '../runtime-inputs.js';
+import {assertClaimStorage,prepareClaimPlan} from './claim.js';
 import {RIGUP_VERSION} from '../version.js';
 import {normalizeNpmIntegrity} from '../npm-integrity.mjs';
 import {queryGlobalNpmInstall} from '../integrations/tools/global-npm.js';
@@ -117,10 +118,13 @@ export async function restoreInterruptedPreview(root:string,options:SetupOptions
 }
 export async function apply(previewId:string,dependencies:ApplyDependencies={}):Promise<InstallReport>{
  const data=await loadPreview(previewId,dependencies.cacheRoot);if(data.modePolicyVersion!==1)throw Error('permission preview version changed; regenerate preview without discarding durable state');if(!data.preview.executable)throw new Error('preview is blocked; prepare a new preview');
+ const claim=data.plan.claim;
  const root=data.plan.root;const lock=dependencies.lock??await acquireLock(root,{stateRoot:dependencies.stateRoot,recover:dependencies.recover});
  if(lock.root!==root)throw new Error('execution lock root mismatch');
  const release=dependencies.lock?async()=>{}:()=>lock.release();
  let completed=0;const total=data.plan.operations.length+data.files.length+1;const step=(task:string,status:RunProgressEvent['status']='running')=>dependencies.onProgress?.({stage:'apply',unit:'steps',task,completed,total,status,next:'verify actual wiring and commit manifest'});step('preconditions');
+ const installedVersions=claim?{...data.plan.versions,rigup:claim.launcherVersion}:data.plan.versions;
+ const setupRuntime=claim?runtimeSetupSummary:applyRuntimeInputs;
  const rules=data.plan.projectRules?{projectRules:data.plan.projectRules}:{};
  const pendingRules=data.plan.projectRules==='pending'?{nextCommand:'rigup update '+quoteShell(root)+' --review',
   ...(data.plan.options.projectRules?{researchNextStep:'Reload the project in a selected agent and call rigup_begin with the project root, or configure a CLI provider and run the review command.'}:{})}:{};
@@ -169,6 +173,14 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   const interruptedInstall=await interruptedInstallApplyId(root,lock.stateRoot);
   if(interruptedInstall&&interruptedInstall!==previewId)throw Error('Resume the original tool approval with rigup update '+quoteShell(root)+' --resume --review');
   await assertNoUnknownWriters(root,lock.stateRoot);
+  if(claim){
+   if(data.oldManifest||data.plan.operations.length||data.resolutions?.length||data.plan.runChecks?.length||
+      data.plan.projectDocuments?.length||data.plan.openSpecRuntime||data.plan.pendingRuntimeTools?.length||
+      data.files.some(file=>file.seed||file.next===undefined||file.observedDigest!==digest(Buffer.from(file.next,file.encoding))||
+       file.observedMode!==platformFileMode(file.mode)))throw Error('Claim cannot change a project target');
+   if(tx?.status==='prepared'&&tx.previewId!==previewId)throw Error('Resume the original installation before claiming this project');
+   await assertClaimStorage(root);
+  }
   const operations=data.plan.operations;
   for(const operation of operations){
    if(operation.kind==='initialize'&&operation.integrationId==='openwiki')throw Error(openwikiInitializationGuide);
@@ -188,7 +200,14 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   }
   if(data.inputSnapshotVersion!==3&&data.inputSnapshotVersion!==4)throw new Error('source snapshot version changed; regenerate preview without discarding durable state');
   const priorReport=tx?.report;
-  if(data.plan.assets.some(a=>['customer-template','customer-skill'].includes(a.source.kind))){const fresh=await prepareIntegrations(await scanRepository(root,data.plan.options),data.plan.options);for(const a of data.plan.assets.filter(a=>['customer-template','customer-skill'].includes(a.source.kind))){const current=fresh.assets.find(n=>n.logicalId===a.logicalId);if(!current||signature(current)!==signature(a))throw new Error('customer source/template changed since preview');}}
+  const customAssets=data.plan.assets.filter(a=>['customer-template','customer-skill'].includes(a.source.kind));
+  if(customAssets.length){
+   const fresh=claim?await prepareClaimPlan(root,data.plan.options):await prepareIntegrations(await scanRepository(root,data.plan.options),data.plan.options);
+   for(const asset of customAssets){
+    const current=fresh.assets.find(candidate=>candidate.logicalId===asset.logicalId);
+    if(!current||signature(current)!==signature(asset))throw Error('customer source/template changed since preview');
+   }
+  }
   if(tx&&tx.previewId!==previewId&&tx.status!=='complete'){if(!dependencies.recover)throw new Error('different interrupted installation requires reconciliation with a fresh preview and --resume');await saveDurable(statePath+'.reconciled-'+tx.previewId+'.json',JSON.stringify(tx));}
   if(tx?.previewId!==previewId)tx=undefined;
   if(tx){assertPreviewFileTransitions(tx,data);tx.initialized??={};}
@@ -231,6 +250,13 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   };
   const recheckCommittedSources=async(result:InstallReport)=>{
    if(await sourcesMatch().catch(()=>false)&&await managedAuthorityMatches().catch(()=>false))return false;
+   if(claim){
+    const warning='Claimed project configuration changed after approval. Review the current project.';
+    if(!result.warnings.includes(warning))result.warnings.push(warning);
+    result.nextCommand='rigup update '+quoteShell(root)+' --review';
+    result.exitCode=3;
+    return true;
+   }
    const selected=(data.plan.options.scope??[]).map(scope=>scope.replace(/\/+$/,''));
    const scopes=selected.length&&selected.every(isConventionScope)?selected:['.'];
    const prior=result.sourceReview;
@@ -246,7 +272,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   const finishCommitted=async(transaction:Transaction)=>{
    await verifyGlobalInstalls(true);
    const checks=transaction.checks??[];
-   const runtime=await applyRuntimeInputs(root,data.plan.options,{...runtimeContext,verified:checksRunThisApply?checks.filter(check=>check.status==='passed').map(check=>'customer:'+check.name):[]});
+   const runtime=await setupRuntime(root,data.plan.options,{...runtimeContext,verified:checksRunThisApply?checks.filter(check=>check.status==='passed').map(check=>'customer:'+check.name):[]});
    if(report.runtimeSetup?.template.state==='written'){
     const imported=[...report.runtimeSetup.template.imported,...runtime.template.imported];
     runtime.template={...runtime.template,state:'written',imported:[...new Map(imported.map(input=>[input.name+':'+input.source,input])).values()]};
@@ -270,6 +296,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    return identity;
   };
   const verifyInstalledTools=async(all=false)=>{
+   if(claim)return;
    for(const tool of data.plan.options.tools??[]){
     const id=tool.id;
     if(!(tool.install||tool.initialize&&data.oldManifest?.installedTools?.[id]))continue;
@@ -278,6 +305,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    }
   };
   const verifyInitializedTools=async(all=false)=>{
+   if(claim)return;
    for(const tool of data.plan.options.tools??[]){
     const id=tool.id,approved=operations.find(operation=>operation.kind==='initialize'&&operation.integrationId===id);
     const previous=data.oldManifest?.initializedTools?.[id];
@@ -295,7 +323,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(tx?.status==='prepared'&&currentManifest) {
    const current=await loadManifest(root);
    if(current?.installId===tx.installId) {
-    const expected:Manifest={...rules,...seedHistory,schemaVersion:1,installId:tx.installId,assets:data.assets.map(asset=>installedAsset(asset,tx!)),options:data.plan.options,versions:data.plan.versions,installedTools:tx.receipts,...(Object.keys(tx.initialized!).length?{initializedTools:tx.initialized}:{})};
+    const expected:Manifest={...rules,...seedHistory,schemaVersion:1,installId:tx.installId,assets:data.assets.map(asset=>installedAsset(asset,tx!)),options:data.plan.options,versions:installedVersions,installedTools:tx.receipts,...(Object.keys(tx.initialized!).length?{initializedTools:tx.initialized}:{})};
     if(signature(current)!==signature(expected))throw new Error('committed manifest differs from expected installation');
     for(const a of current.assets){const bytes=await readTarget(root,a.baseline!);if(!bytes||digest(bytes)!==a.digest)throw new Error('committed baseline unavailable');}
     await verifyInstalledTools(true);await verifyInitializedTools(true);
@@ -318,7 +346,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
     }
     throw new Error('installed target content or mode changed; prepare a new update preview: '+f.target);
    }
-   const runtimeSetup=report.runtimeSetup??await applyRuntimeInputs(root,data.plan.options,runtimeContext);
+   const runtimeSetup=report.runtimeSetup??await setupRuntime(root,data.plan.options,runtimeContext);
    completed=total;step('verified completed installation','reused');return {...tx.report!,runtimeSetup,written:[]};
   }
   if((currentManifest?digest(currentManifest):absentDigest)!==data.manifestDigest)throw new Error('manifest changed since preview');
@@ -341,7 +369,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    if(!dependencies.runChecks&&unchangedInstallation(data)){
     for(const asset of data.oldManifest!.assets){const bytes=await readTarget(root,asset.baseline!);if(!bytes||digest(bytes)!==asset.digest)throw Error('installed baseline changed since preview');}
     completed=total;step('verified unchanged installation','reused');
-    return {...report,...pendingRules,runtimeSetup:await applyRuntimeInputs(root,data.plan.options,runtimeContext),status:'complete',exitCode:0};
+    return {...report,...pendingRules,runtimeSetup:await setupRuntime(root,data.plan.options,runtimeContext),status:'complete',exitCode:0};
    }
    tx={previewId,installId:randomUUID(),status:'prepared',files,receipts:{...(data.oldManifest?.installedTools??{})},initialized:{...(data.oldManifest?.initializedTools??{})},preview:{digest:signature(data),data},
     ...(data.sourceReview&&priorReport?{report:priorReport}:{})};
@@ -454,10 +482,10 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
   if(dependencies.signal?.aborted)return cancelled();
   const verifyFiles=async()=>{for await(const {target,state} of readFileStates(root,data.files.map(f=>f.target))){const expected=tx!.files[target];if(!matchesFileState(state,expected.after,afterMode(expected)))throw new Error('written configuration differs from preview (content or mode); baseline not committed');}};
   await verifyFiles();
-  report.runtimeSetup=await applyRuntimeInputs(root,data.plan.options,runtimeContext);
+  report.runtimeSetup=await setupRuntime(root,data.plan.options,runtimeContext);
   if(!tx.checks){
-   if(dependencies.runChecks||data.plan.runChecks?.length)await assertSources();
-   if(dependencies.runChecks)tx.checks=await dependencies.runChecks();
+   if(!claim&&(dependencies.runChecks||data.plan.runChecks?.length))await assertSources();
+   if(!claim&&dependencies.runChecks)tx.checks=await dependencies.runChecks();
    else if(data.plan.runChecks?.length){
     const profile=await scanRepository(root,data.plan.options);
     tx.checks=data.resolvedChecks?await runResolvedProjectChecks(profile,data.resolvedChecks,dependencies.signal,data.plan.options):
@@ -466,6 +494,7 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    checksRunThisApply=true;await saveDurable(statePath,JSON.stringify(tx));
   }
   report.checks=tx.checks;await dependencies.hook?.('after-checks');await verifyFiles();await assertSources();await verifyInstalledTools(true);await verifyInitializedTools(true);if(dependencies.signal?.aborted)return cancelled();
+  if(claim)await assertClaimStorage(root);
   const assets=[];
   for(const asset of data.assets){
    const b=data.baselines.find(b=>b.logicalId===asset.logicalId);
@@ -474,10 +503,11 @@ export async function apply(previewId:string,dependencies:ApplyDependencies={}):
    await atomicProjectWrite(root,installed.baseline,b.encoding==='base64'?Buffer.from(b.content,'base64'):Buffer.from(b.content),0o600);
    assets.push(installed);
   }
-  const manifest:Manifest={...rules,...seedHistory,schemaVersion:1,installId:tx.installId,assets,options:data.plan.options,versions:data.plan.versions,installedTools:tx.receipts,...(Object.keys(tx.initialized!).length?{initializedTools:tx.initialized}:{})};
+  const manifest:Manifest={...rules,...seedHistory,schemaVersion:1,installId:tx.installId,assets,options:data.plan.options,versions:installedVersions,installedTools:tx.receipts,...(Object.keys(tx.initialized!).length?{initializedTools:tx.initialized}:{})};
   await dependencies.hook?.('before-manifest');await verifyFiles();await assertSources();
   await verifyGlobalInstalls(true);
   await atomicProjectWrite(root,'.rigup/manifest.json',Buffer.from(JSON.stringify(manifest,null,2)+'\n'),0o600,false,async()=>{
+   if(claim)await assertClaimStorage(root);
    const actual=await readFileState(root,'.rigup/manifest.json');
    if(actual.digest!==data.manifestDigest)throw Error('manifest changed during apply');
   });

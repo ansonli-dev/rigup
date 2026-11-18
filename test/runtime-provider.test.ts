@@ -237,7 +237,7 @@ test('a provider key name explicitly shared with a customer command follows that
  await mkdir(join(root,'customer-skill'));
  await writeFile(join(root,'customer-skill','SKILL.md'),'---\nname: fixture-check\ndescription: Check the local environment.\n---\nRun the environment check.\n');
  const cli=importCli(root,home);
- const {report}=await cli.run(['init','--json'],0);
+ const {report}=await cli.run(['init','--agents','codex','--json'],0);
  const file=await readRuntimeFile(root);
  assert.deepEqual([...file.entries.keys()],[providerSecretName]);
  assert.equal(file.entries.get(providerSecretName)?.value,ambientKey);
@@ -246,7 +246,7 @@ test('a provider key name explicitly shared with a customer command follows that
 
 test('a saved explicit update applies only the approved provider and key reference',()=>isolatedProvider(async(root,home)=>{
  const cli=importCli(root,home);
- await cli.run(['init','--json'],0);
+ await cli.run(['init','--agents','codex','--json'],0);
  anthropicEnvironment();
  Object.assign(process.env,{RIGUP_PROVIDER:'anthropic',RIGUP_API_KEY_ENV:'ISSUE_89_CUSTOM_KEY',ISSUE_89_CUSTOM_KEY:ambientKey});
  try{
@@ -284,7 +284,7 @@ for(const approved of [false,true]){
    anthropicEnvironment();
    process.env.RIGUP_PROVIDER='anthropic';
   }
-  const {report:review}=await cli.run(['init','--review','--json'],3);
+  const {report:review}=await cli.run(['init','--agents','codex','--review','--json'],3);
   assert.equal(!!(await loadPreview(review.previewId,cli.previews)).plan.providerEnvImport,approved);
   await assert.rejects(()=>apply(review.previewId,{
    cacheRoot:cli.previews,stateRoot:cli.services.stateRoot,hook:async point=>{if(point==='after-file')throw Error('fixture interrupted');},
@@ -314,7 +314,7 @@ for(const approved of [false,true]){
    anthropicEnvironment();
    process.env.RIGUP_PROVIDER='anthropic';
   }
-  const {report:first}=await cli.run(['init','--backend','host','--review','--json'],3);
+  const {report:first}=await cli.run(['init','--agents','codex','--backend','host','--review','--json'],3);
   const id=first.nextCommand.match(/--continue ([a-f0-9]{64})/)?.[1];
   assert.ok(id);
   if(approved)delete process.env.RIGUP_PROVIDER;
@@ -334,7 +334,7 @@ for(const approved of [false,true]){
 test('an unmarked saved preview installs without copying a selector and key introduced at apply',()=>isolatedProvider(async(root,home)=>{
  execFileSync('git',['-C',root,'init','-q']);
  const cli=importCli(root,home);
- const {report:review}=await cli.run(['init','--review','--json'],3);
+ const {report:review}=await cli.run(['init','--agents','codex','--review','--json'],3);
  const saved=await loadPreview(review.previewId,cli.previews);
  assert.equal(Object.hasOwn(saved.plan,'providerEnvImport'),false);
  anthropicEnvironment();
@@ -397,7 +397,7 @@ test('the first saved apply announces the copy and a completed replay emits no i
  anthropicEnvironment();
  process.env.RIGUP_PROVIDER='anthropic';
  const cli=importCli(root,home);
- const {report:review}=await cli.run(['init','--review','--json'],3);
+ const {report:review}=await cli.run(['init','--agents','codex','--review','--json'],3);
  const argv=['update','--apply',review.previewId,'--sessions-ended'];
  assert.equal((await cli.run(argv,0)).stdout.split('\n').filter(line=>line===importNotice).length,1);
  assert.ok(!(await cli.run(argv,0)).stdout.includes(importNotice));
@@ -423,7 +423,7 @@ test('a blocked private credential write produces no import notice',()=>isolated
  anthropicEnvironment();
  process.env.RIGUP_PROVIDER='anthropic';
  const cli=importCli(root,home);
- const {report:review}=await cli.run(['init','--review','--json'],3);
+ const {report:review}=await cli.run(['init','--agents','codex','--review','--json'],3);
  await mkdir(join(root,'.rigup'));
  const invalid='ANTHROPIC_API_KEY=\nANTHROPIC_API_KEY=\n';
  await writeFile(cli.envPath,invalid);

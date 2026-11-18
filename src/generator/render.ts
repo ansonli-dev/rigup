@@ -2,7 +2,7 @@ import {lstat,readFile} from 'node:fs/promises';
 import {posix} from 'node:path';
 import type {ProjectProfile} from '../analyzer/repository.js';
 import {scopeContains,scopesOverlap,validateTopicId,type ManagedAsset,type SetupOptions} from '../types.js';
-import {agents} from '../integrations/agents/index.js';
+import {agents,entryOwnership} from '../integrations/agents/index.js';
 import type {PreparedAsset,IntegrationPreparation} from '../integrations/registry.js';
 import {digest} from '../analyzer/evidence.js';
 import {isOriginalGuidance,isProjectRulesId,isProjectRulesIndex,verifiedScopes,type GuidanceBinding} from './project-rules.js';
@@ -115,14 +115,13 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
   }
  }
  for(const target of entryTargets) {
-  const marker={kind:'block' as const,start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'};
   const skills=options.agents.filter(a=>agents[a].entry===target).flatMap(a=>templates.map(({name})=>agents[a].skillDirectory+'/'+name+'/SKILL.md'));
   const sources=[...reused.keys()].filter(path=>path!==target);
   const pending=projectRulesPending&&options.projectRules?[text('artifact.entryPending')]:[];
-  add('entry:'+target,target,[marker.start,hasWorkflow?'## Project workflow':projectGuidanceHeading,...pending,...(openSpecCommand?[openSpecCommand]:[]),...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,text('artifact.rulesLink'))]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>{
+  add('entry:'+target,target,[entryOwnership.start,hasWorkflow?'## Project workflow':projectGuidanceHeading,...pending,...(openSpecCommand?[openSpecCommand]:[]),...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,text('artifact.rulesLink'))]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>{
    const scope=reused.get(path)!;
    return '- '+link(target,path)+(scope.length&&!scope.includes('.')?' · '+inline(scope.join(', ')):'');
-  }),marker.end].join('\n')+'\n',marker);
+  }),entryOwnership.end].join('\n')+'\n',entryOwnership);
  }
  return result;
 }

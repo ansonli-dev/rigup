@@ -38,6 +38,7 @@ export function terminalText(text:string,multiline=false):string {
 const reasonKeys=[
  'cli.invalidLanguage','cli.invalidJson','cli.operationFailed','cli.applySavedPreview','cli.providerRequired',
  'cli.interruptedSeed','cli.interruptedTool','openspec.resume','openspec.resumeScope',
+ 'doctor.initRequired','doctor.claimUnrecorded','doctor.claimSelectionRequired','doctor.claimIncomplete',
  'doctor.manifestMissing','doctor.manifestReadable','doctor.manifestDamaged','doctor.recoveryDamaged',
  'doctor.interrupted','doctor.rulesPending','doctor.selectionMissing','doctor.baselineMissing','doctor.targetMissing',
  'doctor.modeChanged','doctor.contentPresent','doctor.modified','doctor.ownershipInvalid','doctor.binaryFound','doctor.binaryMissing',
@@ -168,6 +169,7 @@ export function createCliOutput(options:{
    if(!json&&!state.superpowersGate){
     const changes=previewPaths(data);
     write((verbose?t('lifecycle.preview',{id:data.preview.previewId}):t('preview.heading'))+'\n');
+    if(data.preview.claim)write(t('preview.claim',{agents:data.preview.claim.agents.join(', ')})+'\n');
     const documents=new Set(data.preview.projectDocuments?.map(item=>item.target));
     for(const group of previewGroups){
      const paths=changes.filter(change=>groupPreviewPath(change.target,documents)===group);
@@ -179,7 +181,7 @@ export function createCliOutput(options:{
     }
     if(verbose||!state.details)for(const change of changes)write('  '+t(`preview.action.${change.action}`)+' '+terminalText(change.target)+'\n');
     for(const operation of data.preview.operations)write('  '+terminalText(operationDetails(operation))+'\n');
-    if(data.preview.executable)write(t('preview.applyMetadata')+'\n');
+    if(data.preview.executable&&!data.preview.claim)write(t('preview.applyMetadata')+'\n');
     const detailNotice=!state.details?t('preview.detailsUnavailable'):
      verbose?t('preview.details',{path:terminalText(state.details)}):t('preview.detailHint');
     write(detailNotice+'\n');
