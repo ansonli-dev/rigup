@@ -1,24 +1,28 @@
 import {mkdir,mkdtemp,rm} from 'node:fs/promises';
 import {isAbsolute,join,relative} from 'node:path';
 import {scanNativeEntries,type ProjectProfile} from '../../analyzer/repository.js';
+import {terminalText} from '../../cli-output.js';
 import {privateDirectory} from '../../generator/cache.js';
 import {loadOptions} from '../../config.js';
 import {loadManifest} from '../../installer/baseline.js';
 import {interruptedInstallApplyId,interruptedSeedApplyId} from '../../installer/apply.js';
-import {acquireLock,defaultStateRoot} from '../../installer/lock.js';
+import {acquireLock,type ProjectLock} from '../../installer/lock.js';
 import {assertNoUnknownWriters} from '../../installer/operations.js';
 import {agents as hostInfo,projectCommandRoots} from '../agents/index.js';
 import {quoteShell} from '../../shell-command.js';
 import type {Agent} from '../../types.js';
-import {claudeArgs,claudeCommand,claudeRecognized,inspectClaude,prepareClaudeScratch,type ClaudeStep} from './claude.js';
-import {stamp,statIfPresent,withinPath} from './host-files.js';
+import {NativeBlocker,toBlocker,type Blocker} from './blockers.js';
+import {t,translate} from '../../i18n/index.js';
+import {choice} from '../../prompt.js';
+import {claudeArgs,claudeCommand,claudeRecognized,inspectClaude,prepareClaudeScratch,type ClaudeStep,type ClaudeTarget} from './claude.js';
+import {stamp,statIfPresent} from './host-files.js';
 import {claudePlugin,ompPackage,superpowersManual,superpowersReadiness,supportedHost} from './manual.js';
-import {ompConfigOverlay} from './omp-locations.js';
-import {storePackage} from './omp-archive.js';
+import {storePackage,verifyOmpStore} from './omp-archive.js';
+import {resolveOmpPin,type OmpPin} from './omp-pin.js';
 import {downloadOmp,inspectOmp,installOmpStore,ompArgs,ompCommand,ompRecognized} from './omp.js';
-import {claudeCliVersion,claudeSha,claudeVersion,ompCliVersion,ompIntegrity,ompTarball,ompVersion} from './pins.js';
+import {claudeCliVersion,ompCliVersion} from './pins.js';
 import {bindingFrom} from './receipt.js';
-import {consumerEnvironment,hostGit,inspectHostLocations,inspectHostRuntime,nativeChildEnv,nativeHome,withHostWriter,type HostCommand,type HostRuntime,type NativeInputs,type SetupHost} from './runtime.js';
+import {consumerEnvironment,inspectHostLocations,inspectHostRuntime,nativeChildEnv,nativeHome,withHostWriter,type HostCommand,type HostRuntime,type NativeInputs,type SetupHost} from './runtime.js';
 
 export interface NativeSetupServices extends NativeInputs {
  signal?:AbortSignal;
@@ -30,17 +34,11 @@ type Step={id:ClaudeStep|'link';command:string;pin:string;writes:Write[];undo?:s
 type Planned={
  host:'claude';runtime:HostRuntime;recipe:Awaited<ReturnType<typeof inspectClaude>>;steps:Step[];
 }|{
- host:'omp';runtime:HostRuntime;recipe:Awaited<ReturnType<typeof inspectOmp>>;steps:Step[];
+ host:'omp';runtime:HostRuntime;recipe:Awaited<ReturnType<typeof inspectOmp>>;pin:OmpPin;store:string;stored:boolean;steps:Step[];
 };
 type Entry={
- host:Agent;status:'ready'|'manual'|'action';reason?:string;action?:Planned;
+ host:Agent;status:'ready'|'manual'|'action';reason?:string;action?:Planned;blocker?:Blocker;recognizedPaths?:string[];
 };
-const explain=(error:unknown,fallback:string)=>{
- if(!(error instanceof Error)||(error as NodeJS.ErrnoException).code||error instanceof SyntaxError||error.message.length>500||
-    /[\x00-\x1f\x7f-\x9f]/.test(error.message))return fallback;
- return error.message;
-};
-
 const executionOrder:Agent[]=['claude','omp','codex','opencode'];
 const scan=async(root:string,hosts:Agent[],input:NativeInputs)=>{
  const env=consumerEnvironment(input.env??(input.home?{}:process.env));
@@ -48,50 +46,61 @@ const scan=async(root:string,hosts:Agent[],input:NativeInputs)=>{
  return scanNativeEntries(root,{agents:hosts,sdd:'superpowers',backend:'host',
   scope:hosts.flatMap(agent=>[hostInfo[agent].skillDirectory,...projectCommandRoots[agent]])},{home,env});
 };
-async function verifiedExisting(profile:ProjectProfile,host:Agent,input:NativeInputs){
- const ready=superpowersReadiness(profile,host);
- if(ready.status!=='ready'||host!=='omp')return ready;
- const env=consumerEnvironment(input.env??(input.home?{}:process.env)),home=nativeHome(input,env);
- const overlay=ompConfigOverlay(env);
- if(overlay)return {status:'manual' as const,reason:overlay+' selects an OMP config overlay; confirm the effective native entry in OMP.'};
- const stateRoot=input.stateRoot??(input.home?join(home,'.local','state','rigup'):defaultStateRoot());
- const store=storePackage({stateRoot});
- if(!profile.skillSources?.omp?.some(source=>source.packageName===ompPackage&&isAbsolute(source.identity)&&withinPath(store,source.identity)))return ready;
- try{
-  const receipt=await inspectOmp({root:profile.root,home,env,stateRoot},{forWrite:false});
-  if(ompRecognized(receipt,profile))return ready;
- }catch{/* A Rigup-managed link needs its verified store on every reuse. */}
- return {status:'manual' as const,reason:'The existing OMP link no longer matches the verified package; reconcile it manually.'};
+async function inspectStore(store:string,pin:OmpPin){
+ try{return await verifyOmpStore(store,pin);}
+ catch{throw new NativeBlocker('host-plugin-broken','The existing OMP store could not be verified against the approved package.',{evidence:[store]});}
 }
 const commandLine=(runtime:HostRuntime,args:string[])=>[runtime.program.file,...runtime.program.args,...args].map(quoteShell).join(' ');
+function claudeStep(runtime:HostRuntime,recipe:Awaited<ReturnType<typeof inspectClaude>>,id:ClaudeStep):Step{
+ const writes:Write[]=[{level:'project',path:recipe.project},{level:'cache',path:recipe.configFile},{level:'cache',path:recipe.backups}];
+ const command=commandLine(runtime,claudeArgs(id));
+ if(id==='marketplace')return {id,command,pin:'Current official marketplace metadata',
+  writes:[...writes,{level:'cache',path:recipe.known},{level:'cache',path:recipe.catalogRoot}]};
+ const {target}=recipe;
+ if(!target)throw new NativeBlocker('claude-catalog-no-entry','The official Claude catalog did not provide an installation target.',{evidence:[recipe.catalog]});
+ return {id,command,pin:target.version?'Superpowers '+target.version+' at '+target.sha:'Superpowers at '+target.sha+' (catalog version unavailable)',
+  writes:[...writes,{level:'cache',path:recipe.registry},{level:'cache',path:recipe.packageRoot}],
+  undo:'claude plugin uninstall '+claudePlugin+' --scope project --keep-data'};
+}
 async function planHost(root:string,host:SetupHost,input:NativeSetupServices):Promise<Planned>{
  const runtime=await inspectHostRuntime(root,host,input);
  if(host==='claude'){
-  await hostGit(runtime);
   const recipe=await inspectClaude(runtime);
-  const writes:Write[]=[
-   {level:'project',path:recipe.project},
-   {level:'cache',path:recipe.configFile},{level:'cache',path:recipe.backups},
-  ];
   const steps:Step[]=[];
-  if(recipe.market==='missing'||!recipe.declared)steps.push({id:'marketplace',command:commandLine(runtime,claudeArgs('marketplace')),
-   pin:'Current official marketplace metadata',writes:[...writes,{level:'cache',path:recipe.known},{level:'cache',path:recipe.catalogRoot}]});
-  steps.push({id:'install',command:commandLine(runtime,claudeArgs('install')),pin:'Superpowers '+claudeVersion+' at '+claudeSha,
-   writes:[...writes,{level:'cache',path:recipe.registry},{level:'cache',path:recipe.install}],
-   undo:'claude plugin uninstall '+claudePlugin+' --scope project --keep-data'});
+  if(recipe.market==='missing'||!recipe.declared)steps.push(claudeStep(runtime,recipe,'marketplace'));
+  if(recipe.target)steps.push(claudeStep(runtime,recipe,'install'));
   return {host,runtime,recipe,steps};
  }
  const recipe=await inspectOmp(runtime);
- return {host,runtime,recipe,steps:[{id:'link',command:commandLine(runtime,ompArgs(recipe.store)),
-  pin:ompTarball+' '+ompIntegrity,
+ const pin=await resolveOmpPin(input.fetch,input.signal),store=storePackage(runtime,pin);
+ const stored=await inspectStore(store,pin);
+ return {host,runtime,recipe,pin,store,stored,steps:[{id:'link',command:commandLine(runtime,ompArgs(store)),
+  pin:ompPackage+'@'+pin.version+' '+pin.tarball+' '+pin.integrity,
   writes:[{level:'config',path:recipe.plugins},{level:'config',path:recipe.lock},{level:'config',path:recipe.manifest},
    {level:'config',path:recipe.target},{level:'config',path:recipe.locations.state},{level:'config',path:recipe.locations.cache},
-   {level:'state',path:recipe.store}],undo:'omp plugin uninstall '+ompPackage}]};
+   {level:'state',path:store}],undo:'omp plugin uninstall '+ompPackage}]};
 }
 
+const inspectLocal=(host:SetupHost,locations:Awaited<ReturnType<typeof inspectHostLocations>>)=>
+ host==='claude'?inspectClaude(locations):inspectOmp(locations);
+
 export async function nativePreparationProblem(root:string,host:SetupHost,input:NativeInputs={}){
- try{await planHost(root,host,input);return;}
- catch(error){return explain(error,'Native prerequisites could not be verified; prepare manually');}
+ try{await inspectLocal(host,await inspectHostRuntime(root,host,input));return;}
+ catch(error){return toBlocker(host,error).reason;}
+}
+
+const sourcePaths=(profile:ProjectProfile,host:Agent)=>(profile.skillSources?.[host]??[])
+ .filter(source=>!source.identity.endsWith(':unavailable')).slice(0,20)
+ .map(source=>isAbsolute(source.identity)?source.identity:join(profile.root,source.identity));
+
+async function existingProblem(profile:ProjectProfile,host:SetupHost,input:NativeInputs){
+ const diagnostics=profile.nativeDiagnostics?.filter(item=>item.agent===host)??[];
+ const evidence=[...diagnostics.flatMap(item=>item.evidence??[]),...sourcePaths(profile,host)].slice(0,30);
+ try{
+  const inspected=await inspectLocal(host,await inspectHostLocations(profile.root,host,input));
+  return toBlocker(host,new NativeBlocker('host-plugin-broken','Existing Superpowers sources are incomplete or conflicting.'),
+   {evidence:[...evidence,...('registry' in inspected?[inspected.registry,inspected.project]:[inspected.target,inspected.lock])]});
+ }catch(error){return toBlocker(host,error,{evidence});}
 }
 
 async function currentReviewPolicy(root:string){
@@ -103,44 +112,58 @@ export async function planNativePreparation(root:string,hosts:Agent[],input:Nati
  const profile=await scan(root,hosts,input);
  const entries:Entry[]=[];
  for(const host of executionOrder.filter(host=>hosts.includes(host))){
-  const readiness=await verifiedExisting(profile,host,input);
-  if(readiness.status==='ready'){entries.push({host,status:'ready'});continue;}
-  if(!supportedHost(host)||readiness.status==='manual'){entries.push({host,status:'manual',reason:readiness.reason});continue;}
+  const readiness=superpowersReadiness(profile,host);
+  if(readiness.status==='ready'){entries.push({host,status:'ready',recognizedPaths:sourcePaths(profile,host)});continue;}
+  if(!supportedHost(host)){entries.push({host,status:'manual',reason:readiness.reason});continue;}
+  if(readiness.status==='manual'){
+   const blocker=await existingProblem(profile,host,input);
+   entries.push({host,status:'manual',reason:blocker.reason,blocker});continue;
+  }
   try{
    const action=await planHost(root,host,input);
    entries.push({host,status:'action',action,reason:readiness.reason});
-  }catch(error){entries.push({host,status:'manual',reason:explain(error,'Native setup prerequisites could not be verified; prepare manually')});}
+  }catch(error){
+   const blocker=toBlocker(host,error);
+   entries.push({host,status:'manual',reason:blocker.reason,blocker});
+  }
  }
  return {root,hosts,entries};
 }
 export type NativePreparation=Awaited<ReturnType<typeof planNativePreparation>>;
+const verifiedVersion=(host:Agent)=>host==='claude'?claudeCliVersion:ompCliVersion;
 export function describeNativePreparation(plan:NativePreparation){
- return {kind:'superpowers',hosts:plan.entries.map(({host,status,reason,action})=>({
+ return {kind:'superpowers',blockers:plan.entries.flatMap(entry=>entry.blocker?[entry.blocker]:[]),hosts:plan.entries.map(({host,status,reason,action})=>({
   host,status,reason,...(status==='ready'?{}:{manual:superpowersManual[host]}),steps:action?.steps??[],
-  ...(action?{launcher:{requiredVersion:host==='claude'?claudeCliVersion:ompCliVersion,
+  ...(action?{launcher:{requiredVersion:verifiedVersion(host),verifiedVersion:verifiedVersion(host),
     versionCommand:commandLine(action.runtime,['--version']),temporaryUnder:action.runtime.stateRoot,writerState:action.runtime.writerRoot}}:{}),
+  ...(action?.host==='omp'?{envReport:action.recipe.envReport}:{}),
+  ...(action?.host==='claude'&&!action.recipe.target?{conditional:'Rigup will show the Claude plugin target and ask for approval after adding the marketplace.'}:{}),
   ...(host==='omp'&&status!=='ready'&&plan.entries.some(entry=>entry.host==='claude'&&entry.action)?{conditional:'Skip the user plugin link if the approved Claude project install supplies the full OMP workflow.'}:{}),
  }))};
 }
 
 export type NativeProgress={host:Agent;status:'recognized'|'ready'|'manual'|'stopped'|'uncertain';message:string;
- step?:Step['id']; code?:number|null;changes?:string[];undo?:string};
-type RunResult={exitCode:0|1|3|130;progress:NativeProgress[]};
-const versionMatches=(host:SetupHost,text:string)=>{
- const version=host==='claude'?claudeCliVersion:ompCliVersion;
- return text.trim()===version||text.trim()===(host==='claude'?version+' (Claude Code)':'omp/'+version);
-};
+ step?:Step['id'];code?:number|null;changes?:string[];undo?:string;pin?:string;blocker?:Blocker;
+ stage?:'version'|'store';cliVersion?:string;installedVersion?:string;installedSha?:string;installPath?:string};
+type RunCode=0|1|3|130;
+type RunResult={exitCode:RunCode;progress:NativeProgress[]};
+type ConfirmClaudeInstall=(step:Step,target:ClaudeTarget)=>Promise<boolean>;
+
+const needsReview=(reason:string,evidence:string[])=>new NativeBlocker('native-target-changed',reason,{evidence});
 function compareDestinations(expected:string[],current:string[]){
  const changed=expected.findIndex((path,index)=>relative(path,current[index])!=='');
- if(changed!==-1)throw Error('Native preparation destination changed from '+expected[changed]+' to '+current[changed]+'; review a fresh plan.');
+ if(changed!==-1)throw needsReview('Native preparation destination changed after approval. Review a fresh plan.',[expected[changed],current[changed]]);
 }
 
+const sameClaudeTarget=(before:ClaudeTarget|undefined,after:ClaudeTarget|undefined)=>before?.sha===after?.sha&&before?.version===after?.version;
 function targetChanged(expected:Planned,current:Planned){
  if(expected.host==='claude'&&current.host==='claude'){
   const before=expected.recipe,after=current.recipe;
-  return before.market!==after.market||before.declared!==after.declared||before.installed!==after.installed;
+  return before.market!==after.market||before.declared!==after.declared||before.installed!==after.installed||
+   !sameClaudeTarget(before.target,after.target);
  }
- return expected.host==='omp'&&current.host==='omp'&&expected.recipe.status!==current.recipe.status;
+ return expected.host==='omp'&&current.host==='omp'&&
+  (expected.recipe.linked!==current.recipe.linked||expected.stored&&!current.stored);
 }
 
 async function visibleChanges(paths:Write[]){
@@ -150,128 +173,290 @@ async function visibleChanges(paths:Write[]){
  })));
 }
 
-export async function executeNativePreparation(plan:NativePreparation,input:NativeSetupServices={}):Promise<RunResult>{
+function addBlocker(progress:NativeProgress[],blocker:Blocker,status:'manual'|'stopped'|'uncertain'='stopped',
+ details:Pick<NativeProgress,'step'|'code'|'pin'|'changes'>={}){
+ progress.push({host:blocker.host,status,message:blocker.reason,blocker,...details});
+}
+
+function rescanEvidence(state:Planned,after:Planned|undefined,latest:ProjectProfile|undefined){
+ if(state.host==='claude'){
+  const receipt=after?.host==='claude'?after.recipe:undefined;
+  return [state.recipe.catalog,receipt?.installed,
+   'Approved SHA '+(state.recipe.target?.sha??'unavailable'),'Installed SHA '+(receipt?.installedSha??'unavailable'),
+   ...(state.recipe.target?.version?['Approved version '+state.recipe.target.version]:[]),
+   ...(receipt?.installedVersion?['Installed version '+receipt.installedVersion]:[])].filter((item):item is string=>item!==undefined);
+ }
+ const {envReport,shadowEvidence}=after?.host==='omp'?after.recipe:state.recipe;
+ return [...shadowEvidence,...envReport.pathKeys.map(({file,key})=>file+' ('+key+')'),
+  ...envReport.unreadable.map(file=>file+' (could not inspect)'),
+  ...(latest?sourcePaths(latest,'omp'):[])];
+}
+
+class UncertainNativeWriter extends NativeBlocker {
+ constructor(evidence:string[]){
+  super('native-writer-unverified','Host process termination or its effects could not be established.',{evidence,agentCanDraft:false});
+ }
+}
+
+async function executeHost(approved:Planned,lock:ProjectLock,input:NativeSetupServices,progress:NativeProgress[],confirmClaudeInstall?:ConfirmClaudeInstall):Promise<RunCode>{
+ const {host,runtime}=approved,{root,stateRoot,writerRoot}=runtime;
+ const {signal}=input;
+ const stop=(error:unknown,exitCode:1|3):1|3|130=>{
+  if(signal?.aborted)return 130;
+  addBlocker(progress,toBlocker(host,error,{evidence:error instanceof NativeBlocker?[]:approved.recipe.paths}));
+  return exitCode;
+ };
+ const readTarget=async ():Promise<Planned>=>{
+  const current=await inspectHostRuntime(root,host,input);
+  compareDestinations([root,runtime.home,stateRoot,writerRoot],[current.root,current.home,current.stateRoot,current.writerRoot]);
+  if(relative(runtime.program.file,current.program.file)!==''||runtime.program.args.join('\0')!==current.program.args.join('\0'))
+   throw needsReview('The native CLI launcher changed after approval. Review a fresh plan.',[runtime.program.file,current.program.file]);
+  const observed:Planned=approved.host==='claude'
+   ?{...approved,recipe:await inspectClaude(current)}
+   :{...approved,recipe:await inspectOmp(current),stored:await inspectStore(approved.store,approved.pin)};
+  compareDestinations(approved.recipe.paths,observed.recipe.paths);
+  return observed;
+ };
+ const changed=()=>needsReview('Native targets changed after approval. Review a fresh plan.',
+  approved.host==='claude'?[approved.recipe.catalog,approved.recipe.project]:[approved.recipe.target,approved.store]);
+ let dispatching=false;
+ try{
+  return await withHostWriter<RunCode>(lock,host,async runner=>{
+   let state:Planned;
+   try{state=await readTarget();}catch(error){return stop(error,3);}
+   if(targetChanged(approved,state))return stop(changed(),3);
+   const scratch=await mkdtemp(join(await privateDirectory(lock.stateRoot,root),'native-')),work=join(scratch,'work');
+   try{
+    await mkdir(work,{mode:0o700});
+    if(host==='claude')await prepareClaudeScratch(scratch);
+    let dispatchBlocker:Blocker|undefined;
+    const guard=async()=>{
+     if(signal?.aborted)return 'Native preparation canceled before dispatch.';
+     try{
+      if(await currentReviewPolicy(root))throw needsReview('The project now requires review. Native preparation needs a fresh plan.',[root]);
+      const observed=await readTarget();
+      if(targetChanged(state,observed))throw changed();
+      if(superpowersReadiness(await scan(root,[host],input),host).status!=='missing')
+       throw needsReview('Native entry sources changed after approval. Review a fresh plan.',[root,...state.recipe.paths]);
+     }catch(error){
+      dispatchBlocker=toBlocker(host,error);
+      return dispatchBlocker.reason;
+     }
+    };
+    const beforeDispatch=(reason:string|undefined):3|130=>{
+     if(signal?.aborted)return 130;
+     addBlocker(progress,dispatchBlocker??toBlocker(host,needsReview(reason??'Native preparation stopped before dispatch.',[root])));
+     return 3;
+    };
+    const run=async(command:HostCommand,cwd:string,timeout:number,capture?:(bytes:Buffer)=>void)=>{
+     dispatchBlocker=undefined;
+     if(input.launch){
+      const blocked=await guard();
+      if(blocked)return {code:null,blocked,dispatched:false,cancelled:!!signal?.aborted};
+      try{
+       const result=await input.launch(command,cwd);
+       if(capture&&result.output)capture(Buffer.from(result.output));
+       return {code:result.code,blocked:undefined,dispatched:true,cancelled:!!signal?.aborted};
+      }catch{return {code:null,blocked:undefined,dispatched:true,cancelled:!!signal?.aborted};}
+     }
+     dispatching=true;
+     const result=await runner.run(command,cwd,timeout,guard,capture);
+     dispatching=false;
+     return result;
+    };
+
+    // Verify downloaded bytes before running the host or touching its package destinations.
+    let bytes:Buffer|undefined;
+    if(state.host==='omp'&&!state.stored)try{bytes=await downloadOmp(state.pin,signal,input.fetch);}
+    catch(error){return stop(error,3);}
+    let version='';
+    const program=runtime.program;
+    const probe=await run({executable:program.file,args:[...program.args,'--version'],env:nativeChildEnv(runtime,scratch)},work,20_000,
+     chunk=>{version+=(chunk.toString('utf8').slice(0,4097-version.length));});
+    if(!probe.dispatched)return beforeDispatch(probe.blocked);
+    if(probe.code!==0||probe.cancelled||!version.trim())
+     return stop(new NativeBlocker('cli-not-runnable','The '+host+' CLI did not return a version successfully.',{evidence:[program.file]}),1);
+    const knownVersion=verifiedVersion(host);
+    const detected=/^(?:omp\/)?([0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}(?:[-+][A-Za-z0-9.+-]{1,96})?)(?: \(Claude Code\))?$/.exec(version.trim())?.[1];
+    if(detected!==knownVersion)progress.push({host,status:'ready',stage:'version',
+     message:detected?'CLI version '+detected+' differs from the verified '+knownVersion+'. Continuing.':
+      'The CLI responded to --version. Its output could not be compared with the verified '+knownVersion+'. Continuing.',
+     ...(detected?{cliVersion:detected}:{})});
+    if(state.host==='omp'&&bytes){
+     const blocked=await guard();
+     if(blocked)return beforeDispatch(blocked);
+     try{await installOmpStore(runtime,bytes,state.pin);}
+     catch{
+      return stop(new NativeBlocker('download-failed','The approved OMP archive could not be staged and verified.',{evidence:[state.pin.tarball,state.store]}),3);
+     }
+     state={...state,stored:true};
+     progress.push({host,status:'ready',stage:'store',message:'Verified OMP package stored at '+state.store});
+    }
+
+    const steps=[...approved.steps];
+    for(const step of steps){
+     const before=await visibleChanges(step.writes);
+     const command=state.host==='claude'?claudeCommand(runtime,scratch,step.id as ClaudeStep):ompCommand(runtime,state.store,scratch);
+     const outcome=await run(command,state.host==='claude'?root:work,900_000);
+     if(!outcome.dispatched)return beforeDispatch(outcome.blocked);
+     const [observed,rescanned]=await Promise.allSettled([readTarget(),scan(root,[host],input)]);
+     const after=observed.status==='fulfilled'?observed.value:undefined;
+     const latest=rescanned.status==='fulfilled'?rescanned.value:undefined;
+     const changes=[...await visibleChanges(step.writes)].filter(([path,value])=>value!==before.get(path)).map(([path])=>path);
+     const stepProgress={step:step.id,code:outcome.code,changes,pin:step.pin};
+     const evidence=[...step.writes.map(item=>item.path),
+      ...(observed.status==='rejected'?toBlocker(host,observed.reason).evidence:[])];
+     const failStep=(problem:NativeBlocker):1=>{
+      addBlocker(progress,toBlocker(host,problem,{evidence,suggest:step.undo?[step.undo]:[]}), 'stopped',stepProgress);
+      return 1;
+     };
+     if(signal?.aborted){
+      progress.push({host,status:'stopped',message:'Native preparation canceled after dispatch.',...stepProgress});
+      return 130;
+     }
+     if(outcome.code!==0||outcome.cancelled)return failStep(new NativeBlocker('install-command-failed','The '+host+' '+step.id+' command failed.'));
+
+     if(step.id==='marketplace'&&state.host==='claude'){
+      if(after?.host!=='claude'||!after.recipe.declared||!after.recipe.target){
+       const error=observed.status==='rejected'&&observed.reason instanceof NativeBlocker?observed.reason:
+        new NativeBlocker('claude-catalog-no-entry','Could not verify the official marketplace and its project declaration.',{evidence:[state.recipe.catalog]});
+       return failStep(error);
+      }
+      if(state.recipe.target&&!sameClaudeTarget(state.recipe.target,after.recipe.target))return failStep(changed());
+      const needsApproval=!state.recipe.target;
+      state=after;
+      progress.push({host,status:'recognized',message:'Official marketplace and its project declaration verified.',...stepProgress});
+      if(needsApproval){
+       const install=claudeStep(runtime,state.recipe,'install');
+       if(!confirmClaudeInstall)return stop(new NativeBlocker('native-approval-required','Approve the specific Claude plugin target before installation.',{evidence:[state.recipe.catalog]}),3);
+       if(!await confirmClaudeInstall(install,after.recipe.target)||signal?.aborted)return 130;
+       steps.push(install);
+      }
+      continue;
+     }
+
+     const receipt=after?.host==='claude'?after.recipe:undefined;
+     const target=state.host==='claude'?state.recipe.target:undefined;
+     const verified=after&&latest&&(after.host==='claude'?
+      target&&sameClaudeTarget(target,receipt?.target)&&receipt?.installedSha===target.sha&&
+       (!target.version||receipt.installedVersion===target.version)&&claudeRecognized(after.recipe,latest):
+      after.stored&&ompRecognized(after.recipe,latest,after.store));
+     if(!verified)return failStep(new NativeBlocker(host+'-not-recognized-after-install',
+      'Could not verify the approved '+host+' Superpowers install after rescanning.',{evidence:rescanEvidence(state,after,latest)}));
+     const installedVersion=receipt?.installedVersion,installedSha=receipt?.installedSha;
+     progress.push({host,status:'recognized',message:'recognized; reopen the host to pick it up.'+
+      (installedSha?' Installed Superpowers'+(installedVersion?' '+installedVersion:'')+' at '+installedSha+'.':''),
+      ...stepProgress,undo:step.undo,...(receipt?{installedVersion,installedSha,installPath:receipt.installed}:{})});
+    }
+    return 0;
+   }finally{if(!dispatching)await rm(scratch,{recursive:true,force:true,maxRetries:3});}
+  },signal,writerRoot);
+ }catch(error){
+  if(!dispatching)throw error;
+  throw new UncertainNativeWriter([writerRoot,...approved.recipe.paths]);
+ }
+}
+
+export async function executeNativePreparation(plan:NativePreparation,input:NativeSetupServices={},confirmClaudeInstall?:ConfirmClaudeInstall):Promise<RunResult>{
  const {root}=plan,progress:NativeProgress[]=[];
- const end=(exitCode:RunResult['exitCode']):RunResult=>({exitCode,progress});
+ const end=(exitCode:RunCode):RunResult=>({exitCode,progress});
  if(input.signal?.aborted)return end(130);
  const initial=plan.entries.find(entry=>entry.action)?.action;
  if(!initial)return end(plan.entries.every(entry=>entry.status==='ready')?0:3);
- let currentHost:Agent=initial.host,attempted=false;
- const fail=(fallback:string,exitCode:1|3|130=1)=>{
-  progress.push({host:currentHost,status:attempted?'uncertain':'stopped',message:fallback});return end(exitCode);
- };
- const stateRoot=input.stateRoot??initial.runtime.stateRoot??defaultStateRoot();
+ let currentHost:Agent=initial.host,exit:RunCode=0;
  try{
-  const lock=await acquireLock(root,{stateRoot,recover:true});
+  const lock=await acquireLock(root,{stateRoot:initial.runtime.stateRoot,recover:true});
   try{
    await assertNoUnknownWriters(root,lock.stateRoot);
-   if(await currentReviewPolicy(root))return fail('The project now requires review; native preparation needs a fresh plan.',3);
+   if(await currentReviewPolicy(root))throw needsReview('The project now requires review. Native preparation needs a fresh plan.',[root]);
    if(await interruptedInstallApplyId(root,lock.stateRoot)||await interruptedSeedApplyId(root,lock.stateRoot))
-    return fail('Reconcile the interrupted Rigup installation before native preparation.',3);
-   let pending=false,claudePath:string|undefined;
+    throw new NativeBlocker('native-writer-unverified','Reconcile the interrupted Rigup installation before native preparation.',{evidence:[lock.stateRoot],agentCanDraft:false});
    for(const entry of plan.entries){
-    currentHost=entry.host;attempted=false;
+    currentHost=entry.host;
     if(input.signal?.aborted)return end(130);
-    const profile=await scan(root,[currentHost],input),ready=await verifiedExisting(profile,currentHost,input);
+    const profile=await scan(root,[currentHost],input),ready=superpowersReadiness(profile,currentHost);
     if(ready.status==='ready'){
+     const claudePath=progress.find(item=>item.host==='claude'&&item.step==='install'&&item.status==='recognized')?.installPath;
      const imported=currentHost==='omp'&&claudePath&&bindingFrom(profile,'omp',claudePath,'superpowers');
      progress.push({host:currentHost,status:imported?'recognized':'ready',message:imported?
       'recognized via the Claude project plugin; reopen the host to pick it up. No OMP user plugin was linked.':
       'Native Superpowers sources are already recognized; no setup needed.'});
      continue;
     }
-    if(!entry.action){
-     pending=true;progress.push({host:currentHost,status:'manual',message:entry.reason??ready.reason});continue;
+    if(!entry.action||ready.status==='manual'){
+     let blocker=entry.blocker;
+     if(supportedHost(currentHost)){
+      if(ready.status==='manual')blocker=await existingProblem(profile,currentHost,input);
+      else if(entry.status==='ready')blocker=toBlocker(currentHost,needsReview(
+       'Previously recognized Superpowers sources disappeared after approval. Review a fresh plan.',entry.recognizedPaths?.length?entry.recognizedPaths:[root]));
+     }
+     if(blocker)addBlocker(progress,blocker,'manual');
+     else progress.push({host:currentHost,status:'manual',message:entry.reason??ready.reason});
+     exit=exit||3;
+     continue;
     }
-    const {host}=entry.action,approved=entry.action;
-    const result=await withHostWriter<RunResult|undefined>(lock,host,async runner=>{
-     const readTarget=async ():Promise<Planned>=>{
-      const current=await inspectHostLocations(root,host,input);
-      const {root:project,home,stateRoot,writerRoot}=approved.runtime;
-      compareDestinations([project,home,stateRoot,writerRoot],[current.root,current.home,current.stateRoot,current.writerRoot]);
-      const observed:Planned=approved.host==='claude'
-       ?{...approved,recipe:await inspectClaude(current)}
-       :{...approved,recipe:await inspectOmp(current)};
-      compareDestinations(approved.recipe.paths,observed.recipe.paths);
-      return observed;
-     };
-     let state:Planned;
-     try{state=await readTarget();}catch(error){return fail(explain(error,'Native prerequisites changed; review a fresh plan.'),3);}
-     if(targetChanged(approved,state))return fail('Native targets changed after approval; review a fresh plan.',3);
-     const scratch=await mkdtemp(join(await privateDirectory(lock.stateRoot,root),'native-'));
-     const work=join(scratch,'work');
-     try{
-      await mkdir(work,{mode:0o700});
-      if(host==='claude')await prepareClaudeScratch(scratch);
-      // Establish the package pin before invoking OMP, including its version probe.
-      const bytes=state.host==='omp'&&!state.recipe.stored?await downloadOmp(input.signal,input.fetch):undefined;
-      const guard=async()=>{
-       if(input.signal?.aborted)return 'Native preparation canceled before dispatch.';
-       try{
-        if(await currentReviewPolicy(root))return 'The project now requires review; native preparation needs a fresh plan.';
-        const observed=await readTarget();
-        if(superpowersReadiness(await scan(root,[host],input),host).status!=='missing')return 'Native entry sources changed after approval; review a fresh plan.';
-        if(targetChanged(state,observed))return 'Native targets changed after approval; review a fresh plan.';
-       }catch(error){return explain(error,'Native prerequisites changed after approval; review a fresh plan.');}
-      };
-      const run=async(command:HostCommand,cwd:string,timeout:number,capture?:(bytes:Buffer)=>void)=>{
-       if(!input.launch)return runner.run(command,cwd,timeout,guard,capture);
-       const blocked=await guard();
-       if(blocked)return {code:null,blocked,dispatched:false,cancelled:!!input.signal?.aborted};
-       const result=await input.launch(command,cwd);
-       if(capture&&result.output)capture(Buffer.from(result.output));
-       return {code:result.code,blocked:undefined,dispatched:true,cancelled:!!input.signal?.aborted};
-      };
-      let version='';
-      const program=state.runtime.program;
-      const probe=await run({executable:program.file,args:[...program.args,'--version'],env:nativeChildEnv(state.runtime,scratch)},work,20_000,
-       bytes=>{version=(version+bytes.toString('utf8').slice(0,4097)).slice(0,4097);});
-      if(probe.blocked||probe.cancelled)return fail(probe.blocked??'Native version check was interrupted.',input.signal?.aborted?130:probe.dispatched?1:3);
-      if(probe.code!==0)return fail('Cannot verify the supported '+host+' CLI version.',1);
-      if(!versionMatches(host,version))return fail('The detected '+host+' version is not supported for automatic preparation; use the displayed manual command.',3);
-      if(state.host==='omp'&&bytes){
-       const unchanged=await guard();
-       if(unchanged)return fail(unchanged,input.signal?.aborted?130:3);
-       await installOmpStore(state.runtime,bytes);
-       progress.push({host,status:'ready',message:'Verified OMP package stored at '+state.recipe.store});
-      }
-      for(const step of approved.steps){
-       const before=await visibleChanges(step.writes);
-       const command=state.host==='claude'?claudeCommand(state.runtime,scratch,step.id as ClaudeStep):ompCommand(state.runtime,state.recipe.store,scratch);
-       attempted=true;
-       const outcome=await run(command,state.host==='claude'?root:work,900_000);
-       attempted=false;
-       if(!outcome.dispatched)return fail(outcome.blocked??'Native preparation stopped before dispatch.',input.signal?.aborted?130:3);
-       let verified=false,after:Planned|undefined,latest:ProjectProfile|undefined;
-       try{
-        after=await readTarget();
-        latest=await scan(root,[host],input);
-        if(after.host==='claude'){
-         if(step.id==='marketplace')verified=after.recipe.market==='ready'&&after.recipe.declared;
-         else if(claudeRecognized(after.recipe,latest)){verified=true;claudePath=after.recipe.installed;}
-        }else verified=ompRecognized(after.recipe,latest);
-       }catch{/* A malformed partial receipt is not an installed source. */}
-       const changed=[...await visibleChanges(step.writes)].filter(([path,value])=>value!==before.get(path)).map(([path])=>path);
-       progress.push({host,step:step.id,status:verified?'recognized':'stopped',code:outcome.code,changes:changed,
-        message:verified?(step.id==='marketplace'?'Official marketplace and its project declaration verified.':
-         'recognized; reopen the host to pick it up.'):('Could not verify '+host+' '+step.id+'; inspect the observed destinations and retry or prepare manually.'),
-        ...(verified&&step.undo?{undo:step.undo}:{})});
-       if(!verified||outcome.code!==0||outcome.cancelled)
-        return end(input.signal?.aborted?130:1);
-       if(step.id==='marketplace'&&after)state=after;
-      }
-      return;
-     }finally{if(!attempted)await rm(scratch,{recursive:true,force:true,maxRetries:3});}
-    },input.signal,approved.runtime.writerRoot);
-    if(result)return result;
+    const hostExit=await executeHost(entry.action,lock,input,progress,confirmClaudeInstall);
+    if(hostExit===130)return end(130);
+    if(hostExit===1||hostExit===3&&exit===0)exit=hostExit;
    }
-   return end(pending?3:0);
+   return end(exit);
   }finally{await lock.release();}
  }catch(error){
-  const message=attempted?'Host process termination or its effects could not be established; inspect its destinations before retrying.':
-   explain(error,'Native preparation failed before a host command could be dispatched.');
-  return fail(message,input.signal?.aborted?130:1);
+  if(input.signal?.aborted)return end(130);
+  const uncertain=error instanceof UncertainNativeWriter;
+  const blocker=toBlocker(currentHost,error instanceof NativeBlocker?error:
+   new NativeBlocker('native-writer-unverified','The native writer state could not be verified. Review it before retrying.',{
+    evidence:[root,initial.runtime.stateRoot,initial.runtime.writerRoot],agentCanDraft:false,
+   }));
+  addBlocker(progress,blocker,uncertain?'uncertain':'stopped');
+  return end(uncertain||exit===1?1:3);
  }
+}
+
+function describeOutcome(description:ReturnType<typeof describeNativePreparation>,progress:NativeProgress[]){
+ const last=new Map(progress.map(item=>[item.host,item]));
+ const ready=(host:Agent)=>{
+  const item=last.get(host);
+  return item?.status==='ready'&&!item.stage||item?.status==='recognized'&&item.step!=='marketplace';
+ };
+ const blockers=description.hosts.flatMap(({host})=>{
+  const blocker=last.get(host)?.blocker??description.blockers.find(item=>item.host===host);
+  return blocker&&!ready(host)?[blocker]:[];
+ });
+ const hosts=description.hosts.map(item=>{
+  if(ready(item.host))return {...item,status:'ready' as const,reason:undefined,manual:undefined,conditional:undefined};
+  const blocker=blockers.find(blocker=>blocker.host===item.host);
+  return blocker?{...item,status:'manual' as const,reason:blocker.reason}:item;
+ });
+ return {...description,hosts,blockers,progress};
+}
+
+function nativeProgressMessage(item:NativeProgress):string{
+ if(item.blocker||item.status==='manual'||item.status==='uncertain')return item.message;
+ if(item.stage==='version'){
+  const version=verifiedVersion(item.host);
+  return item.cliVersion?t('native.versionDiffers',{detected:item.cliVersion,version}):t('native.versionUncompared',{version});
+ }
+ if(item.stage==='store')return t('native.ompStored',{path:item.message.slice('Verified OMP package stored at '.length)});
+ if(item.status==='recognized'){
+  if(!item.step)return t('native.imported');
+  if(item.step==='marketplace')return t('native.marketplaceVerified');
+  const ready=t('native.recognized');
+  if(!item.installedSha)return ready;
+  const receipt=item.installedVersion?
+   t('native.receiptVersion',{version:item.installedVersion,sha:item.installedSha}):t('native.receiptSha',{sha:item.installedSha});
+  return ready+' '+receipt;
+ }
+ if(item.status==='ready')return t('native.ready');
+ return item.step?t('native.canceledAfterDispatch'):item.message;
+}
+
+function nativeManualText(host:Agent){
+ const command=superpowersManual[host];
+ if(host==='omp')return t('native.manualOmp');
+ if(host==='codex')return t('native.manualCodex');
+ if(host==='opencode')return t('native.manualOpenCode');
+ return command;
 }
 
 export async function nativeSetupInteraction(root:string,hosts:Agent[],input:NativeSetupServices,ui:{
@@ -283,42 +468,71 @@ export async function nativeSetupInteraction(root:string,hosts:Agent[],input:Nat
  const plan=await planNativePreparation(root,hosts,input),description=describeNativePreparation(plan);
  const ready=plan.entries.every(entry=>entry.status==='ready'),hasAction=plan.entries.some(entry=>entry.action);
  const nextCommand=nativePreparationCommand(root,hosts);
- const write=(message:string)=>ui.write(message+'\n');
- const report=(exitCode:0|1|3|130,progress:NativeProgress[]=[],pending:string[]=[])=>
-  ui.report?.({phase:'native-preparation',installStatus:ui.inspect?'not-applicable':exitCode===0?(ready?'up-to-date':'complete'):exitCode===3?'pending':'failed',
-   nativePreparation:{...description,progress},pending,...(!ready&&exitCode!==0&&hasAction?{nextCommand}:{})});
- for(const entry of description.hosts){
-  write(entry.host+': '+(entry.status==='ready'?'Native Superpowers sources are already recognized; no setup needed.':entry.reason??entry.status));
-  if(entry.launcher)write('  Verify CLI '+entry.launcher.requiredVersion+': '+entry.launcher.versionCommand+' (private work directory under '+entry.launcher.temporaryUnder+'; writer guard under '+entry.launcher.writerState+')');
-  for(const step of entry.steps){
-   write('  '+step.command+' ('+step.pin+')');
-   for(const item of step.writes)write('    '+item.level+': '+item.path+
-    (item.level==='project'?' (shared project settings)':''));
+ const write=(message:string)=>ui.write(terminalText(message)+'\n');
+ const writeBlockers=(blockers:Blocker[])=>{
+  for(const blocker of blockers){
+   write(t('native.blocker',{host:blocker.host,code:blocker.code,reason:blocker.reason}));
+   for(const path of blocker.evidence)write('  '+t('native.evidence',{path}));
+   for(const command of blocker.suggest)write('  '+t('native.suggest',{command}));
   }
-  if(entry.conditional)write('  '+entry.conditional);
-  if(entry.manual)write('  Manual: '+entry.manual);
+  if(blockers.length)write(t('native.agentNote'));
+ };
+ const report=(exitCode:RunCode,outcome=describeOutcome(description,[]),pending:string[]=[])=>
+  ui.report?.({phase:'native-preparation',installStatus:ui.inspect?'not-applicable':exitCode===0?(ready?'up-to-date':'complete'):exitCode===3?'pending':'failed',
+   nativePreparation:outcome,pending,...(!ready&&exitCode!==0&&(hasAction||outcome.blockers.length)?{nextCommand}:{})});
+ const writeStep=(step:Step,target?:ClaudeTarget)=>{
+  const pin=step.id==='marketplace'?t('native.marketplacePin'):target?
+   target.version?t('native.superpowersPin',{version:target.version,sha:target.sha}):t('native.shaOnlyPin',{sha:target.sha}):step.pin;
+  write('  '+step.command+' ('+pin+')');
+  for(const item of step.writes)write('    '+t(`native.${item.level}`)+': '+item.path+
+   (item.level==='project'?t('native.sharedSettings'):''));
+ };
+ for(const entry of description.hosts){
+  write(entry.host+': '+(entry.status==='ready'?t('native.ready'):entry.reason??entry.status));
+  if(entry.launcher)write('  '+t('native.verifyCli',{version:entry.launcher.verifiedVersion,command:entry.launcher.versionCommand,
+   work:entry.launcher.temporaryUnder,state:entry.launcher.writerState}));
+  const action=plan.entries.find(({host})=>host===entry.host)?.action;
+  for(const step of entry.steps)writeStep(step,action?.host==='claude'?action.recipe.target:undefined);
+  if(entry.envReport){
+   const {files,pathKeys,unreadable}=entry.envReport;
+   for(const file of new Set([...files,...pathKeys.map(item=>item.file)])){
+    const keys=pathKeys.filter(item=>item.file===file).map(item=>item.key);
+    if(unreadable.includes(file))write('  '+t('native.envUnreadable',{file}));
+    else if(keys.length)write('  '+t('native.envPathKeys',{file,keys:keys.join(', ')}));
+    else write('  '+t('native.envChecked',{file}));
+   }
+  }
+  if(entry.conditional)write('  '+t(entry.host==='claude'?'native.marketplaceConditional':'native.conditional'));
+  if(entry.manual)write('  '+t('native.manual',{command:nativeManualText(entry.host)}));
  }
- if(hasAction)write('Native commands can also write temporary files and host state within the displayed directories. A terminal prompt prevents accidental approval; it does not authenticate who is typing.');
- if(ui.inspect||ready){report(0);return 0;}
+ writeBlockers(description.blockers);
+ if(hasAction)write(t('native.actionNotice'));
  if(input.signal?.aborted){report(130);return 130;}
- if(!hasAction){report(3,[],['Some native workflow prerequisites need manual preparation.']);return 3;}
+ if(ui.inspect||ready){report(0);return 0;}
+ if(!hasAction){report(3,undefined,['Some native workflow prerequisites need manual preparation.']);return 3;}
  if(!ui.canPrompt){
-  const message='Native preparation requires approval with terminal input and output.';
-  write(message);write(nextCommand);report(3,[],[message]);return 3;
+  write(t('native.approvalRequired'));write(nextCommand);report(3,undefined,[translate('en','native.approvalRequired')]);return 3;
  }
- const answer=await ui.ask({message:'Approve native Superpowers preparation?',choices:['Cancel','Approve'],back:ui.back});
+ const approvals=[choice('Cancel',t('choice.cancel')),choice('Approve',t('choice.approve'))];
+ const answer=await ui.ask({message:t('native.approvePrompt'),choices:approvals,back:ui.back});
  if(answer==='back'&&ui.back)return 'back';
  if(!Array.isArray(answer)||answer.length!==1||answer[0]!=='Approve'||input.signal?.aborted){report(130);return 130;}
  const reload=await sessionReloadNotice(root);
- if(reload)write(reload);
- const result=await executeNativePreparation(plan,input);
+ if(reload)write(t('cli.restartHost'));
+ const result=await executeNativePreparation(plan,input,async (step,target)=>{
+  writeStep(step,target);
+  const answer=await ui.ask({message:t('native.approveClaude'),choices:approvals});
+  return Array.isArray(answer)&&answer.length===1&&answer[0]==='Approve';
+ });
  for(const item of result.progress){
-  write(item.host+': '+item.message+(item.code!==undefined?' (exit '+(item.code??'unknown')+')':''));
-  for(const path of item.changes??[])write('  Observed change: '+path);
-  if(item.undo)write('  Manual removal: '+item.undo);
-  if(item.status==='manual'||item.status==='stopped'||item.status==='uncertain')write('  Manual: '+superpowersManual[item.host]);
+  write(item.host+': '+nativeProgressMessage(item)+(item.code!==undefined?t('native.exit',{code:item.code??t('native.unknownExit')}):''));
+  for(const path of item.changes??[])write('  '+t('native.observed',{path}));
+  if(item.undo)write('  '+t('native.manualRemove',{command:item.undo}));
+  if(item.status==='manual'||item.status==='stopped'||item.status==='uncertain')write('  '+t('native.manual',{command:nativeManualText(item.host)}));
  }
- if(result.exitCode!==0)write('Review the current state before retrying: '+nextCommand);
- report(result.exitCode,result.progress,result.progress.filter(item=>['stopped','manual','uncertain'].includes(item.status)).map(item=>item.message));
+ const outcome=describeOutcome(description,result.progress);
+ writeBlockers(outcome.blockers);
+ if(result.exitCode!==0)write(t('native.retry',{command:nextCommand}));
+ report(result.exitCode,outcome,result.progress.filter(item=>['stopped','manual','uncertain'].includes(item.status)).map(item=>item.message));
  return result.exitCode;
 }

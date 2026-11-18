@@ -13,8 +13,10 @@ import {loadResearchIgnore} from '../analyzer/research-ignore.js';
 import {trustedBaseline} from '../installer/baseline.js';
 import {ownedContent,replaceOwned,targetPath} from '../installer/ownership.js';
 import {isConventionScope} from '../project-conventions.js';
+import {artifactLocale,translate,type MessageKey,type MessageParams} from '../i18n/index.js';
 import {workflowSkills} from '../integrations/workflow-skills.js';
 export const TEMPLATE_VERSION='9';
+const projectGuidanceHeading='## Project guidance';
 const inline=(value:string)=>value.replace(/[\x00-\x1f\x7f]+/g,' ').replace(/[\\`*_\[\]<>]/g,'\\$&');
 const link=(from:string,to:string,label=to)=>`[${inline(label)}](${posix.relative(posix.dirname(from),to).split('/').map(part=>encodeURIComponent(part).replaceAll('(','%28').replaceAll(')','%29')).join('/')})`;
 function codeSpan(value:string):string {
@@ -23,20 +25,38 @@ function codeSpan(value:string):string {
  while(text.includes(fence))fence+='`';
  return /^[ `]|[ `]$/.test(text)&&text.trim()?`${fence} ${text} ${fence}`:`${fence}${text}${fence}`;
 }
-export function readWorkflowTemplates(){
+export function readWorkflowTemplates(options:Pick<SetupOptions,'documentLanguage'>){
+ const suffix=artifactLocale(options.documentLanguage)==='zh-CN'?'.zh-CN.md':'.md';
  return Promise.all(workflowSkills.map(async name=>{
   const base=new URL('../../templates/skills/'+name+'/',import.meta.url);
-  const [skill,reference]=await Promise.all(['SKILL.md','references/project.md'].map(path=>readFile(new URL(path,base),'utf8')));
-  const goal=name==='change-prepare'?await readFile(new URL('references/GOAL.md',base),'utf8'):undefined;
+  const read=(path:string)=>readFile(new URL(path+suffix,base),'utf8');
+  const [skill,reference,goal]=await Promise.all([read('SKILL'),read('references/project'),
+   name==='change-prepare'?read('references/GOAL'):undefined]);
   return {name,skill,reference,goal};
  }));
 }
-export async function renderFixed(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,semantic:PreparedAsset[],guidance:GuidanceBinding[],templates?:Awaited<ReturnType<typeof readWorkflowTemplates>>,projectRulesPending=false):Promise<PreparedAsset[]>{
+const chineseGates=new Map([
+ ['Retain design approval and all native skill gates','保留设计批准及原生技能的全部前置要求。'],
+ ['Execute the approved native plan with native testing and review requirements','执行已批准的原生计划，遵循原生测试与审阅要求。'],
+ ['Retain design approval before planning and explicit approval before implementation','规划前保留设计批准要求，实施前保留明确批准要求。'],
+ ['Follow the community native testing, review and verification requirements','遵循社区版原生测试、审阅和验证要求。'],
+ ['Retain native artifact dependency checks and archive decisions','保留原生产出物依赖检查以及归档决定。'],
+ ['Use existing project checks before marking implementation complete','标记实施完成前，运行现有的项目检查。'],
+ ['Retain constitution checks, clarification and native prerequisite validation','保留 constitution 检查、澄清流程及原生前置条件验证。'],
+ ['Retain registered mandatory pre/post execution hooks','保留已注册且必须运行的前置和后置执行钩子。'],
+ ['Review each native result before continuing when required upstream','上游有要求时，继续前先审阅每一步的原生结果。'],
+]);
+export async function renderFixed(profile:ProjectProfile,options:SetupOptions,integration:IntegrationPreparation,semantic:PreparedAsset[],guidance:GuidanceBinding[],templates?:Awaited<ReturnType<typeof readWorkflowTemplates>>,projectRulesPending=false,context:Pick<PreparedAsset,'logicalId'|'target'>[]=semantic):Promise<PreparedAsset[]>{
  const result=[...integration.assets,...semantic];
  const hasWorkflow=!!options.sdd||options.customSkills?.some(s=>s.position==='prepare'||s.position==='deliver');
  if(!hasWorkflow&&!options.projectRules)return result;
- templates=hasWorkflow?(templates??await readWorkflowTemplates()):[];
- const refs=[...new Set([...integration.assets.filter(a=>a.consumer==='change-deliver:review').map(a=>a.target),...semantic.filter(a=>!isProjectRulesId(a.logicalId)).map(a=>a.target)])];
+ templates=hasWorkflow?(templates??await readWorkflowTemplates(options)):[];
+ const locale=artifactLocale(options.documentLanguage);
+ const text=(key:MessageKey,params?:MessageParams)=>translate(locale,key,params);
+ const refs=[...new Set([
+  ...integration.assets.filter(a=>a.consumer==='change-deliver:review').map(a=>a.target),
+  ...context.filter(a=>!isProjectRulesId(a.logicalId)).map(a=>a.target),
+ ])];
  const reused=new Map<string,string[]>();
  const declared=declaredAuthority(profile,options,guidance).filter(binding=>['reusable','partial'].includes(binding.coverageStatus));
  for(const binding of [...guidance.filter(isOriginalGuidance),...declared]){
@@ -46,9 +66,10 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
  }
  const checks=projectChecks(profile);
  const hookSources=profile.files.filter(path=>/(?:^|\/)(?:\.husky\/(?:pre-commit|pre-push)|\.pre-commit-config\.ya?ml|\.?lefthook\.ya?ml|\.?lintstagedrc(?:\.[a-z]+)?|lint-staged\.config\.[a-z]+)$/.test(path));
- const rules=semantic.find(isProjectRulesIndex);
- const add=(logicalId:string,target:string,content:string,ownership:PreparedAsset['ownership']={kind:'file'})=>result.push({logicalId,target,content,ownership,source:{kind:'fixed-template',ref:TEMPLATE_VERSION,digest:digest(content)}});
- const openSpecCommand=integration.openSpecProjectCli?'Use `rigup openspec` in place of the leading `openspec` in native CLI commands, including when invoking an OpenSpec skill directly. Preserve its arguments.':undefined;
+ const rules=context.find(isProjectRulesIndex);
+ const templateRef=locale==='zh-CN'?TEMPLATE_VERSION+'-zh-CN':TEMPLATE_VERSION;
+ const add=(logicalId:string,target:string,content:string,ownership:PreparedAsset['ownership']={kind:'file'})=>result.push({logicalId,target,content,ownership,source:{kind:'fixed-template',ref:templateRef,digest:digest(content)}});
+ const openSpecCommand=integration.openSpecProjectCli?text('artifact.openSpecCommand'):undefined;
  const entryTargets=new Set<string>();
  for(const agent of options.agents) {
   const host=agents[agent];entryTargets.add(host.entry);
@@ -60,14 +81,22 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
    const binding=integration.bindings.find(b=>b.id===options.sdd&&b.agent===agent);
    const customerBindings=integration.skillBindings?.filter(b=>b.agent===agent&&(b.consumer===name||name==='change-ready'&&['change-prepare','change-deliver'].includes(b.consumer)))??[];
    const customerRefs=customerBindings.flatMap(b=>b.target?[b.target]:[]);
-   const lines=[reference.trimEnd(),'','## Installed workflow','',...(binding ? ['Native prepare: '+binding.prepare.join(', '),...(binding.revise?['Native revise: '+binding.revise]:[]),'Native deliver: '+binding.deliver.join(', '),'Native document routes: '+binding.artifacts.join(', '),...binding.gates] : options.sdd?['Native workflow prerequisites pending. Stop at the missing entry.']:['Use the explicitly selected customer workflow and preserve its approvals.']),...customerRefs.map(p=>'- '+link(refTarget,p,'Customer workflow'))];
+   const native=binding?[
+    text('artifact.nativePrepare',{entries:binding.prepare.join(', ')}),
+    ...(binding.revise?[text('artifact.nativeRevise',{entry:binding.revise})]:[]),
+    text('artifact.nativeDeliver',{entries:binding.deliver.join(', ')}),
+    text('artifact.nativeRoutes',{paths:binding.artifacts.join(', ')}),
+    ...binding.gates.map(gate=>locale==='zh-CN'?chineseGates.get(gate)??gate:gate),
+   ]:[text(options.sdd?'artifact.nativePending':'artifact.customerSelected')];
+   const lines=[reference.trimEnd(),'','## '+text('artifact.installedWorkflow'),'',...native,
+    ...customerRefs.map(p=>'- '+link(refTarget,p,text('artifact.customerWorkflow')))];
    if(binding&&openSpecCommand)lines.push(openSpecCommand);
    if(binding?.projectSources?.length)lines.push(...binding.projectSources.map(path=>'- '+link(refTarget,path)));
-   for(const b of customerBindings)if(b.nativeName)lines.push('- Invoke existing native customer skill: '+inline(b.nativeName)+'. Preserve its gates.');
-   if(projectRulesPending)lines.push('','Project rules are pending. For the touched paths, read applicable AGENTS.md or CLAUDE.md files and repository contribution guidance. Use the checks below.',...(options.projectRules?['Use the Rigup MCP research tools to prepare a rules preview. Ask the user to review and approve the preview before applying it, then reload the host session.']:[]));
+   for(const b of customerBindings)if(b.nativeName)lines.push('- '+text('artifact.customerSkill',{name:inline(b.nativeName)}));
+   if(projectRulesPending)lines.push('',text('artifact.rulesPending'),...(options.projectRules?[text('artifact.rulesMcp')]:[]));
    if(rules||refs.length||reused.size){
-    lines.push('','## Project guidance','');
-    if(rules)lines.push('- Before planning or editing, use the scopes in the '+link(refTarget,rules.target,'project development rules index')+' to open the topics and original guidance that apply to the changed paths.');
+    lines.push('',projectGuidanceHeading,'');
+    if(rules)lines.push('- '+text('artifact.useRuleIndex',{link:link(refTarget,rules.target,text('artifact.ruleIndex'))}));
     lines.push(...refs.map(p=>'- '+link(refTarget,p)));
     for(const [path,scope] of reused){
      if(path===refTarget)continue;
@@ -75,13 +104,13 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
     }
    }
    if(checks.length||hookSources.length){
-    lines.push('','## Existing checks','','Working directories are relative to the repository root.');
+    lines.push('','## '+text('artifact.existingChecks'),'',text('artifact.checkCwd'));
     for(const {command,source} of checks)
-     lines.push('- '+codeSpan([command.executable,...command.args].join(' '))+' from '+codeSpan(command.cwd)+' · '+link(refTarget,source));
-    if(hookSources.length)lines.push('','Check triggers',...hookSources.map(path=>'- '+link(refTarget,path)));
+     lines.push('- '+text('artifact.checkLine',{command:codeSpan([command.executable,...command.args].join(' ')),cwd:codeSpan(command.cwd),source:link(refTarget,source)}));
+    if(hookSources.length)lines.push('',text('artifact.checkTriggers'),...hookSources.map(path=>'- '+link(refTarget,path)));
    }
-   if(options.projectConventions?.tracker)lines.push('','Tracker convention '+inline(JSON.stringify(options.projectConventions.tracker)));
-   if(options.projectConventions?.documentRoutes)lines.push('','Document destinations '+inline(JSON.stringify(options.projectConventions.documentRoutes)));
+   if(options.projectConventions?.tracker)lines.push('',text('artifact.tracker',{data:inline(JSON.stringify(options.projectConventions.tracker))}));
+   if(options.projectConventions?.documentRoutes)lines.push('',text('artifact.documentRoutes',{data:inline(JSON.stringify(options.projectConventions.documentRoutes))}));
    add(agent+':'+name+':context',refTarget,lines.join('\n')+'\n');
   }
  }
@@ -89,8 +118,8 @@ export async function renderFixed(profile:ProjectProfile,options:SetupOptions,in
   const marker={kind:'block' as const,start:'<!-- rigup:start -->',end:'<!-- rigup:end -->'};
   const skills=options.agents.filter(a=>agents[a].entry===target).flatMap(a=>templates.map(({name})=>agents[a].skillDirectory+'/'+name+'/SKILL.md'));
   const sources=[...reused.keys()].filter(path=>path!==target);
-  const pending=projectRulesPending&&options.projectRules?['Project rules are pending. Use the Rigup MCP research tools when asked to prepare a rules preview.']:[];
-  add('entry:'+target,target,[marker.start,hasWorkflow?'## Project workflow':'## Project guidance',...pending,...(openSpecCommand?[openSpecCommand]:[]),...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,'Project development rules')]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>{
+  const pending=projectRulesPending&&options.projectRules?[text('artifact.entryPending')]:[];
+  add('entry:'+target,target,[marker.start,hasWorkflow?'## Project workflow':projectGuidanceHeading,...pending,...(openSpecCommand?[openSpecCommand]:[]),...skills.map(p=>'- '+link(target,p)),...(rules?['- '+link(target,rules.target,text('artifact.rulesLink'))]:[]),...refs.map(p=>'- '+link(target,p)),...sources.map(path=>{
    const scope=reused.get(path)!;
    return '- '+link(target,path)+(scope.length&&!scope.includes('.')?' · '+inline(scope.join(', ')):'');
   }),marker.end].join('\n')+'\n',marker);
@@ -119,6 +148,37 @@ const referencePath=(from:string,raw:string)=>{
  try{return posix.normalize(posix.join(posix.dirname(from),decodeURIComponent(raw.split('#')[0])));}
  catch{return undefined;}
 };
+
+function retainGuidanceLinks(asset:Pick<ManagedAsset,'target'|'ownership'>,content:string,baseline:string,excluded:ReadonlySet<string>):string{
+ const {target,ownership}=asset;
+ const linked=new Set([...markdownLinks(content)].map(match=>referencePath(target,match[1])));
+ let original=baseline.split(/\r?\n/);
+ if(ownership.kind!=='block'){
+  const heading=original.indexOf(projectGuidanceHeading);
+  if(heading===-1)return content;
+  original=original.slice(heading+1);
+  const end=original.findIndex(line=>line.startsWith('## ')||line===harnessBlock.start);
+  if(end!==-1)original=original.slice(0,end);
+ }
+ const missing=original.filter(line=>{
+  const matches=[...markdownLinks(line)];
+  if(matches.length!==1||navRow.test(line))return false;
+  const path=referencePath(target,matches[0][1]);
+  if(!path||path==='..'||path.startsWith('../')||linked.has(path)||excluded.has(path))return false;
+  const prior='- '+link(target,path);
+  return line===prior||line.startsWith(prior+' · ');
+ });
+ if(!missing.length)return content;
+ const lines=missing.join('\n')+'\n';
+ if(ownership.kind==='block'){
+  const end=content.lastIndexOf(ownership.end);
+  return end<0?content:content.slice(0,end)+lines+content.slice(end);
+ }
+ const heading=content.indexOf('\n'+projectGuidanceHeading+'\n\n');
+ if(heading<0)return content.trimEnd()+'\n\n'+projectGuidanceHeading+'\n\n'+lines;
+ const insert=heading+projectGuidanceHeading.length+3;
+ return content.slice(0,insert)+lines+content.slice(insert);
+}
 export function conventionLinksOutsideHarness(from:string,text:string,paths:ReadonlySet<string>):string[]{
  const outside=replaceOwned(text,harnessBlock,undefined)??'';
  return [...markdownLinks(outside)].flatMap(match=>{
@@ -185,9 +245,10 @@ export interface HarnessNavigation {
  pending:boolean;
 }
 
-export async function reconcileHarnessNavigation(profile:ProjectProfile,options:SetupOptions,assets:PreparedAsset[],previous:ManagedAsset[],guidance:GuidanceBinding[],preserveContext=false):Promise<HarnessNavigation>{
+export async function reconcileHarnessNavigation(profile:ProjectProfile,options:SetupOptions,assets:PreparedAsset[],previous:ManagedAsset[],guidance:GuidanceBinding[],contextUpdate?:'retain'|'translate'):Promise<HarnessNavigation>{
  const inherited=new Map<string,string>(),targets:string[]=[],warnings:string[]=[],retainIds=new Set<string>();
  const knownPaths=new Set(profile.conventionPaths);
+ const excludedGuidance=new Set([...knownPaths,...previous.map(asset=>asset.target)]);
  const pages=new Map(profile.conventions?.map(page=>[page.path,page]));
  const confirmed=guidance.filter(binding=>['reusable','partial'].includes(binding.coverageStatus)&&binding.sourceRef&&binding.consumers.length&&pages.get(binding.sourceRef.path)?.status==='confirmed');
  const applicable=options.scope?.length?options.scope:['.'];
@@ -220,8 +281,9 @@ export async function reconcileHarnessNavigation(profile:ProjectProfile,options:
   const consumer=navConsumer(id);
   const baseline=old?.baseline?await trustedBaseline(profile.root,old).catch(()=>undefined):undefined;
   if(baseline!==undefined)inherited.set(id,baseline);
-  const preserve=!!old&&preserveContext;
-  const relevant=knownPaths.size>0||confirmed.length>0||baseline?.includes(harnessBlock.start)||preserve;
+  const preserve=!!old&&contextUpdate==='retain';
+  const translateContext=!!old&&consumer&&contextUpdate==='translate';
+  const relevant=knownPaths.size>0||confirmed.length>0||baseline?.includes(harnessBlock.start)||preserve||translateContext;
   if(!relevant)continue;
   if(old&&baseline===undefined){
    pending(asset.target,'Trusted navigation baseline is unavailable');
@@ -244,6 +306,7 @@ export async function reconcileHarnessNavigation(profile:ProjectProfile,options:
    const legacy=legacyConventionLinks(asset.target,content,knownPaths,migratable);
    if(legacy.ambiguous)pending(asset.target,'A convention reference needs manual migration');
    content=legacy.content;
+   if(translateContext&&baseline!==undefined&&!oldLegacy?.ambiguous)content=retainGuidanceLinks(asset,content,baseline,excludedGuidance);
    if(consumer){
     const rows=new Map(confirmedRows(asset.target).map(row=>[rowKey(row),row]));
     for(const row of previousRows){

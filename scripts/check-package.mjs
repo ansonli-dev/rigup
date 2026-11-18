@@ -33,7 +33,7 @@ try {
   await writeFile(join(project, '.rigup', 'config.yaml'), JSON.stringify({agents: ['codex'], backend: 'codex', customSkills: [{source: skill}]}));
   // Exercise the reload reminder on CI as well as inside a real agent.
   // This marker does not assert actual native discovery or start a model turn.
-  const env = {...process.env, PATH: [bin, process.env.PATH].filter(Boolean).join(delimiter), HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'), XDG_STATE_HOME: join(home, 'state'), CODEX_THREAD_ID: 'distribution-smoke-controlled-session', NO_COLOR: '1'};
+  const env = {...process.env, LC_ALL: 'C', PATH: [bin, process.env.PATH].filter(Boolean).join(delimiter), HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_CACHE_HOME: join(home, 'cache'), XDG_STATE_HOME: join(home, 'state'), CODEX_THREAD_ID: 'distribution-smoke-controlled-session', NO_COLOR: '1'};
   if (windows) env.USERPROFILE = home;
   const options = {cwd: project, env, timeout: 60_000, maxBuffer: 1_000_000};
   const run = async (args, cwd=project) => {
@@ -44,6 +44,7 @@ try {
     return exec(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'rigup.cmd', ...args], launchOptions);
   };
   assert.match((await run(['--help'])).stdout, /rigup init/);
+  assert.match((await run(['--help', '--language', 'zh-CN'])).stdout, /交互式项目菜单/);
   const version = JSON.parse(await readFile(join(source, 'package.json'), 'utf8')).version;
   assert.equal((await run(['--version'])).stdout.trim(), version);
   const preview = JSON.parse((await run(['init', '--sdd', 'none', '--tools', 'none', '--dry-run', '--json'])).stdout);

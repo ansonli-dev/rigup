@@ -20,7 +20,7 @@ import {stageEvidence} from '../analyzer/stage-context.js';
 import {documentDraftPolicy,validateArtifactList,type ArtifactContent,type ArtifactJob,type ArtifactPage} from './artifacts.js';
 import {validateDocumentJob,validateDocumentTarget,validateDocumentContent,validateTemplateContent,DOCUMENT_POLICY_VERSION} from './document-policy.js';
 import {readWorkflowTemplates,reconcileHarnessNavigation,renderFixed,validateNavigation,TEMPLATE_VERSION,type HarnessNavigation} from './render.js';
-import {isProjectRulesId,isProjectRulesJob,planWithProjectRules,prepareProjectRules,projectRuleDraftPolicy,PROJECT_RULES_CONSUMER,type GuidanceBinding,type RuleEvidenceState,type RuleRepair} from './project-rules.js';
+import {isProjectRulesId,isProjectRulesIndex,isProjectRulesJob,planWithProjectRules,prepareProjectRules,projectRuleDraftPolicy,PROJECT_RULES_CONSUMER,type GuidanceBinding,type RuleEvidenceState,type RuleRepair} from './project-rules.js';
 import {signature,privateDirectory,readCache,saveCache} from './cache.js';
 import {isGitlabWiring} from '../integrations/gitlab/ci.js';
 import {planHarness,sourceGuidance} from './harness.js';
@@ -36,7 +36,7 @@ const candidateDigest=(content:string,pages?:ArtifactPage[])=>pages?signature({c
 export function inventorySignature(assets:ManagedAsset[]):string {return signature(assets.map(a=>({logicalId:a.logicalId,target:a.target,ownership:a.ownership,digest:a.digest})).sort((a,b)=>a.logicalId.localeCompare(b.logicalId)));}
 type GenerationPreparation={integration:IntegrationPreparation;fixedTemplates:Awaited<ReturnType<typeof readWorkflowTemplates>>};
 export async function prepareGeneration(profile:ProjectProfile,options:SetupOptions):Promise<GenerationPreparation>{
- const [integration,fixedTemplates]=await Promise.all([prepareIntegrations(profile,options),readWorkflowTemplates()]);
+ const [integration,fixedTemplates]=await Promise.all([prepareIntegrations(profile,options),readWorkflowTemplates(options)]);
  for(const asset of integration.assets)if(asset.source.kind==='customer-template')validateTemplateContent(asset.content);
  return {integration,fixedTemplates};
 }
@@ -81,8 +81,16 @@ function activeAssets(options:SetupOptions,candidates:PreparedAsset[],navigation
 export async function generateFoundation(profile:ProjectProfile,options:SetupOptions,prepared:GenerationPreparation,previousAssets:ManagedAsset[]=[],preserveWorkflowContext=false,previousGuidance:GuidanceBinding[]=[],selection?:{configure?:boolean;retireIds?:string[]}):Promise<SetupPlan>{
  const {integration,fixedTemplates}=prepared;
  const harness=planHarness(profile,options,previousGuidance);
- const candidates=await renderFixed(profile,options,integration,[],harness.summary.guidance,fixedTemplates,!preserveWorkflowContext);
- const navigation=await reconcileHarnessNavigation(profile,options,candidates,previousAssets,harness.summary.guidance,preserveWorkflowContext);
+ const context=preserveWorkflowContext?previousAssets.filter(asset=>asset.source?.kind==='semantic'||isProjectRulesIndex(asset)):[];
+ const candidates=await renderFixed(profile,options,integration,[],harness.summary.guidance,fixedTemplates,!preserveWorkflowContext,context);
+ const previousById=new Map(previousAssets.map(asset=>[asset.logicalId,asset]));
+ const languageChanged=preserveWorkflowContext&&candidates.some(asset=>{
+  const prior=previousById.get(asset.logicalId);
+  return prior&&asset.source.kind==='fixed-template'&&
+   !!prior.source?.ref.endsWith('-zh-CN')!==asset.source.ref.endsWith('-zh-CN');
+ });
+ const contextUpdate=preserveWorkflowContext?(languageChanged?'translate':'retain'):undefined;
+ const navigation=await reconcileHarnessNavigation(profile,options,candidates,previousAssets,harness.summary.guidance,contextUpdate);
  const assets=navigation.assets;
  const active=activeAssets(options,candidates,navigation,integration);
  if(selection?.retireIds?.some(id=>active.has(id)||previousAssets.some(asset=>asset.logicalId===id&&isProjectRulesId(asset.logicalId))))throw Error('retirement contradicts selected capability or protected project guidance');

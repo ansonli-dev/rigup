@@ -9,6 +9,7 @@ import {directoryLocation} from './path-location.js';
 import {withinPath} from './npm-command.mjs';
 import {renameWithRetry} from './atomic-rename.js';
 import {syncDirectory} from './sync-directory.js';
+import {translate,type Locale} from './i18n/index.js';
 
 const exec=promisify(execFile),limit=256_000;
 export const runtimeEnvPath='.rigup/.env';
@@ -126,7 +127,7 @@ export async function readRuntimeFile(root:string):Promise<RuntimeFile>{
  }catch(error){return {...empty(),problem:error instanceof Error&&error.message.startsWith('Invalid .rigup/.env')?error.message:problem};}
 }
 
-export function renderRuntimeFile(file:RuntimeFile,values:{name:string;value?:string;reason:string;required:boolean}[]):string{
+export function renderRuntimeFile(file:RuntimeFile,values:{name:string;value?:string;comment:string;required:boolean}[],locale:Locale):string{
  let text=file.text;
  const edits=values.flatMap(input=>{
   const entry=file.entries.get(input.name);
@@ -136,7 +137,8 @@ export function renderRuntimeFile(file:RuntimeFile,values:{name:string;value?:st
  for(const input of values){
   if(file.entries.has(input.name))continue;
   if(text&&!text.endsWith('\n'))text+='\n';
-  text+='# '+(input.required?'Required':'Optional')+': '+input.reason+'\n'+input.name+'='+(input.value?JSON.stringify(input.value):'')+'\n';
+  const note=translate(locale,input.required?'artifact.envRequired':'artifact.envOptional',{note:input.comment});
+  text+='# '+note+'\n'+input.name+'='+(input.value?JSON.stringify(input.value):'')+'\n';
  }
  return text;
 }

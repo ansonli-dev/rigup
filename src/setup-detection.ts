@@ -1,3 +1,4 @@
+import {t} from './i18n/index.js';
 import {scanNativeEntries} from './analyzer/repository.js';
 import {agents,projectCommandRoots} from './integrations/agents/index.js';
 import {resolveSddBinding,sddDiscoveryNames,unqualifiedSkillName} from './integrations/sdd/binding.js';
@@ -52,11 +53,11 @@ export async function detectSdd(root:string,options:SetupOptions,write:(text:str
  const project=candidates.filter(candidate=>candidate.hasProject);
  const available=candidates.filter(candidate=>!candidate.missing.length);
  for(const candidate of candidates.filter(item=>item.hasProject||item.hasSources&&item.missing.length)){
-  write('Detected '+candidate.sdd+(candidate.hasProject?' project evidence':' sources')+(candidate.missing.length?' · '+candidate.missing[0]:'')+'\n');
+  write(t(candidate.hasProject?'cli.detectedSddProject':'cli.detectedSddSources',{sdd:candidate.sdd})+(candidate.missing.length?' · '+candidate.missing[0]:'')+'\n');
  }
  if(project.length===1)return project[0].sdd;
  if(!project.length&&available.length===1){
-  write('Detected '+available[0].sdd+' sources for the selected agents\n');return available[0].sdd;
+  write(t('cli.detectedSelectedSdd',{sdd:available[0].sdd})+'\n');return available[0].sdd;
  }
- if(!project.length&&available.length>1)write('Detected multiple SDDs: '+available.map(candidate=>candidate.sdd).join(', ')+'\n');
+ if(!project.length&&available.length>1)write(t('cli.detectedMultipleSdds',{sdds:available.map(candidate=>candidate.sdd).join(', ')})+'\n');
 }

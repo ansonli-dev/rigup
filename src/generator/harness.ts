@@ -1,3 +1,4 @@
+import {artifactLocale,translate} from '../i18n/index.js';
 import type {ProjectProfile} from '../analyzer/repository.js';
 import {projectChecks} from '../integrations/tools/check-catalog.js';
 import {intersectScopes,scopeContains,scopesOverlap,validateTopicId,type ConventionDraft,type Evidence,type HarnessSummary,type SetupOptions} from '../types.js';
@@ -93,7 +94,7 @@ export function planHarness(profile:ProjectProfile,options:SetupOptions,guidance
  for(const topic of options.projectConventions?.topics??[])for(const scope of new Set(topic.scope)){
   if(!scopesOverlap(selected,[scope])||profile.conventions?.some(page=>page.topicId===topic.id&&page.status==='not-applicable'&&scopeContains(page.scope,scope)))continue;
   const sources=related(topic.id,topic.title,scope,true);
-  const question='Confirm whether this scope already has guidance for '+topic.title+' and record the decisions still needed.';
+  const question=translate(artifactLocale(options.documentLanguage),'artifact.conventionQuestion',{topic:topic.title});
   const sufficient=sources.some(binding=>binding.coverageStatus==='reusable'&&covered(binding,scope));
   const unknownSource=topic.source&&!sources.some(binding=>binding.sourceRef?.path===topic.source||binding.scope.includes(scope)&&binding.coverageStatus==='unavailable');
   if(unknownSource||!sources.some(binding=>covered(binding,scope))){

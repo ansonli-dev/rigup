@@ -1,4 +1,4 @@
-import {lstat,stat} from 'node:fs/promises';
+import {stat} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 
 const profile=(value:string|undefined)=>{
@@ -19,16 +19,4 @@ export async function ompLocations(home:string,env:NodeJS.ProcessEnv){
  };
  const [data,state,cache]=await Promise.all([env.XDG_DATA_HOME,env.XDG_STATE_HOME,env.XDG_CACHE_HOME].map(select));
  return {configDir,base,agent,plugins:join(data,'plugins'),state,cache};
-}
-
-export const ompConfigOverlay=(env:NodeJS.ProcessEnv)=>['PI_CONFIG_FILES','OMP_CONFIG_FILES'].find(key=>env[key]?.trim());
-
-export async function assertOmpEnvironmentFiles(home:string,env:NodeJS.ProcessEnv,locations:Awaited<ReturnType<typeof ompLocations>>){
- const overlay=ompConfigOverlay(env);
- if(overlay)throw Error(overlay+' selects an OMP config overlay; resolve the effective plugin destination in OMP before linking.');
- for(const dir of new Set([home,locations.base,locations.agent])){
-  const path=join(dir,'.env');
-  const hasEnv=await lstat(path).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
-  if(hasEnv)throw Error('OMP can reload settings from '+path+' before linking; confirm the effective destination in OMP.');
- }
 }

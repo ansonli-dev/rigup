@@ -1,21 +1,26 @@
 import {createInterface} from 'node:readline';
 import {StringDecoder} from 'node:string_decoder';
+import {t} from './i18n/index.js';
 export interface PromptIO {write(text:string):void;read(secret?:boolean):Promise<string|null>}
-export interface Question {message:string;choices:string[];defaults?:string[];multiple?:boolean;empty?:boolean;back?:boolean}
+export type Choice=string|{value:string;label:string};
+export interface Question {message:string;choices:Choice[];defaults?:string[];multiple?:boolean;empty?:boolean;back?:boolean}
 export type Ask = (question:Question)=>Promise<string[]|'back'|null>;
+export const choice=(value:string,label:string):Choice=>label===value?value:{value,label};
+export const choiceOption=(choice:Choice)=>typeof choice==='string'?{value:choice,label:choice}:choice;
 
 export async function askLine(io:PromptIO,{message,choices,defaults=[],multiple=false,empty=false,back=false}:Question):ReturnType<Ask>{
- const options=empty?[...choices,'none']:choices;
+ const options=empty?[...choices,{value:'none',label:t('wizard.none')}]:choices;
  const selected=empty&&!defaults.length?['none']:defaults;
- io.write(message+(multiple?' (numbers, e.g. 1,2)':'')+
-  (selected.length?' [Enter: '+selected.join(', ')+']':'')+(back?' · b 返回':'')+'\n');
+ const choiceLabels=new Map(options.map(choiceOption).map(({value,label})=>[value,label]));
+ io.write(message+(multiple?t('prompt.numbers'):'')+
+  (selected.length?t('prompt.default',{value:selected.map(value=>choiceLabels.get(value)??value).join(', ')}):'')+(back?t('prompt.back'):'')+'\n');
  for(;;){
   const answer=await promptChoice(io,options,false,selected,multiple);
   if(answer===null||answer==='back'&&back)return answer;
   if(!Array.isArray(answer))continue;
   if(!empty||!answer.includes('none'))return answer;
   if(answer.length===1)return [];
-  io.write('Choose none by itself.\n');
+  io.write(t('prompt.noneOnly')+'\n');
  }
 }
 
@@ -23,8 +28,9 @@ export function promptCancelled(value:string|null):value is null|'\x1b'|'\x03' {
  return value===null||value==='\x1b'||value==='\x03';
 }
 
-export async function promptChoice(io:PromptIO,choices:string[],secret=false,defaults:string[]=[],multiple=true):Promise<string[]|string|null>{
- if (!secret) io.write(choices.map((choice,i)=>`${i+1}. ${choice}`).join('\n')+'\n');
+export async function promptChoice(io:PromptIO,choices:Choice[],secret=false,defaults:string[]=[],multiple=true):Promise<string[]|string|null>{
+ const options=choices.map(choiceOption);
+ if (!secret) io.write(options.map(({label},i)=>`${i+1}. ${label}`).join('\n')+'\n');
  for(;;){
   const raw=await io.read(secret);
   if(promptCancelled(raw))return null;
@@ -34,8 +40,8 @@ export async function promptChoice(io:PromptIO,choices:string[],secret=false,def
   if(!answer&&defaults.length)return [...defaults];
   const indices=answer.split(/\s*[,，、]\s*|\s+/u);
   if((multiple||indices.length===1)&&indices.every(s=>/^\d+$/.test(s)&&Number(s)>=1&&Number(s)<=choices.length))
-   return [...new Set(indices.map(s=>choices[Number(s)-1]))];
-  io.write(multiple?'Invalid selection. Enter numbers such as 1,2.\n':'Invalid selection. Enter one number.\n');
+   return [...new Set(indices.map(s=>options[Number(s)-1].value))];
+  io.write(t(multiple?'prompt.invalidMultiple':'prompt.invalidSingle')+'\n');
  }
 }
 export class ChoiceState {

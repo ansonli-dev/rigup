@@ -1,6 +1,7 @@
 import {isCancel,multiselect,select,spinner} from '@clack/prompts';
 import type {Readable,Writable} from 'node:stream';
-import type {Ask} from './prompt.js';
+import {choiceOption,type Ask} from './prompt.js';
+import {t} from './i18n/index.js';
 
 export interface TerminalStreams {
  input:Readable & {isTTY?:boolean;isRaw?:boolean;setRawMode?(raw:boolean):void};
@@ -35,7 +36,7 @@ export function terminalUI({input,output}:TerminalStreams,signal?:AbortSignal){
   input.once('end',cancel);input.once('close',cancel);
   signal?.addEventListener('abort',cancel,{once:true});
   const previous=Symbol('previous');
-  const options=[...choices.map(value=>({value,label:value})),...(back?[{value:previous,label:'Back'}]:[])];
+  const options=[...choices.map(choiceOption),...(back?[{value:previous,label:t('wizard.back')}]:[])];
   const common={message,options,input,output,signal:controller.signal};
   try{
    const pending=multiple

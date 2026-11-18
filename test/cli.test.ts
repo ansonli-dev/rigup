@@ -110,7 +110,7 @@ test('TTY streams use the rendered confirmation and support cancelling with EOF'
  testEnvironment(t,{CI:'',TERM:'xterm-256color',WT_SESSION:'rigup-test-terminal'});
  let rendered='';
  output.on('data',chunk=>{rendered+=chunk.toString();if(rendered.includes('Continue?')&&!input.writableEnded)input.end();});
- const result=await runCli(['init','--agents','codex','--sdd','none','--tools','none'],{
+ const result=await runCli(['init','--agents','codex','--sdd','none','--tools','none','--language','en'],{
   cwd:root,isTTY:true,write:text=>output.write(text),terminal:{input,output},services:{cacheRoot,stateRoot},
  });
  assert.equal(result,130,rendered);
@@ -121,7 +121,7 @@ test('TTY streams use the rendered confirmation and support cancelling with EOF'
 
 test('interactive preview remains visible beside confirmation when stdout is redirected',()=>project(root=>project(cacheRoot=>project(async stateRoot=>{
  let stdout='',stderr='';
- const code=await runCli(['init','--agents','codex','--sdd','none','--tools','none'],{
+ const code=await runCli(['init','--agents','codex','--sdd','none','--tools','none','--language','en'],{
   cwd:root,isTTY:true,outputIsTTY:false,write:text=>stdout+=text,writeError:text=>stderr+=text,
   read:async()=>{assert.match(stderr,/Preview [a-f0-9]{64}[\s\S]+Create[\s\S]+Continue\?/);return '3';},
   services:{cacheRoot,stateRoot},
@@ -137,7 +137,7 @@ test('default interactive setup defers a configured provider before any credenti
  let reads=0,calls=0,output='';
  const io={cwd:root,isTTY:true,write:(text:string)=>output+=text,read:async()=>{reads++;return reads===1?'':null;},
   services:{cacheRoot,stateRoot,backend:{run:async()=>{calls++;throw Error('unexpected research');}}}};
- const args=['init','--agents','codex','--sdd','none','--tools','none'];
+ const args=['init','--agents','codex','--sdd','none','--tools','none','--language','en'];
  assert.equal(await runCli(args,io),0,output);
  assert.equal(reads,1);assert.equal(calls,0);
  assert.equal(JSON.parse(await readFile(join(root,'.rigup/manifest.json'),'utf8')).projectRules,'pending');
@@ -152,10 +152,10 @@ test('explicit SDD none in a profile survives conflicting OpenSpec evidence',t=>
  await writeFile(join(root,'setup.yaml'),'agents: [codex]\nsdd: none\n');
  testEnvironment(t,{RIGUP_CONSUMER_PATH:cacheRoot});
  let output='';
- const code=await runCli(['init','--agents','codex','--profile','setup.yaml','--tools','none','--dry-run'],{
+ const code=await runCli(['init','--agents','codex','--profile','setup.yaml','--tools','none','--dry-run','--language','en'],{
   cwd:root,isTTY:true,write:text=>output+=text,read:async()=>'',services:{cacheRoot,stateRoot},
  });
- assert.equal(code,0,output);assert.match(output,/原生 SDD \[Enter: none\]/);
+ assert.equal(code,0,output);assert.match(output,/Native SDD \[Enter: none\]/);
  assert.equal((await readdir(root)).includes('.rigup'),false);
 }))));
 
@@ -171,7 +171,7 @@ test('foundation reconfiguration retires only the unselected OpenWiki connection
  const invoke=async(args:string[],code:number,interactive=false)=>{
   output='';assert.equal(await runCli(args,interactive?{...io,isTTY:true,read:async()=>null}:io),code,output);
  };
- await invoke(['init','--model','fixture','--json'],0);
+ await invoke(['init','--model','fixture','--language','en','--json'],0);
  assert.equal(JSON.parse(output).projectRules,'ready');
  const before=calls;
  const flags=['update','--configure','--agents','codex','--sdd','none','--tools','none','--review'];
@@ -189,7 +189,7 @@ test('foundation reconfiguration retires only the unselected OpenWiki connection
 }))));
 
 test('bare_tty_routes_by_project_state',()=>project(async root=>{
- let output='';const answers=['1','1','4','3',''];
+ let output='';const answers=['1','2','1','4','3',''];
  const code=await runCli([],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null});
  assert.equal(code,0,output);assert.match(output,/init:/);
 }));
@@ -267,7 +267,7 @@ test('apply_id_cannot_redirect_cli_to_a_different_project_root',()=>project(asyn
 
 test('first_run_with_only_a_backend_still_guides_missing_agents_and_sdd',()=>project(async root=>project(async cache=>project(async state=>{
  const {readFile}=await import('node:fs/promises');const answers=['1','1','3'];const reports:Record<string,any>[]=[];let output='';
- const code=await runCli(['init','--backend','host'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null,services:{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}});
+ const code=await runCli(['init','--backend','host','--language','en'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>answers.shift()??null,services:{cacheRoot:cache,stateRoot:state,report:r=>reports.push(r)}});
  assert.equal(code,3,output);assert.equal(answers.length,0);const paused=reports.find(r=>r.requestPath);assert.ok(paused,'interactive selections must reach actual host research');
  const request=JSON.parse(await readFile(paused.requestPath,'utf8'));assert.deepEqual(request.context.options.agents,['claude']);assert.equal(request.context.options.sdd,'superpowers');assert.equal(request.context.options.backend,'host');assert.equal(request.context.root,root);assert.deepEqual(await readdir(root),[]);
 }))));
@@ -280,7 +280,7 @@ test('interactive_agent_selection_preserves_explicit_sdd_and_tool_arguments',()=
 }))));
 
 test('explicit_first_run_selections_do_not_need_reentering_in_a_terminal',()=>project(async root=>project(async cache=>project(async state=>{
- let output='';const code=await runCli(['init','--agents','claude','--sdd','none','--tools','none','--dry-run'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>{throw Error('Explicit choices must not be asked again');},services:{cacheRoot:cache,stateRoot:state}});
+ let output='';const code=await runCli(['init','--agents','claude','--sdd','none','--tools','none','--dry-run','--language','en'],{cwd:root,isTTY:true,write:s=>output+=s,read:async()=>{throw Error('Explicit choices must not be asked again');},services:{cacheRoot:cache,stateRoot:state}});
  assert.equal(code,0,output);assert.deepEqual(await readdir(root),[]);
 }))));
 
@@ -288,7 +288,7 @@ test('explicit_first_run_selections_do_not_need_reentering_in_a_terminal',()=>pr
 test('partial_native_api_key_reference_reaches_the_tty_model_and_secret_guide',()=>project(async root=>project(async cache=>project(async state=>{
  const previousModel=process.env.ANTHROPIC_MODEL;const previousKey=process.env.RIGUP_TEST_NAMED_API_KEY;delete process.env.ANTHROPIC_MODEL;delete process.env.RIGUP_TEST_NAMED_API_KEY;
  try{let output='';const answers=['fixture-model',null];const reads:boolean[]=[];
-  const code=await runCli(['init','--agents','claude','--sdd','openspec','--tools','none','--api-key-env','RIGUP_TEST_NAMED_API_KEY','--dry-run'],{cwd:root,isTTY:true,write:s=>output+=s,read:async secret=>{reads.push(!!secret);return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state}});
+  const code=await runCli(['init','--agents','claude','--sdd','openspec','--tools','none','--api-key-env','RIGUP_TEST_NAMED_API_KEY','--dry-run','--language','en'],{cwd:root,isTTY:true,write:s=>output+=s,read:async secret=>{reads.push(!!secret);return answers.shift()??null;},services:{cacheRoot:cache,stateRoot:state}});
   assert.equal(code,130,output);assert.deepEqual(reads,[false,true]);assert.match(output,/RIGUP_TEST_NAMED_API_KEY/);assert.deepEqual(await readdir(root),[]);
  }finally{if(previousModel===undefined)delete process.env.ANTHROPIC_MODEL;else process.env.ANTHROPIC_MODEL=previousModel;if(previousKey===undefined)delete process.env.RIGUP_TEST_NAMED_API_KEY;else process.env.RIGUP_TEST_NAMED_API_KEY=previousKey;}
 }))));
@@ -415,7 +415,7 @@ for(const interactive of [false,true])test('claude,omp Superpowers produces an e
  let output='',guidedId:string|undefined;
  const io={cwd:root,isTTY:false,write:(s:string)=>output+=s,services:{cacheRoot:cache,stateRoot:state}};
  const selection=['init','--agents','claude,omp','--sdd','superpowers','--tools','none','--defer-research'];
- const code=interactive?await runCli(selection,{...io,isTTY:true,ask:async question=>question.choices.includes('Save preview, apply later')?['Save preview, apply later']:question.defaults??[],
+ const code=interactive?await runCli([...selection,'--language','en'],{...io,isTTY:true,ask:async question=>question.choices.includes('Save preview, apply later')?['Save preview, apply later']:question.defaults??[],
   services:{...io.services,report:result=>{if(result.executable&&typeof result.previewId==='string')guidedId=result.previewId;}}}):
   await runCli([...selection,'--review','--json'],io);
  assert.equal(code,3,output);

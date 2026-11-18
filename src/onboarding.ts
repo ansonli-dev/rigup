@@ -1,6 +1,7 @@
 import type {Agent,SetupOptions} from './types.js';
-import {askLine,promptCancelled,type Ask,type PromptIO} from './prompt.js';
+import {askLine,choice,promptCancelled,type Ask,type PromptIO} from './prompt.js';
 import {agents} from './integrations/agents/index.js';
+import {resolveLocale,setLocale,t} from './i18n/index.js';
 
 export type OnboardingIO=PromptIO;
 
@@ -18,12 +19,20 @@ export function restrictBindings(options:SetupOptions,explicitTools=false):void{
 }
 
 export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{
- configure:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools',boolean>>;ask?:Ask;
+ configure:boolean;provided?:Partial<Record<'agents'|'sdd'|'tools',boolean>>;ask?:Ask;askLanguage?:boolean;
  checkWorkflow?:(options:SetupOptions,back:boolean)=>Promise<'ready'|'back'|'stop'>;
  recommendSdd?:(options:SetupOptions)=>Promise<SetupOptions['sdd']>;
 }):Promise<SetupOptions|null>{
  const options=structuredClone(initial);
  const ask=settings.ask??(question=>askLine(io,question));
+ if(settings.askLanguage){
+  const defaultLanguage=resolveLocale(options.documentLanguage,process.env);
+  const answer=await ask({message:t('wizard.language'),choices:[{value:'zh-CN',label:'中文'},{value:'en',label:'English'}],defaults:[defaultLanguage]});
+  if(answer===null)return null;
+  const language=Array.isArray(answer)?answer[0]:undefined;
+  if(language==='en'||language==='zh-CN')options.documentLanguage=language;
+  setLocale(resolveLocale(options.documentLanguage,process.env));
+ }
  const stages=(['agents','sdd','native','tools'] as const).filter(stage=>stage==='native'||!settings.provided?.[stage]);
  for(let index=0;index<stages.length;index++){
   const stage=stages[index];
@@ -36,7 +45,7 @@ export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{
    continue;
   }
   if(stage==='agents'){
-   const answer=await ask({message:'目标 agents',choices:Object.keys(agents),defaults:options.agents,multiple:true,back});
+   const answer=await ask({message:t('wizard.agents'),choices:Object.keys(agents),defaults:options.agents,multiple:true,back});
    if(answer===null)return null;
    if(Array.isArray(answer)&&answer.length)options.agents=answer as Agent[];
    else index--;
@@ -44,14 +53,14 @@ export async function onboard(initial:SetupOptions,io:OnboardingIO,settings:{
   }
   if(stage==='sdd'){
    const recommended=await settings.recommendSdd?.(options);
-   const answer=await ask({message:'原生 SDD',choices:['superpowers','openspec','spec-kit','none'],defaults:[recommended??options.sdd??'none'],back});
+   const answer=await ask({message:t('wizard.sdd'),choices:['superpowers','openspec','spec-kit',choice('none',t('wizard.none'))],defaults:[recommended??options.sdd??'none'],back});
    if(answer===null)return null;
    if(answer==='back'){index=previous-1;continue;}
    if(answer[0]==='none')delete options.sdd;
    else options.sdd=answer[0] as SetupOptions['sdd'];
    continue;
   }
-  const answer=await ask({message:'可选工具',choices:['openwiki','codegraph'],defaults:options.tools?.map(tool=>tool.id),multiple:true,empty:true,back});
+  const answer=await ask({message:t('wizard.tools'),choices:['openwiki','codegraph'],defaults:options.tools?.map(tool=>tool.id),multiple:true,empty:true,back});
   if(answer===null)return null;
   if(answer==='back'){index=previous-1;continue;}
   const selected:NonNullable<SetupOptions['tools']>=[];
@@ -70,14 +79,14 @@ export async function promptNativeCredentials(options:SetupOptions,io:PromptIO,i
  const credentials={...initial};
  let model=options.model?.model??credentials.model??environment.RIGUP_MODEL_ID??environment.ANTHROPIC_MODEL;
  while(!model){
-  io.write('Anthropic model ID (Esc to cancel)\n');
+  io.write(t('prompt.anthropicModel')+'\n');
   const value=await io.read();
   if(promptCancelled(value))return null;
   model=value.trim();
  }
  const apiKeyEnv=options.model?.apiKeyEnv??environment.RIGUP_API_KEY_ENV??'ANTHROPIC_API_KEY';
  while(!credentials.apiKey&&!environment[apiKeyEnv]&&!process.env[apiKeyEnv]){
-  io.write('Enter '+apiKeyEnv+' for this run only (Esc to cancel)\n');
+  io.write(t('prompt.runSecret',{name:apiKeyEnv})+'\n');
   const secret=await io.read(true);
   if(promptCancelled(secret))return null;
   credentials.apiKey=secret.trim();

@@ -1,3 +1,4 @@
+import {t} from '../i18n/index.js';
 import {lstat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {dirname,join} from 'node:path';
@@ -6,7 +7,7 @@ import {isValidMaxOutputTokens} from '../analyzer/provider-loop.js';
 import {privateDirectory} from '../generator/cache.js';
 import {readDurableRecord} from '../private-record.js';
 import type {OnboardingIO} from '../onboarding.js';
-import {askLine,promptCancelled} from '../prompt.js';
+import {askLine,choice,promptCancelled} from '../prompt.js';
 import type {SetupOptions} from '../types.js';
 
 type Model=NonNullable<SetupOptions['model']>;
@@ -81,24 +82,24 @@ export async function resolveResearchProvider(root:string,modelOverride?:string,
 
 export async function promptResearchProvider(io:OnboardingIO,modelOverride?:string,environment:NodeJS.ProcessEnv=process.env):Promise<ResearchProvider|undefined|null>{
  const later='Use Rigup MCP in the agent';
- const answer=await askLine(io,{message:'Choose the provider for this run',choices:[...providers,later],defaults:[later]});
+ const answer=await askLine(io,{message:t('prompt.provider'),choices:[...providers,choice(later,t('prompt.providerLater'))],defaults:[later]});
  if(answer===null)return null;
  if(!Array.isArray(answer)||answer.length!==1||answer[0]===later)return;
  const provider=answer[0] as Provider,defaults=envNames[provider];
  let model=modelOverride?.trim();
  while(!model){
-  io.write('Model ID (Esc to cancel)\n');
+  io.write(t('prompt.model')+'\n');
   const value=await io.read();
   if(promptCancelled(value))return null;
   model=value.trim();
  }
- io.write('Provider base URL (Enter for '+defaults.defaultURL+', Esc to cancel)\n');
+ io.write(t('prompt.providerUrl',{url:defaults.defaultURL})+'\n');
  const url=await io.read();
  if(promptCancelled(url))return null;
  const baseURL=validateProviderBaseURL(url.trim()||defaults.defaultURL).href;
  let apiKey=environment[defaults.key]?.trim();
  while(!apiKey){
-  io.write('Enter an API key for this run only (Esc to cancel)\n');
+  io.write(t('prompt.apiKey')+'\n');
   const value=await io.read(true);
   if(promptCancelled(value))return null;
   apiKey=value.trim();

@@ -86,10 +86,10 @@ test('guided first init prepares OpenSpec before tool choices and applies the re
  try{
   const answers=['2','2','','',''];
   const first=terminal(root,control,answers);
-  const code=await runCli(['init'],first.io);
+  const code=await runCli(['init','--language','en'],first.io);
   assert.equal(code,0,first.output());
   assert.equal(answers.length,0);
-  assert.ok(first.output().indexOf('自动补齐')<first.output().indexOf('可选工具'),first.output());
+  assert.ok(first.output().includes('Prepare automatically')&&first.output().indexOf('Prepare automatically')<first.output().indexOf('Optional tools'),first.output());
   assert.match(first.output(),/Install complete/);
   assert.match(await readFile(join(root,'.agents/skills/change-prepare/references/project.md'),'utf8'),/Native prepare: openspec-propose/);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/spec-driven/);
@@ -102,10 +102,10 @@ test('a broken OpenSpec launcher still shows the original retry command',()=>fix
  const previous=process.env.PATH;process.env.PATH=bin+delimiter+previous;
  try{
   const cli=terminal(root,control,[]);
-  const args=['init','--agents','codex','--sdd','openspec','--defer-research','--review','--language','zh-CN'];
+  const args=['init','--agents','codex','--sdd','openspec','--defer-research','--review','--language','en'];
   assert.equal(await runCli(args,cli.io),3,cli.output());
   assert.match(cli.output(),/existing openspec command did not start successfully/);
-  assert.match(cli.output(),/^Next: rigup init .+ --agents codex --sdd openspec --defer-research --review --language 'zh-CN'$/m);
+  assert.match(cli.output(),/^Next: rigup init .+ --agents codex --sdd openspec --defer-research --review --language 'en'$/m);
  }finally{process.env.PATH=previous;}
 }));
 
@@ -122,7 +122,7 @@ test('a separate init resumes the OpenSpec selection and preserves existing proj
   const existing='---\nname: openspec-propose\ndescription: Existing project proposal.\n---\n';
   await writeFile(join(proposal,'SKILL.md'),existing);
   const first=terminal(root,control,['2','2','2']);
-  assert.equal(await runCli(['init'],first.io),3,first.output());
+  assert.equal(await runCli(['init','--language','en'],first.io),3,first.output());
   assert.match(first.output(),/--agents codex --sdd openspec --prepare-openspec/);
   assert.doesNotMatch(first.output(),/openspec init --tools/);
   const prep=terminal(root,control,[]);
@@ -130,10 +130,27 @@ test('a separate init resumes the OpenSpec selection and preserves existing proj
   assert.equal(JSON.parse(prep.output()).nativeWorkflow,'ready');
   await assert.rejects(access(join(root,'.rigup/manifest.json')),{code:'ENOENT'});
   const resumed=terminal(root,control,['','']);
-  assert.equal(await runCli(['init'],resumed.io),0,resumed.output());
-  assert.doesNotMatch(resumed.output(),/目标 agents|原生 SDD；/);
+  assert.equal(await runCli(['init','--language','en'],resumed.io),0,resumed.output());
+  assert.doesNotMatch(resumed.output(),/Target agents|Native SDD/);
   assert.match(await readFile(join(root,'openspec/config.yaml'),'utf8'),/# original project config/);
   assert.equal(await readFile(join(proposal,'SKILL.md'),'utf8'),existing);
+ }finally{process.env.PATH=path;}
+}));
+
+test('manual OpenSpec preparation keeps the language selected by the wizard',()=>fixture(async(root,control)=>{
+ const bin=join(control,'bin');await installFakeOpenSpec(bin);
+ const path=process.env.PATH;process.env.PATH=bin+delimiter+path;
+ try{
+  const first=terminal(root,control,['1','2']);
+  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--tools','none'],first.io),3,first.output());
+  assert.match(first.output(),/下一步:[^\n]+--language 'zh-CN'/);
+  const native=terminal(root,control,[]);
+  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--prepare-openspec'],native.io),0,native.output());
+  const resumed=terminal(root,control,['','']);
+  assert.equal(await runCli(['init'],resumed.io),0,resumed.output());
+  assert.match(resumed.output(),/^初始化: /);
+  assert.doesNotMatch(resumed.output(),/语言 \/ Language/);
+  assert.equal(JSON.parse(await readFile(join(root,'.rigup/manifest.json'),'utf8')).options.documentLanguage,'zh-CN');
  }finally{process.env.PATH=path;}
 }));
 
@@ -142,7 +159,7 @@ for(const decision of ['2','3'])test('OpenSpec writes remain visible after '+(de
  const path=process.env.PATH;process.env.PATH=bin+delimiter+path;
  try{
   const cli=terminal(root,control,['',decision]);
-  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--tools','none'],cli.io),decision==='2'?3:130,cli.output());
+  assert.equal(await runCli(['init','--agents','codex','--sdd','openspec','--tools','none','--language','en'],cli.io),decision==='2'?3:130,cli.output());
   assert.match(cli.output(),/OpenSpec 1\.16\.0 and selected project entries are ready/);
   assert.doesNotMatch(cli.output(),/Nothing was written/);
   await access(join(root,'openspec/config.yaml'));
@@ -445,7 +462,7 @@ for(const interactive of [false,true])test('OpenSpec receipt failure remains a p
  await privateDirectory(join(control,'state'),root);
  await mkdir(paths.receipt);
  const cli=terminal(root,control,interactive?['2','2','2','']:[]);
- assert.equal(await runCli(interactive?['init']:[...prepareFlags,'--json'],cli.io),1,cli.output());
+ assert.equal(await runCli(interactive?['init','--language','en']:[...prepareFlags,'--json'],cli.io),1,cli.output());
  assert.match(cli.output(),/receipt could not be saved/);
  if(!interactive)assert.equal(JSON.parse(cli.output()).installStatus,'partial');
  assert.equal(JSON.parse(await readFile(paths.packageJson,'utf8')).version,'2.0.0');

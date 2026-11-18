@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {PassThrough} from 'node:stream';
 import {promptChoice,ChoiceState,terminalReader} from '../src/prompt.js';
 import {terminalUI} from '../src/terminal-ui.js';
+import {withLocale} from '../src/i18n/index.js';
 import {testEnvironment} from './helpers.js';
 import {promptNativeCredentials} from '../src/onboarding.js';
 test('plain_terminal_uses_numbered_input',async()=>{
@@ -77,12 +78,14 @@ test('rendered choices reuse preselection, Space, Back and keyboard cancellation
  testEnvironment(t,{CI:'',TERM:'xterm-256color',WT_SESSION:'rigup-test-terminal'});
  const input=Object.assign(new PassThrough(),{isTTY:true,isRaw:false,setRawMode(raw:boolean){this.isRaw=raw;}});
  const output=Object.assign(new PassThrough(),{isTTY:true,columns:80});
- output.resume();
+ let rendered='';
+ output.on('data',chunk=>rendered+=chunk.toString());
  const ui=terminalUI({input,output})!;
  const tools=ui.ask({message:'Tools',choices:['openwiki','codegraph'],defaults:['openwiki'],multiple:true,empty:true});
  input.write(' \r');assert.deepEqual(await tools,[]);
- const sdd=ui.ask({message:'SDD',choices:['none'],back:true});
+ const sdd=withLocale('zh-CN',()=>ui.ask({message:'SDD',choices:[{value:'none',label:'无'}],back:true}));
  input.write('\x1b[B\r');assert.equal(await sdd,'back');
+ assert.match(rendered,/返回/);
  for(const key of ['\x03','\x1b','\x04']){
   const next=ui.ask({message:'Continue?',choices:['Install','Cancel']});
   input.write(key);assert.equal(await next,null);assert.equal(input.isRaw,false);

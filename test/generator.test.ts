@@ -369,7 +369,7 @@ test('project development rule topics share one accepted job and are discoverabl
  assert.doesNotMatch(rulebook.content,/未经确认的例子|全局规则缺少权威|待决边界/);
  for(const name of ['change-prepare','change-deliver']){
   const context=result.value.assets.find(asset=>asset.target.endsWith(name+'/references/project.md'))!.content;
-  assert.match(context,/Before editing|Before planning|Before changes/);
+  assert.match(context,/在规划或编辑前/);
   assert.doesNotMatch(context,/待决边界|#L\d+/);
  }
  assert.match(result.value.assets.find(asset=>asset.target==='AGENTS.md')!.content,/development-rules\.md/);
@@ -846,4 +846,43 @@ test('harness enforces authorized source scope before accepting planning observa
   return {status:'complete',value:{model:'fixture',unknowns:[],usage:{calls:1,tokens:1},data:{observations:[],artifacts:[],dispositions:[],guidance:[{...source,scope:['.']}]}}};
  }};
  await assert.rejects(generate(profile,settings,backend,[],{cacheRoot:cache}),/claim scope exceeds/);
+}));
+
+test('artifact language localizes exactly the installed workflow templates and keeps their metadata and links',t=>fixture(async root=>{
+ const {testEnvironment}=await import('./helpers.js');
+ const {readWorkflowTemplates}=await import('../src/generator/render.js');
+ testEnvironment(t,{LC_ALL:'zh_CN.UTF-8',LANG:'zh_CN.UTF-8'});
+ const english=await readWorkflowTemplates({documentLanguage:'en'});
+ assert.deepEqual(await readWorkflowTemplates({documentLanguage:'auto'}),english);
+ assert.deepEqual(await readWorkflowTemplates({documentLanguage:'ja'}),english);
+ const chinese=await readWorkflowTemplates({documentLanguage:'zh-Hant'});
+ const pairs=chinese.flatMap((template,index)=>[
+  [template.skill,english[index].skill],[template.reference,english[index].reference],
+  ...(template.goal?[[template.goal,english[index].goal!]]:[]),
+ ]);
+ assert.equal(pairs.length,7);
+ const links=(value:string)=>[...value.matchAll(/\]\(([^)]+)\)/g)].map(match=>match[1]).sort();
+ for(const [zh,en] of pairs){
+  const frontmatter=(value:string)=>value.match(/^---\n[\s\S]*?\n---\n/)?.[0];
+  assert.equal(frontmatter(zh),frontmatter(en));
+  assert.deepEqual(links(zh),links(en));
+  assert.match(zh,/\p{Script=Han}/u);
+  assert.doesNotMatch(en,/\p{Script=Han}/u);
+ }
+ await writeFile(root+'/package.json',JSON.stringify({scripts:{test:'node test.js'}}));
+ const selected={...opts,documentLanguage:'zh-CN'};
+ const profile=await scanRepository(root,selected);
+ setNativeEntries(profile,{codex:['openspec-propose','openspec-apply-change','openspec-archive-change']});
+ const integration=await prepareIntegrations(profile,selected);
+ const en=await renderFixed(profile,{...selected,documentLanguage:'en'},integration,[],[]);
+ const zh=await renderFixed(profile,selected,integration,[],[]);
+ const identities=(assets:typeof en)=>assets.map(({logicalId,target,ownership})=>({logicalId,target,ownership}));
+ assert.deepEqual(identities(zh),identities(en));
+ const context=zh.find(a=>a.logicalId==='codex:change-prepare:context')!.content;
+ assert.match(context,/## 已安装的工作流/);
+ assert.match(context,/原生准备: openspec-propose/);
+ assert.match(context,/保留原生...依赖检查/);
+ assert.match(context,/## 现有检查[\s\S]+npm run test/);
+ assert.match(zh.find(a=>a.logicalId==='entry:AGENTS.md')!.content,/## Project workflow/);
+ validateNavigation(zh,profile.files);
 }));
